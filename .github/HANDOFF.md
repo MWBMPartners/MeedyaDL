@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (14:58) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (15:23) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1420,7 +1420,14 @@ on PRs to / pushes to main.
       - **#1275 MERGED to `main` at 14:57 as `8566b813`.** Post-merge runs watched.
       - **Codex catch-up owed after 19:08 on `bc4cadce`, `51d49b21`** (only stand-in-reviewed); said in the PR description.
       - **14:57: the workflow was run by hand for #1266 and #1264** (runs 37320891100, 37320896405), watched. Each should open a PR on `alpha` and on `beta`, and skip `release-candidate`, which already has both. **Then combine the two PRs per branch into one**, merge, and watch the alpha/beta releases.
-      - `alpha` also needs the new workflow files (a separate PR, after the forward-port PRs).
+      - **The manual runs worked.**
+        - `alpha`: they opened #1315 and #1317.
+        - `beta`: they opened #1316. The brace-expansion fix conflicted there, because `beta` had no such override, so the workflow opened #1314.
+        - `release-candidate`: skipped, as already fixed.
+      - **Combined into one PR per branch**; the originals are closed and their branches deleted:
+        - **#1319 → `beta`**, with the brace-expansion floor added by hand: MERGED `9203c44b`; #1314 closed; `v1.9.4-beta.10` build watched.
+        - **#1318 → `alpha`**: MERGED `03d8e1ea`; `v1.13.0-alpha.78` build watched.
+      - `alpha` also needs the new workflow files (a separate PR). `alpha`'s copy never runs, so it only matters for keeping the two identical; low priority.
       - `alpha` then needs the same files by a separate PR.
     - After merge: run the workflow by hand for #1264 and #1266 to carry both fixes to `alpha` and `beta` (#1265 lists them).
     - #1275 is `fix(ci)`, so release-please will propose 1.10.9 for `main`; nothing ships until that release PR is merged.
@@ -1439,7 +1446,12 @@ on PRs to / pushes to main.
       - High: a replacement made between the identity check and the removal is still deleted.
       - Medium: a Windows drive-relative path (`D:Music`) resolves to the wrong folder; the long-path tests do not prove the real call uses the conversion.
       - **Lead's decision:** never remove a name directly. Rename it to a private quarantine name, check that, then delete; else put it back, or leave it and report. On Windows, delete by handle. Make relative paths absolute with `std::path::absolute`.
-      - **Round-9 builder running** (same agent, branch `r9`, report `mdl9/builder-report.md`), with a watchdog.
+      - **Round 9 pushed: `9165d5cd`..`4bcb52fa`** (3 commits). It never deletes a name directly: a file is moved to a private name, checked there, then deleted (or put back, or left and reported). Windows deletes by handle. Where the safe rename is refused (Mac exFAT), it renames onto an exclusive placeholder, so exFAT leaves nothing behind. Windows relative paths go through `std::path::absolute`. Re-checked here: clippy, 2,231 Rust tests, 938 vitest, copies, release notes. Posted on #1255.
+      - **Release-note caveat:** `9e914b6e` still carries an out-of-date `Release-Note:` (it says exFAT leaves files behind; `4bcb52fa`'s replaces it). **The language branch's PR must be squash-merged with a correct PR-body note.**
+- **Codex catch-up chain queued for 19:09** (`scratchpad/catchup/`; outputs `out1-fp.out`, `out2-mdl9.out`, `out3-polish.out`), run one after another; the chain stops if Codex refuses. Watchdog on the first.
+  1. #1275's `bc4cadce`, `51d49b21` (merged on a clean stand-in review).
+  2. MeedyaDL round 9.
+  3. The whole polish branch, aimed at what can do harm.
 - **Trap found:** `pgrep -f "codex exec"` also matches the ChatGPT app's permanent `codex exec-server` process, so a "wait until no Codex is running" loop never ends. The #1275 review chain had stalled on it; it was started directly at about 09:15.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
