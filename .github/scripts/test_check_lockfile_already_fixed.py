@@ -855,6 +855,92 @@ class ManifestsComparedAsData(HelperTestCase):
         )
         self.assertEqual(answer, NEEDS, self.last_output)
 
+    # --- everything a manifest says about a touched package is compared -----
+
+    def test_channel_re_adds_what_the_workspace_fix_removed_stand_in_review_finding_1(self) -> None:
+        # The mirror of Codex's case: the fix drops `risky` from the
+        # workspace entry. The channel's workspace entry matches, but its own
+        # [dependencies] entry switches `risky` back on.
+        answer = self.cargo_case(
+            self.WS_RISKY + '\n[dependencies]\nfoo = { workspace = true }\n',
+            self.WS_PLAIN + '\n[dependencies]\nfoo = { workspace = true }\n',
+            cargo_manifest(self.WS_PLAIN + '\n[dependencies]\nfoo = { workspace = true, features = ["risky"] }\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_channel_re_adds_it_in_a_platform_table_stand_in_review_finding_1(self) -> None:
+        answer = self.cargo_case(
+            self.WS_RISKY + '\n[dependencies]\nfoo = { workspace = true }\n',
+            self.WS_PLAIN + '\n[dependencies]\nfoo = { workspace = true }\n',
+            cargo_manifest(
+                self.WS_PLAIN + '\n[dependencies]\nfoo = { workspace = true }\n'
+                "\n[target.'cfg(windows)'.dependencies]\nfoo = { workspace = true, features = [\"risky\"] }\n"
+            ),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_another_table_on_the_channel_still_enables_it_stand_in_review_finding_2(self) -> None:
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n',
+            '[dependencies]\nfoo = { version = "1", features = [] }\n',
+            cargo_manifest(
+                '[dependencies]\nfoo = { version = "1", features = [] }\n'
+                "\n[target.'cfg(windows)'.dependencies]\nfoo = { version = \"1\", features = [\"risky\"] }\n"
+            ),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_a_feature_on_the_channel_still_enables_it_stand_in_review_finding_2(self) -> None:
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n',
+            '[dependencies]\nfoo = { version = "1", features = [] }\n',
+            cargo_manifest('[dependencies]\nfoo = { version = "1", features = [] }\n\n[features]\ndefault = ["foo/risky"]\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_every_mention_matching_is_already_fixed(self) -> None:
+        after = '[dependencies]\nfoo = { version = "1", features = [] }\n\n[features]\ndefault = ["foo/std", "dep:foo"]\n'
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n\n[features]\ndefault = ["foo/std", "dep:foo"]\n',
+            after,
+            cargo_manifest(after),
+        )
+        self.assertEqual(answer, FIXED, self.last_output)
+
+    def test_a_renamed_dependency_counts_as_the_same_package(self) -> None:
+        # `bar = { package = "foo" }` is foo under another name. The channel
+        # matches the renamed entry but still has foo 1.1 for its tests.
+        answer = self.cargo_case(
+            '[dependencies]\nbar = { package = "foo", version = "1.1" }\n',
+            '[dependencies]\nbar = { package = "foo", version = "1.2" }\n',
+            cargo_manifest('[dependencies]\nbar = { package = "foo", version = "1.2" }\n\n[dev-dependencies]\nfoo = "1.1"\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_an_entry_that_cannot_be_classified_needs_the_fix(self) -> None:
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = "1.1"\n',
+            '[dependencies]\nfoo = "1.2"\n',
+            cargo_manifest('[dependencies]\nfoo = "1.2"\n\n[dev-dependencies]\nfoo = { package = 5 }\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_npm_channel_pins_the_package_again_in_a_nested_override(self) -> None:
+        def manifest(overrides: dict) -> str:
+            return json.dumps({"name": "demo", "version": "1.0.0", "overrides": overrides}, indent=2) + "\n"
+
+        old, new = self.fix(
+            {NPM_MANIFEST: manifest({"foo": "^1.0.1"}), NPM_LOCK: npm_lock({"node_modules/foo": "1.0.1"})},
+            {NPM_MANIFEST: manifest({"foo": "^1.0.3"}), NPM_LOCK: npm_lock({"node_modules/foo": "1.0.3"})},
+        )
+        target = self.branch(
+            {
+                NPM_MANIFEST: manifest({"foo": "^1.0.3", "bar": {"foo": "1.0.1"}}),
+                NPM_LOCK: npm_lock({"node_modules/foo": "1.0.3"}),
+            }
+        )
+        self.assertVerdict(NEEDS, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
+
     def test_npm_nested_override_must_match_exactly(self) -> None:
         # The fix pins `bar` inside `foo`'s override. The channel has that
         # pin under a different package's override, and not under `foo`.

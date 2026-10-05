@@ -49,35 +49,38 @@ commit (`--new`) and the branch to check (`--target`), the answer is
      feature AND bumps a crate. A branch that already had the bump still
      had the unsafe feature, and the old shortcut skipped the whole fix.)
 
-  2. Every manifest change is already on the target, compared as data.
-     Each named manifest is parsed (`package.json` as JSON, `Cargo.toml`
-     with Python's own `tomllib`), and every dependency entry is keyed by
-     where it sits:
-       - `package.json`: the section (`dependencies`, `devDependencies`,
-         `optionalDependencies`, `peerDependencies`, `overrides` — nested
-         overrides compared whole — or `resolutions`) plus the package name;
-       - `Cargo.toml`: the table (`dependencies`, `dev-dependencies` or
-         `build-dependencies`, at the top level, under
-         `target.<platform>.`, or as `workspace.dependencies`; or the
-         `patch.<registry>` and `replace` tables) plus the crate name.
-     For every entry the fix added or changed, the target's entry in the
-     SAME place must be exactly equal to the fix's new one (every field,
-     nested values included); for every entry it removed, the target must
-     have no entry in that place. An entry that takes settings from the
-     workspace (`workspace = true`, on any side) also needs its
-     `[workspace.dependencies]` entry to be in the same file on both the
-     fix's side and the target's, and exactly equal: Cargo adds the two
-     feature lists together, so the local entry alone proves nothing. If
-     that table is in another Cargo.toml (a workspace member), the
+  2. The target says exactly what the fix says about every package the fix
+     touched in a manifest, compared as data. Each named manifest is parsed
+     (`package.json` as JSON, `Cargo.toml` with Python's own `tomllib`) and
+     every place in it that refers to a package is listed:
+       - `package.json`: `dependencies`, `devDependencies`,
+         `optionalDependencies`, `peerDependencies` (an `npm:` alias counts
+         for the package it installs), `resolutions` (every package a key
+         names), and `overrides` at any depth (as a key, or as the parent of
+         nested keys, or as a `$name` reference);
+       - `Cargo.toml`: every dependency table (`dependencies`,
+         `dev-dependencies`, `build-dependencies`, at the top level and
+         under `target.<platform>.`, and `workspace.dependencies`), where an
+         entry counts for its key AND for the crate its `package = "..."`
+         names; the `patch.<registry>` and `replace` entries for it; and
+         every `[features]` value that names it (`foo/x`, `foo?/x`,
+         `dep:foo`, or a plain `foo`).
+     A package is touched when any place naming it was added, changed or
+     removed by the fix. For each one, the list of places naming it in the
+     fix's manifest and in the target's must be identical: the same places,
+     every value exactly equal. So the target cannot re-enable through some
+     other mention — another table, a platform table, a feature, its own
+     entry when the fix changed the workspace one — what the fix took away.
+     (Two reviews of #1275 found exactly those holes in the earlier rule,
+     which compared only the places the fix itself changed.) An entry that
+     takes settings from the workspace (`workspace = true`) also needs its
+     `[workspace.dependencies]` entry to be in the same file on both sides;
+     if that table is in another Cargo.toml (a workspace member) the
      inherited settings cannot be checked, which means "needs the fix".
      Anything else the fix changed in a manifest — a build setting, a
-     script, a feature list, anything outside those tables — means "needs
-     the fix", and so does a manifest that cannot be read or parsed on any
-     side.
-     (This replaced a line-by-line comparison, which Codex's second review
-     of #1275 showed could not tell WHICH dependency a setting belonged
-     to: a fix turning off `foo`'s default features read as present on a
-     branch that had `default-features = false` under `bar` instead.)
+     script, a feature list, anything outside the dependency tables — means
+     "needs the fix", and so does a manifest that cannot be read, parsed, or
+     classified on any side.
 
   3. At least one named lockfile changed, and every package whose versions
      the fix changed is fixed on the target:
@@ -600,62 +603,137 @@ def inherits_from_workspace(entry) -> bool:
     return isinstance(entry, dict) and "workspace" in entry and entry["workspace"] is not False
 
 
-def compare_inherited_settings(
-    path: str, changed: list[tuple], old_entries: dict, new_entries: dict, target_entries: dict
-) -> tuple[bool, list[str]]:
-    """For each changed dependency entry that inherits from the workspace on
-    any side, the inherited `[workspace.dependencies.<name>]` entry must be
-    in this same manifest on both the fix's side and the target's, and
-    exactly equal.
+def npm_spec_name(spec: str) -> str:
+    """The package a key such as `foo`, `foo@^1` or `@scope/foo@1` names."""
+    if spec.startswith("@"):
+        scope, slash, rest = spec[1:].partition("/")
+        name = rest.split("@", 1)[0]
+        if not slash or not scope or not name:
+            raise ManifestError(f"cannot tell which package {spec!r} names")
+        return f"@{scope}/{name}"
+    name = spec.split("@", 1)[0]
+    if not name:
+        raise ManifestError(f"cannot tell which package {spec!r} names")
+    return name
 
-    Why: an entry with `workspace = true` takes its version and other
-    settings from `[workspace.dependencies]`, and Cargo ADDS the two feature
-    lists together. So the local entry matching proves nothing on its own:
-    Codex's fourth review of #1275 showed a fix dropping `risky` from foo's
-    own features read as "already fixed" on a branch whose workspace entry
-    still switched `risky` on. If the workspace table is not in this file
-    (a workspace member, whose table is in another Cargo.toml this check
-    does not read) or the entry is missing on either side, the inherited
-    settings cannot be checked, so the answer is "needs the fix". Only
-    dependency entries inherit this way; `workspace = true` elsewhere (in
-    [package], say) does not change which dependencies are built, and
-    `patch`, `replace` and the workspace table itself cannot inherit."""
-    ok = True
-    details: list[str] = []
-    checked: set[tuple] = set()
-    for position in changed:
-        if position[0] not in CARGO_DEPENDENCY_TABLES and position[0] != "target":
-            continue
-        sides = (old_entries.get(position, MISSING), new_entries.get(position, MISSING), target_entries.get(position, MISSING))
-        if not any(inherits_from_workspace(entry) for entry in sides):
-            continue
-        # Cargo looks the dependency up in the workspace by its key here.
-        inherited = ("workspace", "dependencies", position[-1])
-        if inherited in checked:
-            continue
-        checked.add(inherited)
-        where = " > ".join(position)
-        source = " > ".join(inherited)
-        wanted = new_entries.get(inherited, MISSING)
-        have = target_entries.get(inherited, MISSING)
-        if wanted is MISSING or have is MISSING:
-            ok = False
-            missing = " and ".join(
-                side for side, value in (("the fix's copy", wanted), ("the target branch's copy", have)) if value is MISSING
-            )
-            details.append(
-                f"{path}: {where} takes settings from {source}, which {missing} of this file does not have (it may "
-                "live in another Cargo.toml) — the inherited settings could not be checked, so treating it as needing the fix"
-            )
-        elif wanted != have:
-            ok = False
-            details.append(
-                f"{path}: {where} takes settings from {source}, which the fix has as {show_value(wanted)} but the "
-                f"target branch has as {show_value(have)} — needs the fix"
-            )
-        else:
-            details.append(f"{path}: {where} takes settings from {source}, which is the same on the target branch")
-    return ok, details
+
+def npm_resolution_names(key: str) -> set[str]:
+    """Every package a yarn-style `resolutions` key names (`foo`,
+    `bar/foo`, `**/foo`, `@scope/bar/@scope/foo@1`)."""
+    parts = key.split("/")
+    names: set[str] = set()
+    i = 0
+    while i < len(parts):
+        part = parts[i]
+        if part.startswith("@") and i + 1 < len(parts):
+            part = part + "/" + parts[i + 1]
+            i += 1
+        if part not in ("*", "**", ""):
+            names.add(npm_spec_name(part))
+        i += 1
+    if not names:
+        raise ManifestError(f"cannot tell which package the resolution {key!r} names")
+    return names
+
+
+def cargo_replace_name(spec: str) -> str:
+    """The crate a `[replace]` key (`foo:1.0.0`, `foo@1.0.0` or
+    `<registry>#foo@1.0.0`) names."""
+    tail = spec.split("#", 1)[-1]
+    name = re.split(r"[:@]", tail, 1)[0]
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", name):
+        raise ManifestError(f"cannot tell which crate the [replace] key {spec!r} names")
+    return name
+
+
+# Every place a manifest refers to a package: {place: (value, names)}, where
+# `place` is the table path plus key and `names` every package it refers to.
+Mentions = dict[tuple, tuple[object, set[str]]]
+
+
+def manifest_mentions(path: str, doc: dict) -> Mentions:
+    """Every place in a parsed manifest that refers to a package — not just
+    the dependency tables, but anything else that can switch a package or
+    one of its features on (see compare_manifest). Anything that cannot be
+    classified is a ManifestError, which the caller reads as "needs the fix"."""
+    out: Mentions = {}
+
+    def table_at(container: dict, key: str, label: str) -> dict:
+        value = container.get(key, {})
+        if not isinstance(value, dict):
+            raise ManifestError(f"'{label}' is not a table")
+        return value
+
+    if Path(path).name == "package.json":
+        for section in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+            for key, value in table_at(doc, section, section).items():
+                names = {npm_spec_name(key)}
+                # "bar": "npm:foo@1" installs foo under the name bar.
+                if isinstance(value, str) and value.startswith("npm:"):
+                    names.add(npm_spec_name(value[4:]))
+                out[(section, key)] = (value, names)
+        for key, value in table_at(doc, "resolutions", "resolutions").items():
+            out[("resolutions", key)] = (value, npm_resolution_names(key))
+
+        def walk(prefix: tuple, table: dict, parent: str) -> None:
+            for key, value in table.items():
+                # "." sets the version of the package the table belongs to.
+                name = parent if key == "." else npm_spec_name(key)
+                names = {name}
+                # "$foo" means "the version of foo in my dependencies".
+                if isinstance(value, str) and value.startswith("$"):
+                    names.add(npm_spec_name(value[1:]))
+                out[prefix + (key,)] = (value, names)
+                if isinstance(value, dict):
+                    walk(prefix + (key,), value, name)
+
+        walk(("overrides",), table_at(doc, "overrides", "overrides"), "")
+        return out
+
+    def entry_names(key: str, entry) -> set[str]:
+        names = {key}
+        if isinstance(entry, dict) and "package" in entry:
+            if not isinstance(entry["package"], str) or not entry["package"]:
+                raise ManifestError(f"the 'package' of '{key}' is not a crate name")
+            names.add(entry["package"])
+        return names
+
+    tables: list[tuple[tuple, dict]] = []
+    for table in CARGO_DEPENDENCY_TABLES:
+        tables.append(((table,), table_at(doc, table, table)))
+    workspace_deps = table_at(table_at(doc, "workspace", "workspace"), "dependencies", "workspace > dependencies")
+    tables.append((("workspace", "dependencies"), workspace_deps))
+    for platform, platform_tables in table_at(doc, "target", "target").items():
+        if not isinstance(platform_tables, dict):
+            raise ManifestError(f"'target > {platform}' is not a table")
+        for table in CARGO_DEPENDENCY_TABLES:
+            tables.append((("target", platform, table), table_at(platform_tables, table, f"target > {platform} > {table}")))
+    for registry, patches in table_at(doc, "patch", "patch").items():
+        if not isinstance(patches, dict):
+            raise ManifestError(f"'patch > {registry}' is not a table")
+        tables.append((("patch", registry), patches))
+
+    # Which crate(s) each dependency key stands for, for reading [features].
+    by_key: dict[str, set[str]] = {}
+    for prefix, table in tables:
+        for key, entry in table.items():
+            names = entry_names(key, entry)
+            # An inheriting entry is whatever its workspace entry says it is.
+            if inherits_from_workspace(entry) and key in workspace_deps:
+                names |= entry_names(key, workspace_deps[key])
+            out[prefix + (key,)] = (entry, names)
+            by_key.setdefault(key, set()).update(names)
+    for spec, entry in table_at(doc, "replace", "replace").items():
+        out[("replace", spec)] = (entry, {cargo_replace_name(spec)} | entry_names(cargo_replace_name(spec), entry))
+    for feature, values in table_at(doc, "features", "features").items():
+        if not isinstance(values, list) or not all(isinstance(v, str) for v in values):
+            raise ManifestError(f"feature '{feature}' is not a list of names")
+        for value in values:
+            # "dep:foo", "foo/bar", "foo?/bar", or a plain "foo" (which can
+            # switch on an optional dependency called foo).
+            key = value[4:] if value.startswith("dep:") else value.split("/", 1)[0].rstrip("?")
+            out[("features", feature, value)] = (value, {key} | by_key.get(key, set()))
+    return out
 
 
 def show_value(value) -> str:
@@ -664,18 +742,18 @@ def show_value(value) -> str:
 
 
 def compare_manifest(path: str, old: str | None, new: str | None, target: str | None) -> tuple[bool, list[str]]:
-    """Is every dependency entry the fix added, changed or removed in this
-    manifest the same on the target, in the same place — and did the fix
-    change nothing else in it?"""
-    split: list[tuple[dict, dict]] = []
+    """Does the target say exactly what the fix's manifest says about every
+    package the fix touched — and did the fix change nothing else in it?"""
+    sides: list[tuple[dict, Mentions]] = []
     for side, text in (("before the fix", old), ("after the fix", new), ("on the target branch", target)):
         if text is None:
             return False, [f"{path}: the file could not be read {side} — cannot tell, so treating it as needing the fix"]
         try:
-            split.append(split_manifest(path, parse_manifest(path, text)))
+            doc = parse_manifest(path, text)
+            sides.append((split_manifest(path, doc)[1], manifest_mentions(path, doc)))
         except (ValueError, ManifestError) as error:  # json and tomllib errors are ValueErrors
-            return False, [f"{path}: the file {side} could not be parsed ({error}) — cannot tell, so treating it as needing the fix"]
-    (old_entries, old_rest), (new_entries, new_rest), (target_entries, _) = split
+            return False, [f"{path}: the file {side} could not be parsed or understood ({error}) — cannot tell, so treating it as needing the fix"]
+    (old_rest, old_mentions), (new_rest, new_mentions), (_, target_mentions) = sides
 
     fixed = True
     details: list[str] = []
@@ -686,36 +764,61 @@ def compare_manifest(path: str, old: str | None, new: str | None, target: str | 
             "feature list...), which this check cannot compare — needs the fix"
         )
 
-    changed = sorted(
-        position
-        for position in set(old_entries) | set(new_entries)
-        if old_entries.get(position, MISSING) != new_entries.get(position, MISSING)
-    )
-    for position in changed:
-        where = " > ".join(position)
-        if position in new_entries:
-            wanted = new_entries[position]
-            have = target_entries.get(position, MISSING)
-            if have is MISSING:
-                fixed = False
-                details.append(f"{path}: the fix set {where} to {show_value(wanted)}, but the target branch has no such entry — needs the fix")
-            elif have != wanted:
-                fixed = False
-                details.append(f"{path}: the fix set {where} to {show_value(wanted)}, but the target branch has {show_value(have)} — needs the fix")
-            else:
-                details.append(f"{path}: {where} on the target branch is exactly what the fix set it to")
-        elif position in target_entries:
-            fixed = False
-            details.append(f"{path}: the fix removed {where}, but the target branch still has it — needs the fix")
-        else:
-            details.append(f"{path}: the fix removed {where}, and the target branch does not have it either")
+    # Which packages did the fix touch? Every package named by any place the
+    # fix added, changed or removed.
+    changed = {
+        place
+        for place in set(old_mentions) | set(new_mentions)
+        if old_mentions.get(place, (MISSING,))[0] != new_mentions.get(place, (MISSING,))[0]
+    }
+    touched: set[str] = set()
+    for place in changed:
+        for mentions in (old_mentions, new_mentions):
+            if place in mentions:
+                touched |= mentions[place][1]
 
-    if Path(path).name == "Cargo.toml":
-        inherited_ok, inherited_details = compare_inherited_settings(
-            path, changed, old_entries, new_entries, target_entries
+    def about(mentions: Mentions, package: str) -> dict:
+        """Everything this manifest says about one package, place by place."""
+        return {place: value for place, (value, names) in mentions.items() if package in names}
+
+    for package in sorted(touched):
+        shown = f'"{package}"' if package else "the project itself"
+        want, have = about(new_mentions, package), about(target_mentions, package)
+        if want == have:
+            details.append(f"{path}: every place that mentions {shown} ({len(want)}) is the same on the target branch")
+            continue
+        fixed = False
+        for place in sorted(set(want) | set(have)):
+            where = " > ".join(place)
+            if place not in have:
+                details.append(f"{path}: the fix has {where} = {show_value(want[place])}, which the target branch does not have — needs the fix")
+            elif place not in want:
+                details.append(f"{path}: the target branch also has {where} = {show_value(have[place])}, which the fix does not — needs the fix")
+            elif want[place] != have[place]:
+                details.append(f"{path}: {where} is {show_value(want[place])} after the fix but {show_value(have[place])} on the target branch — needs the fix")
+
+    # An entry that inherits from [workspace.dependencies] is only checked if
+    # that table is in THIS file on both sides. When it lives in another
+    # Cargo.toml (a workspace member), both sides can look identical here
+    # while the settings that matter differ, so that is "needs the fix".
+    # (The comparison above already includes the workspace entry itself
+    # whenever it is in this file, which is all the rest of the rule from
+    # Codex's fourth review needed.)
+    missing_inherited: set[tuple] = set()
+    for mentions in (old_mentions, new_mentions, target_mentions):
+        for place, (value, names) in mentions.items():
+            dependency_place = place[0] in CARGO_DEPENDENCY_TABLES or place[0] == "target"
+            if dependency_place and names & touched and inherits_from_workspace(value):
+                inherited = ("workspace", "dependencies", place[-1])
+                if inherited not in new_mentions or inherited not in target_mentions:
+                    missing_inherited.add((place, inherited))
+    for place, inherited in sorted(missing_inherited):
+        fixed = False
+        details.append(
+            f"{path}: {' > '.join(place)} takes settings from {' > '.join(inherited)}, which is not in this file on "
+            "both sides (it may live in another Cargo.toml) — the inherited settings could not be checked, so "
+            "treating it as needing the fix"
         )
-        fixed = fixed and inherited_ok
-        details.extend(inherited_details)
 
     if fixed and not changed:
         details.append(f"{path}: the fix changed only the file's layout, not what it says")
