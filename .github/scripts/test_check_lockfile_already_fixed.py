@@ -1005,6 +1005,37 @@ class ManifestsComparedAsData(HelperTestCase):
         target = self.branch({CARGO_MANIFEST: self.package_table('resolver = "2"') + after, CARGO_LOCK: LOCK_AFTER})
         self.assertVerdict(FIXED, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
 
+    # --- Cargo's old underscore table names (issue #1312) -------------------
+
+    def test_old_dev_dependencies_spelling_on_the_channel_counts_issue_1312(self) -> None:
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n',
+            '[dependencies]\nfoo = { version = "1", features = [] }\n',
+            cargo_manifest('[dependencies]\nfoo = { version = "1", features = [] }\n\n[dev_dependencies]\nfoo = { version = "1", features = ["risky"] }\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_old_build_dependencies_spelling_in_a_platform_table_counts_issue_1312(self) -> None:
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n',
+            '[dependencies]\nfoo = { version = "1", features = [] }\n',
+            cargo_manifest(
+                '[dependencies]\nfoo = { version = "1", features = [] }\n'
+                "\n[target.'cfg(windows)'.build_dependencies]\nfoo = { version = \"1\", features = [\"risky\"] }\n"
+            ),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_a_fix_in_an_old_spelling_table_is_compared_entry_by_entry(self) -> None:
+        # Before, a change in [build_dependencies] read as "something else
+        # changed" (always "needs the fix"); now it is compared like any
+        # other dependency table, so a channel that matches is fixed.
+        after = '[build_dependencies]\nfoo = { version = "1", features = [] }\n'
+        answer = self.cargo_case(
+            '[build_dependencies]\nfoo = { version = "1", features = ["risky"] }\n', after, cargo_manifest(after)
+        )
+        self.assertEqual(answer, FIXED, self.last_output)
+
     def test_npm_nested_override_must_match_exactly(self) -> None:
         # The fix pins `bar` inside `foo`'s override. The channel has that
         # pin under a different package's override, and not under `foo`.

@@ -59,7 +59,8 @@ commit (`--new`) and the branch to check (`--target`), the answer is
          names), and `overrides` at any depth (as a key, or as the parent of
          nested keys, or as a `$name` reference);
        - `Cargo.toml`: every dependency table (`dependencies`,
-         `dev-dependencies`, `build-dependencies`, at the top level and
+         `dev-dependencies`, `build-dependencies`, and the old spellings
+         `dev_dependencies` and `build_dependencies`, at the top level and
          under `target.<platform>.`, and `workspace.dependencies`), where an
          entry counts for its key AND for the crate its `package = "..."`
          names; the `patch.<registry>` and `replace` entries for it; and
@@ -147,9 +148,8 @@ HOW THE FILES ARE READ
   - `package.json` is read with `json`, and `Cargo.toml` with `tomllib`
     (Python 3.11 or later, which GitHub's runners have). On an older
     Python there is no `tomllib`, so a changed `Cargo.toml` is "cannot
-    tell". Cargo's old underscore spellings (`dev_dependencies`) are not
-    treated as dependency tables, so a change there also reads as
-    "something else changed".
+    tell". Cargo's old underscore spellings (`dev_dependencies`,
+    `build_dependencies`) are read as the dependency tables they are.
   - `Cargo.lock` is read block by block with a small hand-written reader
     rather than a TOML library, matching the house style of
     `tools/audit-checks/check_codec_registry.py`: no third-party
@@ -531,7 +531,11 @@ NPM_DEPENDENCY_SECTIONS = (
     "overrides",
     "resolutions",
 )
-CARGO_DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
+# The old underscore spellings are included: Cargo still accepts them (with a
+# warning) on edition 2021, so a channel could use one to switch a feature
+# back on. Left out, they were read as "not a dependency table" and missed
+# (issue #1312).
+CARGO_DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies", "dev_dependencies", "build_dependencies")
 
 
 class ManifestError(Exception):
