@@ -332,42 +332,17 @@ fn legacy_sidecar_name(stem: &str, stream: &SubtitleStream) -> Option<String> {
 }
 
 /// The start of every temporary subtitle name: `.meedyadl-partial-`.
-const TEMP_PREFIX: &str = ".meedyadl-partial-";
-
-/// True when `name` has the shape of one of this app's temporary subtitle
-/// names: `.meedyadl-partial-`, then digits (a process id), `-`, then
-/// lower-case hexadecimal digits (the random part; earlier builds of this
-/// branch put a plain counter there, which this also matches), then `.srt`
-/// or `.vtt`.
-///
-/// Used ONLY to count such files for [`report_leftover_temporaries`]. A
-/// name proves nothing about who made a file (anyone can create one with
-/// this shape), which is why nothing is ever deleted because of it.
-fn is_temporary_name(name: &str) -> bool {
-    let Some(rest) = name.strip_prefix(TEMP_PREFIX) else {
-        return false;
-    };
-    let Some((middle, extension)) = rest.rsplit_once('.') else {
-        return false;
-    };
-    if extension != "srt" && extension != "vtt" {
-        return false;
-    }
-    let Some((pid, part)) = middle.split_once('-') else {
-        return false;
-    };
-    !pid.is_empty()
-        && pid.bytes().all(|b| b.is_ascii_digit())
-        && !part.is_empty()
-        && part
-            .bytes()
-            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-}
+/// Defined once in `fs_safe`, beside `is_temporary_subtitle_file`, the
+/// one check every place that lists subtitle files uses to skip them.
+const TEMP_PREFIX: &str = crate::utils::fs_safe::TEMPORARY_SUBTITLE_PREFIX;
 
 /// Counts the temporary subtitle files already in `folder` before this
-/// extraction makes any, and, if there are any, adds ONE notice for the
-/// activity log saying how many and where, and when they are safe to
-/// delete. It never deletes, renames or changes any of them.
+/// extraction makes any -- every file whose name starts with
+/// `.meedyadl-partial-` (`fs_safe::is_temporary_subtitle_file`, the same
+/// check that makes the lyrics steps skip them) -- and, if there are any,
+/// adds ONE notice for the activity log saying how many and where, and when
+/// they are safe to delete. It never deletes, renames or changes any of
+/// them.
 ///
 /// **Why nothing is deleted any more** (Codex's review of rounds 6-7,
 /// findings 3 and 4). Earlier versions of this branch removed such a file
@@ -396,9 +371,10 @@ fn is_temporary_name(name: &str) -> bool {
 /// notice is how they learn it is there. It is counted, and reported,
 /// again at every extraction in that folder until it is gone.
 ///
-/// The extractor still ignores these files when it looks for existing
-/// subtitles: it looks only for the exact names it planned, which never
-/// have this shape.
+/// Nothing takes these files for a finished subtitle: the extractor looks
+/// only for the exact names it planned, and the lyrics pairing step and the
+/// download queue's lyrics count skip them (`is_temporary_subtitle_file`;
+/// round 8 follow-up).
 fn report_leftover_temporaries(folder: &Path, notices: &mut Vec<String>) {
     let entries = match std::fs::read_dir(folder) {
         Ok(entries) => entries,
@@ -413,7 +389,7 @@ fn report_leftover_temporaries(folder: &Path, notices: &mut Vec<String>) {
     let found = entries
         .flatten()
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
-        .filter(|entry| entry.file_name().to_str().is_some_and(is_temporary_name))
+        .filter(|entry| crate::utils::fs_safe::is_temporary_subtitle_file(&entry.path()))
         .count();
     if found == 0 {
         return;
@@ -938,6 +914,15 @@ pub fn pair_song_lyrics_with_music_video(album_dir: &Path, video_path: &Path) ->
         if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
             continue;
         }
+        // Skip MeedyaDL's own temporary subtitle files
+        // (`.meedyadl-partial-…`): possibly half written, or another run's
+        // work in progress, never song lyrics. The loose name match below
+        // took one for a video called "1", "a", "Art" or "Partial", whose
+        // names it contains (round 8 follow-up, acting on Codex's review of
+        // rounds 6-7; round 8 leaves other runs' leftovers in place).
+        if crate::utils::fs_safe::is_temporary_subtitle_file(&path) {
+            continue;
+        }
         let Some(ext) = path.extension().and_then(|e| e.to_str()) else {
             continue;
         };
@@ -1178,6 +1163,48 @@ mod tests {
         let count = pair_song_lyrics_with_music_video(dir.path(), &dir.path().join("01 Title.mp4"));
         assert_eq!(count, 0);
         assert!(!dir.path().join("01 Title.srt").exists());
+    }
+
+    /// A temporary subtitle file (`.meedyadl-partial-…`, possibly half
+    /// written, possibly another run's work in progress) is never taken for
+    /// song lyrics (round 8 follow-up, acting on Codex's review of rounds
+    /// 6-7). The pairing match is loose -- either name containing the other
+    /// -- and a temporary name contains `meedyadl`, `partial` and
+    /// hexadecimal digits, so a video called "1", "a", "Art" or "Partial"
+    /// had a leftover copied next to it as its `.srt`. Round 8 stopped
+    /// deleting other runs' leftovers, which made that likelier. The song's
+    /// real lyrics are still paired beside a leftover.
+    #[test]
+    fn pairing_never_takes_a_temporary_subtitle_file_for_lyrics() {
+        let leftover_name = ".meedyadl-partial-123-0a1b2c3d4e5f6789.srt";
+        for video in ["1", "a", "Art", "Partial"] {
+            let dir = tempfile::tempdir().unwrap();
+            let video_path = dir.path().join(format!("{video}.mp4"));
+            fs::write(&video_path, "").unwrap();
+            fs::write(dir.path().join(leftover_name), "half written").unwrap();
+            let count = pair_song_lyrics_with_music_video(dir.path(), &video_path);
+            assert_eq!(count, 0, "video {video:?}");
+            assert!(
+                !dir.path().join(format!("{video}.srt")).exists(),
+                "a temporary file was paired with the video {video:?} as its lyrics"
+            );
+            assert_eq!(
+                fs::read_to_string(dir.path().join(leftover_name)).unwrap(),
+                "half written"
+            );
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("01 Title [Lossless].m4a"), "").unwrap();
+        fs::write(dir.path().join("01 Title [Lossless].srt"), "song lyrics").unwrap();
+        fs::write(dir.path().join("01 Title.mp4"), "").unwrap();
+        fs::write(dir.path().join(leftover_name), "half written").unwrap();
+        let count = pair_song_lyrics_with_music_video(dir.path(), &dir.path().join("01 Title.mp4"));
+        assert_eq!(count, 1);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("01 Title.srt")).unwrap(),
+            "song lyrics"
+        );
     }
 
     #[test]
@@ -1527,57 +1554,36 @@ mod tests {
         assert!(dir.path().join(".meedyadl-partial-7-0.srt").exists());
     }
 
-    /// Only files with exactly this app's temporary shape are counted, and
-    /// nothing at all is reported for a folder with none.
+    /// Every file whose name starts with the temporary prefix is counted
+    /// (`fs_safe::is_temporary_subtitle_file`, the check the lyrics steps
+    /// use to skip them), and nothing else: not a name with the prefix
+    /// elsewhere in it, and not a folder. Nothing is reported for a folder
+    /// with none.
     #[test]
-    fn only_the_exact_temporary_shape_is_counted() {
+    fn only_names_starting_with_the_temporary_prefix_are_counted() {
         let dir = tempfile::tempdir().unwrap();
         for name in [
-            ".meedyadl-partial-1-0.txt",
-            ".meedyadl-partial-1.srt",
-            ".meedyadl-partial-abc-0.srt",
-            ".meedyadl-partial-+1-0.srt",
-            ".meedyadl-partial-1-0.srt.bak",
             "meedyadl-partial-1-0.srt",
             ".V.meedyadl-partial-1-0.srt",
-            ".meedyadl-partial-1--0.srt",
-            ".meedyadl-partial-1-A0.srt",
+            "x.meedyadl-partial-1-0.srt",
             "V.en.srt",
         ] {
             fs::write(dir.path().join(name), "keep").unwrap();
         }
-        // A FOLDER with the exact shape is not a temporary file either.
         fs::create_dir(dir.path().join(".meedyadl-partial-1-1.srt")).unwrap();
         let mut notices = Vec::new();
         report_leftover_temporaries(dir.path(), &mut notices);
         assert!(notices.is_empty(), "{notices:?}");
-    }
 
-    #[test]
-    fn is_temporary_name_reads_only_the_exact_shape() {
-        for name in [
-            ".meedyadl-partial-123-0.srt",
-            ".meedyadl-partial-9-41.vtt",
-            ".meedyadl-partial-99999999999-0.srt",
-            ".meedyadl-partial-123-0a1b2c3d4e5f6789.srt",
-        ] {
-            assert!(is_temporary_name(name), "{name}");
+        for name in [".meedyadl-partial-1-0.txt", ".meedyadl-partial-abc.srt"] {
+            fs::write(dir.path().join(name), "keep").unwrap();
         }
-        for name in [
-            ".meedyadl-partial-123-0.ass",
-            ".meedyadl-partial-123.srt",
-            ".meedyadl-partial--0.srt",
-            ".meedyadl-partial-1-.srt",
-            ".meedyadl-partial-1-2-3.srt",
-            ".meedyadl-partial-1-ABC.srt",
-            "x.meedyadl-partial-1-0.srt",
-            // A subtitle planned for a video that is itself called like a
-            // temporary file: the language part keeps it out.
-            ".meedyadl-partial-1-a.en.srt",
-            ".meedyadl-partial-1-a.und.srt",
-        ] {
-            assert!(!is_temporary_name(name), "{name}");
-        }
+        report_leftover_temporaries(dir.path(), &mut notices);
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(
+            notices[0].contains("Found 2 unfinished subtitle files"),
+            "{notices:?}"
+        );
     }
 
     /// The whole extraction with leftovers in the folder: it still writes
@@ -2300,7 +2306,10 @@ mod tests {
                 .into_owned();
             assert!(temp.path.extension().is_some_and(|e| e == "srt"), "{name}");
             assert!(name.len() <= 49, "{name}");
-            assert!(is_temporary_name(&name), "{name}");
+            assert!(
+                crate::utils::fs_safe::is_temporary_subtitle_file(&temp.path),
+                "{name}"
+            );
             let random = random_part(temp);
             assert_eq!(random.len(), 16, "64 random bits as 16 hex digits: {name}");
             assert!(

@@ -165,7 +165,11 @@ did not change.
   clock proves nothing about who owns a file (Codex's review of rounds 6-7).
   The next extraction in that folder writes one activity-log line saying
   how many it found, where, and that they are safe to delete once no
-  MeedyaDL is saving subtitles there. A run removes its own temporary file
+  MeedyaDL is saving subtitles there. Every place that lists subtitle or
+  lyrics files in a folder (lyrics pairing, the lyrics count, the leftover
+  report) skips names starting with `.meedyadl-partial-` through one check,
+  `fs_safe::is_temporary_subtitle_file`; the pairing step once copied a
+  leftover next to a video called "1" as its lyrics. A run removes its own temporary file
   only if the name refers to the file its creating handle (held open) is
   on, both read at that moment (`fs_safe::check_name_against_handle`); not
   a number stored at creation, because a Mac's FAT32 and exFAT drives

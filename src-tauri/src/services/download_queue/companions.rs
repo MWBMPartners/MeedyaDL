@@ -1664,7 +1664,11 @@ pub(crate) async fn download_music_video_by_url(
 /// (e.g., `01 Song.ttml` and `01 Song.lrc` count as 1 stem with lyrics).
 ///
 /// Skips filesystem sidecars (#577) so a `._01 Song.ttml` AppleDouble
-/// shadow doesn't double-count toward coverage checks.
+/// shadow doesn't double-count toward coverage checks. Skips MeedyaDL's
+/// own temporary subtitle files too (`.meedyadl-partial-…`, possibly half
+/// written): counting one could make the lyrics fallback believe every
+/// track already has lyrics and stop early (round 8 follow-up, acting on
+/// Codex's review of rounds 6-7).
 pub(crate) fn count_lyrics_files(dir: &std::path::Path) -> usize {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return 0;
@@ -1672,7 +1676,9 @@ pub(crate) fn count_lyrics_files(dir: &std::path::Path) -> usize {
     let mut stems_with_lyrics = std::collections::HashSet::new();
     for entry in entries.flatten() {
         let path = entry.path();
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
+        if crate::utils::fs_safe::is_filesystem_sidecar(&path)
+            || crate::utils::fs_safe::is_temporary_subtitle_file(&path)
+        {
             continue;
         }
         let ext = path

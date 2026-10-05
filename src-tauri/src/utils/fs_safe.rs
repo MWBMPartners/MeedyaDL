@@ -484,6 +484,32 @@ pub fn is_filesystem_sidecar(path: &std::path::Path) -> bool {
     )
 }
 
+/// The start of every temporary subtitle file name MeedyaDL writes while
+/// it extracts a music video's subtitles: `.meedyadl-partial-`. Defined
+/// here, once, beside [`is_temporary_subtitle_file`], the check that
+/// skips these files.
+pub const TEMPORARY_SUBTITLE_PREFIX: &str = ".meedyadl-partial-";
+
+/// True when `path`'s file name starts with [`TEMPORARY_SUBTITLE_PREFIX`]:
+/// a subtitle MeedyaDL is still writing, or one a stopped run left behind.
+/// Its contents may be half written, or another run's work in progress, so
+/// every place that lists subtitle or lyrics files in a folder skips it
+/// through this one check, rather than each keeping its own copy (round 8
+/// follow-up, acting on Codex's review of rounds 6-7). The lyrics pairing
+/// step had copied such a file next to a music video as its lyrics, and
+/// the lyrics count counted it as a track's lyrics; round 8 stopped
+/// deleting other runs' leftovers, which made both likelier.
+///
+/// A name proves nothing about who made a file, so this is used only to
+/// skip such files and to count them, never to decide to delete one.
+#[must_use]
+pub fn is_temporary_subtitle_file(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| {
+        name.as_encoded_bytes()
+            .starts_with(TEMPORARY_SUBTITLE_PREFIX.as_bytes())
+    })
+}
+
 // ---------------------------------------------------------------------
 // Operating-system operations the standard library does not offer
 // (Codex's review of round 5, findings 3 and 4)
@@ -1552,6 +1578,29 @@ mod tests {
         assert!(!is_filesystem_sidecar(std::path::Path::new(".hidden_file.m4a")));
         assert!(!is_filesystem_sidecar(std::path::Path::new("_underscore_start.m4a")));
         assert!(!is_filesystem_sidecar(std::path::Path::new("Ds_Store.m4a")));
+    }
+
+    #[test]
+    fn temporary_subtitle_files_are_recognised_by_their_prefix() {
+        for path in [
+            ".meedyadl-partial-123-0a1b2c3d4e5f6789.srt",
+            ".meedyadl-partial-9-41.vtt",
+            ".meedyadl-partial-anything",
+            "/Music/Artist/Album/.meedyadl-partial-1-0.srt",
+        ] {
+            assert!(is_temporary_subtitle_file(Path::new(path)), "{path}");
+        }
+        for path in [
+            "meedyadl-partial-1-0.srt",
+            ".V.meedyadl-partial-1-0.srt",
+            ".meedyadl-partia.srt",
+            "V.en.srt",
+            "/Music/.meedyadl-partial-folder/V.en.srt",
+            "",
+            "/",
+        ] {
+            assert!(!is_temporary_subtitle_file(Path::new(path)), "{path}");
+        }
     }
 
     #[test]
