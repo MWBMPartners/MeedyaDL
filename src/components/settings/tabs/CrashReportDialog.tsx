@@ -43,8 +43,12 @@ interface CrashReportDialogProps {
   open: boolean;
   /** Callback invoked when the modal should close */
   onClose: () => void;
-  /** The crash report to preview and potentially report */
-  report: CrashReport;
+  /**
+   * The crash report to preview and potentially report. Only its id and
+   * source are read, so only those are required -- the crash screen
+   * (`CrashScreen.tsx`) knows just the id of the report it has saved.
+   */
+  report: Pick<CrashReport, 'id' | 'source'>;
   /** Optional callback after the GitHub URL is successfully opened */
   onReported?: () => void;
 }
