@@ -1248,6 +1248,7 @@ on PRs to / pushes to main.
 - **MeedyaPlayer/MeedyaSubtitler: the stand-in review loop is DONE.** The twentieth review was clean (0 high, 0 medium, 0 low, 1 nit). The recording commits are `cb1141b` / `5e6b560`, pushed: they reword the nit and add the table row without another review, per the nits-only rule.
   - **Still owed:** a Codex catch-up review of everything after `bc901ad` / `44cf095` (rounds 10 to 19, all reviewed by stand-ins only), when Codex has allowance. The copyright lines and ADR 0013 still wait on the maintainer.
   - The twentieth review also flagged the older commits carrying the maintainer's personal email (MeedyaPlayer `097131e`, `d5e3e41`, `4a8ba62`, `2337861`, `5a91b32`; MeedyaSubtitler `53bbc0f`). They are already on `main`/`develop`, so this belongs to the history-rewrite decision.
+- **iHymns CI, like NetPLAYERapp's, does not run on the feature branch.** Only "Lint Workflows" runs, and only when a workflow file changes; no run started for `e9cf5fea`. The full CI runs on pull requests and channel branches, so local checks are the only gate until the pull request is opened.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
