@@ -1225,6 +1225,11 @@ on PRs to / pushes to main.
   - #210 has a comment (including a correction of the round-7 comment) and #212 has a note.
   - A stand-in review of round 8 is running, with a watchdog.
 - **MeedyaPlayer/MeedyaSubtitler: the sixteenth review was NOT clean, but only small: 0 high, 0 medium, 3 low, 5 nits.** The fixes are pushed as `461dcdf` / `0fc0a5b`, and the seventeenth review (stand-in) is running, with a watchdog.
+- **MeedyaSuite-core revision 11 pushed (`cd3ca07..0e43b14`, 12 commits), acting on Codex's 10 findings.** All 10 were reproduced first, except Windows named streams (no Windows machine).
+  - My own re-run: `cargo fmt`, `clippy -D warnings`, tests 931 passed (1,078 with all features), the doc-count check and its new self-test; `check-doc-test-counts.sh 1 4` now fails as it should.
+  - Filed **core #105** (Windows named streams) and commented on #99.
+  - **Review: waiting for Codex, not a stand-in.** These are Codex's own findings, and its limit resets at about 04:00, three hours away. With the machine this loaded, a stand-in review followed by Codex would mean doing the review twice. A chained script (`codex-chain-0406.sh`) runs Codex on core straight after the 04:06 plugin review; a watchdog watches it. Until Codex has reviewed it, the round counts as not reviewed.
+- **MeedyaPlayer `7a71a15` / MeedyaSubtitler `4c382aa` pushed** (the round-17 fixes, handoffs only); the eighteenth review is running.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
