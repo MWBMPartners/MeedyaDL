@@ -614,44 +614,150 @@ fn rename_no_replace_impl(_from: &Path, _to: &Path) -> std::io::Result<()> {
 /// finding 1: checked on macOS 27, which refuses `renamex_np` with
 /// `RENAME_EXCL` there with "not supported" whenever the name is free).
 ///
-/// On ANY failure after `to` was created, `to` is deleted again: it is
-/// certainly the file this call made, because it was created only if new.
+/// **On a failure after `to` was created**, the new file is deleted again --
+/// but only if the name still refers to the file this call created
+/// (Codex's review of rounds 6-7, finding 1). Creating it only if new
+/// proves it was this call's file at that moment, not afterwards: another
+/// program could rename or delete it and put its own file at the name
+/// before the clean-up, and the clean-up used to delete whatever was there.
+/// (The comment here used to say the file was "certainly" this call's.) So
+/// the handle that created it is kept open, and just before deleting, the
+/// file that handle is on is compared with the file at the name, both read
+/// at that moment ([`check_name_against_handle`]; a number stored at
+/// creation would not do, because a Mac's FAT32 and exFAT drives renumber a
+/// file once data is written into it). A different file at the name, or one
+/// that cannot be checked, is LEFT where it is, and the error says so
+/// ([`left_a_file_in_place`]).
 ///
-/// **What this cannot do: be one step.** A forced stop (the app killed,
-/// the power lost) while the bytes are being copied leaves a PARTLY
-/// written file under the real name, and nothing can then tell it from a
-/// finished one, so later runs keep it. Hard links and
-/// [`rename_no_replace`] never leave a partial file under the real name;
-/// use this only when neither is available.
+/// **What this cannot do.**
+/// - Be one step. A forced stop (the app killed, the power lost) while the
+///   bytes are being copied leaves a PARTLY written file under the real
+///   name, and nothing can then tell it from a finished one, so later runs
+///   keep it. Hard links and [`rename_no_replace`] never leave a partial
+///   file under the real name; use this only when neither is available.
+/// - Make the clean-up one step. The check and the deletion are two
+///   operations, so a file put at the name in the instant between them
+///   would still be deleted. No system offers "delete this name only if it
+///   is still this file" as one step.
 ///
 /// # Errors
 /// - [`std::io::ErrorKind::AlreadyExists`] when `to` is taken: nothing is
 ///   created or changed.
 /// - Any other error opening `from`, or creating, writing or flushing `to`.
 ///   If deleting the partly written `to` then also fails, the message says
-///   so and names it (the kind stays that of the first failure).
+///   so and names it (the kind stays that of the first failure). If a file
+///   was left at `to` because it could not be proved to be this call's,
+///   [`left_a_file_in_place`] is true for the error and its message names
+///   the file and why.
 pub fn copy_to_new_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    copy_to_new_file_with(from, to, |_| {})
+}
+
+/// [`copy_to_new_file`], with `before_clean_up` run after a copy has failed
+/// and before the new name is checked. The tests put a different file at
+/// the name there; the app passes nothing (through [`copy_to_new_file`]).
+pub(crate) fn copy_to_new_file_with(
+    from: &Path,
+    to: &Path,
+    before_clean_up: impl FnOnce(&Path),
+) -> std::io::Result<()> {
     let mut source = std::fs::File::open(from)?;
+    // Opened for reading too only because Windows needs read access to say
+    // which file a handle is on (see `handle_identity`).
     let mut target = std::fs::OpenOptions::new()
+        .read(true)
         .write(true)
         .create_new(true)
         .open(to)?;
     let filled = std::io::copy(&mut source, &mut target).and_then(|_| target.sync_all());
-    drop(target);
     let Err(error) = filled else {
         return Ok(());
     };
-    match std::fs::remove_file(to) {
-        Ok(()) => Err(error),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(error),
-        Err(left) => Err(std::io::Error::new(
-            error.kind(),
-            format!(
-                "{error}; the partly written {} could not be deleted either ({left})",
-                to.display()
-            ),
+    before_clean_up(to);
+    // `target` is still open: the file this call made still exists, so its
+    // number cannot have been handed to a file put at the name meanwhile.
+    let outcome = match check_name_against_handle(to, &target) {
+        NameCheck::SameFile => match std::fs::remove_file(to) {
+            Ok(()) => Err(error),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(error),
+            Err(left) => Err(std::io::Error::new(
+                error.kind(),
+                format!(
+                    "{error}; the partly written {} could not be deleted either ({left})",
+                    to.display()
+                ),
+            )),
+        },
+        // Someone else removed it; there is nothing of this call's to
+        // delete, and nothing else is touched.
+        NameCheck::Gone => Err(error),
+        NameCheck::OtherFile => Err(left_in_place(
+            error,
+            to,
+            "a different file now has that name".to_string(),
         )),
+        NameCheck::CannotTell(e) => Err(left_in_place(
+            error,
+            to,
+            format!("it could not be checked which file now has that name ({e})"),
+        )),
+    };
+    drop(target);
+    outcome
+}
+
+/// What [`copy_to_new_file`] reports when its copy failed after it had
+/// created the new file, and it then left a file at the new name because it
+/// could not prove that file was the one it created.
+#[derive(Debug)]
+struct LeftInPlace {
+    /// The name the file was left at.
+    path: PathBuf,
+    /// Why it could not be proved to be this call's file.
+    why: String,
+    /// The failure that stopped the copy.
+    copy_error: std::io::Error,
+}
+
+impl std::fmt::Display for LeftInPlace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}; a file was left at {}: {}, so it was not deleted",
+            self.copy_error,
+            self.path.display(),
+            self.why
+        )
     }
+}
+
+impl std::error::Error for LeftInPlace {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.copy_error)
+    }
+}
+
+/// Wraps `copy_error` as a [`LeftInPlace`], keeping its kind.
+fn left_in_place(copy_error: std::io::Error, path: &Path, why: String) -> std::io::Error {
+    std::io::Error::new(
+        copy_error.kind(),
+        LeftInPlace {
+            path: path.to_path_buf(),
+            why,
+            copy_error,
+        },
+    )
+}
+
+/// True when `error` came from [`copy_to_new_file`] LEAVING a file at the
+/// new name after a failed copy, because it could not prove that file was
+/// the one it created (it may be another program's), rather than deleting
+/// it. The caller should tell the person that something is at that name.
+#[must_use]
+pub fn left_a_file_in_place(error: &std::io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|inner| inner.is::<LeftInPlace>())
 }
 
 /// True when [`rename_no_replace`] failed because the file system (or the
@@ -1374,8 +1480,92 @@ mod tests {
         let from = dir.path().join("a folder");
         fs::create_dir(&from).unwrap();
         let to = dir.path().join("b");
-        assert!(copy_to_new_file(&from, &to).is_err());
+        let err = copy_to_new_file(&from, &to).unwrap_err();
+        assert!(!left_a_file_in_place(&err), "{err}");
         assert!(!to.exists(), "the partly written file was left behind");
+    }
+
+    /// Codex's review of rounds 6-7, finding 1: between the failed copy and
+    /// its clean-up, the new file is moved away (or deleted) and another
+    /// file is put at the name. That other file must survive; the error
+    /// says a file was left there. Unix only, as above.
+    #[cfg(unix)]
+    #[test]
+    fn a_file_put_at_the_name_before_a_failed_copy_cleans_up_survives() {
+        for moved_away in [true, false] {
+            let dir = tempfile::tempdir().unwrap();
+            let from = dir.path().join("a folder");
+            fs::create_dir(&from).unwrap();
+            let to = dir.path().join("b");
+            let moved = dir.path().join("moved");
+            let err = copy_to_new_file_with(&from, &to, |to| {
+                if moved_away {
+                    fs::rename(to, &moved).unwrap();
+                } else {
+                    fs::remove_file(to).unwrap();
+                }
+                fs::write(to, "somebody else's file").unwrap();
+            })
+            .unwrap_err();
+            assert_eq!(
+                fs::read_to_string(&to).ok().as_deref(),
+                Some("somebody else's file"),
+                "moved away first: {moved_away}"
+            );
+            assert!(left_a_file_in_place(&err), "{err}");
+            let message = err.to_string();
+            assert!(message.contains("a file was left at"), "{message}");
+            assert!(message.contains(&to.display().to_string()), "{message}");
+            assert!(
+                message.contains("a different file now has that name"),
+                "{message}"
+            );
+        }
+    }
+
+    /// When the name cannot be checked, the file is left where it is and the
+    /// error says so. Made unreadable by taking away permission to look
+    /// inside the folder (Unix; skipped as the superuser, who may look
+    /// anyway).
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_copy_that_cannot_check_the_name_leaves_the_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let work = dir.path().join("work");
+        fs::create_dir(&work).unwrap();
+        let from = dir.path().join("a folder");
+        fs::create_dir(&from).unwrap();
+        let to = work.join("b");
+        let mut blocked = false;
+        let result = copy_to_new_file_with(&from, &to, |to| {
+            fs::set_permissions(to.parent().unwrap(), fs::Permissions::from_mode(0o600)).unwrap();
+            blocked = fs::symlink_metadata(to).is_err();
+        });
+        fs::set_permissions(&work, fs::Permissions::from_mode(0o755)).unwrap();
+        if !blocked {
+            eprintln!("skipped: this user may look inside a folder without permission");
+            return;
+        }
+        let err = result.unwrap_err();
+        assert!(left_a_file_in_place(&err), "{err}");
+        assert!(err.to_string().contains("could not be checked"), "{err}");
+        assert!(to.exists());
+    }
+
+    /// When the new file has been removed by someone else and nothing has
+    /// taken its name, there is nothing to delete: only the copy's own
+    /// failure is reported.
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_copy_whose_file_is_already_gone_reports_only_the_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("a folder");
+        fs::create_dir(&from).unwrap();
+        let to = dir.path().join("b");
+        let err = copy_to_new_file_with(&from, &to, |to| fs::remove_file(to).unwrap()).unwrap_err();
+        assert!(!left_a_file_in_place(&err), "{err}");
+        assert!(!to.exists());
     }
 
     #[test]

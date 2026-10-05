@@ -148,11 +148,16 @@ did not change.
   a drive without hard links the system's one-step rename-only-if-free
   (`fs_safe::rename_no_replace`; FAT32 on a Mac); and where that is refused
   too (exFAT on a Mac, which refuses it whenever the name is free) a copy
-  into a new file created only if the name is free, deleted again on any
-  failure (`fs_safe::copy_to_new_file`; stand-in review of round 6). Never a
-  plain rename. That third step is not one operation: a forced stop
-  part-way through its copy can leave a partly written subtitle under the
-  real name, which later runs keep. If it fails, no subtitle, and an
+  into a new file created only if the name is free, and on any failure
+  deleted again only if the name still refers to the file it made (its
+  creating handle, held open, compared with the name at that moment; a
+  file put there meanwhile is left and the person told; Codex's review of
+  rounds 6-7, finding 1) (`fs_safe::copy_to_new_file`; stand-in review of
+  round 6). Never a plain rename. That third step is not one operation: a
+  forced stop part-way through its copy can leave a partly written
+  subtitle under the real name, which later runs keep; and its clean-up's
+  check and deletion are two steps, so a file put there in the instant
+  between them would still be deleted. If it fails, no subtitle, and an
   activity-log message saying what to do. A forced stop
   can leave a temporary file. No run deletes one it did not make: round 7's
   clean-up (process not running here AND unchanged for an hour, or any

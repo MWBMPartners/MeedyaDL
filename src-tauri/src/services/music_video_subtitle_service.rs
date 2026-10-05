@@ -671,8 +671,10 @@ fn real_publish_operations(
 ///    (stand-in review of round 6, finding 1; checked on macOS 27). The
 ///    subtitle is copied into a NEW file under the real name
 ///    (`fs_safe::copy_to_new_file`): created only if no file has that name,
-///    filled, flushed, and deleted again on any failure, so it too never
-///    replaces a file. Its limit, which steps 1 and 2 do not have: a forced
+///    filled, flushed, and on any failure deleted again if the name still
+///    refers to the file it made (a file put there meanwhile is left alone
+///    and the person told), so it too never replaces a file. Its limit,
+///    which steps 1 and 2 do not have: a forced
 ///    stop (the app killed, the power lost) part-way through the copy
 ///    leaves a PARTLY written subtitle under the real name, and later runs
 ///    then keep it as though it were finished. Before this step existed,
@@ -743,13 +745,28 @@ where
                         || final_path.display().to_string(),
                         |n| n.to_string_lossy().into_owned(),
                     );
-                    let notice = format!(
-                        "Subtitle \"{name}\" was not saved: it could not be written to the \
-                         drive ({copy_error}). Check that the drive is still connected, has \
-                         free space and can be written to. Then, to get the subtitle, delete \
-                         the music video (and this subtitle file, if a partly written one is \
-                         there) and download the video again."
-                    );
+                    // A file left at the name may not be MeedyaDL's (Codex's
+                    // review of rounds 6-7, finding 1), so the person is not
+                    // told to delete it blindly.
+                    let notice = if crate::utils::fs_safe::left_a_file_in_place(&copy_error) {
+                        format!(
+                            "Subtitle \"{name}\" was not saved: it could not be written to the \
+                             drive ({copy_error}). A file is still at that name, but MeedyaDL \
+                             could not be sure it is the partly written subtitle it had started, \
+                             so it did not delete it: check what that file is before deleting \
+                             it. Check that the drive is still connected, has free space and can \
+                             be written to. Then, to get the subtitle, delete the music video and \
+                             download it again."
+                        )
+                    } else {
+                        format!(
+                            "Subtitle \"{name}\" was not saved: it could not be written to the \
+                             drive ({copy_error}). Check that the drive is still connected, has \
+                             free space and can be written to. Then, to get the subtitle, delete \
+                             the music video (and this subtitle file, if a partly written one is \
+                             there) and download the video again."
+                        )
+                    };
                     notices.push(notice.clone());
                     Err(notice)
                 }
@@ -1962,6 +1979,44 @@ mod tests {
         );
     }
 
+    /// Codex's review of rounds 6-7, finding 1, through the publish step:
+    /// the third step's copy fails, and before it cleans up, another file
+    /// is put at the subtitle's name. That file stays, the subtitle is not
+    /// saved, and the person is told a file is at that name and to check it
+    /// before deleting it -- not told to delete it. The failure is made by
+    /// copying from a folder (Unix only, see `fs_safe`'s tests).
+    #[cfg(unix)]
+    #[test]
+    fn a_file_put_at_the_name_while_the_copy_fails_is_left_and_the_person_told() {
+        let dir = tempfile::tempdir().unwrap();
+        let temp = own_temporary(dir.path(), "ours");
+        let fin = dir.path().join("V.en.srt");
+        let folder = tempfile::tempdir().unwrap();
+        let operations = PublishOperations {
+            hard_link: no_hard_links,
+            rename_no_replace: no_rename_without_replacing,
+            copy_to_new_file: |_: &Path, to: &Path| {
+                crate::utils::fs_safe::copy_to_new_file_with(folder.path(), to, |to| {
+                    fs::rename(to, to.with_file_name("moved away")).unwrap();
+                    fs::write(to, "somebody else's").unwrap();
+                })
+            },
+        };
+        let mut notices = Vec::new();
+        let outcome = publish_with(temp, &fin, &mut notices, &operations);
+        assert!(outcome.is_err(), "{outcome:?}");
+        assert_eq!(fs::read_to_string(&fin).unwrap(), "somebody else's");
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        let notice = &notices[0];
+        assert!(notice.contains("\"V.en.srt\" was not saved"), "{notice}");
+        assert!(notice.contains("A file is still at that name"), "{notice}");
+        assert!(
+            notice.contains("check what that file is before deleting it"),
+            "{notice}"
+        );
+        assert!(!notice.contains("and this subtitle file"), "{notice}");
+    }
+
     #[test]
     fn any_other_failure_is_a_failure_not_a_fallback() {
         // No permission, say. A link failure that is not "not supported"
@@ -2091,6 +2146,36 @@ mod tests {
             || listing(&dir) != ["V.en.srt"]
         {
             problems.push(format!("2b taken copy: {outcome:?} {:?}", listing(&dir)));
+        }
+
+        // 2c. A copy that fails on this drive deletes the file it made (the
+        //     check that the name still refers to that file works here),
+        //     and 2d. leaves a file put at the name meanwhile (Codex's
+        //     review of rounds 6-7, finding 1). Failed by copying from a
+        //     folder, which can be opened but not read.
+        let dir = fresh("2c-copy-fails");
+        let folder = fresh("2c-not-a-file");
+        let result = crate::utils::fs_safe::copy_to_new_file(&folder, &dir.join("V.en.srt"));
+        eprintln!("2c failed copy: {result:?} {:?}", listing(&dir));
+        if result.is_ok() || !listing(&dir).is_empty() {
+            problems.push(format!("2c failed copy: {result:?} {:?}", listing(&dir)));
+        }
+        let dir = fresh("2d-copy-fails-replaced");
+        let to = dir.join("V.en.srt");
+        let result = crate::utils::fs_safe::copy_to_new_file_with(&folder, &to, |to| {
+            fs::rename(to, to.with_file_name("moved away")).unwrap();
+            fs::write(to, "somebody else's").unwrap();
+        });
+        eprintln!("2d failed copy, replaced: {result:?} {:?}", listing(&dir));
+        if !result
+            .as_ref()
+            .is_err_and(crate::utils::fs_safe::left_a_file_in_place)
+            || fs::read_to_string(&to).ok().as_deref() != Some("somebody else's")
+        {
+            problems.push(format!(
+                "2d failed copy, replaced: {result:?} {:?}",
+                listing(&dir)
+            ));
         }
 
         // 3. A 240-character video name, and 4. odd characters.
