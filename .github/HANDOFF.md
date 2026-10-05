@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (10:32) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (10:39) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1399,7 +1399,10 @@ on PRs to / pushes to main.
       - Round 1 of fixes pushed (`914810f3`, `d40d78e3`, `9a558b45`; 33 + 16 new tests in `.github/scripts/`, run from `ci.yml`).
       - **Codex round 2 (10:15): 5 high, 1 medium.** Findings 1, 2 and 5 are fixed. The manifest check still matches a setting under the wrong dependency. Five of the six findings are in the "body names a superseded Dependabot PR" path.
       - **Lead's decision:** remove that path. It cannot be inferred soundly: every tightening rejected real fixes, every loosening forwarded unrelated ones. Forward only Dependabot-authored, `security`-labelled or hand-run PRs. The "not forwarded" comment says how to forward. The weekly channel audit is the backstop. Manifests are compared as parsed data.
-      - The same builder is doing round 2, with a watchdog. **Do not merge #1275 until a review is clean.** `alpha` then needs the same files by a separate PR.
+      - Round 2 pushed (`94bd906e`, `ad508f12`). Re-checked here: 40 + 17 tests, actionlint, and the real-data runs.
+      - **Codex round 3 was cut off by its usage limit (resets 14:07).** Before stopping, it was probing workspace inheritance in `Cargo.toml`, and whether a comment can silence the notice.
+      - The lead confirmed the second: anyone could post the hidden marker and stop the "not forwarded" notice. The same builder is fixing it (round 3), with a watchdog.
+      - **Next:** push round 3, then run Codex on `9a558b45..HEAD` at 14:08. **Do not merge #1275 until a review is clean.** `alpha` then needs the same files by a separate PR.
     - After merge: run the workflow by hand for #1264 and #1266 to carry both fixes to `alpha` and `beta` (#1265 lists them).
     - #1275 is `fix(ci)`, so release-please will propose 1.10.9 for `main`; nothing ships until that release PR is merged.
 - **Codex reviewed MeedyaDL rounds 6–7 at 09:08 on 5 Oct: NOT clean — 2 high, 3 medium.** All five are ways the subtitle code can delete or lose a file (full answer: `scratchpad/lang/codex-mdl-r7.out`, last message):
