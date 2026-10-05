@@ -1245,6 +1245,9 @@ on PRs to / pushes to main.
   - `logActivity()` carries on after a deadlock or timeout when no transaction is open.
   - #2137 has a comment. A stand-in review of round 8 is running, with a watchdog; the round-9 carry-over is in `ihymns-r9-carryover.md`.
 - **MeedyaPlayer/MeedyaSubtitler: the nineteenth review found 0 high, 0 medium, 2 low, 2 nits.** The lead fixed them directly (`3351294` / `222842e`, pushed); the twentieth review is running.
+- **MeedyaPlayer/MeedyaSubtitler: the stand-in review loop is DONE.** The twentieth review was clean (0 high, 0 medium, 0 low, 1 nit). The recording commits are `cb1141b` / `5e6b560`, pushed: they reword the nit and add the table row without another review, per the nits-only rule.
+  - **Still owed:** a Codex catch-up review of everything after `bc901ad` / `44cf095` (rounds 10 to 19, all reviewed by stand-ins only), when Codex has allowance. The copyright lines and ADR 0013 still wait on the maintainer.
+  - The twentieth review also flagged the older commits carrying the maintainer's personal email (MeedyaPlayer `097131e`, `d5e3e41`, `4a8ba62`, `2337861`, `5a91b32`; MeedyaSubtitler `53bbc0f`). They are already on `main`/`develop`, so this belongs to the history-rewrite decision.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
