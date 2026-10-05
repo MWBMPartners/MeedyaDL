@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (14:19) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (14:28) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1408,6 +1408,10 @@ on PRs to / pushes to main.
       - **Codex is out until 19:08** (refused at 14:19). A fresh Opus stand-in is reviewing `bc4cadce`, named as a stand-in.
         - If it is clean, #1275 merges. This commit only turns some "already fixed" answers into "needs the fix", the safe direction.
         - The change counts as **not fully reviewed** until Codex re-reviews `bc4cadce` after 19:08 (owed).
+      - **Stand-in review of `bc4cadce`: NOT clean — 1 high, 1 medium (older).**
+        - The mirror inheritance case: the fix changes the workspace entry, and the channel's own entry re-adds the feature.
+        - Another table on the channel (target-specific, or `[features] default = ["foo/risky"]`) can re-enable it.
+        - **Lead's decision (round 5):** for each touched package, collect every place each manifest mentions it (all dependency tables, `[features]`, `patch`, `replace`; every npm section, `overrides` at any depth), and require the two collections to be identical. Otherwise `NEEDS_PORT`. The same builder is on it, with a watchdog.
       - `alpha` then needs the same files by a separate PR.
     - After merge: run the workflow by hand for #1264 and #1266 to carry both fixes to `alpha` and `beta` (#1265 lists them).
     - #1275 is `fix(ci)`, so release-please will propose 1.10.9 for `main`; nothing ships until that release PR is merged.
