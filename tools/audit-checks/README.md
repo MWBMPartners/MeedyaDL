@@ -31,6 +31,7 @@ targeted regex, so no `tomllib`/`tomli`/venv is needed).
 | `check_settings_reach_backend.py` | Every field in `pub struct AppSettings` that the app lets someone change (`useSettingsField('x')` or an `x:` key inside an `updateSettings({...})` call) is either read somewhere in `src-tauri/src` (a `.x` token outside `models/settings.rs` itself), or listed in the script's `FRONTEND_ONLY` dictionary with a checked, honest reason (the theme, the UI language, and other things genuinely acted on by the frontend alone). | A setting with a working UI control, that saves correctly, round-trips through the store perfectly, and changes nothing — because nothing downstream ever reads the value. This is exactly the shape the video "resolution fallback" list turned out to be: it looked exactly as meaningful as every setting next to it. |
 | `check_settings_defaults.py` | The starting settings in the page (`DEFAULT_SETTINGS` in `settingsStore.ts`) still match the app's own (`AppSettings::default()` in Rust) — same values, and nothing missing that the page's type says is required. Enum values are compared by what serde actually calls them, read from the enum's own attributes, not guessed from the spelling. Anything it cannot compare honestly is named at the end of a clean run, so "OK" never silently means "half of them were skipped". | The same list written down twice drifted, and nobody was comparing them. Three values disagreed — and two of the three were exactly the values a settings upgrade step exists to REPAIR, so pressing "Reset" and then "Save" put somebody straight back onto file name patterns that let two playlists with the same name overwrite each other's file (#545, #552). The page's copy also had no settings version number, so a reset-then-save wrote version zero and re-ran every upgrade step at the next launch. |
 | `check_updater_manifest_keys.py` | No workflow file names an updater platform key (`linux-x86_64-deb`, `darwin-aarch64`, …) in code. The one and only list of them is `manifest_rows()` in `scripts/release/updater-manifest.sh`, which both the release workflow and the manual repair tool call. **Every** key found in a workflow is reported, not only unfamiliar ones — and an empty or unreadable `manifest_rows()` is itself a finding, so the check says when it has stopped being able to check anything. | The list of machines the app can offer an update to was typed out by hand in three places at once. Six Linux `.deb`/`.rpm` entries were added to one of them; the repair tool would have deleted those six working update paths from any release it was pointed at, and the checker beside it would have called the result "complete" — because that checker's idea of complete came from the same six hand-written names as the thing it was checking. A machine missing from that file is never offered an update, quietly, with nothing failing anywhere. |
+| `check_polish.py` | The maintainer's rule "nothing may look unfinished, careless or AI-made", as far as a script can see it without a browser: no placeholder addresses, "coming soon", issue numbers or old version notes where people can see them; one name and version across the build files; each screen names the native window; icons at every size; a fallback for an unknown page; a crash screen with plain words and a Reload button; exactly one `<h1>` per screen, no heading inside a button, a name on every icon-only button; no `console.log`/`console.debug`/`debugger`/`dbg!`/`println!` in shipped code; no drafts, backups, Word or test files in `public/`, `help/` or bundled resources; the bundle-size warning not silenced; no `href="#"` or empty handlers; every "Settings > Tab > Section" names a real place (read from the tab files themselves); no claim of a feature whose code is missing (a short hand-kept map: BPM, cloud upload, Spotify for everyone); no message naming the hidden developer unlock; and ratchets -- counts that may only go down -- on hand-made `<button>`/`<select>`/`<input>`, pixel font sizes, non-token corner rounding and "Failed to X: ${error}" toasts. It runs before every push (see "The pre-push hook" below). **It quotes the patterns it hunts for, and so do its test, this README and the hook; it lists all four in `EXEMPT_FILES` so it can never report itself.** | Text, settings places and claims that look finished in the code and read as unfinished, false or broken to the person using the app -- the 2026-10 polish audit found about forty, and none was caught by any other check. |
 
 ## Running locally
 
@@ -48,6 +49,7 @@ python3 tools/audit-checks/check_concurrency_claims.py
 python3 tools/audit-checks/check_settings_reach_backend.py
 python3 tools/audit-checks/check_settings_defaults.py
 python3 tools/audit-checks/check_updater_manifest_keys.py
+python3 tools/audit-checks/check_polish.py
 
 # Strict (exits 1 on a high-severity finding) — handy in a pre-push hook
 python3 tools/audit-checks/check_ipc_commands.py --strict
@@ -62,7 +64,30 @@ python3 tools/audit-checks/check_concurrency_claims.py --strict
 python3 tools/audit-checks/check_settings_reach_backend.py --strict
 python3 tools/audit-checks/check_settings_defaults.py --strict
 python3 tools/audit-checks/check_updater_manifest_keys.py --strict
+python3 tools/audit-checks/check_polish.py --strict
 ```
+
+## The pre-push hook
+
+`tools/hooks/pre-push` runs `check_polish.py` and every check above that
+takes under about three seconds, all with `--strict`, before each `git
+push`, and refuses the push if any finds something. The three slower checks
+(`check_comment_paths.py`, `check_concurrency_claims.py`,
+`check_settings_reach_backend.py`) are left to the pull-request workflow.
+
+**Each clone installs its own hook, once:** git never copies hooks between
+clones (they live inside `.git`, which is not pushed or pulled).
+
+```bash
+./tools/install-hooks.sh
+```
+
+The installer writes a two-line hook that runs the repository's
+`tools/hooks/pre-push`, so later changes to the checks apply without
+installing again. It honours `core.hooksPath`, and it will not overwrite a
+pre-push hook it did not write. The hook checks the files in your working
+folder, so a change you have not committed counts too. In an emergency,
+`git push --no-verify` skips it -- say so in the pull request.
 
 ## Conventions
 
@@ -92,7 +117,7 @@ python3 tools/audit-checks/check_updater_manifest_keys.py --strict
   or change a check.
 
   Better still, make that negative test a file anyone can run, so it keeps
-  proving itself rather than being done once and forgotten. Four exist:
+  proving itself rather than being done once and forgotten. Five exist:
   `check_user_agent.py --self-test` (fixtures inside the script itself),
   `test_check_updater_manifest_keys.py` (a separate file that builds small,
   deliberately-broken fake repositories and runs the real check against them
@@ -111,7 +136,16 @@ python3 tools/audit-checks/check_updater_manifest_keys.py --strict
   python3 tools/audit-checks/test_check_updater_manifest_keys.py
   python3 tools/audit-checks/test_check_comment_paths.py
   python3 tools/audit-checks/test_check_build_secrets.py
+  python3 tools/audit-checks/test_check_polish.py
   ```
+
+  `test_check_polish.py` copies the files the check reads into a
+  throw-away folder, confirms the copy is clean, then plants one fault at a
+  time (22 of them, at least one per rule) and requires exit 1, the right
+  finding, **and** the check's own last line. That last part is because a
+  check that crashes part-way exits non-zero and its traceback can contain
+  the words a test looks for -- so the test also runs a copy of the check
+  that crashes on purpose, and requires that to count as a failure.
 
   None of these is run by CI yet — they are run by hand when a check
   changes. Wiring them into `pr-security.yml` is an open suggestion.

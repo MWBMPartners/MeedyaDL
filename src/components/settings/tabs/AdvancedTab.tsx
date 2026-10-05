@@ -2038,7 +2038,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
             autoComplete="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="you@example.com"
+            placeholder="Your Apple Account email address"
             required
           />
           <div>

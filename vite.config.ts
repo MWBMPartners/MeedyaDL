@@ -216,11 +216,15 @@ export default defineConfig({
      * from the user's own disk, not fetched over a network, and most of
      * the added weight is plain text rather than code to run.
      *
-     * The limit is set a little above the real figure rather than far
-     * above it, so that a genuinely surprising jump still gets noticed.
-     * If you raise it, say what you measured and when, as above.
+     * The limit used to be raised to 1500 kB here, "a little above the
+     * real figure", which silenced the warning. On 5 October 2026 it went
+     * back to Vite's default (500 kB) under the polish rule that a size
+     * warning is fixed by making the bundle smaller, not by raising the
+     * limit -- tools/audit-checks/check_polish.py refuses a raised limit.
+     * The build prints the warning until the rarely opened pages (Help,
+     * Updates) are split out of the main bundle; that work is tracked
+     * separately. The figures above are kept as the history.
      */
-    chunkSizeWarningLimit: 1500,
 
     rolldownOptions: {
       onwarn(warning, warn) {

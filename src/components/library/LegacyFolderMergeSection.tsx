@@ -63,7 +63,7 @@ export function LegacyFolderMergeSection() {
       setPairs(found);
       if (found.length === 0) {
         addToast(
-          'No legacy sibling-folder pairs found. Your library is already in the post-#528 layout.',
+          'No split album folders found. Your library is already tidy.',
           'success'
         );
       } else {
