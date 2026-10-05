@@ -29,7 +29,9 @@
 # that forward-porting is handled separately by
 # `.github/workflows/forward-port-security.yml`, which now distinguishes a
 # genuine security fix from a routine grouped update (both can appear on
-# `main` once `dependabot.yml` targets it) so it only forward-ports the former.
+# `main` once `dependabot.yml` targets it) so it forward-ports only the former
+# on its own (a person can still forward anything with the `security` label
+# or a manual run).
 # The security forward-port PRs that workflow opens onto the channel branches
 # are authored by `github-actions[bot]`, not `dependabot[bot]`, so they are
 # never auto-merged here either — they keep their human review.

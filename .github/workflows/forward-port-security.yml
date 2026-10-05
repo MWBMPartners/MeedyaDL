@@ -1,4 +1,4 @@
-# Copyright (c) 2026 MeedyaSuite
+# Copyright (c) 2024-2026 MeedyaSuite
 # Licensed under the MIT License. See LICENSE file in the project root.
 #
 # Forward-port Security Fixes
@@ -38,7 +38,14 @@
 # grouped-update branch with `/npm-minor-patch-` or `/cargo-minor-patch-`
 # (see the `npm-minor-patch` / `cargo-minor-patch` group names in
 # dependabot.yml); a security-update branch never contains that substring.
-# Only branches WITHOUT that marker are forward-ported here.
+# The name only counts on a pull request Dependabot opened: anyone can give
+# a branch any name. A Dependabot pull request is forwarded automatically
+# only from a branch WITHOUT that marker. A person can still forward any
+# pull request, a grouped one included, with the `security` label or a
+# manual run (see
+# "WHAT QUALIFIES A PULL REQUEST" below): a person choosing to forward is
+# never second-guessed, because a wrong forward costs only a pull request
+# somebody can close.
 #
 # TRIGGER: a push to `main`. When a Dependabot security PR merges (including via
 # auto-merge), its squash commit lands on `main` and fires this workflow in the
@@ -52,16 +59,138 @@
 # AUTO-merged Dependabot PR produces) gets a read-only token under GitHub's
 # Dependabot hardening, so the forward-port could not push. A push to `main` is
 # always full-trust, so auto-merged security fixes forward-port correctly.
+#
+# WHAT QUALIFIES A PULL REQUEST (issue #1165, narrowed after #1275's review)
+# ---------------------------------------------------------------------------
+# A pull request merged to `main` is forward-ported only if:
+#   (a) it was opened by Dependabot (either spelling of its name, see
+#       is_dependabot_login below) and is not a routine grouped update, or
+#   (b) it carries the `security` label, or
+#   (c) somebody ran this workflow by hand for it (`workflow_dispatch` with
+#       its number as `pr_number`).
+# Never forwarded, whatever else would qualify it (a manual run included):
+# release-please's own release PRs (`release-please--branches--` branches
+# in this repository — a fork can name a branch anything), which bump
+# version numbers in the lockfiles on every release and must never be
+# copied onto the channel branches.
+#
+# Why a person has to say so. This repo has a "combine pull requests
+# instead of stacking them" rule (see CLAUDE.md), so a Dependabot fix often
+# reaches `main` inside a pull request a person opened. That really happened
+# — #1128 combined Dependabot's #1122 and #1123 and was never forward-ported.
+# For a while this workflow tried to work that out by itself: if a pull
+# request's description named a closed Dependabot pull request, it checked
+# whether the merged commit carried that pull request's lockfile changes.
+# Two rounds of review on #1275 showed there is no sound way to do that, and
+# that it went wrong in BOTH directions:
+#   - it forwarded unrelated changes: a description is ordinary text anyone
+#     can write, and a pull request that only bumped `bar` qualified by
+#     mentioning an old Dependabot fix whose change was already on `main`;
+#   - it rejected real fixes: when the combined pull request also changed
+#     application code, when the check could not be sure, when the
+#     Dependabot pull request was closed a minute after the merge rather
+#     than before, and when the Dependabot commit was merged in rather than
+#     copied (it then compared the commit with itself and found nothing).
+# Each rejection looked exactly like "not a security fix". So it was removed.
+# Instead, every pull request that changed a lockfile and was not forwarded
+# gets a plain-English notice (see "WHEN NOTHING FORWARD-PORTS
+# AUTOMATICALLY" below) that says which Dependabot pull requests its
+# description names and gives the two commands that forward it: add the
+# `security` label, then run this workflow by hand.
+#
+# The backstop. A security fix nobody labels, and every fix that never
+# went through a pull request at all (one of the two real cases behind
+# #1165: `h2` 0.4.15 -> 0.4.18, fixed by hand after `cargo deny check
+# advisories` turned `main` red at 2am), is caught by
+# `.github/workflows/channel-security-audit.yml`. It checks each channel
+# branch directly against the advisory databases, weekly and whenever a
+# lockfile changes on `main`, however a fix might or might not arrive.
+#
+# Whichever reason applies is written to the run's log in plain words (see
+# the `gate` job below) so nobody has to guess why a given PR was or wasn't
+# forward-ported.
+#
+# WHEN NOTHING FORWARD-PORTS AUTOMATICALLY
+# --------------------------------------------
+# If a PR merges to `main` and changes a lockfile but does not qualify under
+# "WHAT QUALIFIES A PULL REQUEST" above, the `flag-unported-lockfile-change`
+# job below leaves one plain-English comment on it. The comment says it was
+# not forward-ported and why, names any Dependabot pull request its
+# description mentions, and gives the exact commands to forward it (add the
+# `security` label, then `gh workflow run forward-port-security.yml -f
+# pr_number=<n>`). It is a notice, not an alarm: most such PRs are ordinary
+# dependency bumps that don't need to go anywhere else. Looking up the named
+# pull requests is best effort; if a lookup fails, the comment is still
+# posted with the general instructions, because a missing notice could hide
+# a security fix. Two kinds of PR are excluded outright because they are
+# KNOWN, not just likely, to be uninteresting here: release-please's own
+# version-bump PRs (they touch both lockfiles' version fields on every
+# release but are never a security fix) and routine grouped dependency
+# updates (`dependabot.yml` is explicit that security updates are "always
+# created immediately, not batched", so a grouped PR cannot structurally be
+# one — and it would otherwise fire weekly, per ecosystem, forever).
+#
+# CHECKING "ALREADY HAS IT" BEFORE ATTEMPTING THE CHERRY-PICK
+# ----------------------------------------------------------------
+# The one time this workflow ran end to end for real, it conflicted while
+# cherry-picking onto all three channels and opened three "please forward-
+# port this by hand" tracking issues (#1143, #1144, #1145) — and all three
+# were false alarms; every channel already had the fix. That is not bad
+# luck. A lockfile is one huge machine-generated block of text, so the same
+# one-line dependency bump can sit somewhere completely different in the
+# file on a branch that has otherwise drifted, and a plain textual cherry-
+# pick conflicts easily even when the branch is already fine. Conflicts are
+# the ordinary outcome for a lockfile, not the exception — so the OLD "did
+# it apply cleanly?" check (which only ran AFTER attempting the cherry-pick)
+# was checking the wrong thing at the wrong time.
+#
+# `.github/scripts/check_lockfile_already_fixed.py` runs BEFORE the cherry-
+# pick is attempted and asks the real question instead: does the target
+# branch already have everything the fix commit changed? That's a version
+# comparison, not a text diff, so branch drift elsewhere in the file can't
+# produce a false conflict. A wrong "yes" skips a branch silently, so the
+# helper only says "yes" when ALL of these hold (its own header explains
+# each one in full):
+#   - every file the commit changed is a lockfile or one of the two
+#     manifests (`package.json`, `src-tauri/Cargo.toml`) — a code change
+#     riding along with a bump is never skipped;
+#   - every dependency entry the commit added or changed in a manifest is
+#     exactly the same on the branch, in the same place (the same table or
+#     section, for the same package), and every entry it removed is gone
+#     there; and the commit changed nothing else in a manifest;
+#   - every copy of every package whose versions the commit changed — at
+#     any nesting depth in npm, every locked version in Cargo — is at or
+#     above the version the commit moved it to; a package it added is
+#     present at or above the added version; a package it removed is gone,
+#     every copy. A copy on a release line the commit did not touch (another
+#     major version, or another 0.x) means "cannot tell".
+# Anything it cannot read or cannot be sure of is "needs the fix". What it
+# cannot know: whether any version is actually vulnerable (it compares with
+# what main moved to, never with an advisory database — that is
+# `channel-security-audit.yml`'s job), and anything about files other than
+# those four. Only when it can't confirm the branch already has the fix does
+# this fall back to the cherry-pick attempt (which keeps its own existing
+# post-cherry-pick "did this actually change anything?" check as a second,
+# cheap safety net).
+#
+# Tests: `.github/scripts/test_check_lockfile_already_fixed.py` (the helper)
+# and `.github/scripts/test_forward_port_security_workflow.py` (this file's
+# gate, notice and cherry-pick scripts, pulled out of this file and run with
+# a fake `gh`). Both run on every pull request to `main`, in `ci.yml`'s
+# `tauri-version-sync` job.
 
 name: Forward-port Security Fixes
 
 on:
   # A Dependabot security fix reaches this repo by merging to `main`, which is a
   # push on the default branch. So does a routine Dependabot update now that
-  # `dependabot.yml` targets `main` too — the gate job resolves the associated
-  # merged PR, filters to dependabot[bot], and (see "TELLING A SECURITY FIX
-  # APART..." above) skips routine grouped updates by branch name; non-PR
-  # pushes and non-Dependabot merges exit fast at the gate as before.
+  # `dependabot.yml` targets `main` too, and so does a combined/hand-written PR
+  # — the gate job below resolves the merged PR once and decides, for every
+  # push, whether it should be forward-ported (see "WHAT QUALIFIES A PULL
+  # REQUEST" above), and — for anything that does not qualify — whether it
+  # touched a lockfile and deserves the plain-English "this wasn't
+  # forward-ported" comment from the `flag-unported-lockfile-change` job.
+  # Non-PR pushes exit fast at the gate as before.
   push:
     branches: [main]
   # Manual entry point: backfill a fix, or re-run after resolving a conflict,
@@ -69,7 +198,7 @@ on:
   workflow_dispatch:
     inputs:
       pr_number:
-        description: 'Merged Dependabot PR number on main to forward-port'
+        description: 'Number of the merged pull request on main to forward-port (a person asking: the author check is skipped; release-please PRs are still refused)'
         required: true
         type: string
 
@@ -92,10 +221,44 @@ jobs:
   gate:
     runs-on: ubuntu-latest
     outputs:
+      # true whenever a real merged-to-main PR was resolved at all — this is
+      # deliberately NOT the same thing as "should be forward-ported"; see
+      # `should_forward_port` below. Both downstream jobs check this first.
       proceed: ${{ steps.decide.outputs.proceed }}
       pr_number: ${{ steps.decide.outputs.pr_number }}
       merge_sha: ${{ steps.decide.outputs.merge_sha }}
       pr_title: ${{ steps.decide.outputs.pr_title }}
+      author: ${{ steps.decide.outputs.author }}
+      # Whether the `forward-port` job below should act on this PR at all —
+      # true for a Dependabot PR that is not a routine grouped update, for a
+      # PR with the `security` label, and for a manual workflow_dispatch;
+      # false for a release-please PR (whatever else would qualify it, a
+      # manual run included) and for any other PR. See "WHAT QUALIFIES A
+      # PULL REQUEST" at the top of this file.
+      should_forward_port: ${{ steps.decide.outputs.should_forward_port }}
+      # Plain-English reason for the should_forward_port verdict, logged and
+      # also used by the miss-comment job so the comment can say why.
+      forward_port_reason: ${{ steps.decide.outputs.forward_port_reason }}
+      # true if the merge commit touched package-lock.json or
+      # src-tauri/Cargo.lock — the `flag-unported-lockfile-change` job only
+      # ever needs to say anything when this is true.
+      touched_lockfile: ${{ steps.decide.outputs.touched_lockfile }}
+      # true if the PR's head branch is a release-please version-bump branch
+      # (`release-please--branches--...`) — never forward-ported, and
+      # excluded from the miss-comment job too, because those PRs touch both
+      # lockfiles' version fields on every release and are never a security
+      # fix.
+      is_release_please: ${{ steps.decide.outputs.is_release_please }}
+      # true if the PR's head branch is a routine grouped dependency update
+      # (`.../npm-minor-patch-...` or `.../cargo-minor-patch-...`) — also
+      # excluded from the miss-comment job. `dependabot.yml`'s own header
+      # comment is explicit that security updates are "always created
+      # immediately (not batched)", so a grouped PR is not merely unlikely
+      # to be a security fix, it structurally cannot be one — commenting on
+      # every one of these (they land on `main` weekly, per ecosystem) would
+      # be pure noise with zero signal, which is exactly what "a notice, not
+      # an alarm" is not supposed to become.
+      is_routine_grouped: ${{ steps.decide.outputs.is_routine_grouped }}
     steps:
       - name: Resolve source PR and decide
         id: decide
@@ -117,56 +280,173 @@ jobs:
           # is the pushed SHA (a trusted commit already on `main`). On dispatch,
           # the operator supplies it. Both paths then read the PR's authoritative
           # metadata from the API — no workflow event payload is ever trusted.
+          IS_MANUAL=0
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             PR="$INPUT_PR"
-            REQUIRE_DEPENDABOT=0
+            IS_MANUAL=1
           else
             PR=$(gh api "repos/$REPO/commits/$PUSH_SHA/pulls" \
               --jq 'map(select(.merged_at != null)) | (.[0].number // empty)')
-            [ -n "$PR" ] || skip "Push $PUSH_SHA is not a merged PR — nothing to forward-port."
-            REQUIRE_DEPENDABOT=1
+            [ -n "$PR" ] || skip "Push $PUSH_SHA is not a merged PR — nothing to do."
           fi
 
           data=$(gh pr view "$PR" --repo "$REPO" \
-            --json number,state,baseRefName,author,mergeCommit,title,headRefName)
-          [ "$(jq -r .state <<<"$data")" = "MERGED" ]     || skip "PR #$PR is not merged — nothing to forward-port."
+            --json number,state,baseRefName,author,mergeCommit,title,headRefName,isCrossRepository,labels,files)
+          [ "$(jq -r .state <<<"$data")" = "MERGED" ]     || skip "PR #$PR is not merged — nothing to do."
           [ "$(jq -r .baseRefName <<<"$data")" = "main" ] || skip "PR #$PR did not target main — skipping."
-          if [ "$REQUIRE_DEPENDABOT" = "1" ] \
-             && [ "$(jq -r '.author.login' <<<"$data")" != "dependabot[bot]" ]; then
-            skip "PR #$PR author is not dependabot[bot] — skipping."
+
+          AUTHOR=$(jq -r '.author.login' <<<"$data")
+          HEAD_REF=$(jq -r '.headRefName' <<<"$data")
+          MERGE_SHA=$(jq -r '.mergeCommit.oid // empty' <<<"$data")
+          # The title is written into this step's outputs, one `key=value`
+          # per line. Anyone can write a pull request's title, so every
+          # control character in it (a line break, a carriage return, an
+          # escape) becomes a space: otherwise it could start a line of its
+          # own and set another output, such as which commit to copy.
+          TITLE=$(jq -r '.title' <<<"$data")
+          TITLE=${TITLE//[[:cntrl:]]/ }
+          # Whether the head branch lives in a fork. Branch NAMES are chosen
+          # by whoever opens the pull request, so a name only means something
+          # for a branch in this repository (see the two checks below).
+          IS_CROSS_REPO=$(jq -r '.isCrossRepository' <<<"$data")
+          [ -n "$MERGE_SHA" ] || skip "No merge commit SHA for PR #$PR — skipping."
+
+          # GitHub's REST API reports Dependabot's login as "dependabot[bot]",
+          # but `gh pr view --json author` goes through the GraphQL API,
+          # which reports the exact same actor as "app/dependabot" instead —
+          # confirmed live against this repo's own real Dependabot PRs (every
+          # one checked, e.g. #1122, #1123, #1150, #1152-#1154, came back
+          # "app/dependabot" here, never "dependabot[bot]"). Before this fix,
+          # this check only ever recognised the REST-style spelling, which
+          # this GraphQL call never produces — meaning a genuine, un-combined
+          # Dependabot security PR merging straight to `main` silently never
+          # matched here either, on top of the "combining hides the author"
+          # problem #1165 is otherwise about. (dependency-canary.yml's own
+          # search-API query already independently uses the "app/dependabot"
+          # form, for the same underlying reason.) Both spellings are
+          # accepted so this can't quietly break again if a future GitHub or
+          # `gh` CLI change flips which form either endpoint returns.
+          is_dependabot_login() {
+            case "$1" in
+              "dependabot[bot]"|"app/dependabot") return 0 ;;
+              *) return 1 ;;
+            esac
+          }
+
+          IS_DEPENDABOT=false
+          is_dependabot_login "$AUTHOR" && IS_DEPENDABOT=true
+
+          # `dependabot.yml` now also opens ROUTINE (weekly, grouped) update
+          # PRs directly against `main`, so a Dependabot PR on `main` is no
+          # longer automatically a security fix. Dependabot names a routine
+          # grouped-update branch with `/npm-minor-patch-` or
+          # `/cargo-minor-patch-` (the group names configured in
+          # dependabot.yml) — a real security-update branch never contains
+          # that substring. This only decides whether a Dependabot pull
+          # request is forwarded AUTOMATICALLY: a routine update already has
+          # its own direct `target-branch: main` entry. A person can still
+          # forward one with the `security` label or a manual run (see the
+          # order of checks below).
+          #
+          # Only Dependabot's own branch counts: anyone can give a branch this
+          # name, and a pull request taken for a grouped update is neither
+          # forwarded nor flagged by the notice.
+          IS_ROUTINE_GROUPED=false
+          if [ "$IS_DEPENDABOT" = "true" ]; then
+            case "$HEAD_REF" in
+              */npm-minor-patch-*|*/cargo-minor-patch-*) IS_ROUTINE_GROUPED=true ;;
+            esac
           fi
 
-          # `dependabot.yml` now also opens ROUTINE (weekly, grouped)
-          # update PRs directly against `main`, so a Dependabot PR on
-          # `main` is no longer automatically a security fix. Dependabot
-          # names a routine grouped-update branch with `/npm-minor-patch-`
-          # or `/cargo-minor-patch-` (the group names configured in
-          # dependabot.yml) — a real security-update branch never contains
-          # that substring. Skip the routine ones: they already have their
-          # own direct `target-branch: main` entry and don't need
-          # forward-porting anywhere else.
-          HEAD_REF=$(jq -r '.headRefName' <<<"$data")
-          case "$HEAD_REF" in
-            */npm-minor-patch-*|*/cargo-minor-patch-*)
-              skip "PR #$PR head branch '$HEAD_REF' is a routine grouped dependency update, not a security fix — skipping."
-              ;;
-          esac
+          # release-please's own version-bump PRs use this exact branch name
+          # shape (see CLAUDE.md's "Release Please Branch Naming"). They touch
+          # both lockfiles' version fields on every release but are never a
+          # security fix, so they are never forward-ported — whatever else
+          # might qualify them, even a manual run (copying a release's version
+          # bumps onto the channel branches would be wrong in itself) — and
+          # the miss-comment job skips them too. Only a branch in THIS
+          # repository counts (release-please opens its branches here): a fork
+          # can name its branch anything, and a pull request taken for
+          # release-please's would be neither forwarded nor flagged. If
+          # GitHub does not say where the branch lives, it does not count.
+          IS_RELEASE_PLEASE=false
+          if [ "$IS_CROSS_REPO" = "false" ]; then
+            case "$HEAD_REF" in
+              release-please--branches--*) IS_RELEASE_PLEASE=true ;;
+            esac
+          fi
 
-          MERGE_SHA=$(jq -r '.mergeCommit.oid' <<<"$data")
-          TITLE=$(jq -r '.title' <<<"$data")
+          HAS_SECURITY_LABEL=false
+          if jq -e '.labels[]? | select(.name=="security")' <<<"$data" >/dev/null 2>&1; then
+            HAS_SECURITY_LABEL=true
+          fi
 
-          if [ -z "$MERGE_SHA" ] || [ "$MERGE_SHA" = "null" ]; then
-            skip "No merge commit SHA for PR #$PR — skipping."
+          # Order matters. A release-please PR is never forwarded, a manual
+          # run included. After that, a person's say-so wins: a manual run or
+          # the `security` label forwards any pull request, a routine grouped
+          # update included, because a wrong forward only costs a pull request
+          # somebody can close. Without a person's say-so, only a Dependabot
+          # pull request that is not a routine grouped update qualifies.
+          #
+          # A pull request's DESCRIPTION is deliberately never read here. It
+          # used to be: a pull request naming a closed Dependabot pull request
+          # whose lockfile changes it carried was forwarded too. Two rounds of
+          # review on #1275 showed that could not be done soundly, either way:
+          # it forwarded an unrelated change that merely mentioned an old fix,
+          # and it rejected real fixes (with an application change alongside,
+          # when it could not be sure, when the Dependabot pull request was
+          # closed after the merge, or when its commit was merged in rather
+          # than copied). A pull request like that now gets the
+          # `flag-unported-lockfile-change` notice below, which names the
+          # Dependabot pull requests its description mentions and gives the
+          # two commands that forward it. See "WHAT QUALIFIES A PULL REQUEST"
+          # at the top of this file.
+          SHOULD_FORWARD_PORT=false
+          if [ "$IS_RELEASE_PLEASE" = "true" ]; then
+            REASON="PR #$PR head branch '$HEAD_REF' is a release-please release pull request, which is never forward-ported"
+          elif [ "$IS_MANUAL" = "1" ]; then
+            SHOULD_FORWARD_PORT=true
+            REASON="requested manually via workflow_dispatch"
+          elif [ "$HAS_SECURITY_LABEL" = "true" ]; then
+            SHOULD_FORWARD_PORT=true
+            REASON="carries the 'security' label"
+          elif [ "$IS_DEPENDABOT" = "true" ] && [ "$IS_ROUTINE_GROUPED" = "false" ]; then
+            SHOULD_FORWARD_PORT=true
+            REASON="authored by dependabot[bot]"
+          elif [ "$IS_ROUTINE_GROUPED" = "true" ]; then
+            REASON="PR #$PR head branch '$HEAD_REF' is a routine grouped dependency update, not a security fix"
+          else
+            REASON="it was not opened by Dependabot, it has no 'security' label, and nobody ran this workflow by hand for it"
+          fi
+
+          if [ "$SHOULD_FORWARD_PORT" = "true" ] && [ "$IS_DEPENDABOT" = "false" ] && [ "$IS_MANUAL" != "1" ]; then
+            echo "::notice::Forward-porting a non-Dependabot PR #$PR: ${REASON}."
+          fi
+
+          TOUCHED_LOCKFILE=false
+          if jq -e '.files[]? | select(.path=="package-lock.json" or .path=="src-tauri/Cargo.lock")' <<<"$data" >/dev/null 2>&1; then
+            TOUCHED_LOCKFILE=true
           fi
 
           {
             echo "proceed=true"
             echo "pr_number=$PR"
             echo "merge_sha=$MERGE_SHA"
-            # Title may contain arbitrary text; write it as a single line.
-            echo "pr_title=${TITLE//$'\n'/ }"
+            # The title had its control characters replaced above.
+            echo "pr_title=${TITLE}"
+            echo "author=$AUTHOR"
+            echo "should_forward_port=$SHOULD_FORWARD_PORT"
+            echo "forward_port_reason=${REASON}"
+            echo "touched_lockfile=$TOUCHED_LOCKFILE"
+            echo "is_release_please=$IS_RELEASE_PLEASE"
+            echo "is_routine_grouped=$IS_ROUTINE_GROUPED"
           } >> "$GITHUB_OUTPUT"
-          echo "::notice::Will forward-port security fix from PR #$PR ($MERGE_SHA)."
+
+          if [ "$SHOULD_FORWARD_PORT" = "true" ]; then
+            echo "::notice::Will forward-port PR #$PR ($MERGE_SHA) — ${REASON}."
+          else
+            echo "::notice::PR #$PR will not be forward-ported — ${REASON}."
+          fi
 
   # ---------------------------------------------------------------------------
   # One leg per channel branch. fail-fast: false so a conflict on one channel
@@ -174,7 +454,7 @@ jobs:
   # ---------------------------------------------------------------------------
   forward-port:
     needs: gate
-    if: needs.gate.outputs.proceed == 'true'
+    if: needs.gate.outputs.proceed == 'true' && needs.gate.outputs.should_forward_port == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -214,12 +494,58 @@ jobs:
           fi
           git fetch --no-tags origin "$TARGET" "$MERGE_SHA"
 
+          # Ask the real question BEFORE attempting a cherry-pick at all: does
+          # $TARGET already have everything this fix commit changed? See
+          # "CHECKING 'ALREADY HAS IT'..." at the top of this file for why a
+          # textual cherry-pick conflict is the wrong signal for a lockfile,
+          # and for exactly what the helper counts as "already has it". Only
+          # a confident "yes" skips the cherry-pick: every file the commit
+          # changed is a lockfile or one of the two manifests named here,
+          # every manifest line it added is already on $TARGET and every line
+          # it removed is gone, and every copy of every package it changed is
+          # fixed there. Anything else — a code change riding along with a
+          # bump, a version behind, a crash — falls through to the cherry-
+          # pick unchanged.
+          #
+          # This used to be split in two: a shell check here that only
+          # stopped the shortcut for files OTHER than lockfiles and
+          # manifests, and a helper that only compared lockfile versions. So
+          # a manifest change nobody compared (Codex's case: turning off an
+          # unsafe Cargo feature alongside a bump the channel already had)
+          # could be skipped. The whole decision now lives in the helper,
+          # where its tests can reach it, and the helper treats any file it
+          # was not told about as one it cannot check.
+          LOCKFILE_CHECK=$(python3 "$GITHUB_WORKSPACE/.github/scripts/check_lockfile_already_fixed.py" \
+            --repo-root "$GITHUB_WORKSPACE" \
+            --old "${MERGE_SHA}^" \
+            --new "$MERGE_SHA" \
+            --target "origin/$TARGET" \
+            --manifest package.json \
+            --manifest src-tauri/Cargo.toml \
+            package-lock.json src-tauri/Cargo.lock) && LOCKFILE_RC=0 || LOCKFILE_RC=$?
+          while IFS= read -r line; do echo "  $line"; done <<<"$LOCKFILE_CHECK"
+          if [ "$LOCKFILE_RC" = "0" ] && grep -qx 'RESULT=ALREADY_FIXED' <<<"$LOCKFILE_CHECK"; then
+            echo "::notice::'$TARGET' already has everything this fix changed — nothing to forward-port. See the DETAIL lines above."
+            exit 0
+          fi
+
           WORK="forward-port/security/pr-${PR_NUMBER}-to-${TARGET}"
 
-          # Idempotency: don't stack duplicate PRs on re-run.
-          if [ "$(gh pr list --repo "$REPO" --head "$WORK" --state open --json number --jq 'length')" != "0" ]; then
-            echo "::notice::Forward-port PR for #$PR_NUMBER -> $TARGET already open — skipping."
-            exit 0
+          # Idempotency: don't stack duplicate PRs on re-run. Only this
+          # workflow's own pull request counts: its branch lives in THIS
+          # repository (only someone who can push here can create one) and it
+          # targets $TARGET. `--head` matches a branch NAME, and a fork can
+          # open a pull request from a branch with the same name; when that
+          # counted, a stranger could stop the forward-port. If the lookup
+          # fails, carry on: at worst the push below fails, loudly.
+          if OPEN_PRS=$(gh pr list --repo "$REPO" --head "$WORK" --state open --json isCrossRepository,baseRefName \
+                --jq "[.[] | select(.isCrossRepository == false and .baseRefName == \$ENV.TARGET)] | length"); then
+            if [ "$OPEN_PRS" != "0" ]; then
+              echo "::notice::Forward-port PR for #$PR_NUMBER -> $TARGET already open — skipping."
+              exit 0
+            fi
+          else
+            echo "::warning::Could not check for an open forward-port PR for #$PR_NUMBER -> $TARGET — carrying on."
           fi
 
           git checkout -B "$WORK" "origin/$TARGET"
@@ -252,11 +578,26 @@ jobs:
             echo "::notice::Opened forward-port PR: #$PR_NUMBER -> $TARGET"
           else
             git cherry-pick --abort || true
-            # Idempotency: one tracking issue per (PR, target).
+            # Idempotency: one tracking issue per (PR, target). Only this
+            # workflow's own open issue with exactly this title counts:
+            # anyone can open an issue on a public repository, and when a
+            # title search alone counted, a stranger's issue could stop this
+            # one being opened. "This workflow's own" means opened by the
+            # account behind GH_TOKEN. If that account or the issue list
+            # cannot be looked up, the issue is opened anyway: a duplicate is
+            # a small nuisance, a missing one could hide a security fix.
             MARKER="[forward-port] #${PR_NUMBER} -> ${TARGET}"
-            if [ "$(gh issue list --repo "$REPO" --state open --search "in:title \"$MARKER\"" --json number --jq 'length')" != "0" ]; then
-              echo "::notice::Tracking issue for $MARKER already open — skipping."
-              exit 0
+            ISSUE_TITLE="$MARKER: security fix needs manual forward-port"
+            export ISSUE_TITLE
+            if ISSUE_AUTHOR=$(gh api user --jq .login) && [ -n "$ISSUE_AUTHOR" ] && export ISSUE_AUTHOR \
+               && OPEN_ISSUES=$(gh issue list --repo "$REPO" --state open --search "in:title \"$MARKER\"" --json title,author \
+                    --jq "[.[] | select(.author.login == \$ENV.ISSUE_AUTHOR and .title == \$ENV.ISSUE_TITLE)] | length"); then
+              if [ "$OPEN_ISSUES" != "0" ]; then
+                echo "::notice::Tracking issue for $MARKER already open — skipping."
+                exit 0
+              fi
+            else
+              echo "::warning::Could not check for an open tracking issue for $MARKER — opening one anyway."
             fi
             BODY=$(printf '%s\n' \
               "The security fix merged to \`main\` in #${PR_NUMBER} could not be cleanly cherry-picked onto \`${TARGET}\` — the channel's lockfile/manifest has diverged and the cherry-pick conflicts." \
@@ -278,8 +619,143 @@ jobs:
               "---" \
               "_Generated by [Claude Code](https://claude.ai/code)_")
             gh issue create --repo "$REPO" \
-              --title "$MARKER: security fix needs manual forward-port" \
+              --title "$ISSUE_TITLE" \
               --label "dependencies" --label "security" \
               --body "$BODY"
             echo "::warning::Conflict forward-porting #$PR_NUMBER to $TARGET — opened tracking issue."
           fi
+
+  # ---------------------------------------------------------------------------
+  # "Make a miss loud": a PR merged to `main`, changed a lockfile, and didn't
+  # qualify for forward-porting above (not a Dependabot PR, no `security`
+  # label, and nobody ran this workflow by hand for it). Release-please PRs
+  # and routine grouped updates are left out, because they cannot be
+  # security fixes; see "WHEN NOTHING FORWARD-PORTS AUTOMATICALLY". That's
+  # usually fine — most such PRs are ordinary dependency bumps with nothing
+  # security-relevant about them — but if this one WAS a security fix (a
+  # combined PR carrying a Dependabot fix, say), the channel branches are
+  # exposed right now. This comment is how a person finds out, and it gives
+  # them the two commands that forward it. Since the gate no longer reads a
+  # pull request's description, this notice is the ONLY place a combined
+  # Dependabot fix is pointed out, so it must never be silenced by a failed
+  # lookup: every lookup in it is best effort, and the general instructions
+  # are always posted.
+  # ---------------------------------------------------------------------------
+  flag-unported-lockfile-change:
+    needs: gate
+    if: >-
+      github.event_name == 'push' &&
+      needs.gate.outputs.proceed == 'true' &&
+      needs.gate.outputs.should_forward_port == 'false' &&
+      needs.gate.outputs.touched_lockfile == 'true' &&
+      needs.gate.outputs.is_release_please == 'false' &&
+      needs.gate.outputs.is_routine_grouped == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment on the PR noting it wasn't forward-ported
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ needs.gate.outputs.pr_number }}
+          MERGE_SHA: ${{ needs.gate.outputs.merge_sha }}
+          REASON: ${{ needs.gate.outputs.forward_port_reason }}
+        run: |
+          set -euo pipefail
+
+          # Idempotency: a marker HTML comment (invisible when rendered)
+          # identifies our own past notices, so a re-run of this workflow
+          # against the same PR never leaves a second copy.
+          #
+          # Only a comment POSTED BY THIS WORKFLOW'S ACCOUNT counts. On a
+          # public repository anyone can post a comment containing the
+          # marker; when any author counted, a stranger could switch the
+          # notice off (found in Codex's third review of #1275). The account
+          # is the one behind GH_TOKEN, asked for once. Every page of
+          # comments is read (`--paginate`): one call returns only the first
+          # 30. The filter prints one line per matching comment, so the
+          # answer is right however gh splits the pages.
+          #
+          # If either lookup fails, the notice is posted anyway: a duplicate
+          # is a small nuisance, a missing notice could hide a security fix.
+          MARKER="<!-- forward-port-security: not-forward-ported notice -->"
+          if NOTICE_AUTHOR=$(gh api user --jq .login) && [ -n "$NOTICE_AUTHOR" ]; then
+            export NOTICE_AUTHOR
+            if EARLIER=$(gh api --paginate "repos/${REPO}/issues/${PR_NUMBER}/comments" \
+                  --jq ".[] | select(.user.login == \$ENV.NOTICE_AUTHOR and (.body | contains(\"${MARKER}\"))) | .id"); then
+              if [ -n "$EARLIER" ]; then
+                echo "::notice::Already left the not-forward-ported notice on #$PR_NUMBER — skipping."
+                exit 0
+              fi
+            else
+              echo "::warning::Could not read #$PR_NUMBER's comments to check for an earlier notice — posting one anyway."
+            fi
+          else
+            echo "::warning::Could not find out which account posts this notice, so cannot tell its earlier notice from anyone else's — posting one anyway."
+          fi
+
+          # Best effort: which Dependabot pull requests does this one's
+          # description name? Only `#<number>` references are looked at (at
+          # most 25 of them, so a long description cannot cost hundreds of
+          # API calls), and each is a Dependabot one if its author is, under
+          # either spelling of Dependabot's name. A failure here only changes
+          # one sentence of the notice; it never stops the notice.
+          NAMED=""
+          DESCRIPTION_READ=true
+          if DESCRIPTION=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json body --jq '.body // ""'); then
+            for ref in $(grep -oE '#[0-9]+' <<<"$DESCRIPTION" | tr -d '#' | sort -un | head -n 25 || true); do
+              [ "$ref" != "$PR_NUMBER" ] || continue
+              login=$(gh pr view "$ref" --repo "$REPO" --json author --jq '.author.login // ""' 2>/dev/null) || continue
+              case "$login" in
+                "dependabot[bot]"|"app/dependabot") NAMED="${NAMED:+$NAMED, }#$ref" ;;
+              esac
+            done
+          else
+            DESCRIPTION_READ=false
+            echo "::warning::Could not read #$PR_NUMBER's description — the notice will not say which Dependabot pull requests it names."
+          fi
+
+          if [ -n "$NAMED" ]; then
+            NAMED_LINE="Its description names Dependabot pull request(s) ${NAMED}. If this pull request carries a security fix from one of them, the channel branches do not have that fix yet. This workflow does not decide that from a description, so a person has to: see below."
+          elif [ "$DESCRIPTION_READ" = "false" ]; then
+            NAMED_LINE="(This notice could not read the pull request's description, so it cannot say whether it names a Dependabot pull request.)"
+          else
+            NAMED_LINE=""
+          fi
+
+          BODY=$(printf '%s\n' \
+            "$MARKER" \
+            "This pull request changed \`package-lock.json\` and/or \`src-tauri/Cargo.lock\`, but it was not automatically copied onto the \`alpha\`, \`beta\` and \`release-candidate\` branches." \
+            "" \
+            "Why not: ${REASON}." \
+            "" \
+            "$NAMED_LINE" \
+            "" \
+            "That's fine for an ordinary dependency bump — most of them don't need to go anywhere else. This is a heads-up in case this one fixes a security advisory: if so, the channel branches are still exposed to it." \
+            "" \
+            "**If this was a security fix**, forward it like this:" \
+            "" \
+            "1. Add the \`security\` label, so the reason is on record:" \
+            "   \`gh pr edit ${PR_NUMBER} --add-label security\`" \
+            "2. Run the forward-port workflow for this pull request:" \
+            "   \`gh workflow run forward-port-security.yml -f pr_number=${PR_NUMBER}\`" \
+            "" \
+            "The workflow opens a pull request on each channel branch that needs the fix, or an issue where the fix cannot be copied cleanly. To copy it by hand instead:" \
+            "" \
+            '```bash' \
+            "git fetch origin <target> ${MERGE_SHA}" \
+            "git checkout -B forward-port/security/pr-${PR_NUMBER}-to-<target> origin/<target>" \
+            "git cherry-pick -x ${MERGE_SHA}" \
+            "# resolve any conflicts, then:" \
+            "git push -u origin forward-port/security/pr-${PR_NUMBER}-to-<target>" \
+            "gh pr create --base <target> --label dependencies --label security --title \"chore(security): forward-port #${PR_NUMBER} to <target>\"" \
+            '```' \
+            "" \
+            "(replace \`<target>\` with \`alpha\`, \`beta\` or \`release-candidate\`)." \
+            "" \
+            "**If this wasn't a security fix**, there's nothing to do — this comment is for information only. If a security fix is missed anyway, the weekly channel security audit (\`channel-security-audit.yml\`) still checks every channel branch against the published advisories." \
+            "" \
+            "---" \
+            "_Generated by [Claude Code](https://claude.ai/code)_")
+
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
+          echo "::notice::Left a not-forward-ported notice on #$PR_NUMBER."

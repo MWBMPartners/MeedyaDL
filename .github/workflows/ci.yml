@@ -533,3 +533,21 @@ jobs:
 
       - name: Check Tauri npm/Rust version sync
         run: python3 tools/audit-checks/check_tauri_version_sync.py --strict
+
+      # The forward-port workflow's tests ride along here because this is
+      # the smallest job that already runs on every pull request to `main`
+      # and already has Python — and `forward-port-security.yml` itself only
+      # ever runs from `main`, after the fact, so a pull request to `main`
+      # is the last chance to catch a mistake in it. They decide whether a
+      # security fix reaches the alpha, beta and release-candidate branches:
+      # one tests the "already has it" helper, the other runs the workflow's
+      # own gate and cherry-pick scripts (read out of the workflow file)
+      # with a fake `gh`. Standard library only; they also need `git`, `jq`
+      # and bash, which the runner has. A failure turns this job, and so the
+      # pull request's CI, red. (No check is marked as required on `main`
+      # today, so that red is a signal for the person merging rather than
+      # something GitHub enforces.)
+      - name: Test the forward-port security workflow
+        run: |
+          python3 .github/scripts/test_check_lockfile_already_fixed.py
+          python3 .github/scripts/test_forward_port_security_workflow.py
