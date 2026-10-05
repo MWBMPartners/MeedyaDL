@@ -163,9 +163,12 @@ did not change.
   output yet exits 0, which published an empty file). Windows/Linux branches
   type-checked, only run on macOS (Codex's catch-up review and round 5).
 - `.gitattributes` protects each policy copy with
-  `-text -filter -working-tree-encoding -ident`; a higher-priority setting on
-  someone's own machine can still change the bytes and the checker would then
-  say so.
+  `-text -filter -working-tree-encoding -ident`. What can still override
+  those lines: a LATER line in the same file that matches the copy, a
+  `.gitattributes` closer to the copy (its own folder or one between it and
+  the top), and `.git/info/attributes` (always highest priority). The global
+  and system attributes files have the lowest priority and cannot. The copy
+  checker reports any changed bytes.
 - LRC `[la:]`: the standard tag or nothing; WebVTT from TTML gets a
   `NOTE language: <tag>` comment block (#1250).
 - Music-video subtitle files: `{video}.{tag}[.{role}…][.{n}].{ext}`; old

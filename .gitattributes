@@ -14,10 +14,19 @@
 # "\r\n"), through a filter (-filter), through text-encoding conversion
 # (-working-tree-encoding), or through "$Id$" expansion (-ident).
 #
-# What they CANNOT do: stop a setting with higher priority on somebody's own
-# machine, such as one in .git/info/attributes. If someone has one, git will
-# change the copy's bytes there, and the copy checker will correctly report
-# the copy as changed.
+# What can still override them, by git's own rules for attributes:
+#   - any LATER line in this same file that also matches a copy. Git uses
+#     the last matching line for each setting, so that line need not be
+#     broader than these to win;
+#   - a .gitattributes file closer to the copy: in the copy's own folder, or
+#     in a folder between it and the top of the repository (a deeper file
+#     wins over a shallower one). A .gitattributes in some other folder, one
+#     that does not contain the copy, has no effect on it;
+#   - .git/info/attributes on somebody's own machine, because git always
+#     gives that file the highest priority.
+# The global and system attributes files have the LOWEST priority, so they
+# cannot override these lines. Whatever overrides them, the copy checker
+# still compares every byte and reports a changed copy as changed.
 #
 # Never edit the copies. Change the master in MeedyaSuite-core, then take it
 # here with: python3 scripts/media-lang/check_copies.py --update <commit>
