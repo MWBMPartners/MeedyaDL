@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (10:16) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (10:21) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1343,7 +1343,8 @@ on PRs to / pushes to main.
     - rclone and "direct-to-cloud" advertised with no code behind them;
     - channel versions that disagree.
   - **Work:** one effort branch, `feature/polish-pass`, cut from alpha and kept separate from the language branch.
-    - **Part A builder running** (Opus, `polish/brief-polish-a.md`), with a watchdog. It covers the pre-push check (`tools/audit-checks/check_polish.py`, `tools/hooks/pre-push`, installer, self-test) plus H1–H3, H6, H7, M1–M4, M9, M11, M14–M16, and the low items that need no browser.
+    - **Part A done and pushed: `feature/polish-pass` at `211ab4ca`** (14 commits plus a whitespace fix, cut from alpha `0e515cb3`, not reviewed yet). Re-checked here: 2,101 Rust tests, 906 frontend tests, type-check, lint, build, every audit check with `--strict`, and the polish check's self-test 24/24. The new pre-push hook ran on the push. Issues #1270–#1295 are on board 6, each with its commit. **Owed: a Codex review before any PR** (it adds a window-title permission and changes the Spotify refusal wording).
+    - **Part B building** (Opus, `polish/brief-polish-b.md`), with a watchdog. Lead's decision on M10: hide German and French until their translations are complete; a saved choice is kept and shown as incomplete.
     - Part B follows: layout at small windows, error messages, bundle size and consistency.
   - **Waiting on the maintainer:** H8 (the RC and beta branches carry versions older than stable), M18 (the GitHub repository's description, topics, homepage and social preview), M19 (the wiki: stale, and it publishes the developer-access key sequence), M21 (the releases page: a draft duplicate and inconsistent pre-release flags), L18 (the OnlyFans engine entry ships in every installer).
 - **MeedyaSuite-core: Codex's review of revision 11 (`cd3ca07..0e43b14`) is NOT clean — 2 high, 1 medium, 3 low.**
