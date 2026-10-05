@@ -137,3 +137,13 @@ describe('HistoryPage -- "Clear History" confirmation', () => {
     expect(clearHistory).not.toHaveBeenCalled();
   });
 });
+
+describe('HistoryPage -- row layout (polish pass M6)', () => {
+  it('keeps the date on one line: it never shrinks or wraps; the artist and album truncate instead', async () => {
+    vi.mocked(listHistory).mockResolvedValue([makeEntry({ id: 'a' })]);
+    render(<HistoryPage />);
+    const date = await screen.findByTestId('history-date');
+    expect(date.className).toContain('whitespace-nowrap');
+    expect(date.className).toContain('flex-shrink-0');
+  });
+});

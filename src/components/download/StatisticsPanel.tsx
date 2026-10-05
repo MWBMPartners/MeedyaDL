@@ -93,7 +93,9 @@ export function StatisticsPanel() {
   if (stats.total === 0) return null;
 
   return (
-    <div className="px-4 pb-2 space-y-2">
+    // `px-6`: the same inset as the page title (it was `px-4`, 8px to
+    // the left of the Activity page's own title; polish audit L1).
+    <div className="px-6 pb-2 space-y-2">
       <SettingsSection title="Session Statistics" defaultOpen={false}>
         {/* Row 1: Summary cards */}
         <div className="grid grid-cols-3 gap-3">

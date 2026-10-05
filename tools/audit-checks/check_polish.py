@@ -936,10 +936,10 @@ SECTION_RATCHET = "Ratchet: a count that may only go down has moved"
 # count in the same change (the check insists, so the count cannot quietly
 # creep back up later). Raising one needs a reason written here.
 RATCHETS = {
-    "raw_button": 55,
+    "raw_button": 51,
     "raw_select": 3,
-    "raw_input": 12,
-    "px_font_size": 48,
+    "raw_input": 11,
+    "px_font_size": 47,
     "non_token_rounding": 86,
     "failed_to_toast": 17,
 }

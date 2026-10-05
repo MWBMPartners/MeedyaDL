@@ -107,6 +107,12 @@ export type { ContextMenuItem } from './ContextMenu';
  */
 export { MenuButton } from './MenuButton';
 
+/**
+ * A small on/off pill that filters a list (toggle-button semantics).
+ * Used in: DownloadQueue (state filters), ActivityLog (category filters).
+ */
+export { FilterChip } from './FilterChip';
+
 /* -------------------------------------------------------------------------- */
 /*  Feedback / status components                                               */
 /* -------------------------------------------------------------------------- */

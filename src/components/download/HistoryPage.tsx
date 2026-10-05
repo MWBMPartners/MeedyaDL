@@ -494,7 +494,14 @@ export function HistoryPage() {
 
                     {/* Secondary info */}
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-content-tertiary">
+                      {/* The date never shrinks or wraps: the artist and
+                          album beside it truncate instead. It used to be
+                          the first thing squeezed, so at the default size
+                          it broke onto three lines ("5 / Oct, / 03:59"). */}
+                      <span
+                        data-testid="history-date"
+                        className="text-xs text-content-tertiary flex-shrink-0 whitespace-nowrap"
+                      >
                         {formatDate(entry.completed_at)}
                       </span>
                       {entry.artist && (

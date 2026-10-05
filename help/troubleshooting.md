@@ -454,11 +454,11 @@ When a download starts, the Activity Log now displays which authentication metho
 
 #### Activity Log Auto-Scroll
 
-The Activity Log auto-scrolls to the bottom by default. An **Auto-scroll** checkbox in the toolbar shows the current state:
+The Activity Log auto-scrolls to the bottom by default. An **Auto-scroll** switch at the top of the page shows the current state:
 
-- **Checked (default):** The log scrolls to the bottom as new entries arrive.
-- **Scrolling up:** The checkbox automatically unchecks, freezing the view so you can read earlier entries without losing your place.
-- **Re-checking:** Jumps back to the bottom and resumes auto-scrolling.
+- **On (default):** The log scrolls to the bottom as new entries arrive.
+- **Scrolling up:** The switch turns itself off, freezing the view so you can read earlier entries without losing your place.
+- **Turning it back on:** Jumps back to the bottom and resumes auto-scrolling.
 
 The Activity Log retains up to **10,000 entries** per session. When the limit is reached, the oldest entries are trimmed. Trimmed entries are not lost — they are persisted to the on-disk activity log (see below) so post-hoc forensic analysis remains possible.
 
@@ -466,19 +466,19 @@ The Activity Log retains up to **10,000 entries** per session. When the limit is
 
 ### Activity Log Export
 
-The Activity Log toolbar offers **three** actions for preserving log data, each suited to a different scenario:
+The **More** menu at the top of the Activity Log page offers **three** actions for preserving log data, each suited to a different scenario:
 
-| Button | What it exports | When to use it |
+| Menu item | What it exports | When to use it |
 | --- | --- | --- |
-| **Export** | The entries currently visible in the Activity Log panel — respects any active search or category filter. | Quick share of a specific slice of the log. Matches what you see on screen. |
-| **Export Disk** | The persistent on-disk activity log — the complete, untrimmed record of the last three days. | Bug reports and post-hoc forensic analysis. Captures events that were trimmed from the 10,000-line in-memory view and every verbose line regardless of filter state. |
-| **Reveal** | Opens the logs folder in Finder / Explorer / your file manager. | Attaching raw log files to a GitHub issue, archiving them manually, or pointing a support channel at them. |
+| **Export the lines shown** | The entries currently visible in the Activity Log panel — respects any active search or category filter. | Quick share of a specific slice of the log. Matches what you see on screen. |
+| **Export the full log (last 3 days)** | The persistent on-disk activity log — the complete, untrimmed record of the last three days. | Bug reports and post-hoc forensic analysis. Captures events that were trimmed from the 10,000-line in-memory view and every verbose line regardless of filter state. |
+| **Open the logs folder** | Opens the logs folder in Finder / Explorer / your file manager. | Attaching raw log files to a GitHub issue, archiving them manually, or pointing a support channel at them. |
 
 #### How to Export the Visible Activity Log
 
 1. Open the **Activity** page from the sidebar (or press Cmd/Ctrl + K).
 2. (Optional) Narrow the view with the search box or the System / Download / Verbose category toggles.
-3. Click the **Export** button in the Activity Log header.
+3. Open the **More** menu at the top of the Activity Log page and choose **Export the lines shown**.
 4. Choose a save location in the native file dialog — the default filename includes a timestamp (e.g., `MeedyaDL-activity-log_2026-04-22_14h05m.log`).
 5. The exported `.log` file is plain-text with one entry per line, each prefixed with a timestamp. System events are marked with `[System]` and download events include the download ID.
 
@@ -492,9 +492,9 @@ MeedyaDL writes every activity log event to a daily-rotating file on disk (`acti
 - Every verbose event, even when the Verbose filter in the UI is off.
 - Events written before the Activity Log panel was ever opened in that session.
 
-To export it, click **Export Disk** in the Activity Log toolbar. MeedyaDL concatenates the last three daily log files, prepends a header line with each file's date, and opens a native save dialog. A success toast shows how many KB were written.
+To export it, open the **More** menu at the top of the Activity Log page and choose **Export the full log (last 3 days)**. MeedyaDL concatenates the last three daily log files, prepends a header line with each file's date, and opens a native save dialog. A success toast shows how many KB were written.
 
-You can also browse the log files directly by clicking **Reveal** — this opens the logs folder in your OS file manager. Files are named `activity-YYYY-MM-DD.log`; you can attach them directly to bug reports.
+You can also browse the log files directly with **Open the logs folder** in the same menu — this opens the logs folder in your OS file manager. Files are named `activity-YYYY-MM-DD.log`; you can attach them directly to bug reports.
 
 > **Retention:** On-disk activity logs are kept for **7 days** before being pruned automatically, matching the retention window for the tracing log. A heavy download session typically writes under 5 MB per day.
 

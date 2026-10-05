@@ -89,7 +89,7 @@ import {
 } from '@/lib/tauri-commands';
 
 /** Reusable UI components from the common library. */
-import { Button, MenuButton, Modal, getStatusLabel } from '@/components/common';
+import { Button, FilterChip, MenuButton, Modal, getStatusLabel } from '@/components/common';
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
@@ -1256,22 +1256,13 @@ export function DownloadQueue() {
                 const count = queueItems.filter((i) => i.state === state).length;
                 if (count === 0 && !active) return null;
                 return (
-                  <button
-                    key={state}
-                    type="button"
-                    onClick={() => toggleStatusFilter(state)}
-                    className={`px-2 py-0.5 rounded-full border transition-colors ${
-                      active
-                        ? 'bg-accent text-content-on-accent border-accent'
-                        : 'bg-surface-elevated text-content-secondary border-border-light hover:border-accent'
-                    }`}
-                    aria-pressed={active}
-                  >
-                    {/* The same words as the status pills on each row
-                        ("Complete", "Cancelled"). It used to show the
-                        program's own lowercase state names. */}
+                  // The shared FilterChip (also used on the Activity page).
+                  // The label uses the same words as the status pills on
+                  // each row ("Complete", "Cancelled"); it used to show the
+                  // program's own lowercase state names.
+                  <FilterChip key={state} pressed={active} onClick={() => toggleStatusFilter(state)}>
                     {getStatusLabel(state)} ({count})
-                  </button>
+                  </FilterChip>
                 );
               },
             )}

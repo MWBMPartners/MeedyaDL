@@ -502,12 +502,12 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ macOS in-app updater fix — corrected updater artifact filename in release workflow so `darwin-aarch64` platform is included in `latest.json`
 - ✅ Clipboard detection queues directly — clicking "Download" on the clipboard toast adds to queue in one click (no more pre-filling the URL input)
 - ✅ Native OS notifications for clipboard detection — sent when the window is not focused so URLs are never missed
-- ✅ Activity Log auto-scroll checkbox — replaces Pause/Resume button with a visible checkbox that auto-unchecks when user scrolls up
-- ✅ Album context in progress bar — shows "DOWNLOADING... Artist — Album — Track" with early metadata fetch; activity log track separators include artist/album context
+- ✅ Activity Log auto-scroll switch — replaces the Pause/Resume button with a visible switch that turns itself off when you scroll up
+- ✅ Album context in progress bar — shows "Downloading: Artist — Album — Track" with early metadata fetch; activity log track separators include artist/album context
 - ✅ Notification style control — 3-way setting (`in_app_only` / `native_and_in_app` / `native_only`) for fine-grained notification delivery in Settings > General
 - ✅ Download history — persistent history with search, status icons, codec badges (max 1000 entries)
 - ✅ Companion lyrics fix — all 4 lyrics conversion formats (LRC, SRT, VTT, ASS) now generated for every companion tier, not just the primary download
-- ✅ Persistent on-disk activity log ([#541](https://github.com/MWBMPartners/MeedyaDL/issues/541)) — every Activity Log event is mirrored to a daily-rotating `activity-YYYY-MM-DD.log` file via a buffered background writer (no hot-path disk I/O, no memory leak). Complete forensic record for bug hunting, unaffected by the 10K in-memory cap or the Verbose filter. **Export Disk** and **Reveal** buttons in the Activity Log toolbar; optional custom log path in Settings > Advanced > Diagnostics. 7-day retention.
+- ✅ Persistent on-disk activity log ([#541](https://github.com/MWBMPartners/MeedyaDL/issues/541)) — every Activity Log event is mirrored to a daily-rotating `activity-YYYY-MM-DD.log` file via a buffered background writer (no hot-path disk I/O, no memory leak). Complete forensic record for bug hunting, unaffected by the 10K in-memory cap or the Verbose filter. **Export the full log** and **Open the logs folder** in the Activity Log's **More** menu; optional custom log path in Settings > Advanced > Diagnostics. 7-day retention.
 
 ### v2.x — Multi-Service Expansion
 

@@ -1206,7 +1206,10 @@ export function DownloadForm() {
            * (`flex-wrap` alone) -- the box then shrinks to its minimum
            * before anything wraps, which is the same fault.
            */}
-          <div className="@container">
+          {/* Toasts never cover this row (the box, Add to Queue, Import,
+              Link List and Scan): the toast stack starts below it. See
+              KEEP_CLEAR_ATTRIBUTE in ToastContainer. */}
+          <div className="@container" data-toasts-keep-clear="">
           <div data-testid="url-input-row" className="flex flex-col gap-2 @5xl:flex-row @5xl:items-start">
             {/*
              * URL text input. Takes the full width when the buttons are

@@ -5,8 +5,9 @@
  * @file Toast notification container and individual toast item component.
  *
  * This file exports a single public component, {@link ToastContainer}, which
- * renders a fixed-position stack of toast notifications in the top-right
- * corner of the viewport. Individual toast messages are managed by the global
+ * renders a fixed-position stack of toast notifications on the right of
+ * the window, below the page header (and below any area a page marks to
+ * keep clear). Individual toast messages are managed by the global
  * UI store (`useUiStore`) and rendered as {@link ToastItem} sub-components.
  *
  * **Toast lifecycle:**
@@ -32,6 +33,8 @@
  * @see https://lucide.dev/guide/packages/lucide-react
  */
 import { CheckCircle, AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
+import { DEFAULT_TOP, KEEP_CLEAR_ATTRIBUTE, toastStackTop } from '@/lib/toastPlacement';
 
 // Every toast in the app passes through this one shared container, so
 // translating its two fixed strings (the dismiss button, the landmark
@@ -121,6 +124,24 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
   /* Alias the icon component for JSX usage (must start with uppercase) */
   const Icon = config.icon;
 
+  /*
+   * Long messages are cut to three lines, with "Show more" to read the
+   * rest (polish audit M7). A toast used to grow to fit any message, so
+   * a long error or file path made a card about 250px tall, and error
+   * toasts never go away by themselves. Whether the text is actually
+   * cut is measured after it is drawn, so "Show more" only appears when
+   * there is more to show.
+   */
+  const messageRef = useRef<HTMLParagraphElement>(null);
+  const messageId = useId();
+  const [expanded, setExpanded] = useState(false);
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const el = messageRef.current;
+    if (!el || expanded) return;
+    setCut(el.scrollHeight > el.clientHeight + 1);
+  }, [toast.message, expanded]);
+
   return (
     <div
       className={`
@@ -138,7 +159,24 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
 
       {/* Message text and optional action button */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-content-primary break-words overflow-hidden">{toast.message}</p>
+        <p
+          ref={messageRef}
+          id={messageId}
+          className={`text-sm text-content-primary break-words overflow-hidden ${expanded ? '' : 'line-clamp-3'}`}
+        >
+          {toast.message}
+        </p>
+        {(cut || expanded) && (
+          <button
+            type="button"
+            onClick={() => setExpanded(!expanded)}
+            aria-expanded={expanded}
+            aria-controls={messageId}
+            className="mt-1 text-xs font-medium text-accent-hover hover:underline transition-colors"
+          >
+            {expanded ? t('toast.showLess') : t('toast.showMore')}
+          </button>
+        )}
         {toast.action && (
           <button
             onClick={() => {
@@ -183,7 +221,8 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
  * Renders the toast notification stack in the top-right corner of the viewport.
  *
  * **Positioning strategy:**
- * - `fixed top-4 right-4` anchors the stack 16px from the top-right corner.
+ * - `fixed right-4`, with `top` worked out by {@link toastStackTop}: 80px
+ *   from the top, or lower if the page marks an area to keep clear.
  * - `z-[100]` places toasts above everything including modals (z-50).
  * - `pointer-events-none` on the outer container allows click-through to
  *   elements beneath the stack area. Each individual toast card is wrapped
@@ -203,6 +242,51 @@ export function ToastContainer() {
   const toasts = useUiStore((s) => s.toasts);
   /* Action to remove a single toast by its id */
   const removeToast = useUiStore((s) => s.removeToast);
+  /* The page shown: a new page may have its own area to keep clear. */
+  const currentPage = useUiStore((s) => s.currentPage);
+
+  /*
+   * Where the stack starts (see `toastStackTop`), worked out again
+   * whenever it could have changed: a toast arriving, the page changing,
+   * the window being resized, the page scrolling, or a keep-clear area
+   * changing size (the Download page's link box grows as links are
+   * pasted).
+   */
+  const [top, setTop] = useState(DEFAULT_TOP);
+  useLayoutEffect(() => {
+    const update = () => setTop(toastStackTop());
+    update();
+    window.addEventListener('resize', update);
+    document.addEventListener('scroll', update, true);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    document.querySelectorAll(`[${KEEP_CLEAR_ATTRIBUTE}]`).forEach((el) => observer?.observe(el));
+    return () => {
+      window.removeEventListener('resize', update);
+      document.removeEventListener('scroll', update, true);
+      observer?.disconnect();
+    };
+  }, [toasts.length, currentPage]);
+
+  /*
+   * The stack may not run past the bottom of the window. If the toasts
+   * need more room than there is, the stack scrolls -- and only then
+   * does it take mouse events (it lets clicks through to the page
+   * otherwise; see `pointer-events-none` below).
+   */
+  const stackRef = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useLayoutEffect(() => {
+    const el = stackRef.current;
+    if (!el) return;
+    const measure = () => setScrolls(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    // A toast opened with "Show more" grows without the list changing,
+    // so each toast is watched for size changes too.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(el);
+    el.querySelectorAll(':scope > div').forEach((child) => observer?.observe(child));
+    return () => observer?.disconnect();
+  }, [toasts, top]);
 
   return (
     /*
@@ -224,7 +308,16 @@ export function ToastContainer() {
       // value to measure against at runtime without a larger layout
       // change, so this is a fixed offset chosen generously rather
       // than a pixel-exact one.
-      className="fixed top-20 right-4 z-[100] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
+      //
+      // Polish pass (M7): `top-20` alone still let a toast cover the
+      // Download page's "Add to Queue", "Import" and "Scan" buttons,
+      // which sit below the header. The stack now starts below anything
+      // a page marks as keep-clear (see `toastStackTop`), and 80px is
+      // only the least it starts at.
+      ref={stackRef}
+      style={{ top, maxHeight: `calc(100vh - ${top}px - 16px)` }}
+      className={`fixed right-4 z-[100] flex flex-col gap-2 max-w-sm w-full overflow-y-auto ${scrolls ? 'pointer-events-auto' : 'pointer-events-none'}`}
+      data-testid="toast-stack"
       role="status"
       aria-live="polite"
       aria-label={t('toast.ariaLabel')}

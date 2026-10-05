@@ -194,6 +194,8 @@
   },
   "toast": {
     "dismiss": "Dismiss",
+    "showMore": "Show more",
+    "showLess": "Show less",
     "ariaLabel": "Notifications"
   },
   "featureFlags": {

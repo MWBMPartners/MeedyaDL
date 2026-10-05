@@ -194,6 +194,8 @@
   },
   "toast": {
     "dismiss": "Ignorer",
+    "showMore": "Afficher plus",
+    "showLess": "Afficher moins",
     "ariaLabel": "Notifications"
   },
   "featureFlags": {
