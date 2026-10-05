@@ -12,6 +12,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
@@ -34,6 +35,10 @@ Bumps [brace-expansion](https://github.com/juliangruber/brace-expansion) from 5.
     dependency-version: 5.0.12
     dependency-type: indirect
   ...
+
+- **(rust)** Bump toolchain 1.98.1 -> 1.99.0
+
+Automated by rust-toolchain-bump.yml. Pins the Rust toolchain to the current published stable 1.99.0. This PR's CI run reveals any new clippy lints or build changes the upgrade introduces before it lands.
 
 
 ## [1.10.8] - 2026-09-22
