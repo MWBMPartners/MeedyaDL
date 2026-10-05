@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (14:28) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (14:56) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1344,7 +1344,11 @@ on PRs to / pushes to main.
     - channel versions that disagree.
   - **Work:** one effort branch, `feature/polish-pass`, cut from alpha and kept separate from the language branch.
     - **Part A done and pushed: `feature/polish-pass` at `211ab4ca`** (14 commits plus a whitespace fix, cut from alpha `0e515cb3`, not reviewed yet). Re-checked here: 2,101 Rust tests, 906 frontend tests, type-check, lint, build, every audit check with `--strict`, and the polish check's self-test 24/24. The new pre-push hook ran on the push. Issues #1270–#1295 are on board 6, each with its commit. **Owed: a Codex review before any PR** (it adds a window-title permission and changes the Spotify refusal wording).
-    - **Part B building** (Opus, `polish/brief-polish-b.md`), with a watchdog. Lead's decision on M10: hide German and French until their translations are complete; a saved choice is kept and shown as incomplete.
+    - **Part B done and pushed: `feature/polish-pass` at `6478de12`** (11 commits; issues #1296–#1307, found items #1308–#1311, all on board 6).
+      - Results: start-up script 1,456 kB → 267 kB; `dist/` 13.6 MB → 1.8 MB; every ratchet (hand-made controls, pixel fonts, corners, raw-error toasts, "...") down to 0.
+      - German and French are offered only when complete; finishing them is #1302.
+      - Re-checked here: 964 frontend and 2,101 Rust tests, type-check, lint, clippy, every audit check with `--strict`, a build with no size warning, and the pre-push hook.
+      - **Owed: a Codex review of the whole polish branch (`0e515cb3..6478de12`) before any PR.** It is large, so after the #1275 and MeedyaDL round-9 reviews.
     - Part B follows: layout at small windows, error messages, bundle size and consistency.
   - **Waiting on the maintainer:** H8 (the RC and beta branches carry versions older than stable), M18 (the GitHub repository's description, topics, homepage and social preview), M19 (the wiki: stale, and it publishes the developer-access key sequence), M21 (the releases page: a draft duplicate and inconsistent pre-release flags), L18 (the OnlyFans engine entry ships in every installer).
 - **MeedyaSuite-core: Codex's review of revision 11 (`cd3ca07..0e43b14`) is NOT clean — 2 high, 1 medium, 3 low.**
