@@ -1320,6 +1320,19 @@ on PRs to / pushes to main.
   - The builder ran the full PHP suite: 291/291 on MariaDB and on MySQL 8.4. I re-ran `npm test` (114), `php -l` and the copy checker.
   - Filed **#2145** (the unused songbooks list) and **#2146** (the /manage token slide), and commented on #2137.
   - A stand-in review of round 9 is running, with a watchdog.
+- **dev-team plugin: Codex's catch-up review of `748e87c..2f91439` (rounds 2–5) is NOT clean — 7 medium, 1 low.**
+  - Medium findings in the push guard:
+    - a `$'main\0…'` spelling;
+    - a remote set as a mirror;
+    - a deadline that does not cover reading the input;
+    - a child process that ignores the stop signal can hold the answer.
+  - Other medium findings:
+    - a ci-medic loop can silently take a fresh snapshot after the conversation is compacted;
+    - the long-input tests do not prove the parser reaches the end;
+    - the notes misstate the review history.
+  - Low: separate commands combine into a false refusal.
+  - Codex's earlier ten findings are all resolved except the notes.
+  - **Round-6 builder running** (Opus, `brief-plugin-r6.md`), with a watchdog. Codex then moved straight on to core revision 11 (the chained script), and MeedyaDL rounds 6–7 follow it.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
