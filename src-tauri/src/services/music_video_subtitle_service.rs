@@ -137,17 +137,21 @@ pub async fn extract_subtitles_to_sidecars(
         .and_then(|s| s.to_str())
         .ok_or_else(|| "Video has no filename stem".to_string())?;
 
-    // Before extracting anything here: clear temporary files an earlier
-    // run in this folder left behind (see the function).
-    if let Some(folder) = video_path.parent() {
-        remove_abandoned_temporaries(folder, &mut report.notices);
-    }
-
     // Every name is planned at once: whether a stream needs a number
     // depends on the others, and the order that decides it is the
     // policy's track order, not the order the loop below runs in.
     let facts: Vec<SubtitleStreamFacts> = streams.iter().map(|s| s.facts.clone()).collect();
     let planned = plan_subtitle_sidecar_names(stem, &facts)?;
+
+    // Before extracting anything here: clear temporary files an earlier
+    // run in this folder left behind (see the function). AFTER the names
+    // are planned, because a planning failure returns early above and
+    // would throw away this report, with any notice the clean-up put in it
+    // (stand-in review of round 6, finding 9). Planned first, a planning
+    // failure leaves the folder untouched.
+    if let Some(folder) = video_path.parent() {
+        remove_abandoned_temporaries(folder, &mut report.notices);
+    }
 
     for (stream, plan) in streams.iter().zip(planned) {
         if let Some(raw) = &plan.unrecognised_language {
