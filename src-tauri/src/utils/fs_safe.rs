@@ -1299,7 +1299,7 @@ pub enum Removal {
 ///    refuses to replace a file ([`rename_no_replace`]), or, where that is
 ///    "not supported" (an exFAT drive on a Mac, whenever the new name is
 ///    free), through an exclusive placeholder at the private name
-///    ([`move_onto_private_placeholder`]);
+///    (`move_onto_private_placeholder`);
 /// 2. the file now at the private name is compared with the file the handle
 ///    is on, both read at that moment ([`check_name_against_handle`]; this
 ///    works on a Mac's FAT32 drive too, which gives a file a new number when
@@ -1310,7 +1310,7 @@ pub enum Removal {
 /// 5. if that fails, or the drive has no one-step rename (an exFAT drive on
 ///    a Mac), it is kept under the private name and the caller reports both
 ///    names, so the person can rename it back. It is never put back through
-///    a placeholder (see [`put_back`]).
+///    a placeholder (see `put_back`).
 ///
 /// A file put at the original name at any moment is never deleted: only
 /// the private name is.
@@ -1325,14 +1325,9 @@ pub enum Removal {
 /// checked file.
 ///
 /// **What this still does not guarantee.**
-/// - On macOS and Linux, a program that learns the private name (it is
-///   random and exists for a moment) and puts its own file there between
-///   steps 2 and 3 would lose that file. No system offers "delete this
-///   name only if it is still this file" as one step.
-/// - Where the one-step rename is "not supported", the placeholder steps
-///   have a gap of their own: a program that learns the private name could
-///   swap the placeholder between its creation and the rename onto it. The
-///   same gap, at the private name.
+/// - The private name itself is not guarded against a program that
+///   watches the folder; that is a deliberate limit of the design,
+///   explained once at `move_aside`.
 /// - A drive that cannot move a file aside at all, not even through a
 ///   placeholder, gets nothing deleted: the file is left where it is
 ///   ([`Removal::NotMovedAside`]). This never falls back to deleting by
@@ -1400,6 +1395,19 @@ fn remove_if_still_ours_impl(
 /// supported" (an exFAT drive on a Mac, whenever the new name is free),
 /// through an exclusive placeholder ([`move_onto_private_placeholder`]).
 /// `Ok(None)` when nothing has the name.
+///
+/// **A limit of the design, accepted on purpose.** A program that watches
+/// this folder could replace the file at the private name -- or, on a drive
+/// without the one-step rename, the placeholder -- in the instant between
+/// our check and our deletion, or between our placeholder and our rename,
+/// and then lose its own file. This is not guarded, for two reasons. First,
+/// any program that can write to this folder can delete or overwrite the
+/// person's subtitles directly, so guarding this instant would protect
+/// nothing. Second, no ordinary program can know the random name in
+/// advance. (Codex's review of round 9 raised this; the lead judged it not
+/// a real problem.) The names that matter -- the subtitle's own name, and
+/// the name a file is put back to -- are never deleted, and nothing is ever
+/// renamed over them.
 #[cfg(not(windows))]
 fn move_aside(path: &Path) -> std::io::Result<Option<PathBuf>> {
     const TRIES: u32 = 8;
@@ -1447,10 +1455,8 @@ fn move_aside(path: &Path) -> std::io::Result<Option<PathBuf>> {
 /// the empty placeholder is deleted again -- by its private name, the same
 /// as the private name is deleted after the check.
 ///
-/// **What this cannot do:** a program that learns the random private name
-/// could swap its own file in for the placeholder between steps 1 and 3,
-/// and the rename would then replace that file. That is the same gap that
-/// already exists between the check and the deletion of the private name.
+/// The instant between steps 1 and 3 is not guarded against a program that
+/// watches the folder: see the limit explained at [`move_aside`].
 #[cfg(not(windows))]
 fn move_onto_private_placeholder(path: &Path, aside: &Path) -> std::io::Result<()> {
     drop(

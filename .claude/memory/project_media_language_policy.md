@@ -181,9 +181,12 @@ did not change.
   kept aside, both names reported, and the person told it can be renamed
   back (round 9's placeholder put-back could overwrite a subtitle saved at
   the name meanwhile; Codex's review of round 9). Windows deletes through
-  a checked handle (compiled, not run). Not guaranteed: a program that
-  learns the private name in that moment (or swaps a placeholder between
-  its creation and the rename); and a drive that cannot move a file aside
+  a checked handle (compiled, not run). A limit accepted on purpose: a
+  program watching the folder could swap the private name (or a
+  placeholder) in that instant -- not guarded, because any program that can
+  write there can harm the subtitles directly anyway, and no ordinary
+  program can know the random name (Codex's review of round 9; judged not
+  a real problem). And a drive that cannot move a file aside
   even through a placeholder gets nothing deleted -- left and reported,
   never deleted by name. With the placeholder, exFAT on a Mac leaves
   nothing behind in normal saving (measured). Failed removals are reported. The fake ffmpeg
