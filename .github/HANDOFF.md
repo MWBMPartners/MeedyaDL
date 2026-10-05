@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (about 09:00) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (08:36) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1370,7 +1370,7 @@ on PRs to / pushes to main.
     - **iHymns** — `.claude/sessions/2026-09-23-HANDOFF.md`, `743e38c2`. The ninth review found 0 high and 0 medium, so it is finished; its 8 low findings are #2147–#2151. Owed: a Codex review of the whole branch.
     - **iLyricsDB** — its handoff at `0f54a1e` (round 9 pushed; every host check passes again here). Owed: a review of round 9.
     - **MeedyaManager** — `.claude/HANDOFF.md`, `8c2fbd0` (round 8 pushed; 1,583 tests pass again here). Filed #263 (`year` is never written to MP3, M4A or WAV). Owed: a review of round 8.
-    - **NetPLAYERapp** — `.claude/HANDOFF.md`, `a409c67` (the maintainer agreed at about 08:50). Finished: the round-9 stand-in review found 0 high, 0 medium. Owed: Codex review of rounds 7–10 (after `9232ec6`). CI is still blocked by billing.
+    - **NetPLAYERapp** — `.claude/HANDOFF.md`, `a409c67` (the maintainer agreed at about 08:30). Finished: the round-9 stand-in review found 0 high, 0 medium. Owed: Codex review of rounds 7–10 (after `9232ec6`). CI is still blocked by billing.
     - **MeedyaPlayer** `75c7329` and **MeedyaSubtitler** `dd1f66a` — each `.claude/HANDOFF.md`. Finished: the twentieth review was clean. Owed: Codex review after `bc901ad` / `44cf095`.
   - **Still finishing here, then handed over the same way:** core revision 12, MeedyaConverter round 6, plugin round 6 (each builder running, each with its own watchdog), and the MeedyaDL polish pass part A.
 - **Dependency pull requests, asked for by the maintainer at about 08:15 on 5 Oct.**
@@ -1384,7 +1384,7 @@ on PRs to / pushes to main.
   - **Watched by** `scratchpad/deps/watch-pr.sh` (one background loop per PR, two-hour deadline). The working copies are git worktrees at `scratchpad/deps/main` and `scratchpad/deps/rc`; remove them when done.
   - **#1273's first run failed "Security audit"**: `release-candidate` had high advisories in `brace-expansion` 5.0.9 and `undici` 7.29.0. `main` fixed both on 1 Oct (#1264, #1266), but they never reached the channels. Fixed in #1273 by the same two override floors (`13936483`; same integrity hashes as `main`).
   - **#1272 merged 08:33** as `3c976727`. The post-merge runs are watched by `scratchpad/deps/watch-sha.sh`.
-  - **Why the fixes never reached the channels:** `main`'s `forward-port-security.yml` still needs the author to be exactly `dependabot[bot]`, but the API says `app/dependabot`. The fix (#1165) was on `alpha` only. The maintainer said to fix it (about 08:50).
+  - **Why the fixes never reached the channels:** `main`'s `forward-port-security.yml` still needs the author to be exactly `dependabot[bot]`, but the API says `app/dependabot`. The fix (#1165) was on `alpha` only. The maintainer said to fix it (about 08:30).
     - **#1275** (`ci/forward-port-security-to-main`, `e39024f1`) copies `alpha`'s two files unchanged.
     - Tested locally against real merges: #1264 and #1266 forward-port; #1152 (a routine update) and #1230 do not.
     - A focused Codex review (`scratchpad/deps/codex-chain-fp.sh`, output `codex-fp.out`) runs after the 09:08 MeedyaDL review, with a watchdog. **Do not merge #1275 before it is clean.**
