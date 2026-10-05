@@ -699,7 +699,7 @@ def check_chunk_limit() -> None:
 #    Error Reporting is disabled and labelled "Not available yet"; it was
 #    deliberately left visible (see the comment above it in AdvancedTab.tsx).
 #    Whether a switch for an unbuilt feature should be shown at all is a
-#    question raised with the maintainer, not settled here.
+#    question raised with the maintainer (#1295), not settled here.
 EMPTY_HANDLER_ALLOWED = {("src/components/settings/tabs/AdvancedTab.tsx", "Anonymous Usage Analytics")}
 
 
