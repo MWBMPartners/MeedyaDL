@@ -1249,6 +1249,11 @@ on PRs to / pushes to main.
   - **Still owed:** a Codex catch-up review of everything after `bc901ad` / `44cf095` (rounds 10 to 19, all reviewed by stand-ins only), when Codex has allowance. The copyright lines and ADR 0013 still wait on the maintainer.
   - The twentieth review also flagged the older commits carrying the maintainer's personal email (MeedyaPlayer `097131e`, `d5e3e41`, `4a8ba62`, `2337861`, `5a91b32`; MeedyaSubtitler `53bbc0f`). They are already on `main`/`develop`, so this belongs to the history-rewrite decision.
 - **iHymns CI, like NetPLAYERapp's, does not run on the feature branch.** Only "Lint Workflows" runs, and only when a workflow file changes; no run started for `e9cf5fea`. The full CI runs on pull requests and channel branches, so local checks are the only gate until the pull request is opened.
+- **NetPLAYERapp round 9 pushed (`fcac576..c43b4a3`, 4 commits).**
+  - My re-run: language tests 18,537, deployment test 6, PHP-CS-Fixer clean. The builder ran the whole battery under PHP 8.4 and 8.5.
+  - The standard form's length is judged before the registry check, and the probe now runs under `open_basedir`.
+  - #210 has a comment that corrects three overstatements in the round-8 comment.
+  - A stand-in review of round 9 is running, with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
