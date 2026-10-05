@@ -1303,6 +1303,11 @@ on PRs to / pushes to main.
 - **MeedyaManager: the stand-in review of round 7 is NOT clean — 1 medium, 9 low, 3 nits.** Every round-6 fix held on real files, and 1,566 tests pass.
   - **Medium (older than round 7):** setting or clearing a non-language field on a WAV reports success, but the RIFF INFO list keeps the old value. The new round-7 test asserts that wrong answer.
   - **Round-8 builder running** (Opus, `brief-manager-r8.md`), with a watchdog.
+- **iLyricsDB: the eighth review (stand-in) of round 8 is NOT clean — 1 medium (security), 4 low, 3 nits, plus 1 older low.** Both fixes hold with Kodi's default settings.
+  - **Medium:** Kodi's own "Remove Chinese/Korean text from lyrics" setting (off by default) reopens both the forged-timestamp route and the offset route.
+  - `\p{Cn}` also rounds brackets around newer emoji.
+  - **Lead's decisions for round 9:** judge brackets as Kodi would read them with that setting on; replace `\p{Cn}` with an explicit list of the Unicode 17 digits, plus a test that warns when the server's PCRE knows more; make the `[` rule linear even with the JIT off.
+  - Round-9 builder running (Opus, `brief-ilyricsdb-r9.md`), with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
