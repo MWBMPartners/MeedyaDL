@@ -860,7 +860,7 @@ export function GeneralTab() {
         {desktopNotifications.value && (
           <Select
             label="Notification Style"
-            description="How notifications are delivered. 'In-app only' shows toasts inside the app. 'Native + in-app' shows both OS notifications and in-app toasts. 'Native only' uses OS notifications exclusively."
+            description="How notifications are delivered. 'In-app only' shows toasts inside the app. 'Native + in-app' shows both OS notifications and in-app toasts. 'Native only' uses OS notifications exclusively -- if your computer blocks them, messages are shown in the app instead."
             options={NOTIFICATION_STYLE_OPTIONS}
             value={notificationStyle.value ?? 'native_and_in_app'}
             onChange={(e) =>

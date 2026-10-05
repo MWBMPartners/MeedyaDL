@@ -86,6 +86,28 @@ function ensureDismissalWorker(): void {
  *
  * @internal
  */
+/**
+ * Whether this run has already told the person that system notifications
+ * could not be shown. Said once per run, not on every message.
+ */
+let nativeNotificationProblemReported = false;
+
+/** Shown once when the system says notifications are not allowed. */
+const NOTIFICATIONS_BLOCKED_NOTICE =
+  'Notifications for MeedyaDL are turned off in your system settings, so messages are shown ' +
+  "inside the app instead. To get them as system notifications, allow notifications for " +
+  "MeedyaDL in your computer's notification settings.";
+
+/** Shown once when a system notification could not be shown for another reason. */
+const NOTIFICATIONS_FAILED_NOTICE =
+  'MeedyaDL could not show a system notification, so messages are shown inside the app ' +
+  'instead.';
+
+/** Test-only: forget that the notification notice has been shown this run. */
+export function __resetNotificationNoticeForTests(): void {
+  nativeNotificationProblemReported = false;
+}
+
 export function __resetToastWorkerForTests(): void {
   if (dismissalWorkerHandle !== null) {
     clearInterval(dismissalWorkerHandle);
@@ -658,9 +680,98 @@ export const useUiStore = create<UiState>((set, get) => ({
     // gets correctly deduped in-app was still stacking N identical OS banners.
     const isDuplicateInApp = get().toasts.some((t) => t.message === message);
 
+    // The in-app half of a toast, as a function. Used below for the normal
+    // in-app toast, and by the native half when an OS notification could
+    // not be shown (see `fallBackToInApp`).
+    const showInApp = (
+      text: string,
+      kind: ToastType,
+      ms: number,
+      toastKey?: string,
+      toastAction?: { label: string; onClick: () => void }
+    ): void => {
+      // Generate a collision-resistant unique ID for this toast.
+      const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+
+      // Compute the absolute auto-dismiss deadline. `null` means
+      // "never auto-dismiss" — error and warning toasts default to
+      // duration 0 (persistent) per the resolution above.
+      // #894: the deadline is stored on the toast itself + a single
+      // centralised worker polls it; no per-toast setTimeout closures.
+      const expiresAt = ms > 0 ? Date.now() + ms : null;
+
+      set((state) => {
+        // Dedup: skip if a toast with the same message is already on screen.
+        if (state.toasts.some((t) => t.message === text)) {
+          return state;
+        }
+
+        // If a key is provided, remove any existing toast with the same key
+        // (replacement behaviour — only one toast per key at a time).
+        const filtered = toastKey
+          ? state.toasts.filter((t) => t.key !== toastKey)
+          : state.toasts;
+
+        const withNewToast = [
+          ...filtered,
+          {
+            id,
+            message: text,
+            type: kind,
+            duration: ms,
+            expiresAt,
+            key: toastKey,
+            action: toastAction,
+          },
+        ];
+
+        // Enforce the MAX_TOASTS ceiling (see the comment on that constant
+        // for why, and for which toast goes). Toasts are always appended to
+        // the end of the array above, so the oldest is at index 0. The one
+        // just added (the last) is never dropped.
+        const toasts = [...withNewToast];
+        while (toasts.length > MAX_TOASTS) {
+          const oldestPassing = toasts.findIndex(
+            (t, i) => i < toasts.length - 1 && t.expiresAt !== null
+          );
+          toasts.splice(oldestPassing === -1 ? 0 : oldestPassing, 1);
+        }
+
+        return { toasts };
+      });
+
+      // Kick the centralised dismissal worker if this toast has a
+      // deadline. The worker is a no-op until a non-persistent toast
+      // exists; once started it stops itself when none remain.
+      if (expiresAt !== null) {
+        ensureDismissalWorker();
+      }
+    };
+
+    // When the OS notification could not be shown, the message must still
+    // reach the person. Until October 2026 the only sign of this was a
+    // `console.warn` -- and release builds strip every console call -- so
+    // with "Native only" chosen and notifications blocked, a failed
+    // download could be reported nowhere at all. Now:
+    //  - in "Native only" mode the message is shown in the app instead
+    //    (in the other mode it is already there);
+    //  - once per run, the person is told why, and what to change.
+    const fallBackToInApp = (reason: 'blocked' | 'failed'): void => {
+      if (style === 'native_only') {
+        showInApp(message, type, duration ?? 0, key, action);
+      }
+      if (!nativeNotificationProblemReported) {
+        nativeNotificationProblemReported = true;
+        showInApp(
+          reason === 'blocked' ? NOTIFICATIONS_BLOCKED_NOTICE : NOTIFICATIONS_FAILED_NOTICE,
+          'warning',
+          0,
+          'native-notifications-unavailable'
+        );
+      }
+    };
+
     // Send native OS notification when notification_style includes native.
-    // Errors are surfaced to the WebView console so future regressions can
-    // be diagnosed instead of failing silently (#658).
     //
     // Gate on in-app dedup EXCEPT in 'native_only' mode: in that mode the
     // `toasts` array is intentionally always empty (see the early return
@@ -679,72 +790,29 @@ export const useUiStore = create<UiState>((set, get) => ({
             return 'granted' as const;
           })
           .then((result) => {
-            if (result === 'granted') {
+            if (result !== 'granted') {
+              fallBackToInApp('blocked');
+              return;
+            }
+            try {
               sendNotification({ title: `MeedyaDL — ${typeLabel}`, body: message });
-            } else {
-              console.warn(
-                `[notification] permission not granted (status: ${result}). ` +
-                'Open System Settings > Notifications > MeedyaDL to enable.',
-              );
+            } catch {
+              fallBackToInApp('failed');
             }
           })
-          .catch((err: unknown) => {
-            console.warn('[notification] sendNotification failed:', err);
+          .catch(() => {
+            fallBackToInApp('failed');
           });
-      }).catch((err: unknown) => {
-        console.warn('[notification] plugin module failed to load:', err);
+      }).catch(() => {
+        fallBackToInApp('failed');
       });
     }
 
-    // Skip in-app toast when user prefers native-only notifications.
+    // Skip in-app toast when user prefers native-only notifications. (If
+    // the native notification then fails, `fallBackToInApp` shows it.)
     if (style === 'native_only') return;
 
-    // Generate a collision-resistant unique ID for this toast.
-    const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-
-    // Compute the absolute auto-dismiss deadline. `null` means
-    // "never auto-dismiss" — error and warning toasts default to
-    // duration 0 (persistent) per the resolution above.
-    // #894: the deadline is stored on the toast itself + a single
-    // centralised worker polls it; no per-toast setTimeout closures.
-    const expiresAt = duration > 0 ? Date.now() + duration : null;
-
-    set((state) => {
-      // Dedup: skip if a toast with the same message is already on screen.
-      if (state.toasts.some((t) => t.message === message)) {
-        return state;
-      }
-
-      // If a key is provided, remove any existing toast with the same key
-      // (replacement behaviour — only one toast per key at a time).
-      const filtered = key ? state.toasts.filter((t) => t.key !== key) : state.toasts;
-
-      const withNewToast = [
-        ...filtered,
-        { id, message, type, duration, expiresAt, key, action },
-      ];
-
-      // Enforce the MAX_TOASTS ceiling (see the comment on that constant
-      // for why, and for which toast goes). Toasts are always appended to
-      // the end of the array above, so the oldest is at index 0. The one
-      // just added (the last) is never dropped.
-      const toasts = [...withNewToast];
-      while (toasts.length > MAX_TOASTS) {
-        const oldestPassing = toasts.findIndex(
-          (t, i) => i < toasts.length - 1 && t.expiresAt !== null,
-        );
-        toasts.splice(oldestPassing === -1 ? 0 : oldestPassing, 1);
-      }
-
-      return { toasts };
-    });
-
-    // Kick the centralised dismissal worker if this toast has a
-    // deadline. The worker is a no-op until a non-persistent toast
-    // exists; once started it stops itself when none remain.
-    if (expiresAt !== null) {
-      ensureDismissalWorker();
-    }
+    showInApp(message, type, duration, key, action);
   },
 
   /**
