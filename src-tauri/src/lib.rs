@@ -332,25 +332,56 @@ fn setup_panic_handler() {
 /// Creates and configures the system tray icon with its context menu and
 /// event handlers.
 ///
-/// Managed state holding the tray icon ID so other modules (e.g., download_queue)
-/// can update the tray tooltip to show download progress.
-pub struct TrayState(pub tauri::tray::TrayIconId);
+/// Managed state holding the tray icon's ID and its "Downloads:" menu line,
+/// so other modules (e.g., download_queue) can keep both showing the queue's
+/// real state.
+pub struct TrayState {
+    /// The tray icon, for its tooltip.
+    pub id: tauri::tray::TrayIconId,
+    /// The disabled "Downloads: …" status line in the tray menu.
+    pub downloads_item: tauri::menu::MenuItem<tauri::Wry>,
+}
 
-/// Updates the system tray icon tooltip with the current queue status.
-/// Called from download_queue after state changes.
-pub fn update_tray_tooltip(app: &tauri::AppHandle, active: usize, queued: usize, completed: usize) {
+/// The tray icon's tooltip for the given queue counts.
+fn tray_tooltip_text(active: usize, queued: usize, completed: usize) -> String {
+    if active > 0 {
+        format!("MeedyaDL — {active} downloading, {queued} queued")
+    } else if completed > 0 {
+        format!("MeedyaDL — {completed} completed")
+    } else {
+        "MeedyaDL".to_string()
+    }
+}
+
+/// The tray menu's "Downloads:" status line for the given queue counts.
+///
+/// Until October 2026 this line was built once as "Downloads: None" and
+/// never changed -- a comment claimed the interface updated it, but nothing
+/// did -- so the tray said "None" in the middle of a download.
+fn tray_menu_status_text(active: usize, queued: usize, completed: usize) -> String {
+    if active > 0 {
+        format!("Downloads: {active} downloading, {queued} queued")
+    } else if queued > 0 {
+        format!("Downloads: {queued} queued")
+    } else if completed > 0 {
+        format!("Downloads: {completed} completed")
+    } else {
+        "Downloads: none".to_string()
+    }
+}
+
+/// Updates the system tray's tooltip and its "Downloads:" menu line with
+/// the current queue status. Called from download_queue each time the
+/// queue is saved, which happens after every change to it.
+pub fn update_tray_status(app: &tauri::AppHandle, active: usize, queued: usize, completed: usize) {
     use tauri::Manager;
     if let Some(tray_state) = app.try_state::<TrayState>() {
-        if let Some(tray) = app.tray_by_id(&tray_state.0) {
-            let tooltip = if active > 0 {
-                format!("MeedyaDL — {active} downloading, {queued} queued")
-            } else if completed > 0 {
-                format!("MeedyaDL — {completed} completed")
-            } else {
-                "MeedyaDL".to_string()
-            };
-            let _ = tray.set_tooltip(Some(&tooltip));
+        if let Some(tray) = app.tray_by_id(&tray_state.id) {
+            let _ = tray.set_tooltip(Some(&tray_tooltip_text(active, queued, completed)));
         }
+        let _ = tray_state
+            .downloads_item
+            .set_text(tray_menu_status_text(active, queued, completed));
     }
 }
 
@@ -390,11 +421,13 @@ fn setup_system_tray(
     // First separator -- visually groups window controls from status info
     let separator1 = PredefinedMenuItem::separator(app)?;
 
-    // "Downloads: None" -- disabled info item that displays current download status.
-    // The frontend can update this text via the tray menu API as downloads progress.
-    let downloads_item = MenuItemBuilder::with_id("downloads_status", "Downloads: None")
-        .enabled(false)
-        .build(app)?;
+    // "Downloads: …" -- disabled info item showing the queue's state. It is
+    // kept in `TrayState` and rewritten by `update_tray_status()` whenever
+    // the queue changes (the text starts as it would for an empty queue).
+    let downloads_item =
+        MenuItemBuilder::with_id("downloads_status", tray_menu_status_text(0, 0, 0))
+            .enabled(false)
+            .build(app)?;
 
     // Second separator -- visually groups status info from application actions
     let separator2 = PredefinedMenuItem::separator(app)?;
@@ -483,8 +516,12 @@ fn setup_system_tray(
 
     log::info!("System tray icon initialized");
 
-    // Store the tray icon's ID for later tooltip updates from download_queue
-    app.manage(TrayState(tray.id().clone()));
+    // Keep the tray icon's ID and the status line for later updates from
+    // download_queue (`update_tray_status`).
+    app.manage(TrayState {
+        id: tray.id().clone(),
+        downloads_item,
+    });
     Ok(tray)
 }
 
@@ -1765,4 +1802,27 @@ pub fn run() {
         // Reference: https://docs.rs/tauri/latest/tauri/macro.generate_context.html
         .run(tauri::generate_context!())
         .expect("Failed to start MeedyaDL application");
+}
+
+#[cfg(test)]
+mod tray_tests {
+    use super::{tray_menu_status_text, tray_tooltip_text};
+
+    /// The tray menu's status line follows the queue instead of saying
+    /// "None" for ever.
+    #[test]
+    fn tray_status_line_shows_the_real_queue_state() {
+        assert_eq!(tray_menu_status_text(0, 0, 0), "Downloads: none");
+        assert_eq!(tray_menu_status_text(2, 3, 1), "Downloads: 2 downloading, 3 queued");
+        assert_eq!(tray_menu_status_text(0, 4, 1), "Downloads: 4 queued");
+        assert_eq!(tray_menu_status_text(0, 0, 5), "Downloads: 5 completed");
+    }
+
+    /// The tooltip keeps its existing wording.
+    #[test]
+    fn tray_tooltip_keeps_its_wording() {
+        assert_eq!(tray_tooltip_text(1, 2, 0), "MeedyaDL — 1 downloading, 2 queued");
+        assert_eq!(tray_tooltip_text(0, 0, 3), "MeedyaDL — 3 completed");
+        assert_eq!(tray_tooltip_text(0, 0, 0), "MeedyaDL");
+    }
 }

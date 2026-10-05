@@ -193,8 +193,9 @@ pub(crate) async fn save_queue_to_disk_inner(app: &AppHandle, queue: &QueueHandl
         (q.get_persistable_items(), active, queued, completed)
     };
 
-    // Update the system tray tooltip with current queue status
-    crate::update_tray_tooltip(app, active, queued, completed);
+    // Update the system tray's tooltip and "Downloads:" line with the
+    // current queue status
+    crate::update_tray_status(app, active, queued, completed);
 
     // Write to disk after releasing the lock. Atomic via the shared
     // `utils::atomic_write::atomic_write_json` helper (#716 finding #8).
