@@ -506,23 +506,49 @@ fn remove_temporary(path: &Path, notices: &mut Vec<String>) {
 
 /// Publishes a finished temporary file under its real name WITHOUT ever
 /// overwriting a file already there -- on any file system (Codex's review
-/// of round 5, finding 3). See [`publish_with`] for how.
+/// of round 5, finding 3). See [`publish_with`] for how, and
+/// [`real_publish_operations`] for the operations it uses.
 fn publish_extracted_subtitle(
     temp_path: &Path,
     final_path: &Path,
     notices: &mut Vec<String>,
 ) -> Result<ExtractOutcome, String> {
-    publish_with(
-        temp_path,
-        final_path,
-        notices,
-        |from, to| std::fs::hard_link(from, to),
-        crate::utils::fs_safe::rename_no_replace,
-    )
+    publish_with(temp_path, final_path, notices, &real_publish_operations())
 }
 
-/// The publish step, with its two file-system operations passed in so the
-/// tests can force the path a FAT or exFAT drive takes on any machine.
+/// One file-system operation of the publish step, given the temporary
+/// file and the real name, in that order.
+type PublishOperation = fn(&Path, &Path) -> std::io::Result<()>;
+
+/// The file-system operations [`publish_with`] tries, in order. Passed in
+/// so the tests can force the path a drive without hard links takes, on
+/// any machine. Generic so that a test can also pass an operation that
+/// holds on to something (the race test stops both writers at a barrier
+/// inside the hard-link step).
+struct PublishOperations<L, R> {
+    /// Step 1: a hard link from the temporary name to the real one.
+    hard_link: L,
+    /// Step 2: `fs_safe::rename_no_replace`.
+    rename_no_replace: R,
+}
+
+/// The operations the app really uses, named in this ONE place:
+/// [`publish_extracted_subtitle`] uses them, and the tests of the steps
+/// after the hard link start from them and replace only the hard link
+/// (stand-in review of round 6, finding 2). The tests used to pass their
+/// own copy of the second step to `publish_with`. Changing the real one to
+/// a plain `std::fs::rename` -- which REPLACES an existing file -- then left
+/// every test green, because the only test of the real route ran on a
+/// drive where the hard link works and the second step is never reached.
+fn real_publish_operations() -> PublishOperations<PublishOperation, PublishOperation> {
+    PublishOperations {
+        hard_link: |from, to| std::fs::hard_link(from, to),
+        rename_no_replace: crate::utils::fs_safe::rename_no_replace,
+    }
+}
+
+/// The publish step, with its file-system operations passed in (see
+/// [`PublishOperations`]; the app passes [`real_publish_operations`]).
 ///
 /// 1. A hard link from the temporary name to the real one. It refuses
 ///    (`AlreadyExists`) when the real name is taken -- an atomic "only if
@@ -542,15 +568,18 @@ fn publish_extracted_subtitle(
 ///
 /// Any other failure of the link (no permission, disk full) is a real
 /// failure and is reported as one; it does not try the second step.
-fn publish_with(
+fn publish_with<L, R>(
     temp_path: &Path,
     final_path: &Path,
     notices: &mut Vec<String>,
-    hard_link: impl Fn(&Path, &Path) -> std::io::Result<()>,
-    rename_no_replace: impl Fn(&Path, &Path) -> std::io::Result<()>,
-) -> Result<ExtractOutcome, String> {
+    operations: &PublishOperations<L, R>,
+) -> Result<ExtractOutcome, String>
+where
+    L: Fn(&Path, &Path) -> std::io::Result<()>,
+    R: Fn(&Path, &Path) -> std::io::Result<()>,
+{
     use crate::utils::fs_safe::{is_hard_link_unsupported, is_no_replace_rename_unsupported};
-    let link_error = match hard_link(temp_path, final_path) {
+    let link_error = match (operations.hard_link)(temp_path, final_path) {
         Ok(()) => {
             remove_temporary(temp_path, notices);
             return Ok(ExtractOutcome::Written(final_path.to_path_buf()));
@@ -568,7 +597,7 @@ fn publish_with(
             final_path.display()
         ));
     }
-    match rename_no_replace(temp_path, final_path) {
+    match (operations.rename_no_replace)(temp_path, final_path) {
         Ok(()) => Ok(ExtractOutcome::Written(final_path.to_path_buf())),
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             remove_temporary(temp_path, notices);
@@ -1526,7 +1555,8 @@ mod tests {
     // ── Publishing never overwrites, on any file system (Codex's review
     // ── of round 5, finding 3). The hard link is FORCED to fail the way a
     // ── FAT or exFAT drive makes it fail, so these run the other path on
-    // ── any machine, with the real `rename_no_replace`. ──────────────────
+    // ── any machine, with the app's REAL later steps
+    // ── (`real_publish_operations`; stand-in review of round 6, finding 2).
 
     /// The error a drive without hard links gives (see
     /// `fs_safe::is_hard_link_unsupported`).
@@ -1534,6 +1564,20 @@ mod tests {
         Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
     }
 
+    /// The app's own publish operations, with only the hard link replaced
+    /// by one that fails the way a FAT or exFAT drive makes it fail.
+    fn real_operations_without_hard_links() -> PublishOperations<PublishOperation, PublishOperation>
+    {
+        PublishOperations {
+            hard_link: no_hard_links,
+            ..real_publish_operations()
+        }
+    }
+
+    /// The app's own second step, reached as on a drive without hard links,
+    /// refuses a taken name. This is the test that fails if the real
+    /// operation becomes a plain rename (stand-in review of round 6,
+    /// finding 2).
     #[test]
     fn without_hard_links_an_existing_subtitle_is_never_replaced() {
         let dir = tempfile::tempdir().unwrap();
@@ -1546,8 +1590,7 @@ mod tests {
             &temp,
             &fin,
             &mut notices,
-            no_hard_links,
-            crate::utils::fs_safe::rename_no_replace,
+            &real_operations_without_hard_links(),
         );
         assert!(
             matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_))),
@@ -1568,8 +1611,7 @@ mod tests {
             &temp,
             &fin,
             &mut Vec::new(),
-            no_hard_links,
-            crate::utils::fs_safe::rename_no_replace,
+            &real_operations_without_hard_links(),
         );
         assert!(
             matches!(outcome, Ok(ExtractOutcome::Written(_))),
@@ -1606,17 +1648,14 @@ mod tests {
                     .map(|temp| {
                         let (barrier, fin) = (&barrier, &fin);
                         scope.spawn(move || {
-                            let link = |a: &Path, b: &Path| {
-                                barrier.wait();
-                                no_hard_links(a, b)
+                            let operations = PublishOperations {
+                                hard_link: |a: &Path, b: &Path| {
+                                    barrier.wait();
+                                    no_hard_links(a, b)
+                                },
+                                rename_no_replace: real_publish_operations().rename_no_replace,
                             };
-                            publish_with(
-                                temp,
-                                fin,
-                                &mut Vec::new(),
-                                link,
-                                crate::utils::fs_safe::rename_no_replace,
-                            )
+                            publish_with(temp, fin, &mut Vec::new(), &operations)
                         })
                     })
                     .collect();
@@ -1653,9 +1692,13 @@ mod tests {
         let fin = dir.path().join("V.en.srt");
         fs::write(&temp, "ours").unwrap();
         let mut notices = Vec::new();
-        let outcome = publish_with(&temp, &fin, &mut notices, no_hard_links, |_, _| {
-            Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
-        });
+        let operations = PublishOperations {
+            hard_link: no_hard_links,
+            rename_no_replace: |_: &Path, _: &Path| {
+                Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+            },
+        };
+        let outcome = publish_with(&temp, &fin, &mut notices, &operations);
         assert!(outcome.is_err(), "{outcome:?}");
         assert!(!fin.exists());
         assert_eq!(folder_listing(dir.path()), Vec::<String>::new());
@@ -1674,9 +1717,13 @@ mod tests {
         let fin = dir.path().join("V.en.srt");
         fs::write(&temp, "ours").unwrap();
         let mut notices = Vec::new();
-        let outcome = publish_with(&temp, &fin, &mut notices, no_hard_links, |_, _| {
-            Err(std::io::Error::from_raw_os_error(libc::EINVAL))
-        });
+        let operations = PublishOperations {
+            hard_link: no_hard_links,
+            rename_no_replace: |_: &Path, _: &Path| {
+                Err(std::io::Error::from_raw_os_error(libc::EINVAL))
+            },
+        };
+        let outcome = publish_with(&temp, &fin, &mut notices, &operations);
         assert!(outcome.is_err(), "{outcome:?}");
         assert_eq!(folder_listing(dir.path()), Vec::<String>::new());
         assert_eq!(notices.len(), 1, "{notices:?}");
@@ -1690,16 +1737,16 @@ mod tests {
         let fin = dir.path().join("V.en.srt");
         fs::write(&temp, "ours").unwrap();
         let tried_rename = std::cell::Cell::new(false);
-        let outcome = publish_with(
-            &temp,
-            &fin,
-            &mut Vec::new(),
-            |_, _| Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied)),
-            |_, _| {
+        let operations = PublishOperations {
+            hard_link: |_: &Path, _: &Path| {
+                Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+            },
+            rename_no_replace: |_: &Path, _: &Path| {
                 tried_rename.set(true);
                 Ok(())
             },
-        );
+        };
+        let outcome = publish_with(&temp, &fin, &mut Vec::new(), &operations);
         assert!(outcome.is_err(), "{outcome:?}");
         assert!(!tried_rename.get());
         assert!(!fin.exists());
