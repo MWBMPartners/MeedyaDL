@@ -1288,6 +1288,11 @@ on PRs to / pushes to main.
   - I re-ran `php -l`, injection 1,338/1,338, fuzz 28/28 and the copy checker. The builder also ran everything in `ubuntu:24.04`, `php:8.4-cli` and `php:8.5-cli`.
   - Filed **iLyricsDB #161** (the `[offset:]` direction, and the doubled offset on export) and commented on #150. The round-9 carry-over is in `ilyricsdb-r9-carryover.md`.
   - A stand-in review of round 8 is running, with a watchdog.
+- **About 02:40 on 5 Oct, the account's session limit stopped six agents mid-work.** It has since reset. Four were resumed with their own watchdogs: the MeedyaConverter round-5, MeedyaDL round-7 and iHymns round-9 builders, and the MeedyaManager round-7 and iLyricsDB round-8 stand-in reviews.
+  - **The NetPLAYERapp round-10 review was dropped, not resumed.** The machine-wide rules were narrowed on 5 Oct: a review round now covers only changes that could do real harm, and round 10 is tests and comments only.
+  - The maintainer's three queued requests ran first:
+    - two instruction reviews, delivered in chat, nothing changed;
+    - the polish audit of MeedyaDL, a read-only Opus auditor, with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
