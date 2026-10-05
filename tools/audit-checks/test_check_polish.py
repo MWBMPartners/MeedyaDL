@@ -54,6 +54,9 @@ COPY_FILES = [
     "vite.config.ts",
     "src-tauri/tauri.conf.json",
     "src-tauri/Cargo.toml",
+    # Where the files in public/ are used from (the unused-file rule).
+    "index.html",
+    "src-tauri/engines.toml",
 ]
 
 
@@ -198,6 +201,13 @@ def cases():
             "Draft, backup or test file in a folder that ships",
             "notes-draft.docx",
             lambda r: (r / "help/notes-draft.docx").write_bytes(b"PK\x03\x04"),
+        ),
+        (
+            # Polish pass M13: a file in public/ that nothing uses.
+            "an unused image in public/",
+            "A file in public/ ships to everyone, but nothing uses it",
+            "logo-unused.png",
+            lambda r: (r / "public/logo-unused.png").write_bytes(b"\x89PNG\r\n"),
         ),
         (
             "a silenced bundle-size warning",

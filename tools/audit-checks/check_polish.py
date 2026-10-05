@@ -35,7 +35,8 @@ WHAT IT CHECKS -- one `### ` section per rule, findings as bullets
  9. Debug output in shipped code: console.log / console.debug /
     `debugger` in the interface, dbg!/println! in the backend.
 10. Drafts, backups, Word files and test files in public/, help/ or the
-    installer's bundled resources.
+    installer's bundled resources; and any file in public/ that nothing
+    uses (it ships in every installer all the same).
 11. The bundle-size warning not silenced: `chunkSizeWarningLimit` not
     raised above Vite's default (500 kB), and the Help, Updates and
     Settings pages still loaded on demand (lazy imports in App.tsx), which
@@ -680,6 +681,40 @@ def check_drafts() -> None:
                 add(SECTION_DRAFTS, p, 0, "ships to everyone who installs MeedyaDL; move it out (docs/drafts/ for drafts)")
 
 
+# A file in public/ is copied into every installer whether or not anything
+# uses it (polish pass M13 removed 52 such files, about 11 MB: logo copies
+# in three image formats, Mac icon files and format badges). "Used" means
+# its path inside public/ -- or, for a file in public's top level, its
+# name -- appears in the interface code, index.html, or one of the
+# backend's data files that name icons (engines.toml lists the platform
+# icons). public/locales/ is read by path pattern (/locales/<code>/...),
+# so it is checked by check_i18n.py instead.
+# tauri.conf.json is deliberately not a source: it names the installer's
+# icons in src-tauri/icons/ ("icons/icon.icns"), and that text made
+# public/icon.icns look used when nothing uses it.
+PUBLIC_USE_SOURCES = ("index.html", "src-tauri/engines.toml")
+SECTION_UNUSED_PUBLIC = "A file in public/ ships to everyone, but nothing uses it"
+
+
+def check_unused_public() -> None:
+    public = ROOT / "public"
+    if not public.is_dir():
+        add(SECTION_UNUSED_PUBLIC, "public", 0, "missing, so unused files were not checked")
+        return
+    texts = [read(p) for p in interface_sources()]
+    texts += [read(p) for p in files("src/**/*.css")]
+    texts += [read(ROOT / f) for f in PUBLIC_USE_SOURCES if (ROOT / f).exists()]
+    corpus = "\n".join(texts)
+    for p in sorted(public.rglob("*")):
+        if not p.is_file() or "locales" in p.relative_to(public).parts:
+            continue
+        inside = str(p.relative_to(public))
+        top_level = len(p.relative_to(public).parts) == 1
+        if inside in corpus or (top_level and f"/{p.name}" in corpus):
+            continue
+        add(SECTION_UNUSED_PUBLIC, p, 0, "nothing in the interface, index.html or engines.toml uses it; delete it (keep brand originals in assets/brand/)")
+
+
 # Pages App.tsx loads on demand, so they stay out of the start-up script
 # (polish pass M12): (component, its folder under src/components).
 LAZY_PAGES = (("HelpViewer", "help"), ("UpdatesPage", "updates"), ("SettingsPage", "settings"))
@@ -1056,6 +1091,7 @@ RULES = [
     check_button_names,
     check_debug_output,
     check_drafts,
+    check_unused_public,
     check_chunk_limit,
     check_fake,
     check_settings_paths,
