@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (14:56) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (14:58) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1416,6 +1416,11 @@ on PRs to / pushes to main.
         - The mirror inheritance case: the fix changes the workspace entry, and the channel's own entry re-adds the feature.
         - Another table on the channel (target-specific, or `[features] default = ["foo/risky"]`) can re-enable it.
         - **Lead's decision (round 5):** for each touched package, collect every place each manifest mentions it (all dependency tables, `[features]`, `patch`, `replace`; every npm section, `overrides` at any depth), and require the two collections to be identical. Otherwise `NEEDS_PORT`. The same builder is on it, with a watchdog.
+      - Round 5 pushed (`51d49b21`; 52 + 27 tests, CI green). **Stand-in review of `51d49b21`: CLEAN** (no high or medium). Its 4 low findings are **#1312**.
+      - **#1275 MERGED to `main` at 14:57 as `8566b813`.** Post-merge runs watched.
+      - **Codex catch-up owed after 19:08 on `bc4cadce`, `51d49b21`** (only stand-in-reviewed); said in the PR description.
+      - **14:57: the workflow was run by hand for #1266 and #1264** (runs 37320891100, 37320896405), watched. Each should open a PR on `alpha` and on `beta`, and skip `release-candidate`, which already has both. **Then combine the two PRs per branch into one**, merge, and watch the alpha/beta releases.
+      - `alpha` also needs the new workflow files (a separate PR, after the forward-port PRs).
       - `alpha` then needs the same files by a separate PR.
     - After merge: run the workflow by hand for #1264 and #1266 to carry both fixes to `alpha` and `beta` (#1265 lists them).
     - #1275 is `fix(ci)`, so release-please will propose 1.10.9 for `main`; nothing ships until that release PR is merged.
