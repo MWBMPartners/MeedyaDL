@@ -1026,7 +1026,7 @@ MeedyaDL/
 
 │   │   ├── useTheme.ts         #    Dark/light/auto theme override
 
-│   │   ├── useKeyboardShortcuts.ts # Cmd/Ctrl+D, Cmd+,, Cmd+Q
+│   │   ├── useKeyboardShortcuts.ts # Cmd/Ctrl+D, J, L, Y, K, comma, Shift+. and Shift+?
 
 │   │   ├── useKonamiCode.ts    #    Dev access mode activation
 

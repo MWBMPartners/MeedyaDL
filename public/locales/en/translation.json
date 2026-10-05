@@ -173,8 +173,6 @@
     "searchPlaceholder": "Search topics...",
     "searchAriaLabel": "Search help topics",
     "clearSearch": "Clear search",
-    "searchShortcutHint": "{{key}}+K to focus search (coming soon)",
-    "searchShortcutAriaLabel": "Keyboard shortcut: {{key}} plus K (coming soon)",
     "resultCount_one": "{{count}} result",
     "resultCount_other": "{{count}} results",
     "noResults": "No matching topics found.",

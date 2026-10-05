@@ -90,7 +90,7 @@ import { useTheme } from './hooks/useTheme';
 
 /**
  * Custom hook for global keyboard shortcuts (Cmd/Ctrl+D, Cmd/Ctrl+,,
- * Cmd/Ctrl+Q, Cmd/Ctrl+Enter). Registers a single window-level keydown
+ * Cmd/Ctrl+J, Cmd/Ctrl+Enter). Registers a single window-level keydown
  * listener with cleanup on unmount.
  * @see ./hooks/useKeyboardShortcuts.ts for shortcut definitions
  */
@@ -292,7 +292,7 @@ function App() {
   /*
    * ─── Keyboard Shortcuts ────────────────────────────────────────────
    * Registers global keyboard shortcuts (Cmd/Ctrl+D, Cmd/Ctrl+,,
-   * Cmd/Ctrl+Q, Cmd/Ctrl+Enter) via a single window-level keydown listener.
+   * Cmd/Ctrl+J, Cmd/Ctrl+Enter) via a single window-level keydown listener.
    * Shortcuts are suppressed when focus is in form elements to avoid
    * interfering with text editing. Cleanup is automatic on unmount.
    * @see ./hooks/useKeyboardShortcuts.ts

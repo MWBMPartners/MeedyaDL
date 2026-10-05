@@ -13,9 +13,9 @@ MeedyaDL unterstützt Tastaturkürzel für schnelles Navigieren und häufige Akt
 | Tastenkombination | Aktion |
 |----------|--------|
 | **Cmd/Ctrl + D** | Wechselt zur Download-Seite und setzt den Fokus in das URL-Feld |
-| **Cmd/Ctrl + Q** | Wechselt zur Queue-Seite |
+| **Cmd/Ctrl + J** | Wechselt zur Queue-Seite |
 | **Cmd/Ctrl + L** | Wechselt zur Library-Seite |
-| **Cmd/Ctrl + H** | Wechselt zur History-Seite |
+| **Cmd/Ctrl + Y** | Wechselt zur History-Seite |
 | **Cmd/Ctrl + K** | Wechselt zur Activity-Seite |
 | **Cmd/Ctrl + ,** | Wechselt zur Settings-Seite |
 

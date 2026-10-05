@@ -12,9 +12,9 @@
  * |-------------------------|------------------------------------------------|
  * | `Cmd/Ctrl + D`          | Navigate to Download page and focus URL input  |
  * | `Cmd/Ctrl + ,`          | Navigate to Settings page                      |
- * | `Cmd/Ctrl + Q`          | Navigate to Queue page                         |
+ * | `Cmd/Ctrl + J`          | Navigate to Queue page                         |
  * | `Cmd/Ctrl + L`          | Navigate to Library page (#465)                |
- * | `Cmd/Ctrl + H`          | Navigate to History page (#465)                |
+ * | `Cmd/Ctrl + Y`          | Navigate to History page (#465)                |
  * | `Cmd/Ctrl + K`          | Navigate to Activity page (#465)               |
  * | `Cmd/Ctrl + Shift + .`  | Abort all active and queued downloads (#620)   |
  * | `Cmd/Ctrl + Shift + ?`  | Open the keyboard shortcuts dialog (#465)      |
@@ -39,9 +39,13 @@
  *   path, cookies). Duplicating submission here would cause double-fire and
  *   bypass those safety checks. No modifier key is required for this one —
  *   unlike every other shortcut in this file, which all need Cmd/Ctrl.
- * - **`e.preventDefault()`**: Called for handled shortcuts to suppress browser/OS
- *   default behaviour (e.g., Cmd+D bookmarks the page in browsers, Cmd+Q quits
- *   the app on macOS).
+ * - **`e.preventDefault()`**: Called for handled shortcuts to suppress browser
+ *   default behaviour (e.g., Cmd+D bookmarks the page in browsers).
+ * - **Never Cmd+Q or Cmd+H**: on a Mac those are Quit and Hide, in MeedyaDL's
+ *   own app menu as in every other app. Queue and History used to be bound
+ *   to them, so either the shortcut never fired (the menu took the key
+ *   first) or Quit and Hide stopped working. They are Cmd/Ctrl+J and
+ *   Cmd/Ctrl+Y now -- what web browsers use for Downloads and History.
  *
  * ## Usage
  *
@@ -190,13 +194,15 @@ export function useKeyboardShortcuts(): void {
         }
 
         /*
-         * Cmd/Ctrl+Q: Navigate to the Queue page.
-         * On macOS, Cmd+Q normally quits the app — `e.preventDefault()`
-         * intercepts this to navigate to the Queue page instead.
-         * In the Tauri desktop app, the native quit behaviour is handled
-         * by the window close event, not by the web keydown event.
+         * Cmd/Ctrl+J: Navigate to the Queue page -- the key browsers use
+         * for their own Downloads list.
+         *
+         * This used to be Cmd/Ctrl+Q, which on a Mac is Quit in the app
+         * menu (and in every other app): the menu takes the key before the
+         * page sees it, so the shortcut could never fire there, and had it
+         * fired, `preventDefault()` would have stopped Quit working.
          */
-        case 'q': {
+        case 'j': {
           e.preventDefault();
           useUiStore.getState().setPage('queue');
           break;
@@ -249,7 +255,7 @@ export function useKeyboardShortcuts(): void {
 
         /*
          * Page-navigation expansions (#465). Same shape as Cmd+D /
-         * Cmd+Q above — set the page via uiStore and let React
+         * Cmd+J above — set the page via uiStore and let React
          * render. Suppressed inside form elements via the
          * `isInFormElement` guard above. Lower-case letters since
          * `e.key.toLowerCase()` is the switch discriminator.
@@ -259,7 +265,10 @@ export function useKeyboardShortcuts(): void {
           useUiStore.getState().setPage('library');
           break;
         }
-        case 'h': {
+        // Cmd/Ctrl+Y: History -- what browsers use for their History.
+        // This used to be Cmd/Ctrl+H, which on a Mac is Hide in the app
+        // menu, with the same clash as Cmd+Q above.
+        case 'y': {
           e.preventDefault();
           useUiStore.getState().setPage('history');
           break;

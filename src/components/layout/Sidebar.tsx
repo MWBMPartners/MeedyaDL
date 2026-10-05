@@ -119,12 +119,14 @@ interface NavItem {
  */
 const NAV_ITEMS: NavItem[] = [
   { page: 'download', label: 'Download', icon: Download, shortcut: 'D' },
-  { page: 'queue', label: 'Queue', icon: ListOrdered, shortcut: 'Q' },
+  // J and Y, not Q and H: on a Mac those are Quit and Hide (see
+  // useKeyboardShortcuts.ts). Every page with a shortcut shows it here.
+  { page: 'queue', label: 'Queue', icon: ListOrdered, shortcut: 'J' },
   // Library Scan (Phase 5 / #717) — placed between Queue and History so
   // the user-flow ordering reads "queue work → scan library → see history".
-  { page: 'library', label: 'Library', icon: FolderSearch },
-  { page: 'history', label: 'History', icon: Clock },
-  { page: 'activity', label: 'Activity', icon: ScrollText },
+  { page: 'library', label: 'Library', icon: FolderSearch, shortcut: 'L' },
+  { page: 'history', label: 'History', icon: Clock, shortcut: 'Y' },
+  { page: 'activity', label: 'Activity', icon: ScrollText, shortcut: 'K' },
   { page: 'updates', label: 'Updates', icon: ArrowUpCircle },
   { page: 'settings', label: 'Settings', icon: Settings, shortcut: ',' },
   { page: 'help', label: 'Help', icon: HelpCircle },

@@ -124,6 +124,18 @@ describe('HelpViewer search', () => {
   });
 });
 
+describe('HelpViewer search box', () => {
+  // A "⌘+K" / "Ctrl+K" badge used to sit in the empty search box, labelled
+  // "to focus search (coming soon)". No such shortcut existed -- Cmd/Ctrl+K
+  // opens the Activity page -- so it advertised a key that did something else.
+  it('advertises no keyboard shortcut and nothing "coming soon"', () => {
+    const { container } = render(<HelpViewer />);
+    expect(container.querySelector('kbd')).toBeNull();
+    expect(container.textContent).not.toMatch(/\+K|coming soon/i);
+    expect(container.querySelector('[title*="coming soon" i], [aria-label*="coming soon" i]')).toBeNull();
+  });
+});
+
 describe('HelpViewer deep links', () => {
   /**
    * A `<HelpButton>` elsewhere in the app (e.g. next to a setting) sets

@@ -1339,8 +1339,12 @@ pub fn run() {
     // items (Edit, Window, etc.) are preserved.
     //
     // On Linux and Windows, no application menu is added — the app
-    // uses a custom titlebar/sidebar and the in-window menu bar is
-    // unwanted.
+    // uses the system's own title bar and its sidebar for navigation, and
+    // an in-window menu bar is unwanted.
+    //
+    // The Hide (Cmd+H) and Quit (Cmd+Q) items below keep their standard
+    // keys; the app's own page shortcuts avoid both (see
+    // src/hooks/useKeyboardShortcuts.ts).
     //
     // Reference: https://docs.rs/tauri/latest/tauri/menu/index.html
     #[cfg(target_os = "macos")]

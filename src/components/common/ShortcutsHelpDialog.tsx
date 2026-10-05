@@ -90,7 +90,7 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
               <>
                 <Key>{mod}</Key>
                 <span>+</span>
-                <Key>Q</Key>
+                <Key>J</Key>
               </>
             }
           />
@@ -110,7 +110,7 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
               <>
                 <Key>{mod}</Key>
                 <span>+</span>
-                <Key>H</Key>
+                <Key>Y</Key>
               </>
             }
           />

@@ -13,9 +13,9 @@ MeedyaDL supports keyboard shortcuts for fast navigation and common actions.
 | Shortcut | Action |
 |----------|--------|
 | **Cmd/Ctrl + D** | Go to Download page and focus the URL input |
-| **Cmd/Ctrl + Q** | Go to Queue page |
+| **Cmd/Ctrl + J** | Go to Queue page |
 | **Cmd/Ctrl + L** | Go to Library page |
-| **Cmd/Ctrl + H** | Go to History page |
+| **Cmd/Ctrl + Y** | Go to History page |
 | **Cmd/Ctrl + K** | Go to Activity page |
 | **Cmd/Ctrl + ,** | Go to Settings page |
 

@@ -173,8 +173,6 @@
     "searchPlaceholder": "Themen durchsuchen…",
     "searchAriaLabel": "Hilfethemen durchsuchen",
     "clearSearch": "Suche löschen",
-    "searchShortcutHint": "{{key}}+K, um die Suche zu fokussieren (demnächst)",
-    "searchShortcutAriaLabel": "Tastenkombination: {{key}} plus K (demnächst)",
     "resultCount_one": "{{count}} Ergebnis",
     "resultCount_other": "{{count}} Ergebnisse",
     "noResults": "Keine passenden Themen gefunden.",

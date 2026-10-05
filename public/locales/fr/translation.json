@@ -173,8 +173,6 @@
     "searchPlaceholder": "Rechercher des sujets…",
     "searchAriaLabel": "Rechercher dans les sujets d'aide",
     "clearSearch": "Effacer la recherche",
-    "searchShortcutHint": "{{key}}+K pour accéder à la recherche (à venir)",
-    "searchShortcutAriaLabel": "Raccourci clavier : {{key}} plus K (à venir)",
     "resultCount_one": "{{count}} résultat",
     "resultCount_other": "{{count}} résultats",
     "noResults": "Aucun sujet correspondant trouvé.",

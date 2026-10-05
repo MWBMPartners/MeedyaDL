@@ -66,7 +66,6 @@
  *
  * ## Sub-components (file-private)
  *
- * - `isMacPlatform()` -- Detects macOS for modifier key display.
  * - `escapeRegExp()` -- Escapes regex special characters in search queries.
  * - `HighlightedLabel` -- Renders a label with search matches highlighted.
  *
@@ -165,22 +164,6 @@ import {
 // here so this screen can never disagree with helpTopics.ts or the
 // Settings language dropdown about what a given language setting means.
 import { LOCALES, baseLanguageOf } from '@/lib/i18n';
-
-/**
- * Detects whether the user is on macOS so we can display the correct
- * modifier key hint (Cmd on macOS, Ctrl on everything else).
- * Uses navigator.platform with a fallback to navigator.userAgent for
- * broader browser compatibility.
- */
-function isMacPlatform(): boolean {
-  if (typeof navigator !== 'undefined') {
-    return (
-      navigator.platform?.toUpperCase().includes('MAC') ||
-      navigator.userAgent?.toUpperCase().includes('MAC')
-    );
-  }
-  return false;
-}
 
 /**
  * Escapes special regex characters in a user-supplied string so it can
@@ -382,14 +365,6 @@ export function HelpViewer() {
   }, [helpActiveTopic, clearHelpActiveTopic]);
 
   /**
-   * Determine the platform-appropriate modifier key label once.
-   * On macOS we show the Cmd symbol; on other platforms we show "Ctrl".
-   * This is memoized because isMacPlatform() accesses navigator, and
-   * we only need to evaluate it once per component mount.
-   */
-  const modifierKey = useMemo(() => (isMacPlatform() ? '⌘' : 'Ctrl'), []);
-
-  /**
    * Narrows the page list down to whatever the person typed in the
    * search box.
    *
@@ -567,7 +542,7 @@ export function HelpViewer() {
                 placeholder={t('help.searchPlaceholder')}
                 aria-label={t('help.searchAriaLabel')}
                 className="
-                  w-full pl-8 pr-16 py-1.5
+                  w-full pl-8 pr-8 py-1.5
                   text-xs rounded-platform
                   bg-surface-secondary
                   border border-border-light
@@ -578,11 +553,17 @@ export function HelpViewer() {
                 "
               />
 
-              {/* Right-side controls positioned absolutely within the input.
-                  Shows the keyboard shortcut hint when idle, or the clear
-                  button when a search query is entered. */}
+              {/* Right-side control positioned absolutely within the input:
+                  the clear button, shown when a search query is entered.
+
+                  A "⌘+K" / "Ctrl+K" badge used to sit here when the box was
+                  empty, labelled "to focus search (coming soon)". No such
+                  shortcut existed -- Cmd/Ctrl+K actually opens the Activity
+                  page -- so the badge advertised a key that did something
+                  else. It was removed rather than wired up: Cmd/Ctrl+K is
+                  taken, and a help-only meaning for it would be a surprise. */}
               <div className="absolute right-2 flex items-center gap-1">
-                {isSearchActive ? (
+                {isSearchActive && (
                   /* Clear search button: visible only when there is text
                      in the search input. Resets the query on click. */
                   <button
@@ -599,31 +580,6 @@ export function HelpViewer() {
                   >
                     <X size={12} />
                   </button>
-                ) : (
-                  /* Keyboard shortcut hint: shown when the input is empty.
-                     Displays Cmd+K on macOS or Ctrl+K on other platforms.
-                     This is a visual placeholder for future keyboard
-                     shortcut support (the actual shortcut handler is not
-                     yet implemented). The "Cmd"/"Ctrl" part of `modifierKey`
-                     is a key name, never translated -- it's passed into the
-                     translated sentence as `{{key}}` rather than baked into
-                     the English string, so a translator only ever touches
-                     the surrounding words. */
-                  <kbd
-                    className="
-                      hidden sm:inline-flex items-center gap-0.5
-                      px-1 py-0.5 rounded
-                      text-[10px] leading-none
-                      font-mono
-                      text-content-tertiary
-                      bg-surface-tertiary
-                      border border-border-light
-                    "
-                    title={t('help.searchShortcutHint', { key: modifierKey })}
-                    aria-label={t('help.searchShortcutAriaLabel', { key: modifierKey })}
-                  >
-                    {modifierKey}+K
-                  </kbd>
                 )}
               </div>
             </div>
