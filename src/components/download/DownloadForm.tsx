@@ -1381,8 +1381,11 @@ export function DownloadForm() {
           >
             <span>
               Quality Overrides{' '}
+              {/* "·", not brackets: codec labels such as "Lossless (ALAC)
+                  (Experimental)" carry their own, and this used to read
+                  "(default: Lossless (ALAC) (Experimental))". */}
               <span className="text-content-tertiary">
-                (default: {SONG_CODEC_LABELS[defaultSongCodec]})
+                · default: {SONG_CODEC_LABELS[defaultSongCodec]}
               </span>
             </span>
             {/* Chevron icon flips based on expand/collapse state */}

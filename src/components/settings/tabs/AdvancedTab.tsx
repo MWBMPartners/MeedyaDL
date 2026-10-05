@@ -1481,7 +1481,7 @@ function IntegrityScanSection() {
     <div className="p-3 rounded-lg bg-surface-secondary border border-border">
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-content-primary">
-          Integrity scan (#537)
+          Integrity Scan
         </p>
         <Button
           variant="secondary"
@@ -1493,11 +1493,11 @@ function IntegrityScanSection() {
         </Button>
       </div>
       <p className="text-xs text-content-tertiary mb-2">
-        Walks your output folder looking for historic damage from
-        pre-v1.6 broken builds — empty-tag filenames (<code>-.mp4</code>),
+        Looks through your output folder for damage left by older
+        versions of MeedyaDL — empty-tag filenames (<code>-.mp4</code>),
         <code>[Unknown]/</code> folder segments, and zero-byte cover
-        files. <strong>Read-only</strong>: detects and reports only.
-        Quarantine action lands in a future update.
+        files. <strong>Read-only</strong>: it reports what it finds and
+        changes nothing.
       </p>
       {error && (
         <p className="text-xs text-status-error-text mb-2">{error}</p>

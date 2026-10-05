@@ -145,7 +145,7 @@ All four channel branches (`alpha`, `beta`, `release-candidate`, `main`) are **l
 
 - **Bugs**: [open a new issue](https://github.com/MWBMPartners/MeedyaDL/issues/new) and say what you did, what you expected, and what happened instead. (There is no bug report form yet — only the crash report form the app itself uses.)
 - **Crash reports**: Use the in-app crash reporting (Settings > Advanced > Error Reporting)
-- **Feature requests**: Open a [discussion](https://github.com/MWBMPartners/MeedyaDL/discussions) or issue
+- **Feature requests**: [open an issue](https://github.com/MWBMPartners/MeedyaDL/issues/new) describing what you would like and why
 - **Security vulnerabilities**: See [SECURITY.md](SECURITY.md) — do NOT open public issues
 
 ## Release Process

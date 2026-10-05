@@ -27,7 +27,7 @@
  *   - **Artist Auto-Select** -- When downloading from an artist URL,
  *     controls which content type is automatically selected (main albums,
  *     compilations, singles, etc.). Maps to `settings.artist_auto_select`.
- *     Requires GAMDL 2.9.1+.
+ *     (Every GAMDL version MeedyaDL supports, 3.0 and newer, has it.)
  *
  *   - **Maximum Video Resolution** -- The highest resolution to accept for
  *     music video downloads. This is a ceiling, not a request: the download
@@ -237,7 +237,7 @@ export function QualityTab() {
             sync with the multi-select array for backwards compat. */}
         <CheckboxGroup<ArtistAutoSelect>
           label="Artist Auto-Select"
-          description="When downloading from an artist URL, automatically download these content types. Select multiple to download each type separately (MeedyaDL creates one download per selected mode). Leave empty to use GAMDL's default behaviour. Requires GAMDL 2.9.1+."
+          description="When downloading from an artist URL, automatically download these content types. Select multiple to download each type separately (MeedyaDL creates one download per selected mode). Leave empty to use GAMDL's default behaviour."
           options={ARTIST_AUTO_SELECT_LABELS}
           selected={artistAutoSelectMulti.value}
           onChange={(selected) => {

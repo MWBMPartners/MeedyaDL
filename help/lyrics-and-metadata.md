@@ -70,7 +70,7 @@ Enhanced LRC is enabled by default. The toggle is in **Settings > Lyrics > Enhan
 
 **Testing your connection:**
 
-Settings > Lyrics includes a **Test word-level lyrics connection** button next to the Enhanced Lyrics toggle. It checks whether MeedyaDL can currently fetch word-level (syllable) lyrics from Apple Music -- without waiting for a full download. The test resolves your MusicKit developer token the same way a real download does (your own MusicKit credentials, falling back to the developer token captured from your Apple Music web-player session if you haven't configured your own), reads the Media-User-Token from your imported cookies, and probes Apple's syllable-lyrics endpoint against a known song. A green result means word-level timing came back and Enhanced LRC will work (noting when it succeeded via your web-player session rather than configured credentials); an amber result means the endpoint responded but only with line-level timing; anything else comes with guidance on what to fix -- signing in to Apple Music, configuring MusicKit credentials in Settings > Advanced, or re-importing cookies.
+Settings > Lyrics includes a **Test word-level lyrics connection** button next to the Enhanced Lyrics toggle. It checks whether MeedyaDL can currently fetch word-level (syllable) lyrics from Apple Music — without waiting for a full download. The test resolves your MusicKit developer token the same way a real download does (your own MusicKit credentials, falling back to the developer token captured from your Apple Music web-player session if you haven't configured your own), reads the Media-User-Token from your imported cookies, and probes Apple's syllable-lyrics endpoint against a known song. A green result means word-level timing came back and Enhanced LRC will work (noting when it succeeded via your web-player session rather than configured credentials); an amber result means the endpoint responded but only with line-level timing; anything else comes with guidance on what to fix — signing in to Apple Music, configuring MusicKit credentials in Settings > Advanced, or re-importing cookies.
 
 ### SRT (SubRip Subtitle)
 
@@ -179,7 +179,7 @@ In **Settings > Lyrics**, you can select one or more lyric output formats using 
 
 ### Multi-Format Lyrics
 
-You can check multiple format boxes to download lyrics in more than one format. The first checked format (in LRC, SRT, TTML order) is the **primary** format, downloaded alongside the audio during the main download pass. Any additional checked formats are downloaded as lightweight **companion passes** after the audio completes -- these use GAMDL's `--synced-lyrics-only` mode, which fetches only the lyrics file without re-downloading audio.
+You can check multiple format boxes to download lyrics in more than one format. The first checked format (in LRC, SRT, TTML order) is the **primary** format, downloaded alongside the audio during the main download pass. Any additional checked formats are downloaded as lightweight **companion passes** after the audio completes — these use GAMDL's `--synced-lyrics-only` mode, which fetches only the lyrics file without re-downloading audio.
 
 ### Companion Lyrics
 
@@ -459,9 +459,9 @@ MeedyaDL downloads album artwork at the full resolution available from Apple Mus
 Artwork configuration is found in **Settings > Cover Art**, where you can choose:
 
 - **Format:** JPG, PNG, or RAW
-  - **JPG** -- Smaller file size with lossy compression. Best for saving storage space while maintaining good visual quality.
-  - **PNG** -- Lossless compression. Larger file size but preserves every pixel of the original artwork without compression artifacts.
-  - **RAW** -- The original format as delivered by Apple, which is typically JPEG. No re-encoding is applied.
+  - **JPG** — Smaller file size with lossy compression. Best for saving storage space while maintaining good visual quality.
+  - **PNG** — Lossless compression. Larger file size but preserves every pixel of the original artwork without compression artifacts.
+  - **RAW** — The original format as delivered by Apple, which is typically JPEG. No re-encoding is applied.
 - **Embedding:** Enable or disable embedding artwork directly into the media file's metadata.
 
 ### Artwork as Separate Files
@@ -472,9 +472,9 @@ This is useful for media players and library managers (such as Plex, Jellyfin, o
 
 ### Checking Other Services for a Bigger Cover (Opt-In)
 
-Enable **"Upgrade Cover Art From Other Services"** in **Settings > Cover Art**. After a download finishes, MeedyaDL asks Deezer's public catalogue for its picture of the same album, matched by the album's release barcode -- never by searching for the album's name, so it can never come back with the wrong album's art.
+Enable **"Upgrade Cover Art From Other Services"** in **Settings > Cover Art**. After a download finishes, MeedyaDL asks Deezer's public catalogue for its picture of the same album, matched by the album's release barcode — never by searching for the album's name, so it can never come back with the wrong album's art.
 
-If Deezer's picture has more pixels than the cover art file MeedyaDL already saved, the saved file is replaced with Deezer's version. If Deezer's picture is the same size or smaller, or Deezer doesn't recognise the barcode, nothing changes. Only the pixel count is compared -- MeedyaDL does not judge which picture looks better.
+If Deezer's picture has more pixels than the cover art file MeedyaDL already saved, the saved file is replaced with Deezer's version. If Deezer's picture is the same size or smaller, or Deezer doesn't recognise the barcode, nothing changes. Only the pixel count is compared — MeedyaDL does not judge which picture looks better.
 
 This only replaces the standalone cover art file described above (`cover.jpg` / `cover.png`). The artwork Apple Music already embedded inside each track's own file is never touched by this setting.
 
@@ -511,10 +511,10 @@ For general troubleshooting, see [Troubleshooting](troubleshooting.md).
 
 ## Related Topics
 
-- [Downloading Music](downloading-music.md) -- How audio downloads work
-- [Downloading Videos](downloading-videos.md) -- How video downloads and subtitles work
-- [Quality Settings](quality-settings.md) -- Audio and video format options that affect metadata capabilities
-- [Troubleshooting](troubleshooting.md) -- General error resolution
+- [Downloading Music](downloading-music.md) — How audio downloads work
+- [Downloading Videos](downloading-videos.md) — How video downloads and subtitles work
+- [Quality Settings](quality-settings.md) — Audio and video format options that affect metadata capabilities
+- [Troubleshooting](troubleshooting.md) — General error resolution
 
 ---
 

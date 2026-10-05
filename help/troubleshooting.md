@@ -76,7 +76,7 @@ If you are behind a corporate firewall or use a proxy, MeedyaDL needs to be able
 
 #### "Requested quality not available"
 
-Not all content on Apple Music is available in every codec. Some tracks or videos may only be available in specific codecs. Video resolution is not part of this error -- it's a ceiling, so Apple Music always returns the best quality it has at or below what you asked for, never a failure.
+Not all content on Apple Music is available in every codec. Some tracks or videos may only be available in specific codecs. Video resolution is not part of this error — it's a ceiling, so Apple Music always returns the best quality it has at or below what you asked for, never a failure.
 
 - **Cause:** The specific audio or video codec you requested is not available for this particular content on Apple Music.
 - **Solution:** Turn on the **Enable Fallback Chain** switch in **Settings > Codec & Resolution** so that MeedyaDL automatically selects the next best available codec when your preferred choice is unavailable. Alternatively, manually select a different codec before downloading. See [Fallback Quality](fallback-quality.md) for configuration details and [Quality Settings](quality-settings.md) for an overview of available formats.
@@ -90,7 +90,7 @@ Not all content on Apple Music is available in every codec. Some tracks or video
 
 If you paste a URL from a country other than your Apple Music account region (e.g. a `/us/` link while your account is `gb`), and the album either isn't published in the URL's catalog or your account can't license it from that storefront, MeedyaDL will see an `AMP API Status code: 404 Resource Not Found` error.
 
-- **Default behaviour (v0.52+):** MeedyaDL automatically retries the download once using your account region (Settings > General > Storefront). You will see an activity-log line such as `Storefront 'us' returned no catalog entry — retrying with your account region 'gb'…`. If the album exists in your region, the retry succeeds and the file lands without further action.
+- **Default behaviour:** MeedyaDL automatically retries the download once using your account region (Settings > General > Storefront). You will see an activity-log line such as `Storefront 'us' returned no catalog entry — retrying with your account region 'gb'…`. If the album exists in your region, the retry succeeds and the file lands without further action.
 - **If both storefronts fail:** the activity log shows `Album not available in 'us' or 'gb'` and the item moves to the failed bucket. The album may genuinely be region-locked or removed from the catalog.
 - **To disable the auto-retry:** uncheck **Settings > General > Auto-retry with your region when a URL's storefront fails**. Strict URL-storefront behaviour is restored.
 - **Why the auto-retry is one-shot only:** to prevent two URLs whose albums are mutually unavailable from ping-ponging forever. A manual click on the **Retry** button refreshes the budget, so you can ask for the rewrite again.
@@ -118,7 +118,7 @@ Apple Music enforces a per-account limit on **license (DRM-key) requests**. It's
 
 #### The first playlist track fails with "Save Playlist" enabled
 
-- **Cause:** A known bug in GAMDL's playlist-file writer (upstream [gamdl#322](https://github.com/glomatico/gamdl/issues/322)) can make the **first** track of a playlist fail while the rest download normally, when the **Save Playlist** option is enabled.
+- **Cause:** A known bug in GAMDL's playlist-file writer (reported to GAMDL's developers in [their issue 322](https://github.com/glomatico/gamdl/issues/322)) can make the **first** track of a playlist fail while the rest download normally, when the **Save Playlist** option is enabled.
 - **Solution:** Retry the failed first track on its own, or download the album it belongs to. If you don't need the `.m3u8` playlist sidecar, turning **Save Playlist** off also avoids the bug. This is a GAMDL-side issue — MeedyaDL will pick up the fix automatically once it lands upstream and is admitted to the support window.
 
 ---
@@ -132,7 +132,7 @@ MeedyaDL relies on external tools such as **FFmpeg** and **mp4decrypt** to proce
 - **Cause:** A required dependency (FFmpeg, mp4decrypt, or another tool) is not installed, is not on the system PATH, or has become corrupted.
 - **Solution:** Go to **Settings > Advanced > Setup** and press **Re-run Setup Wizard** to re-download and install all required dependencies automatically. This will verify and repair the dependency installation without affecting your other settings.
 
-> **Already have these tools?** MeedyaDL now recognises tools you installed yourself with a package manager — Homebrew, MacPorts, apt, dnf, pipx, Scoop or snap — and reuses them in place instead of downloading a duplicate copy. The setup wizard shows a **Homebrew** / **System** badge next to a reused tool. MeedyaDL does not check a reused copy for updates or try to update it -- that stays with the package manager that installed it (for example `brew upgrade ffmpeg`), so the two never fight over it. If a tool you installed via Homebrew still shows as missing, make sure it's a recent enough version (see the version requirements) and re-open the setup wizard.
+> **Already have these tools?** MeedyaDL now recognises tools you installed yourself with a package manager — Homebrew, MacPorts, apt, dnf, pipx, Scoop or snap — and reuses them in place instead of downloading a duplicate copy. The setup wizard shows a **Homebrew** / **System** badge next to a reused tool. MeedyaDL does not check a reused copy for updates or try to update it — that stays with the package manager that installed it (for example `brew upgrade ffmpeg`), so the two never fight over it. If a tool you installed via Homebrew still shows as missing, make sure it's a recent enough version (see the version requirements) and re-open the setup wizard.
 
 #### Python stopped working after upgrading or changing your system Python
 
@@ -343,7 +343,7 @@ MeedyaDL requires certain system libraries that may not be installed by default 
 
 The application crashes immediately on startup, and macOS shows a dialog asking whether to "reopen windows".
 
-- **Cause:** A corrupt or incompatible `queue.json` file in the app data directory can trigger a panic during the queue restoration step at startup. This was fixed in v0.5.3, where the queue recovery code was updated to not depend on the Tokio async runtime being available during early app initialisation.
+- **Cause:** A corrupt or incompatible `queue.json` file in the app data directory used to make the app stop while restoring the queue at startup. Current versions no longer do this.
 - **Solution:** Update to the latest version of MeedyaDL. If you cannot update immediately, delete the `queue.json` file from your app data directory to allow the application to start:
 
   | Platform | Path |
@@ -365,8 +365,8 @@ Downloads fail with a permission error related to the temp or working directory.
 
 If the app freezes during downloads or shows "Output directory timed out" errors when using cloud storage mounts:
 
-- **Cause:** The output directory points to an unresponsive cloud mount (CloudMounter on macOS, rclone/SSHFS on Linux). File operations on disconnected or slow FUSE mounts can block for minutes. Prior to v0.6.2, this could freeze the entire UI.
-- **Solution (v0.6.2+):** MeedyaDL now uses `spawn_blocking` with timeouts for all file I/O operations during the enrichment pipeline, preventing UI freezes. The output path writability check has a 5-second timeout. If your cloud mount is unresponsive:
+- **Cause:** The output directory points to an unresponsive cloud mount (CloudMounter on macOS, rclone/SSHFS on Linux). File operations on disconnected or slow FUSE mounts can block for minutes.
+- **Solution:** MeedyaDL does its file work in the background with time limits, so a stuck mount does not freeze the window, and it checks that the output folder can be written to (waiting at most 5 seconds) before a download starts. If your cloud mount is unresponsive:
   1. Check that the cloud mount is connected and responsive
   2. Consider using a local output directory and moving files to cloud storage after download
   3. If the mount is permanently disconnected, change the output directory in **Settings > General > Output**
@@ -442,7 +442,7 @@ Only some tracks in an album were downloaded, with the rest showing "Requested f
 
 The download appears to complete (GAMDL exits successfully) but MeedyaDL reports "no output files" or marks the item as failed.
 
-- **Cause:** In earlier versions, MeedyaDL's output detection could miss files when GAMDL used certain naming patterns or when the output directory contained unexpected characters. This was a known issue in versions prior to v0.10.
+- **Cause:** In earlier versions, MeedyaDL's output detection could miss files when GAMDL used certain naming patterns or when the output directory contained unexpected characters.
 - **Solution:** Update to the latest version of MeedyaDL. This issue has been fixed in recent releases with improved output file detection logic. If you are already on the latest version and still see this error, check that your output directory path does not contain special characters, and verify the directory is writable.
 
 #### Activity Log Shows Authentication Method
@@ -604,11 +604,11 @@ Crash reports are named `crash-YYYYMMDD-HHMMSS.json` and are automatically clean
 
 You can optionally help improve MeedyaDL by enabling anonymous crash reporting. When enabled, crash data (error message, stack trace, app version, OS) is sent to our error tracking service. No personal data, download history, or account information is ever included. This feature is off by default and only turns on if you say yes.
 
-MeedyaDL asks you once, in a **Help Improve MeedyaDL** window: **Yes, send crash reports** or **No thanks**. Closing that window counts as No thanks. Your answer is remembered, so you are not asked again -- unless MeedyaDL could not save it, in which case it tells you and asks again next time you open the app. You can change your mind at any time with the **Send Anonymous Crash Reports** switch in **Settings > Advanced > Error Reporting**; the change takes effect after you restart MeedyaDL.
+MeedyaDL asks you once, in a **Help Improve MeedyaDL** window: **Yes, send crash reports** or **No thanks**. Closing that window counts as No thanks. Your answer is remembered, so you are not asked again — unless MeedyaDL could not save it, in which case it tells you and asks again next time you open the app. You can change your mind at any time with the **Send Anonymous Crash Reports** switch in **Settings > Advanced > Error Reporting**; the change takes effect after you restart MeedyaDL.
 
 ### Reporting a Crash via GitHub Issues
 
-You can report crashes directly to the developer from within MeedyaDL. This opens a pre-filled GitHub Issue in your browser -- no API tokens or server accounts needed, just a GitHub account.
+You can report crashes directly to the developer from within MeedyaDL. This opens a pre-filled GitHub Issue in your browser — no API tokens or server accounts needed, just a GitHub account.
 
 1. Go to **Settings > Advanced > Error Reporting**.
 2. Recent crash reports are listed below the crash reporting switch. Each entry shows the date, time, and error summary.
@@ -639,11 +639,11 @@ If you encounter a problem that is not covered in this guide, or if the suggeste
 
 ## Related Topics
 
-- [Cookie Management](cookie-management.md) -- Resolving authentication and cookie issues
-- [Quality Settings](quality-settings.md) -- Understanding quality and format options
-- [Fallback Quality](fallback-quality.md) -- Configuring quality fallback behavior
-- [FAQ](faq.md) -- Frequently asked questions
-- [Getting Started](getting-started.md) -- Initial setup and configuration
+- [Cookie Management](cookie-management.md) — Resolving authentication and cookie issues
+- [Quality Settings](quality-settings.md) — Understanding quality and format options
+- [Fallback Quality](fallback-quality.md) — Configuring quality fallback behavior
+- [FAQ](faq.md) — Frequently asked questions
+- [Getting Started](getting-started.md) — Initial setup and configuration
 
 ---
 

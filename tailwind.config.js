@@ -347,6 +347,12 @@ export default {
             '--tw-prose-pre-bg': 'var(--surface-elevated)',
             '--tw-prose-th-borders': 'var(--border)',
             '--tw-prose-td-borders': 'var(--border-light)',
+            // The plugin's default wraps inline code in literal backtick
+            // characters (`code::before/after { content: "`" }`), so help
+            // pages and release notes showed `.dmg` with the backticks
+            // visible. The code styling itself is enough.
+            'code::before': { content: 'none' },
+            'code::after': { content: 'none' },
           },
         },
         invert: {

@@ -115,7 +115,7 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
 | --- | --- | --- | --- | --- |
 | **[Python](https://www.python.org/)** | Portable runtime that hosts GAMDL. Bundled with MeedyaDL — users never install this manually. | 3.10+ | 3.12.x | `src-tauri/src/services/python_manager.rs` (`PYTHON_VERSION`) |
 | **[GAMDL](https://github.com/glomatico/gamdl)** | Apple Music download engine. Installed via `pip` into the bundled Python. GAMDL **v3 only** — v3.0–v3.5.x use [wrapper-v1](https://github.com/WorldObservationLog/wrapper), v3.6+ use [wrapper-v2](https://github.com/glomatico/wrapper-v2) (both supported; the Settings UI adapts). | **3.0 – 3.9.1**, except 3.9 | 3.9.1 (Windows on ARM: 3.8.5) | `src-tauri/tool-versions.toml` → `[gamdl]` |
-| **FFmpeg** | Audio codec conversion and video remuxing. Still used by MeedyaDL's own pipeline (ReplayGain / BPM analysis) regardless of GAMDL version. Also used by N_m3u8DL-RE on GAMDL 3.7+ via `--ffmpeg-path`. | 5.0+ | 7.x | `src-tauri/tool-versions.toml` → `[ffmpeg]` |
+| **FFmpeg** | Audio codec conversion and video remuxing. Still used by MeedyaDL's own pipeline (ReplayGain loudness analysis) regardless of GAMDL version. Also used by N_m3u8DL-RE on GAMDL 3.7+ via `--ffmpeg-path`. | 5.0+ | 7.x | `src-tauri/tool-versions.toml` → `[ffmpeg]` |
 | **mp4decrypt** ([Bento4](https://github.com/axiomatic-systems/Bento4)) | Decrypts Widevine-protected streams. Required by GAMDL 3.0 – 3.5.x; **unused** by GAMDL 3.6+ (native decryption) but still shipped while older releases are in the support window. | 1.6.0+ | 1.6.0+ | `src-tauri/tool-versions.toml` → `[mp4decrypt]` |
 | **[N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE)** | Alternative HLS/DASH downloader used by some codec paths. Depends on FFmpeg at HLS-stream time. | 0.4.0+ | 0.5.x | `src-tauri/tool-versions.toml` → `[nm3u8dlre]` |
 | **MP4Box** ([GPAC](https://github.com/gpac/gpac)) | Alternative MP4 muxer. **Unused** by GAMDL 3.6+ (native muxing); still shipped for older releases. | 2.0+ | 2.4+ | `src-tauri/tool-versions.toml` → `[mp4box]` |
@@ -298,7 +298,7 @@ MeedyaDL is built with a modern, performance-first tech stack:
 
 ### Release channels
 
-MeedyaDL publishes across four channels, ordered from least to most stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel — it will never auto-downgrade you to a less-stable build, even if a more recent one exists. The discovery filter uses `>=`, so being on (e.g.) Beta will *also* surface RC and Stable releases — but never anything below Beta.
+MeedyaDL publishes across four channels, ordered from least to most stable. You pick one in **Settings > General > Preferences > Update Channel** and the in-app updater stays on that channel — it will never auto-downgrade you to a less-stable build, even if a more recent one exists. The discovery filter uses `>=`, so being on (e.g.) Beta will *also* surface RC and Stable releases — but never anything below Beta.
 
 | Channel | Cadence | Trigger | Suffix | Audience |
 | ------- | ------- | ------- | ------ | -------- |
@@ -307,7 +307,7 @@ MeedyaDL publishes across four channels, ordered from least to most stable. You 
 | **RC** | Ad-hoc | push to `release-candidate` branch | `-rc.N` (monotonic) | Release candidates |
 | **Stable** | Per-version | release-please-action merge or `version-bump.yml` | *no suffix* | Production (recommended) |
 
-Moving to a less-stable channel is an explicit action (Settings > General > Updates). Moving back up is equally explicit. Within a channel, auto-updates behave exactly as before.
+Moving to a less-stable channel is an explicit action (Settings > General > Preferences > Update Channel). Moving back up is equally explicit. Within a channel, auto-updates behave exactly as before.
 
 Only **Alpha** is hidden from the channel selector by default — it only appears once developer access is unlocked. Beta, RC, and Stable are always visible to all users. (MeedyaDL used to also publish daily/weekly/monthly test builds; those were retired in favour of the Alpha channel, which already covers the same "latest work-in-progress" need with far less noise.)
 

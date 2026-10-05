@@ -12,13 +12,13 @@ This guide explains how to set up Apple Music authentication in MeedyaDL using c
 
 ## Overview
 
-MeedyaDL uses your Apple Music browser cookies to authenticate with Apple's servers on your behalf. These cookies prove that you have a valid Apple Music subscription, allowing MeedyaDL to access and download content. Cookies are essential for the application to function -- without valid cookies, downloads will fail.
+MeedyaDL uses your Apple Music browser cookies to authenticate with Apple's servers on your behalf. These cookies prove that you have a valid Apple Music subscription, allowing MeedyaDL to access and download content. Cookies are essential for the application to function — without valid cookies, downloads will fail.
 
 MeedyaDL provides **three ways** to set up cookies, listed from easiest to most manual:
 
-1. **Built-in Apple Music login** -- Sign in directly within the app (no browser extension needed)
-2. **Browser auto-import** -- Automatically extract cookies from an installed browser
-3. **Manual cookie file import** -- Export cookies from your browser using an extension and import the file
+1. **Built-in Apple Music login** — Sign in directly within the app (no browser extension needed)
+2. **Browser auto-import** — Automatically extract cookies from an installed browser
+3. **Manual cookie file import** — Export cookies from your browser using an extension and import the file
 
 ---
 
@@ -73,7 +73,7 @@ If you are already signed in to Apple Music in a browser on your computer, Meedy
 
 ## Why Cookies Are Needed
 
-Apple Music requires authentication to access its content. MeedyaDL uses browser cookies -- specifically session tokens -- to authenticate with Apple's servers. This approach means:
+Apple Music requires authentication to access its content. MeedyaDL uses browser cookies — specifically session tokens — to authenticate with Apple's servers. This approach means:
 
 - **Your Apple ID password is never stored or transmitted by the app.** MeedyaDL only uses the session tokens contained in cookies that your browser created when you signed in to Apple Music.
 - **Cookies act as proof of your active session.** When you sign in to music.apple.com in your browser, Apple creates session cookies. MeedyaDL uses these same cookies to make requests on your behalf.
@@ -103,7 +103,7 @@ MeedyaDL accepts cookies in the **Netscape/Mozilla cookie file format**. This is
 
 ```
 
-Each subsequent line contains a single cookie with tab-separated fields (domain, flag, path, secure, expiry, name, value). You do not need to edit this file manually -- the browser extensions listed below produce files in the correct format automatically.
+Each subsequent line contains a single cookie with tab-separated fields (domain, flag, path, secure, expiry, name, value). You do not need to edit this file manually — the browser extensions listed below produce files in the correct format automatically.
 
 ### Required Domains
 
@@ -173,13 +173,13 @@ To import your cookie file:
 
 After a successful import, the Cookies tab displays a validation summary with the following information:
 
-- **Domain badges** -- Shows which Apple domains are present in the cookie file (e.g., `music.apple.com`, `.apple.com`).
-- **Expiry status** -- Indicates whether your cookies are valid, expiring soon, or expired:
-  - **Green** -- Cookies are valid and not near expiry.
-  - **Yellow** -- Cookies are expiring soon. You should re-export and re-import soon.
-  - **Red** -- Cookies have expired. You must re-export and re-import before downloads will work.
-- **Cookie count** -- The total number of cookies found in the imported file.
-- **File path** -- The location where the cookie file is stored. You can copy this path to your clipboard.
+- **Domain badges** — Shows which Apple domains are present in the cookie file (e.g., `music.apple.com`, `.apple.com`).
+- **Expiry status** — Indicates whether your cookies are valid, expiring soon, or expired:
+  - **Green** — Cookies are valid and not near expiry.
+  - **Yellow** — Cookies are expiring soon. You should re-export and re-import soon.
+  - **Red** — Cookies have expired. You must re-export and re-import before downloads will work.
+- **Cookie count** — The total number of cookies found in the imported file.
+- **File path** — The location where the cookie file is stored. You can copy this path to your clipboard.
 
 ---
 
@@ -200,9 +200,9 @@ MeedyaDL monitors cookie expiry dates and warns you when cookies are approaching
 
 When your cookies expire or are approaching expiry, use any of these methods to refresh them:
 
-- **Use the built-in login** -- Go to **Settings > Cookies** and click **"Sign in to Apple Music"**. Sign in again and fresh cookies are extracted automatically.
-- **Use browser auto-import** -- If you are still signed in to music.apple.com in a browser, click **"Import from Browser"** to re-extract fresh cookies.
-- **Manual re-export** -- Re-export your cookies from your browser using the same extension you used before, then re-import the file in MeedyaDL.
+- **Use the built-in login** — Go to **Settings > Cookies** and click **"Sign in to Apple Music"**. Sign in again and fresh cookies are extracted automatically.
+- **Use browser auto-import** — If you are still signed in to music.apple.com in a browser, click **"Import from Browser"** to re-extract fresh cookies.
+- **Manual re-export** — Re-export your cookies from your browser using the same extension you used before, then re-import the file in MeedyaDL.
 
 The new cookies replace the old ones. Verify that the status indicator shows green after renewal.
 
@@ -231,7 +231,7 @@ If your cookies seem to expire much sooner than expected:
 
 If the cookie status shows green but downloads still fail:
 
-- **Re-export and re-import** your cookies as a first step -- the status indicator may not catch all edge cases.
+- **Re-export and re-import** your cookies as a first step — the status indicator may not catch all edge cases.
 - **Check your Apple Music subscription** is still active by visiting music.apple.com in your browser.
 - **Check your internet connection** and ensure Apple's servers are reachable.
 - **Review the application logs** for more detailed error information.
@@ -262,10 +262,10 @@ See also [Troubleshooting](troubleshooting.md) for general error resolution and 
 
 ## Related Topics
 
-- [Getting Started](getting-started.md) -- Initial cookie setup during first-time configuration
-- [Downloading Music](downloading-music.md) -- How cookies are used during music downloads
-- [Downloading Videos](downloading-videos.md) -- How cookies are used during video downloads
-- [Troubleshooting](troubleshooting.md) -- General error resolution and log file locations
+- [Getting Started](getting-started.md) — Initial cookie setup during first-time configuration
+- [Downloading Music](downloading-music.md) — How cookies are used during music downloads
+- [Downloading Videos](downloading-videos.md) — How cookies are used during video downloads
+- [Troubleshooting](troubleshooting.md) — General error resolution and log file locations
 
 ---
 

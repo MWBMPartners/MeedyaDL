@@ -16,11 +16,11 @@ This guide walks you through the first-time setup of MeedyaDL, from system requi
 
 MeedyaDL is available on the following platforms:
 
-- **macOS 13.3+** (Ventura or later) -- Apple Silicon (.dmg)
-- **Windows x64 / ARM64** -- NSIS installer (.exe)
-- **Linux x64** -- Debian package (.deb), RPM package (.rpm), or AppImage (.AppImage)
-- **Linux ARM64** -- Debian or RPM package (.deb / .rpm) -- Raspberry Pi 4/5, ARM servers
-- **Linux ARMv7** -- Debian or RPM package (.deb / .rpm) -- 32-bit Raspberry Pi (experimental)
+- **macOS 13.3+** (Ventura or later) — Apple Silicon (.dmg)
+- **Windows x64 / ARM64** — NSIS installer (.exe)
+- **Linux x64** — Debian package (.deb), RPM package (.rpm), or AppImage (.AppImage)
+- **Linux ARM64** — Debian or RPM package (.deb / .rpm) — Raspberry Pi 4/5, ARM servers
+- **Linux ARMv7** — Debian or RPM package (.deb / .rpm) — 32-bit Raspberry Pi (experimental)
 
 Additional requirements:
 
@@ -29,12 +29,12 @@ Additional requirements:
 
 ### Required Software
 
-MeedyaDL has **no special software prerequisites**. All dependencies -- including Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo -- are automatically downloaded and installed into the application's sandboxed data directory on first launch. You do not need to install any of these tools yourself.
+MeedyaDL has **no special software prerequisites**. All dependencies — including Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo — are automatically downloaded and installed into the application's sandboxed data directory on first launch. You do not need to install any of these tools yourself.
 
 The only things you need before using MeedyaDL are:
 
 - A valid Apple Music subscription for accessing content
-- A way to provide your Apple Music cookies -- either via the built-in login window, browser auto-import, or manual export from a browser extension (see [Cookie Management](cookie-management.md))
+- A way to provide your Apple Music cookies — either via the built-in login window, browser auto-import, or manual export from a browser extension (see [Cookie Management](cookie-management.md))
 
 ---
 
@@ -97,12 +97,12 @@ Follow the same Debian / Ubuntu instructions above using the ARM64 `.deb` packag
 
 The first time you launch MeedyaDL, a setup wizard will guide you through the initial configuration. The wizard consists of **6 steps**:
 
-1. **Welcome** -- Introduction and overview of the setup process.
-2. **Python** -- MeedyaDL needs Python 3.10 or newer. If you already have a compatible Python installed (for example via Homebrew or python.org), the wizard detects it and offers a **"Use this"** button — MeedyaDL then builds an isolated environment from it (your system Python is never modified), skipping the download entirely. Otherwise, it downloads and installs a sandboxed Python runtime into its data directory. A **Browse…** button lets you point at a specific interpreter.
-3. **Engine** -- GAMDL, the free download engine MeedyaDL uses for Apple Music, is installed into MeedyaDL's own Python automatically.
-4. **Dependency Installation** -- Additional tools are installed: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo. All dependencies are placed in the application's sandboxed data directory and do not affect your system.
-5. **Cookie Import** -- You will be prompted to import your Apple Music cookies (see below).
-6. **Complete** -- Setup is finished and MeedyaDL is ready to use.
+1. **Welcome** — Introduction and overview of the setup process.
+2. **Python** — MeedyaDL needs Python 3.10 or newer. If you already have a compatible Python installed (for example via Homebrew or python.org), the wizard detects it and offers a **"Use this"** button — MeedyaDL then builds an isolated environment from it (your system Python is never modified), skipping the download entirely. Otherwise, it downloads and installs a sandboxed Python runtime into its data directory. A **Browse…** button lets you point at a specific interpreter.
+3. **Engine** — GAMDL, the free download engine MeedyaDL uses for Apple Music, is installed into MeedyaDL's own Python automatically.
+4. **Dependency Installation** — Additional tools are installed: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo. All dependencies are placed in the application's sandboxed data directory and do not affect your system.
+5. **Cookie Import** — You will be prompted to import your Apple Music cookies (see below).
+6. **Complete** — Setup is finished and MeedyaDL is ready to use.
 
 The wizard handles everything automatically. Simply follow the prompts and wait for each step to complete.
 
@@ -110,17 +110,17 @@ The wizard handles everything automatically. Simply follow the prompts and wait 
 
 Before you can download any content, you must provide your Apple Music cookies. These cookies authenticate MeedyaDL with Apple Music on your behalf. MeedyaDL offers three ways to set up cookies:
 
-1. **Built-in Apple Music login** (easiest) -- Sign in to Apple Music directly within the app. MeedyaDL opens a login window, you sign in with your Apple ID, and the cookies are extracted automatically. No browser extensions needed.
+1. **Built-in Apple Music login** (easiest) — Sign in to Apple Music directly within the app. MeedyaDL opens a login window, you sign in with your Apple ID, and the cookies are extracted automatically. No browser extensions needed.
 
-2. **Browser auto-import** -- MeedyaDL can detect installed browsers (Chrome, Firefox, Edge, Safari, etc.) and automatically extract your Apple Music cookies from them. You must already be signed in to music.apple.com in that browser.
+2. **Browser auto-import** — MeedyaDL can detect installed browsers (Chrome, Firefox, Edge, Safari, etc.) and automatically extract your Apple Music cookies from them. You must already be signed in to music.apple.com in that browser.
 
-3. **Manual cookie file import** -- Export your cookies from your browser in **Netscape cookie format** using a browser extension such as "Get cookies.txt LOCALLY" or "cookies.txt", then import the file into MeedyaDL.
+3. **Manual cookie file import** — Export your cookies from your browser in **Netscape cookie format** using a browser extension such as "Get cookies.txt LOCALLY" or "cookies.txt", then import the file into MeedyaDL.
 
 For detailed instructions on all three methods, supported browsers, and troubleshooting cookie issues, see [Cookie Management](cookie-management.md).
 
 ### Choosing an Output Directory
 
-By default, MeedyaDL saves downloaded files to an **"Apple Music" folder inside** your system's music directory (e.g., `~/Music/Apple Music` on macOS and Linux, or `Music\Apple Music` on Windows) -- not directly into the music folder itself.
+By default, MeedyaDL saves downloaded files to an **"Apple Music" folder inside** your system's music directory (e.g., `~/Music/Apple Music` on macOS and Linux, or `Music\Apple Music` on Windows) — not directly into the music folder itself.
 
 To change the output directory:
 
@@ -147,7 +147,7 @@ For a full explanation of available quality options, including lossless and Hi-R
 Once setup is complete and your cookies are configured, downloading music is straightforward:
 
 1. **Open MeedyaDL** if it is not already running.
-2. **Paste an Apple Music URL** into the URL input field. The application auto-detects the content type -- whether it is a song, album, playlist, music video, or artist page.
+2. **Paste an Apple Music URL** into the URL input field. The application auto-detects the content type — whether it is a song, album, playlist, music video, or artist page.
 3. **Select quality overrides** if you want to download at a quality different from your default settings. This is optional; your configured defaults will be used otherwise.
 4. **Click "Add to Queue"** to begin the download.
 5. **Monitor progress** in the download queue, which shows the status of each item.
@@ -166,11 +166,11 @@ For more details on downloading music, see [Downloading Music](downloading-music
 
 Once you have MeedyaDL set up and running, explore these topics to make the most of the application:
 
-- [Downloading Music](downloading-music.md) -- Learn about downloading songs, albums, and playlists
-- [Quality Settings](quality-settings.md) -- Fine-tune your audio and video quality preferences
-- [Lyrics and Metadata](lyrics-and-metadata.md) -- Configure lyric downloads and metadata embedding
-- [Cookie Management](cookie-management.md) -- Manage, refresh, and troubleshoot your Apple Music cookies
-- [Troubleshooting](troubleshooting.md) -- Solutions for common issues
+- [Downloading Music](downloading-music.md) — Learn about downloading songs, albums, and playlists
+- [Quality Settings](quality-settings.md) — Fine-tune your audio and video quality preferences
+- [Lyrics and Metadata](lyrics-and-metadata.md) — Configure lyric downloads and metadata embedding
+- [Cookie Management](cookie-management.md) — Manage, refresh, and troubleshoot your Apple Music cookies
+- [Troubleshooting](troubleshooting.md) — Solutions for common issues
 
 ---
 

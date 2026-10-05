@@ -132,13 +132,14 @@ export function LegacyFolderMergeSection() {
           Legacy Folder Cleanup
         </h2>
         <p className="text-sm text-content-secondary max-w-3xl mt-1">
-          Albums downloaded before v1.4.4 with companion codecs enabled
-          (e.g. Atmos primary + ALAC companion) and the{' '}
+          Some albums downloaded by older versions of MeedyaDL, with
+          companion codecs on (for example Dolby Atmos plus a lossless
+          copy) and the{' '}
           <code className="font-mono text-xs">[Explicit]</code> /{' '}
-          <code className="font-mono text-xs">[Clean]</code> filename
-          suffix produced two sibling folders on disk. v1.4.4 prevents
-          this for new downloads; this tool merges any pairs left over
-          from older downloads into the single post-#528 layout.
+          <code className="font-mono text-xs">[Clean]</code> label in their
+          names, ended up split across two folders side by side. New
+          downloads are no longer split; this tool merges any pairs left
+          over from those older downloads into one folder.
         </p>
       </header>
 

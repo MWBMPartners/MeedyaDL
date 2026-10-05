@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicedouble/tauri-schema/v2/schema.json",
+  "$schema": "https://schema.tauri.app/config/2",
   "productName": "MeedyaDL",
   "version": "1.13.0-alpha.76",
   "identifier": "com.meedyasuite.meedyadl",

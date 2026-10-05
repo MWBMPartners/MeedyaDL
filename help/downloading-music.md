@@ -12,7 +12,7 @@ This guide explains how to download songs, albums, playlists, and artist discogr
 
 ## Overview
 
-MeedyaDL supports downloading audio content from Apple Music by accepting URLs and processing them through the GAMDL backend. You can download individual songs, full albums, entire playlists, or an artist's complete catalog. Simply paste a URL from `music.apple.com` into the download form, choose your preferred audio quality, and the app handles the rest -- including metadata embedding, lyrics, and automatic quality fallback when a codec is unavailable.
+MeedyaDL supports downloading audio content from Apple Music by accepting URLs and processing them through the GAMDL backend. You can download individual songs, full albums, entire playlists, or an artist's complete catalog. Simply paste a URL from `music.apple.com` into the download form, choose your preferred audio quality, and the app handles the rest — including metadata embedding, lyrics, and automatic quality fallback when a codec is unavailable.
 
 ---
 
@@ -48,7 +48,7 @@ By default, GAMDL downloads the artist's full catalog. You can narrow the scope 
 
 ### Library URLs
 
-MeedyaDL also accepts personal library URLs from Apple Music. These are URLs that point to content in your own iCloud Music Library, using the path format `music.apple.com/library/...`. Library URLs work the same way as catalog URLs -- paste them into the download form and MeedyaDL will process them using your authenticated session. This is useful for downloading content that you have added to your personal library, including items that may have been removed from the public catalog but remain in your collection.
+MeedyaDL also accepts personal library URLs from Apple Music. These are URLs that point to content in your own iCloud Music Library, using the path format `music.apple.com/library/...`. Library URLs work the same way as catalog URLs — paste them into the download form and MeedyaDL will process them using your authenticated session. This is useful for downloading content that you have added to your personal library, including items that may have been removed from the public catalog but remain in your collection.
 
 **Example URL format:** `https://music.apple.com/library/albums/l.1234567890`
 
@@ -58,7 +58,7 @@ MeedyaDL also accepts personal library URLs from Apple Music. These are URLs tha
 
 ### Entering URLs
 
-Paste an Apple Music URL into the download form's URL input field. The app automatically detects the content type (song, album, playlist, or artist) from the URL path -- there is no need to manually specify what you are downloading. URLs from `music.apple.com` (plus its `classical.apple.com` / `itunes.apple.com` variants) are accepted. A link to a service MeedyaDL cannot download from yet, such as YouTube or Spotify, is not added to the queue; the form says so -- see [Supported Services](supported-services.md) for what is planned.
+Paste an Apple Music URL into the download form's URL input field. The app automatically detects the content type (song, album, playlist, or artist) from the URL path — there is no need to manually specify what you are downloading. URLs from `music.apple.com` (plus its `classical.apple.com` / `itunes.apple.com` variants) are accepted. A link to a service MeedyaDL cannot download from yet, such as YouTube or Spotify, is not added to the queue; the form says so — see [Supported Services](supported-services.md) for what is planned.
 
 To download several items at once, paste one URL per line (**Shift + Enter** starts a new line; **Enter** or the **Add to Queue** button submits). Each line becomes its own item in the queue, and you can keep adding more while earlier downloads are still running.
 
@@ -70,52 +70,52 @@ Before downloading, you can override the default audio codec using the quality s
 
 | Codec | Description |
 | --- | --- |
-| **AAC** | 256 kbps lossy -- the standard Apple Music streaming format. Good balance of quality and file size. |
-| **AAC-HE** | High Efficiency AAC -- lower bitrate encoding optimized for constrained bandwidth. |
-| **AAC Binaural** | Spatial stereo rendering -- a binaural downmix of spatial audio for headphone listening. |
+| **AAC** | 256 kbps lossy — the standard Apple Music streaming format. Good balance of quality and file size. |
+| **AAC-HE** | High Efficiency AAC — lower bitrate encoding optimized for constrained bandwidth. |
+| **AAC Binaural** | Spatial stereo rendering — a binaural downmix of spatial audio for headphone listening. |
 | **AAC Downmix** | Stereo downmix of multichannel content. |
 | **AAC Legacy** | Legacy AAC encoding for maximum compatibility with older devices and software. |
-| **ALAC** | Apple Lossless Audio Codec -- lossless compression at various sample rates up to 24-bit/192 kHz. Ideal for archival-quality downloads. |
-| **Atmos** | Dolby Atmos spatial audio -- immersive multichannel format for supported playback systems. |
-| **AC3** | Dolby Digital surround sound -- 5.1 channel surround encoding. |
+| **ALAC** | Apple Lossless Audio Codec — lossless compression at various sample rates up to 24-bit/192 kHz. Ideal for archival-quality downloads. |
+| **Atmos** | Dolby Atmos spatial audio — immersive multichannel format for supported playback systems. |
+| **AC3** | Dolby Digital surround sound — 5.1 channel surround encoding. |
 
 If you do not select a codec, the default configured in [Quality Settings](quality-settings.md) is used.
 
 ### Managing the Download Queue
 
-Downloads are added to a queue when you submit a URL. By default, the queue begins processing immediately after each submission (**Auto-Start Downloads** is enabled in Settings > General). If you prefer to batch-add multiple URLs before starting, disable auto-start -- items will remain in the "Queued" state until you click the **Start Queue** button in the Queue page. The queue processes one item at a time by design -- there is no setting to run several downloads at once. Each item's whole pipeline (download, companion formats, metadata enrichment, lyrics) finishes before the next one starts, which is what makes retries and companion downloads reliable.
+Downloads are added to a queue when you submit a URL. By default, the queue begins processing immediately after each submission (**Auto-Start Downloads** is enabled in Settings > General). If you prefer to batch-add multiple URLs before starting, disable auto-start — items will remain in the "Queued" state until you click the **Start Queue** button in the Queue page. The queue processes one item at a time by design — there is no setting to run several downloads at once. Each item's whole pipeline (download, companion formats, metadata enrichment, lyrics) finishes before the next one starts, which is what makes retries and companion downloads reliable.
 
 Each item in the queue displays:
 
-- **Progress bar** -- real-time download progress for the active item
-- **Status** -- the current stage of processing (fetching metadata, downloading, tagging, complete, or failed)
-- **Fallback indicator** -- shown if the requested codec was unavailable and the app automatically switched to a different quality
+- **Progress bar** — real-time download progress for the active item
+- **Status** — the current stage of processing (fetching metadata, downloading, tagging, complete, or failed)
+- **Fallback indicator** — shown if the requested codec was unavailable and the app automatically switched to a different quality
 
 The following queue actions are available:
 
-- **Cancel** -- stops the active download immediately and marks it as cancelled. Any extra format copies it was making alongside (see [Companion Downloads](#companion-downloads)) are stopped too
-- **Retry** -- re-queues a failed download so it can be attempted again. When a partial download exists on disk, MeedyaDL reads the album's `manifest.meedyadl` and re-runs only the tracks that actually failed (smart retry). If every expected track is already on disk, the retry is refused with a friendly message instead of pointlessly re-fetching
-- **Retry without Wrapper** -- (only on items that used wrapper auth) re-runs with wrapper disabled, falling back to cookie-based auth
-- **Retry All Failed** -- header button; re-queues every failed item in one click. Confirmation modal shows the count first
-- **Right-click any row** -- opens a context menu with Copy Source Link, Open Folder (when output exists), Retry (when failed), and Retry without Wrapper (when applicable)
-- **Clear Completed** -- removes completed and cancelled items from the queue list. Failed items are deliberately kept, so you can read what went wrong and retry them. Use **Clear All** if you want the failures gone too
-- **Clear All** -- after asking you to confirm, removes every queued, completed, failed and cancelled item. Anything downloading or being processed right now is left running
-- **Abort Queue** -- stops the current download straight away and cancels everything still waiting. Completed downloads are kept. It asks you to confirm first; tick **Don't ask again** in that window if you would rather it did not. You can turn the question back on any time in **Settings > General > Preferences > Confirm before aborting the queue**. The same action is on the status bar at the bottom of the window and on the keyboard shortcut **Cmd/Ctrl + Shift + .**. If the abort cannot be carried out, MeedyaDL tells you
-- **Export** -- saves the current queue to a `.meedyadl` file (JSON-based) that can be imported on another device or MeedyaDL instance. Only shown when there are active or pending items in the queue
-- **Import** -- loads a previously exported `.meedyadl` queue file and adds the items to the current queue. The imported items use the current device's global settings as the base, with any per-download overrides from the export preserved
+- **Cancel** — stops the active download immediately and marks it as cancelled. Any extra format copies it was making alongside (see [Companion Downloads](#companion-downloads)) are stopped too
+- **Retry** — re-queues a failed download so it can be attempted again. When a partial download exists on disk, MeedyaDL reads the album's `manifest.meedyadl` and re-runs only the tracks that actually failed (smart retry). If every expected track is already on disk, the retry is refused with a friendly message instead of pointlessly re-fetching
+- **Retry without Wrapper** — (only on items that used wrapper auth) re-runs with wrapper disabled, falling back to cookie-based auth
+- **Retry All Failed** — header button; re-queues every failed item in one click. Confirmation modal shows the count first
+- **Right-click any row** — opens a context menu with Copy Source Link, Open Folder (when output exists), Retry (when failed), and Retry without Wrapper (when applicable)
+- **Clear Completed** — removes completed and cancelled items from the queue list. Failed items are deliberately kept, so you can read what went wrong and retry them. Use **Clear All** if you want the failures gone too
+- **Clear All** — after asking you to confirm, removes every queued, completed, failed and cancelled item. Anything downloading or being processed right now is left running
+- **Abort Queue** — stops the current download straight away and cancels everything still waiting. Completed downloads are kept. It asks you to confirm first; tick **Don't ask again** in that window if you would rather it did not. You can turn the question back on any time in **Settings > General > Preferences > Confirm before aborting the queue**. The same action is on the status bar at the bottom of the window and on the keyboard shortcut **Cmd/Ctrl + Shift + .**. If the abort cannot be carried out, MeedyaDL tells you
+- **Export** — saves the current queue to a `.meedyadl` file (JSON-based) that can be imported on another device or MeedyaDL instance. Only shown when there are active or pending items in the queue
+- **Import** — loads a previously exported `.meedyadl` queue file and adds the items to the current queue. The imported items use the current device's global settings as the base, with any per-download overrides from the export preserved
 
 The History page exposes the same Retry / Retry All Failed actions for entries already moved out of the queue. Re-enqueuing from History creates a fresh queue item; the original History entry is preserved.
 
-**Clear History** on the History page asks you to confirm first. Clearing it cannot be undone, and it also changes what MeedyaDL knows about past downloads -- the history is what it uses to spot a duplicate or tell you that something was downloaded before.
+**Clear History** on the History page asks you to confirm first. Clearing it cannot be undone, and it also changes what MeedyaDL knows about past downloads — the history is what it uses to spot a duplicate or tell you that something was downloaded before.
 
 ### After the queue finishes
 
 MeedyaDL can do something by itself when the whole queue has finished: open the output folder, play a notification sound, close MeedyaDL, or restart, sleep/hibernate or shut down the computer.
 
-- **Every time** -- choose it in **Settings > General > Preferences > After Queue Completes**, and save.
-- **Just this once** -- right-click an empty part of the Download page and pick one of the **After Queue:** options. This is saved straight away (no need to press Save Changes). It is used the next time the queue finishes and then cleared, so it will not happen again unless you choose it again. While it is waiting, it takes the place of your usual setting.
+- **Every time** — choose it in **Settings > General > Preferences > After Queue Completes**, and save.
+- **Just this once** — right-click an empty part of the Download page and pick one of the **After Queue:** options. This is saved straight away (no need to press Save Changes). It is used the next time the queue finishes and then cleared, so it will not happen again unless you choose it again. While it is waiting, it takes the place of your usual setting.
 
-The status bar at the bottom of the window shows what is set to happen, for example "After queue: Shut down (once)". If MeedyaDL cannot save a one-off choice, it tells you, and says what will actually happen when the queue finishes instead -- an earlier one-off that is still set, your usual setting, or nothing -- so you are not caught out when you leave your computer running.
+The status bar at the bottom of the window shows what is set to happen, for example "After queue: Shut down (once)". If MeedyaDL cannot save a one-off choice, it tells you, and says what will actually happen when the queue finishes instead — an earlier one-off that is still set, your usual setting, or nothing — so you are not caught out when you leave your computer running.
 
 ### Queue Persistence and Crash Recovery
 
@@ -125,9 +125,9 @@ MeedyaDL automatically saves the download queue to disk after every state change
 
 - The queue state is saved to a `queue.json` file in the app's data directory after every mutation (enqueue, cancel, retry, clear, completion, error, or fallback)
 - Active items (queued, downloading, or processing) and failed items are persisted. Only completed and cancelled items are cleared on restart
-- Failed items are restored in their error state with the original error message visible, so you can review what went wrong and retry when ready -- they are not automatically retried
+- Failed items are restored in their error state with the original error message visible, so you can review what went wrong and retry when ready — they are not automatically retried
 - When the app launches and finds a saved queue, it restores the items and automatically begins processing queued items after a short delay (to allow the UI to initialize), regardless of the auto-start setting
-- No manual action is required for active items -- recovery is fully automatic. Failed items persist until you manually retry or clear them
+- No manual action is required for active items — recovery is fully automatic. Failed items persist until you manually retry or clear them
 
 ### Queue Export and Import
 
@@ -136,7 +136,7 @@ You can transfer your download queue between devices or MeedyaDL installations u
 **Exporting:**
 
 1. Click the **Export** button in the queue header (shown when there are active or pending items)
-2. Choose a save location in the native file dialog -- the default filename is `queue.meedyadl`
+2. Choose a save location in the native file dialog — the default filename is `queue.meedyadl`
 3. The exported file contains the URLs and any per-download quality overrides, but not your global settings
 
 **Importing:**
@@ -154,9 +154,9 @@ This is useful for transferring download lists between a desktop and laptop, sha
 
 MeedyaDL provides real-time progress tracking by parsing output from the GAMDL CLI backend. While a download is active, you can see:
 
-- **Current track** -- the name of the track being processed, updated as the queue moves through an album or playlist
-- **Download percentage** -- a progress bar showing how far the current item has progressed
-- **Processing stage** -- status messages indicating whether the app is fetching metadata, downloading audio, decrypting, or embedding tags
+- **Current track** — the name of the track being processed, updated as the queue moves through an album or playlist
+- **Download percentage** — a progress bar showing how far the current item has progressed
+- **Processing stage** — status messages indicating whether the app is fetching metadata, downloading audio, decrypting, or embedding tags
 
 When a download completes successfully, the item is marked as finished in the queue. If an error occurs, the item is marked as failed with a descriptive error message. Common error types include:
 
@@ -208,11 +208,11 @@ GAMDL automatically embeds full metadata into every downloaded file, including:
 - High-resolution album artwork
 - Copyright and label information
 
-Lyrics downloading is configurable in **Settings > Lyrics tab**. By default, MeedyaDL fetches Apple Music's TTML (word-level timed) lyrics and converts them to **Enhanced LRC** -- an LRC file with word-by-word, not just line-by-line, timing. Available lyrics formats are:
+Lyrics downloading is configurable in **Settings > Lyrics tab**. By default, MeedyaDL fetches Apple Music's TTML (word-level timed) lyrics and converts them to **Enhanced LRC** — an LRC file with word-by-word, not just line-by-line, timing. Available lyrics formats are:
 
-- **LRC** -- timestamped lyrics for synced playback
-- **SRT** -- SubRip subtitle format
-- **TTML** -- Timed Text Markup Language (Apple's native lyrics format)
+- **LRC** — timestamped lyrics for synced playback
+- **SRT** — SubRip subtitle format
+- **TTML** — Timed Text Markup Language (Apple's native lyrics format)
 
 By default, the **Embed Lyrics and Keep Sidecar** option is enabled. This ensures lyrics are both embedded in the audio file's metadata tags and saved as a separate sidecar file (e.g., `.lrc`), providing maximum compatibility across different media players.
 
@@ -230,7 +230,7 @@ When a fallback occurs, the queue item displays a fallback indicator so you know
 
 ### Companion Downloads
 
-MeedyaDL can automatically download additional format versions alongside your primary download. The **Companion Downloads** dropdown in Settings > Codec & Resolution controls the behavior. By default (**Atmos → Lossless**), downloading Dolby Atmos content also downloads an ALAC (lossless) companion. Other preset modes offer additional tiers, such as downloading both ALAC and lossy AAC companions for Atmos, or downloading a lossy AAC companion alongside ALAC. The **Custom...** mode lets you pick exactly which codecs to download as companions using multi-select checkboxes. Specialist files are saved with format suffixes -- ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]` -- while the most compatible companion uses a clean filename. Companion downloads run in the background without blocking the queue. See [Quality Settings](quality-settings.md#companion-downloads) for full mode descriptions.
+MeedyaDL can automatically download additional format versions alongside your primary download. The **Companion Downloads** dropdown in Settings > Codec & Resolution controls the behavior. By default (**Atmos → Lossless**), downloading Dolby Atmos content also downloads an ALAC (lossless) companion. Other preset modes offer additional tiers, such as downloading both ALAC and lossy AAC companions for Atmos, or downloading a lossy AAC companion alongside ALAC. The **Custom...** mode lets you pick exactly which codecs to download as companions using multi-select checkboxes. Specialist files are saved with format suffixes — ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]` — while the most compatible companion uses a clean filename. Companion downloads run in the background without blocking the queue. See [Quality Settings](quality-settings.md#companion-downloads) for full mode descriptions.
 
 Companion downloads include lyric sidecar files for every companion tier — each format version gets its own `.lrc`, `.srt`, `.vtt`, and `.ass` files (depending on your lyrics settings). You can track companion download progress in the **Activity Log**, which shows per-tier codec details, per-codec attempts, and completion status.
 
@@ -254,11 +254,11 @@ Because manifests capture the exact parameters of the original download, re-impo
 
 There are three ways to re-download content from a `.meedyadl` manifest:
 
-1. **Import button on the Download page** -- Click the **Import** button on the Download page and select a `.meedyadl` file from the native file picker. The manifest's links are put into the URL box, one per line, so you can look them over; press **Add to Queue** to download them.
+1. **Import button on the Download page** — Click the **Import** button on the Download page and select a `.meedyadl` file from the native file picker. The manifest's links are put into the URL box, one per line, so you can look them over; press **Add to Queue** to download them.
 
-2. **Drag and drop** -- Drag a `.meedyadl` file from your file manager and drop it on the MeedyaDL application window. MeedyaDL checks the file first. If it is not a manifest it understands, or has no links in it, you are told so and nothing is changed. Otherwise the links are put into the URL box on the Download page, just like the Import button (up to 500 links from one file -- if there are more, a message says only the first 500 were used). Press **Add to Queue** to download them.
+2. **Drag and drop** — Drag a `.meedyadl` file from your file manager and drop it on the MeedyaDL application window. MeedyaDL checks the file first. If it is not a manifest it understands, or has no links in it, you are told so and nothing is changed. Otherwise the links are put into the URL box on the Download page, just like the Import button (up to 500 links from one file — if there are more, a message says only the first 500 were used). Press **Add to Queue** to download them.
 
-3. **Queue Import** -- The **Import** button in the Queue page header also accepts `.meedyadl` files exported via the Queue Export feature. These go straight into the queue.
+3. **Queue Import** — The **Import** button in the Queue page header also accepts `.meedyadl` files exported via the Queue Export feature. These go straight into the queue.
 
 A manifest brought in through the Download page (the **Import** button or drag and drop) only fills in the links: the downloads use your current settings, plus any choices you make on screen before adding them. A file brought in through the Queue page's **Import** also restores the per-download choices that were exported with it, applied on top of your current settings.
 
@@ -287,10 +287,10 @@ This feature is useful for keeping your library up to date without manually trac
 
 Smart re-download detection compares the current Apple Music catalog metadata against what was recorded at the time of your original download. It can detect:
 
-- **Audio quality upgrades** -- such as an album gaining Dolby Atmos or Apple Lossless availability after initial release
-- **Tracks added** -- bonus tracks, deluxe edition expansions, or previously missing tracks restored to the catalog
-- **Metadata corrections** -- updated artist credits, corrected track titles, rewritten album descriptions, or genre reclassification
-- **Apple Digital Master certification** -- an album receiving the Apple Digital Master designation after your original download
+- **Audio quality upgrades** — such as an album gaining Dolby Atmos or Apple Lossless availability after initial release
+- **Tracks added** — bonus tracks, deluxe edition expansions, or previously missing tracks restored to the catalog
+- **Metadata corrections** — updated artist credits, corrected track titles, rewritten album descriptions, or genre reclassification
+- **Apple Digital Master certification** — an album receiving the Apple Digital Master designation after your original download
 
 ### Limitations
 
@@ -304,11 +304,11 @@ MeedyaDL can watch your system clipboard for supported URLs while the app is ope
 
 Click **Download** on the notification to add the URL directly to the download queue (using your current quality settings). If that link is already in the queue, nothing is added and a message tells you so. Dismiss the notification if you do not want to download.
 
-MeedyaDL shows its usual message for a detected URL, which follows the **Notification Style** setting in **Settings > General > Preferences** (a three-way choice: in-app toasts only, native OS notifications only, or both). When the MeedyaDL window is not focused (e.g., minimised or in the background), it also sends a **native OS notification**, so you never miss a detected URL. That extra notification is only sent while **Desktop Notifications** is switched on -- and, for a copied link, it is sent even when Notification Style is set to in-app toasts only. With Desktop Notifications off, MeedyaDL shows its messages inside the app window only.
+MeedyaDL shows its usual message for a detected URL, which follows the **Notification Style** setting in **Settings > General > Preferences** (a three-way choice: in-app toasts only, native OS notifications only, or both). When the MeedyaDL window is not focused (e.g., minimised or in the background), it also sends a **native OS notification**, so you never miss a detected URL. That extra notification is only sent while **Desktop Notifications** is switched on — and, for a copied link, it is sent even when Notification Style is set to in-app toasts only. With Desktop Notifications off, MeedyaDL shows its messages inside the app window only.
 
 ### Privacy
 
-Clipboard monitoring only checks for URL patterns -- it never stores or logs clipboard contents. The check runs every 2 seconds and only triggers on Apple Music URLs (music.apple.com, classical.apple.com, itunes.apple.com). Non-URL clipboard content is immediately discarded.
+Clipboard monitoring only checks for URL patterns — it never stores or logs clipboard contents. The check runs every 2 seconds and only triggers on Apple Music URLs (music.apple.com, classical.apple.com, itunes.apple.com). Non-URL clipboard content is immediately discarded.
 
 ### Configuration
 
@@ -332,11 +332,11 @@ The same URL will not trigger a second prompt within the same app session, even 
 
 ## Related Topics
 
-- [Quality Settings](quality-settings.md) -- Configure audio codec and quality preferences
-- [Fallback Quality](fallback-quality.md) -- Understand automatic quality fallback behavior
-- [Lyrics and Metadata](lyrics-and-metadata.md) -- Configure lyric and metadata options
-- [Downloading Videos](downloading-videos.md) -- Download music videos instead of audio
-- [Troubleshooting](troubleshooting.md) -- Resolve common download errors
+- [Quality Settings](quality-settings.md) — Configure audio codec and quality preferences
+- [Fallback Quality](fallback-quality.md) — Understand automatic quality fallback behavior
+- [Lyrics and Metadata](lyrics-and-metadata.md) — Configure lyric and metadata options
+- [Downloading Videos](downloading-videos.md) — Download music videos instead of audio
+- [Troubleshooting](troubleshooting.md) — Resolve common download errors
 
 ---
 

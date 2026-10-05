@@ -103,7 +103,7 @@ Numeric IDs from the Apple Music ecosystem, written by GAMDL. **Read** by Meedya
 | `atID` | Artist ID | GAMDL/CDN | `159260351` | Artist entity ID. Combine with `https://music.apple.com/{storefront}/artist/{atID}` for the canonical artist URL. |
 | `plID` | Playlist/Album ID | GAMDL/CDN | `6750434` | Album entity ID. |
 | `geID` | Genre ID | GAMDL/CDN | `21` (= Rock) | Numeric genre code from Apple Music's taxonomy. |
-| `sfID` | Storefront ID | GAMDL/CDN | `143444` (= UK) | Apple Music storefront — see [storefront list](https://help.apple.com/itc/appsreference/#/itc6deb35a05). |
+| `sfID` | Storefront ID | GAMDL/CDN | `143444` (= UK) | Apple's numeric code for the store country the track came from. |
 | `akID` | Account kind | GAMDL/CDN | `1` | Audio kind classification. |
 
 Inside `MeedyaMeta:*` the same IDs are re-exposed with friendly names (e.g., `MeedyaMeta:ArtistID`, `MeedyaMeta:AlbumID`) for tools that don't speak Apple's 4-char codes.
@@ -198,7 +198,7 @@ A few other hardcoded/locally-detected tags exist too, but — unlike the ones a
 | iTunes freeform atoms | ✅ | ❔ (some via Vorbis fallback) | ❔ (TXXX) | ❔ |
 | `MeedyaMeta:*` freeform atoms | ✅ | ✅ (Vorbis) | ✅ (TXXX) | ✅ (Vorbis) |
 | ReplayGain | ✅ (via `mp4ameta`) | ✅ (`lofty`) | ✅ (`lofty`) | ✅ (`lofty`) |
-| BPM (`tmpo` / `BPM` / `TBPM`) | ✅ (`tmpo`) | ✅ (`BPM` Vorbis) | ✅ (`TBPM` ID3v2) | ✅ |
+| BPM (`tmpo` / `BPM` / `TBPM`) | Not written yet (tempo detection is planned) | Not written yet | Not written yet | Not written yet |
 | Enhanced LRC lyrics (`©lyr`) | ✅ | ❔ (text only, no `<mm:ss.xx>` parsing in most players) | ❔ | ❔ |
 
 GAMDL produces M4A (audio) and M4V (music videos). The other columns are for services MeedyaDL plans to support (for example MP3 from YouTube, Ogg Vorbis from Spotify); none of them is produced today.

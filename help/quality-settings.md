@@ -58,7 +58,7 @@ AAC is the standard lossy audio codec used by Apple Music. It delivers high-qual
 - **Type:** Lossy compression
 - **Container:** `.m4a`
 - **File size:** Approximately 2 MB per minute of audio
-- **Compatibility:** Universal -- plays on virtually every device, operating system, and media player available today, including all Apple devices, Android, Windows, and web browsers
+- **Compatibility:** Universal — plays on virtually every device, operating system, and media player available today, including all Apple devices, Android, Windows, and web browsers
 - **Best for:** Everyday listening, portable devices, and situations where storage space or bandwidth is limited. For most listeners, AAC at 256 kbps is indistinguishable from lossless audio in typical listening environments
 
 ### AAC-HE (High Efficiency AAC)
@@ -86,7 +86,7 @@ AAC Downmix produces a standard stereo output by downmixing spatial or surround-
 - **Type:** Lossy compression with stereo downmix
 - **Output:** Standard stereo (two channels)
 - **Container:** `.m4a`
-- **Best for:** Obtaining a conventional stereo version of content that was originally mixed in surround or spatial audio. Unlike the Binaural option, the Downmix does not attempt to simulate spatial positioning -- it produces a straightforward stereo mix suitable for speakers or headphones alike
+- **Best for:** Obtaining a conventional stereo version of content that was originally mixed in surround or spatial audio. Unlike the Binaural option, the Downmix does not attempt to simulate spatial positioning — it produces a straightforward stereo mix suitable for speakers or headphones alike
 
 ### AAC Legacy
 
@@ -103,10 +103,10 @@ ALAC is a lossless audio codec developed by Apple. It compresses audio data with
 - **Type:** Lossless compression
 - **Container:** `.m4a`
 - **Sample rates and bit depths available:**
-  - **16-bit / 44.1 kHz** -- CD quality. The standard resolution for most music. File size approximately 5 MB per minute
-  - **24-bit / 48 kHz** -- Studio quality. Slightly higher resolution than CD. File size approximately 7 MB per minute
-  - **24-bit / 96 kHz** -- Hi-Res Audio. Captures detail beyond the range of CD quality. File size approximately 10 MB per minute
-  - **24-bit / 192 kHz** -- Maximum resolution Hi-Res Audio. The highest sample rate available from Apple Music. File size approximately 15 MB per minute
+  - **16-bit / 44.1 kHz** — CD quality. The standard resolution for most music. File size approximately 5 MB per minute
+  - **24-bit / 48 kHz** — Studio quality. Slightly higher resolution than CD. File size approximately 7 MB per minute
+  - **24-bit / 96 kHz** — Hi-Res Audio. Captures detail beyond the range of CD quality. File size approximately 10 MB per minute
+  - **24-bit / 192 kHz** — Maximum resolution Hi-Res Audio. The highest sample rate available from Apple Music. File size approximately 15 MB per minute
 - **Compatibility:** All Apple devices (iPhone, iPad, Mac, Apple TV, HomePod), iTunes, and many third-party players that support the ALAC codec. Some non-Apple devices may require conversion to FLAC for playback
 - **Best for:** Audiophile listening on high-quality audio equipment, archival purposes where you want to preserve the full quality of the source material, and any scenario where storage space is not a concern
 
@@ -164,21 +164,21 @@ After a primary download completes successfully, MeedyaDL automatically spawns a
 
 #### Custom Companion Mode
 
-The **Custom...** companion mode gives you full control over which codecs are downloaded alongside your primary format. When you select Custom, a set of checkboxes appears listing all available audio codecs. Check every codec you want as a companion -- each selected codec (excluding your primary format) runs as its own independent companion download.
+The **Custom...** companion mode gives you full control over which codecs are downloaded alongside your primary format. When you select Custom, a set of checkboxes appears listing all available audio codecs. Check every codec you want as a companion — each selected codec (excluding your primary format) runs as its own independent companion download.
 
 The order of your selections determines file naming: the last codec in your selection list uses a clean filename (no suffix), while all other companions receive a format suffix to prevent collisions. For example, if you select Atmos, ALAC, and AAC as companions, AAC files get clean filenames, ALAC files get `[Lossless]`, and Atmos files get `[Dolby Atmos]`.
 
-Custom mode is useful when you want a specific combination that none of the preset modes cover -- for example, downloading both AAC Binaural and ALAC companions alongside Atmos, or downloading every single codec variant for archival purposes.
+Custom mode is useful when you want a specific combination that none of the preset modes cover — for example, downloading both AAC Binaural and ALAC companions alongside Atmos, or downloading every single codec variant for archival purposes.
 
 #### Codec Suffix Detection
 
-The format suffix appended to companion filenames (e.g., `[Lossless]`, `[Dolby Atmos]`) is determined by inspecting the **actual content** of the downloaded file, not the codec that was requested. MeedyaDL uses ffprobe (and optionally MediaInfo) to detect the real codec of each file after GAMDL finishes writing it. This is important because GAMDL's native codec priority mode may select a different codec than the one originally requested -- for example, requesting Atmos may result in an ALAC file if Atmos is unavailable for that track.
+The format suffix appended to companion filenames (e.g., `[Lossless]`, `[Dolby Atmos]`) is determined by inspecting the **actual content** of the downloaded file, not the codec that was requested. MeedyaDL uses ffprobe (and optionally MediaInfo) to detect the real codec of each file after GAMDL finishes writing it. This is important because GAMDL's native codec priority mode may select a different codec than the one originally requested — for example, requesting Atmos may result in an ALAC file if Atmos is unavailable for that track.
 
 By basing the suffix on detected content rather than the requested format, filenames always accurately reflect what the file actually contains.
 
 #### MediaInfo
 
-For more accurate codec detection -- particularly for identifying Dolby Atmos content -- MeedyaDL installs **MediaInfo** alongside FFmpeg, mp4decrypt, N_m3u8DL-RE, and MP4Box during the Setup Wizard. It is one of the five tools every install needs, not an optional extra. MediaInfo provides deeper container-level analysis than ffprobe alone, and can reliably distinguish Atmos (EC-3 with JOC) from standard AC-3 or AAC. MeedyaDL uses it alongside ffprobe for codec identification during the enrichment pipeline.
+For more accurate codec detection — particularly for identifying Dolby Atmos content — MeedyaDL installs **MediaInfo** alongside FFmpeg, mp4decrypt, N_m3u8DL-RE, and MP4Box during the Setup Wizard. It is one of the five tools every install needs, not an optional extra. MediaInfo provides deeper container-level analysis than ffprobe alone, and can reliably distinguish Atmos (EC-3 with JOC) from standard AC-3 or AAC. MeedyaDL uses it alongside ffprobe for codec identification during the enrichment pipeline.
 
 MediaInfo matters most if you frequently download Dolby Atmos content and want the highest confidence that codec suffixes and metadata tags accurately reflect the spatial audio format, but ffprobe alone still handles the majority of codec detection correctly.
 
@@ -216,7 +216,7 @@ The table below summarizes the key audio codec options and their characteristics
 **Notes:**
 
 - File sizes are approximate and vary depending on the dynamic range and complexity of the source material.
-- Lossless bitrates are variable because ALAC uses variable-rate compression -- simpler passages compress more than complex ones.
+- Lossless bitrates are variable because ALAC uses variable-rate compression — simpler passages compress more than complex ones.
 - Atmos file sizes depend on the number of audio objects and the complexity of the spatial mix.
 
 ---
@@ -260,16 +260,16 @@ H.265, also known as High Efficiency Video Coding (HEVC), is the successor to H.
 
 ## Video Resolution Options
 
-MeedyaDL supports the following video resolutions, listed from highest to lowest quality. The resolution you pick is a **ceiling**, not a request -- Apple Music always returns the best quality it has at or below your choice, in a single attempt, so a video that doesn't reach your chosen resolution simply comes back at whatever it does have, rather than failing. See [Fallback Quality](fallback-quality.md#why-there-is-no-resolution-fallback-chain) for why resolution works this way and has no fallback order of its own -- unlike video codec, which does.
+MeedyaDL supports the following video resolutions, listed from highest to lowest quality. The resolution you pick is a **ceiling**, not a request — Apple Music always returns the best quality it has at or below your choice, in a single attempt, so a video that doesn't reach your chosen resolution simply comes back at whatever it does have, rather than failing. See [Fallback Quality](fallback-quality.md#why-there-is-no-resolution-fallback-chain) for why resolution works this way and has no fallback order of its own — unlike video codec, which does.
 
-- **2160p (4K Ultra HD)** -- The highest available resolution. Four times the pixel count of 1080p (3840x2160). Ideal for large screens and displays that support 4K. Produces the largest files
-- **1440p (2K QHD)** -- Quad HD resolution (2560x1440). A step above Full HD with noticeably sharper detail on larger monitors
-- **1080p (Full HD)** -- The recommended resolution for most users (1920x1080). Excellent quality on screens up to approximately 27 inches. The best balance between visual quality and file size
-- **720p (HD)** -- Standard HD resolution (1280x720). Good quality on smaller screens such as tablets and phones. Significantly smaller files than 1080p
-- **540p (qHD)** -- A step below standard HD (960x540). A middle ground between 720p and 480p when you want smaller files without dropping all the way to standard definition
-- **480p (Widescreen SD)** -- Standard definition at 16:9 widescreen proportions (854x480) -- wider than the 4:3 shape of the old NTSC broadcast standard. Suitable for small screens or limited storage
-- **360p** -- Low resolution. Very small file sizes. Suitable only for previewing content or extremely limited storage situations
-- **240p** -- Minimum resolution. Smallest possible file sizes. Suitable only for thumbnail previews or extremely constrained bandwidth/storage
+- **2160p (4K Ultra HD)** — The highest available resolution. Four times the pixel count of 1080p (3840x2160). Ideal for large screens and displays that support 4K. Produces the largest files
+- **1440p (2K QHD)** — Quad HD resolution (2560x1440). A step above Full HD with noticeably sharper detail on larger monitors
+- **1080p (Full HD)** — The recommended resolution for most users (1920x1080). Excellent quality on screens up to approximately 27 inches. The best balance between visual quality and file size
+- **720p (HD)** — Standard HD resolution (1280x720). Good quality on smaller screens such as tablets and phones. Significantly smaller files than 1080p
+- **540p (qHD)** — A step below standard HD (960x540). A middle ground between 720p and 480p when you want smaller files without dropping all the way to standard definition
+- **480p (Widescreen SD)** — Standard definition at 16:9 widescreen proportions (854x480) — wider than the 4:3 shape of the old NTSC broadcast standard. Suitable for small screens or limited storage
+- **360p** — Low resolution. Very small file sizes. Suitable only for previewing content or extremely limited storage situations
+- **240p** — Minimum resolution. Smallest possible file sizes. Suitable only for thumbnail previews or extremely constrained bandwidth/storage
 
 For more information on downloading videos, see [Downloading Videos](downloading-videos.md).
 
@@ -346,15 +346,15 @@ You can override the default quality settings for any individual download withou
 1. Paste or enter the URL into the download form as usual
 2. Before starting the download, expand the **Quality Override** panel in the download form
 3. Select the desired audio codec and/or video resolution from the quality selector dropdowns
-4. Start the download -- it will use the overridden settings for this download only
+4. Start the download — it will use the overridden settings for this download only
 
 The per-download override applies only to that specific download. Your global default settings remain unchanged, and the next download will revert to using your defaults.
 
 ### Quality Fallback
 
-When your preferred **codec** is not available for a particular track or video, MeedyaDL automatically falls back to the next codec in your configured chain -- this applies to both audio codecs and video codecs, each with its own chain in Settings.
+When your preferred **codec** is not available for a particular track or video, MeedyaDL automatically falls back to the next codec in your configured chain — this applies to both audio codecs and video codecs, each with its own chain in Settings.
 
-Video **resolution** works differently: it is a ceiling rather than a fallback chain. If you request 4K but a video only exists up to 1080p, Apple Music simply returns the 1080p version in the same attempt -- there is no separate resolution to "fall back" to, because nothing failed.
+Video **resolution** works differently: it is a ceiling rather than a fallback chain. If you request 4K but a video only exists up to 1080p, Apple Music simply returns the 1080p version in the same attempt — there is no separate resolution to "fall back" to, because nothing failed.
 
 For full details on how the codec fallback chains work, and why resolution doesn't have one, see [Fallback Quality](fallback-quality.md).
 
@@ -402,11 +402,11 @@ If you care about both raw quality and spatial audio, set Dolby Atmos as your de
 
 ## Related Topics
 
-- [Downloading Music](downloading-music.md) -- Audio download workflow
-- [Downloading Videos](downloading-videos.md) -- Video download workflow
-- [Fallback Quality](fallback-quality.md) -- Automatic quality fallback behavior
-- [Lyrics and Metadata](lyrics-and-metadata.md) -- How format choice affects metadata capabilities
-- [Getting Started](getting-started.md) -- Initial quality configuration
+- [Downloading Music](downloading-music.md) — Audio download workflow
+- [Downloading Videos](downloading-videos.md) — Video download workflow
+- [Fallback Quality](fallback-quality.md) — Automatic quality fallback behavior
+- [Lyrics and Metadata](lyrics-and-metadata.md) — How format choice affects metadata capabilities
+- [Getting Started](getting-started.md) — Initial quality configuration
 
 ---
 
