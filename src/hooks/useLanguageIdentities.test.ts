@@ -14,13 +14,15 @@
  *     an ordering hint only (it never removes an entry);
  *   - a failed request is tried again a bounded number of times, with a
  *     growing delay, and a success on a retry replaces the raw reading;
- *   - an answer, or a retry, for a list that has since changed is dropped.
+ *   - an answer, or a retry, for a list that has since changed is dropped,
+ *     including an answer that arrives after the new list's.
  */
 
 import { act, renderHook, waitFor } from '@testing-library/react';
 
 import * as commands from '@/lib/tauri-commands';
 import { IDENTITY_RETRY_DELAYS_MS, useLanguageIdentities } from '@/hooks/useLanguageIdentities';
+import type { LanguageIdentity } from '@/types';
 
 vi.mock('@/lib/tauri-commands', () => ({ languageIdentities: vi.fn() }));
 const ask = vi.mocked(commands.languageIdentities);
@@ -150,6 +152,37 @@ describe('useLanguageIdentities', () => {
     // One ask for the old list, one for the new; the old list's retry was
     // cancelled when the list changed.
     expect(ask.mock.calls.map(([tags]) => tags[0])).toEqual(['old', 'EN-us']);
+    expect(result.current.standardOf('EN-us')).toBe('en-US');
+  });
+
+  it("drops an old list's answer that arrives after the new list's answer", async () => {
+    // Stand-in review of round 6, finding 3: the test above covers an old
+    // list whose request FAILS. Here it SUCCEEDS, late. Kept, it would
+    // replace the new list's answer, whose key it does not match, so every
+    // tag would fall back to its raw reading and nothing would ask again.
+    let answerOldList: (answers: LanguageIdentity[]) => void = () => {};
+    ask.mockImplementation((tags) => {
+      if (tags[0] === 'cmn-Hans-CN') {
+        return new Promise<LanguageIdentity[]>((resolve) => {
+          answerOldList = resolve;
+        });
+      }
+      return backendAnswer(tags);
+    });
+    const { result, rerender } = renderHook(({ tags }) => useLanguageIdentities(tags), {
+      initialProps: { tags: ['cmn-Hans-CN'] },
+    });
+    rerender({ tags: ['EN-us'] });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.standardOf('EN-us')).toBe('en-US');
+
+    // The old list's answer arrives now. It must change nothing.
+    const late = await backendAnswer(['cmn-Hans-CN']);
+    await act(async () => {
+      answerOldList(late);
+    });
+    expect(ask).toHaveBeenCalledTimes(2);
+    expect(result.current.ready).toBe(true);
     expect(result.current.standardOf('EN-us')).toBe('en-US');
   });
 
