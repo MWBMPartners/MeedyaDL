@@ -1259,6 +1259,11 @@ on PRs to / pushes to main.
     - the geo-cache write still fails an admin geolocate request after a deadlock outside a transaction, and its activity row is lost;
     - the "is a transaction open?" probe changes the next transaction when the session default is read-only.
   - **Round-9 builder running** (Opus, `brief-ihymns-r9.md`), with a watchdog.
+- **NetPLAYERapp: the stand-in review of round 9 is NOT clean — 0 high, 0 medium, 8 low, 4 nits.** Every round-9 fix held. The remaining findings:
+  - two test gaps: the second length message, and nothing checks that `open_basedir` is actually on;
+  - stale comments in the deployment test;
+  - small handoff inaccuracies.
+  The posted round-9 #210 comment slightly overstates item 4, and round 10's comment corrects it. **Round-10 builder running** (Sonnet, `brief-netplayer-r10.md`), with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
