@@ -157,6 +157,12 @@
 # this fall back to the cherry-pick attempt (which keeps its own existing
 # post-cherry-pick "did this actually change anything?" check as a second,
 # cheap safety net).
+#
+# Tests: `.github/scripts/test_check_lockfile_already_fixed.py` (the helper)
+# and `.github/scripts/test_forward_port_security_workflow.py` (this file's
+# gate and cherry-pick scripts, pulled out of this file and run with a fake
+# `gh`). Both run on every pull request to `main`, in `ci.yml`'s
+# `tauri-version-sync` job.
 
 name: Forward-port Security Fixes
 
