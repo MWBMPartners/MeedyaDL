@@ -1283,6 +1283,11 @@ on PRs to / pushes to main.
   - The probe now refuses to run unless `open_basedir` is really set (exit 6), and the second length message is tested.
   - #210 has a comment that corrects the round-9 comment's item 4.
   - A stand-in review of round 10 is running, with a watchdog.
+- **iLyricsDB round 8 pushed (`c59ed74..f6c9ccd`, 9 commits).**
+  - Fixed: digits newer than the server's PCRE are now treated as possible digits (`[\d\p{Cn}]`), and a typed `[offset:` is rounded.
+  - I re-ran `php -l`, injection 1,338/1,338, fuzz 28/28 and the copy checker. The builder also ran everything in `ubuntu:24.04`, `php:8.4-cli` and `php:8.5-cli`.
+  - Filed **iLyricsDB #161** (the `[offset:]` direction, and the doubled offset on export) and commented on #150. The round-9 carry-over is in `ilyricsdb-r9-carryover.md`.
+  - A stand-in review of round 8 is running, with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
