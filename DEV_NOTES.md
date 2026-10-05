@@ -982,7 +982,7 @@ MeedyaDL/
 
 │   │   ├── common/             #    Shared: Button, Input, Modal, Toast, etc.
 
-│   │   ├── layout/             #    Sidebar, TitleBar, StatusBar, MainLayout
+│   │   ├── layout/             #    Sidebar, StatusBar, MainLayout, PageHeader, CrashScreen
 
 │   │   ├── download/           #    DownloadForm, DownloadQueue, ActivityLog, QueueItem, HistoryPage, GlobalProgressBar
 

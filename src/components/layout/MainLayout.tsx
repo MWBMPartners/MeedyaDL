@@ -3,15 +3,15 @@
 /**
  * @file Main application layout component.
  *
- * Assembles the full app shell: sidebar navigation, custom title bar
- * (Windows/Linux), main content area with page routing, and status bar.
+ * Assembles the full app shell: sidebar navigation, main content area with
+ * page routing, and status bar. The window's title bar is the operating
+ * system's own on every platform (`decorations: true`), so there is no
+ * custom title bar here.
  * The content area renders the appropriate page based on the UI store's
  * `currentPage` value.
  *
  * Visual structure (top to bottom, left to right):
- * ┌──────────────────────────────────────────────────┐
- * │               TitleBar (Win/Linux)               │
- * ├──────────┬───────────────────────────────────────┤
+ * ┌──────────┬───────────────────────────────────────┐
  * │          │    UpdateBanner (pinned, non-scroll)   │
  * │          ├───────────────────────────────────────┤
  * │ Sidebar  │          <main> (scrollable)          │
@@ -36,7 +36,6 @@
  *
  * Related components:
  *  - {@link Sidebar}        -- left navigation panel (from ./Sidebar)
- *  - {@link TitleBar}       -- custom window chrome (from ./TitleBar)
  *  - {@link StatusBar}      -- download-count footer (from ./StatusBar)
  *  - {@link ToastContainer} -- toast notification overlay (from @/components/common)
  */
@@ -60,7 +59,6 @@ import { useTranslation } from 'react-i18next';
 /** Sibling layout components assembled into the shell. */
 import { GlobalProgressBar } from './GlobalProgressBar';
 import { Sidebar } from './Sidebar';
-import { TitleBar } from './TitleBar';
 import { StatusBar } from './StatusBar';
 
 /** Toast notification overlay rendered outside the normal document flow. */
@@ -191,10 +189,11 @@ interface MainLayoutProps {
 /**
  * Root layout shell for the entire application window.
  *
- * Renders six distinct regions:
- *  1. **TitleBar** -- Custom window chrome (minimize / maximize / close)
- *     rendered only on Windows & Linux; macOS uses the native traffic-light
- *     buttons via `titleBarStyle: 'overlay'` in `tauri.conf.json`.
+ * Renders five distinct regions (the window's title bar is the operating
+ * system's own, so it is not one of them):
+ *  1. (removed) A `TitleBar` placeholder that rendered nothing used to sit
+ *     here, with comments describing an overlay title bar the app never
+ *     used; it was deleted in October 2026.
  *  2. **Sidebar** -- Left-hand navigation panel that links to each
  *     application page. Collapsible to icon-only mode.
  *  3. **UpdateBanner** -- Dismissible notification banner shown when app
@@ -210,7 +209,7 @@ interface MainLayoutProps {
  *
  * Layout mechanics (Tailwind CSS):
  *  - Outer `div`: `flex flex-col h-screen` -- fills the entire Tauri
- *    webview and stacks TitleBar, body, and ToastContainer vertically.
+ *    webview and stacks the body and ToastContainer vertically.
  *  - Body row: `flex flex-1 overflow-hidden` -- Sidebar and content sit
  *    side-by-side; `overflow-hidden` prevents the body from scrolling so
  *    only the inner `<main>` scrolls.
@@ -482,14 +481,6 @@ export function MainLayout({ children }: MainLayoutProps) {
         {t('common.skipToMainContent')}
       </a>
 
-      {/*
-       * Custom title bar for Windows/Linux (hidden on macOS).
-       * On macOS the native title bar is used because `titleBarStyle`
-       * is set to "overlay" in tauri.conf.json, which renders the
-       * traffic-light buttons on top of the webview content.
-       * @see TitleBar component in ./TitleBar.tsx
-       */}
-      <TitleBar />
 
       {/*
        * Main body row: sidebar (fixed width) + content column (flex-1).

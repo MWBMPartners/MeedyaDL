@@ -7,17 +7,20 @@
  * readiness indicator, and a collapsible (icon-only) mode. Active page
  * highlighting is driven by `useUiStore.currentPage`.
  *
- * On **macOS**, the sidebar header includes extra top padding (`pt-8`) so
- * that the native traffic-light buttons (close/minimize/maximize) do not
- * overlap the app logo area. This padding is not needed on Windows/Linux
- * where the custom {@link TitleBar} occupies its own row above the sidebar.
+ * The window uses the operating system's normal title bar on every
+ * platform (`decorations: true` in tauri.conf.json, no overlay title bar),
+ * so the sidebar needs the same top padding everywhere. It used to add an
+ * extra 32 pixels on macOS "to avoid the traffic-light buttons" of an
+ * overlay title bar the app has never used, which only left an empty strip
+ * above the logo on Macs.
  *
  * State connections:
  *  - {@link useUiStore}        -- reads `currentPage` and `sidebarCollapsed`;
  *                                  calls `setPage()` and `toggleSidebar()`.
  *  - {@link useDependencyStore} -- reads `isReady()` to show the green/yellow
  *                                  status dot in the sidebar footer.
- *  - {@link usePlatform}        -- detects macOS for conditional padding.
+ *  - {@link usePlatform}        -- detects macOS to show Cmd rather than Ctrl
+ *                                  in the shortcut tooltips.
  *
  * @see https://lucide.dev/icons/       -- icon set used for nav items and controls.
  * @see https://tailwindcss.com/docs/transition-property -- CSS transitions for collapse.
@@ -223,8 +226,8 @@ export function Sidebar() {
   const updateCount = useUpdateStore((s) => s.getActiveUpdates().length);
 
   /**
-   * Platform detection -- `isMacOS` is used to add extra top padding in the
-   * header area so the macOS traffic-light buttons do not overlap the logo.
+   * Platform detection -- `isMacOS` picks the shortcut symbol (⌘ or Ctrl+)
+   * shown in the navigation tooltips.
    */
   const { isMacOS } = usePlatform();
 
@@ -281,16 +284,14 @@ export function Sidebar() {
        * Section 1: App title / logo area
        * ---------------------------------------------------------------
        * `drag-region` makes this area a window drag handle (Tauri CSS).
-       * On macOS, `pt-8` adds 32px top padding to avoid overlapping
-       * the native traffic-light window buttons that sit at the top-left
-       * of the webview when `titleBarStyle: 'overlay'` is active.
-       * On Windows/Linux the TitleBar component occupies its own row
-       * above the sidebar, so standard `py-3` padding is sufficient.
+       * The same `py-3` padding on every platform: the operating system's
+       * own title bar sits above the web content, so nothing overlaps the
+       * logo. (A macOS-only `pt-8` used to be added here for an overlay
+       * title bar that was never switched on.)
        */}
       <div
         className={`
-          drag-region px-4 border-b border-sidebar-border flex items-center
-          ${isMacOS ? 'pt-8 pb-3' : 'py-3'}
+          drag-region px-4 py-3 border-b border-sidebar-border flex items-center
           ${sidebarCollapsed ? 'justify-center' : 'gap-3'}
         `}
       >

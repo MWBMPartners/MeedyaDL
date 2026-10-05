@@ -223,16 +223,3 @@
   background: linear-gradient(180deg, #409cff 0%, #0a84ff 100%);
 }
 
-/*
- * Traffic light button spacing: macOS "traffic light" window controls
- * (close, minimize, maximize) are positioned at the top-left of the window.
- * When using Tauri's native decorations, the sidebar header needs extra
- * top padding (38px) to prevent content from being obscured by or overlapping
- * with these controls. This value accounts for the typical traffic light
- * height (~14px) plus macOS title bar spacing.
- *
- * @see https://v2.tauri.app/learn/window-customization/ -- Tauri window customization
- */
-.platform-macos .sidebar-header {
-  padding-top: 38px;
-}

@@ -96,6 +96,8 @@ import { useTheme } from './hooks/useTheme';
  */
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useKonamiCode } from './hooks/useKonamiCode';
+/** Sets the page title AND the native window title (see Fix 14 below). */
+import { setWindowTitle } from './lib/windowTitle';
 import { useClipboardMonitor } from './hooks/useClipboardMonitor';
 import { activateDevAccess, checkAppRelocation } from './lib/tauri-commands';
 
@@ -351,6 +353,11 @@ function App() {
    * had no way to tell Download apart from Settings without switching
    * to the app and looking. Reuses the same `nav.<page>` translation
    * keys the sidebar already uses, so the wording always matches.
+   *
+   * It goes through `setWindowTitle()`, which also sets the NATIVE window
+   * title: Tauri does not copy `document.title` onto the window, so until
+   * October 2026 this only ever changed a title nobody outside the page
+   * could see, and the window switcher kept saying "MeedyaDL".
    */
   useEffect(() => {
     const pageLabel = t(`nav.${currentPage}`);
@@ -359,7 +366,7 @@ function App() {
     // through translation (see index.html's <title>, and
     // check_i18n.py's UNUSED_KEY_EXCEPTIONS entry for `app.name`,
     // which documents the same rule for that key specifically).
-    document.title = `${pageLabel} — MeedyaDL`;
+    setWindowTitle(`${pageLabel} — MeedyaDL`);
   }, [currentPage, t]);
   /** Whether the setup wizard overlay is visible (first-run or missing deps) */
   const showSetupWizard = useUiStore((s) => s.showSetupWizard);
