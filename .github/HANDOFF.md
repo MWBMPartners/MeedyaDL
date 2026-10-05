@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (08:36) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (09:06) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1383,7 +1383,9 @@ on PRs to / pushes to main.
   - **Maintainer's instruction:** fix any failing check; merge each once green; then watch the post-merge runs and the packaging and deployment they start, fixing issues, until the deployments finish. A merge to `release-candidate` cuts `1.0.0-rc.39` and builds every platform.
   - **Watched by** `scratchpad/deps/watch-pr.sh` (one background loop per PR, two-hour deadline). The working copies are git worktrees at `scratchpad/deps/main` and `scratchpad/deps/rc`; remove them when done.
   - **#1273's first run failed "Security audit"**: `release-candidate` had high advisories in `brace-expansion` 5.0.9 and `undici` 7.29.0. `main` fixed both on 1 Oct (#1264, #1266), but they never reached the channels. Fixed in #1273 by the same two override floors (`13936483`; same integrity hashes as `main`).
-  - **#1272 merged 08:33** as `3c976727`. The post-merge runs are watched by `scratchpad/deps/watch-sha.sh`.
+  - **#1272 merged 08:33** as `3c976727`. All 8 post-merge runs passed (CI, CodeQL, forward-port, channel audit, Release Please, Changelog, security policy).
+  - **#1273 merged 08:45** as `d2bbd76e`. Its version bump tagged **`v1.0.0-rc.39`**; the CI on the bump commit passed. The release build (run 37279577149) passed on all six platforms, and the release is published as a pre-release with 20 files.
+  - **rc.39's updater manifest has only 6 entries, the same as rc.38 and stable 1.10.8.** All Linux `.deb`/`.rpm` entries are missing, and ARMv7 has no signature files. This is older than today's work: the #1166 fix is on `alpha` only. **#1166 reopened** with the evidence. It reaches `main` and `release-candidate` via the promotion (#1040) or a separate port; the maintainer decides which.
   - **Why the fixes never reached the channels:** `main`'s `forward-port-security.yml` still needs the author to be exactly `dependabot[bot]`, but the API says `app/dependabot`. The fix (#1165) was on `alpha` only. The maintainer said to fix it (about 08:30).
     - **#1275** (`ci/forward-port-security-to-main`, `e39024f1`) copies `alpha`'s two files unchanged.
     - Tested locally against real merges: #1264 and #1266 forward-port; #1152 (a routine update) and #1230 do not.
