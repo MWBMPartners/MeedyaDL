@@ -43,7 +43,7 @@ import type { ReactNode } from 'react';
  */
 interface PageHeaderProps {
   /**
-   * Main heading text displayed as an `<h2>`.
+   * Main heading text displayed as the page's one `<h1>`.
    * Should be a short page name (e.g., "Download", "Queue", "Settings").
    */
   title: string;
@@ -96,9 +96,21 @@ interface PageHeaderProps {
  */
 export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
   return (
-    <header className="flex items-start justify-between px-6 py-4 border-b border-border-light">
-      {/* Left column: title and optional subtitle */}
-      <div>
+    /*
+     * `flex-wrap`: when the title and the actions do not both fit on one
+     * row, the actions move to a row of their own under the title. They
+     * used to stay on the same row and get squeezed instead, so at the
+     * smallest window the Queue page's labels broke onto four lines and
+     * its last buttons were pushed out of sight (polish audit H5); at the
+     * default size every label broke in two and "6 items in queue"
+     * wrapped. Each side is laid out at its natural width first, so a
+     * short subtitle never wraps just to make room for buttons.
+     */
+    <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-6 py-4 border-b border-border-light">
+      {/* Left column: title and optional subtitle. `min-w-0` lets a long
+          subtitle (Library's) wrap inside the column instead of
+          stretching the header past the window. */}
+      <div className="min-w-0">
         {/* The page's one top-level heading. It used to be an <h2>, and the
             only <h1> (in the sidebar) is hidden, so no screen had a visible
             top-level heading at all; screen readers jump between pages by
@@ -113,7 +125,10 @@ export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
        * Only rendered when the `actions` prop is truthy.
        * `gap-2` (8px) spaces multiple buttons evenly.
        */}
-      {actions && <div className="flex items-center gap-2">{actions}</div>}
+      {/* `whitespace-nowrap` (inherited by every button inside): a label
+          that breaks in two looks broken. If the buttons do not fit, they
+          wrap as whole buttons instead. */}
+      {actions && <div className="flex flex-wrap items-center gap-2 whitespace-nowrap">{actions}</div>}
     </header>
   );
 }

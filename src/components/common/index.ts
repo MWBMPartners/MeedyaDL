@@ -100,6 +100,13 @@ export { ContextMenu } from './ContextMenu';
  */
 export type { ContextMenuItem } from './ContextMenu';
 
+/**
+ * A button that opens a menu of further actions ("More ▾"), keyboard
+ * operable and announced as a menu button to screen readers.
+ * Used in: DownloadQueue (the page header's secondary actions).
+ */
+export { MenuButton } from './MenuButton';
+
 /* -------------------------------------------------------------------------- */
 /*  Feedback / status components                                               */
 /* -------------------------------------------------------------------------- */

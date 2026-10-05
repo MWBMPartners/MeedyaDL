@@ -78,6 +78,15 @@ interface ContextMenuProps {
   y: number;
   /** Callback to close/unmount the menu */
   onClose: () => void;
+  /**
+   * The menu's name for screen readers. Defaults to the generic
+   * "Actions menu"; a menu opened from a labelled button (MenuButton)
+   * passes that button's name, so it is announced as, for example,
+   * "More queue actions".
+   */
+  label?: string;
+  /** Element id, so the button that opens the menu can point at it (`aria-controls`). */
+  id?: string;
 }
 
 /**
@@ -86,7 +95,7 @@ interface ContextMenuProps {
  * After the initial render the component measures its own dimensions
  * and adjusts position so the menu stays fully within the viewport.
  */
-export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
+export function ContextMenu({ items, x, y, onClose, label, id }: ContextMenuProps) {
   const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -231,8 +240,9 @@ export function ContextMenu({ items, x, y, onClose }: ContextMenuProps) {
   return createPortal(
     <div
       ref={menuRef}
+      id={id}
       role="menu"
-      aria-label={t('common.actionsMenu')}
+      aria-label={label ?? t('common.actionsMenu')}
       style={{ left: pos.x, top: pos.y }}
       className="fixed z-50 min-w-[180px] py-1 bg-surface-elevated border border-border rounded-platform shadow-lg"
     >

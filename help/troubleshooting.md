@@ -40,7 +40,7 @@ The cookie file that MeedyaDL is configured to use does not exist at the expecte
 
 MeedyaDL checks your internet connection before every download. If you are offline when you click "Add to Queue", the download is still added to the queue but **will not start processing** until connectivity returns. A yellow warning toast appears: **"Download queued — will start when internet is available."**
 
-Once you are back online, adding another download or clicking "Start Queue" on the Queue page will trigger the queue to process all waiting items. Cookies are not checked when offline since the check would fail anyway.
+Once you are back online, adding another download or clicking **Start** on the Queue page will trigger the queue to process all waiting items. Cookies are not checked when offline since the check would fail anyway.
 
 **Note:** Downloads that ultimately fail due to network issues do **not** generate error reports, since the root cause is connectivity rather than an application bug.
 
@@ -270,7 +270,7 @@ While the SSH session stays open, the three ports on the Mac/PC tunnel through t
 
 #### Bulk retry: "Retry All Failed"
 
-The header on both **Queue** and **History** pages shows a **Retry All Failed (N)** button when at least one failed item exists. A confirmation modal lists the count before re-queueing. On the History page, duplicate URLs are deduplicated automatically (12 failed entries for the same URL → 1 re-enqueue).
+When at least one failed item exists, the **History** page shows a **Retry All Failed (N)** button in its header, and the **Queue** page offers **Retry all failed (N)** in its **More** menu. A confirmation modal lists the count before re-queueing. On the History page, duplicate URLs are deduplicated automatically (12 failed entries for the same URL → 1 re-enqueue).
 
 #### Smart retry: only the failed tracks re-run
 

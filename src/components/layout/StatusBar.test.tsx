@@ -295,6 +295,26 @@ describe('StatusBar', () => {
     expect(abortButton.closest('[aria-live]')).toBeNull();
   });
 
+  /**
+   * Polish pass (L5): the Abort button used to sit in the MIDDLE of the
+   * counts ("1 queued [Abort] 1 completed"), where it read as one more
+   * count. It must come after every count.
+   */
+  it('puts the Abort button after every count, not among them', () => {
+    useDownloadStore.setState({
+      queueItems: [createItem('downloading'), createItem('queued'), createItem('complete')],
+    });
+
+    render(<StatusBar />);
+
+    const bar = screen.getByTestId('status-bar-visible-counters');
+    const abortButton = within(bar).getByRole('button', { name: /abort queue/i });
+    const completed = within(bar).getByText(/1 completed/);
+    // DOCUMENT_POSITION_FOLLOWING: the button comes after the last count.
+    expect(completed.compareDocumentPosition(abortButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(abortButton.className).toContain('px-1.5 py-0.5');
+  });
+
   // =========================================================================
   // After-queue indicator reads the SAVED action, never the Settings
   // screen's unsaved edit (#1222)

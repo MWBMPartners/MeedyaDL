@@ -117,7 +117,7 @@ Three ways:
 
 - **Single failed item in Queue:** click the circular-arrow **Retry** button on the right of the row, or right-click the row and choose **Retry Download**.
 - **Single failed item in History:** the History page now shows the same Retry button on every failed entry, and the right-click menu offers Retry / Copy URL / Open Folder.
-- **Multiple failed items at once:** the Queue and History pages each show a **Retry All Failed (N)** button in their header when at least one failure exists. A confirmation modal lists the count, then re-queues every failed item. On History, duplicate URLs are deduplicated automatically.
+- **Multiple failed items at once:** when at least one failure exists, the History page shows a **Retry All Failed (N)** button in its header, and the Queue page offers **Retry all failed (N)** in its **More** menu. A confirmation modal lists the count, then re-queues every failed item. On History, duplicate URLs are deduplicated automatically.
 
 When you retry an item that left a partial download on disk, MeedyaDL uses the `manifest.meedyadl` file to figure out which tracks actually failed and only re-runs GAMDL for those — a 50-track box set with 3 missing tracks finishes in seconds. If every expected track is already on disk, the retry is refused with a friendly "Nothing to retry" message instead of pointlessly re-fetching the album.
 
@@ -129,10 +129,10 @@ A `.meedyadl` file is a download manifest that MeedyaDL saves in each album's ou
 
 The Queue page provides two options for clearing items:
 
-- **Clear Completed** — Removes only completed and cancelled items from the queue, keeping active, queued, and failed items so you can review errors and retry.
-- **Clear All** — Removes every queued, completed, failed and cancelled item. It asks you to confirm first. Anything that is downloading or being processed right now is left alone and keeps going — to stop those too, use **Abort Queue**.
+- **Clear completed** — Removes only completed and cancelled items from the queue, keeping active, queued, and failed items so you can review errors and retry.
+- **Clear all** — Removes every queued, completed, failed and cancelled item. It asks you to confirm first. Anything that is downloading or being processed right now is left alone and keeps going — to stop those too, use **Abort**.
 
-Both buttons are in the queue header. If you want to keep failed items visible for review, use **Clear Completed** instead of **Clear All**.
+Both are in the **More** menu at the top of the Queue page. If you want to keep failed items visible for review, use **Clear completed** instead of **Clear all**.
 
 ### What is smart re-download detection?
 

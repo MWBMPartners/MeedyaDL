@@ -85,7 +85,7 @@ If you do not select a codec, the default configured in [Quality Settings](quali
 
 ### Managing the Download Queue
 
-Downloads are added to a queue when you submit a URL. By default, the queue begins processing immediately after each submission (**Auto-Start Downloads** is enabled in Settings > General). If you prefer to batch-add multiple URLs before starting, disable auto-start — items will remain in the "Queued" state until you click the **Start Queue** button in the Queue page. The queue processes one item at a time by design — there is no setting to run several downloads at once. Each item's whole pipeline (download, companion formats, metadata enrichment, lyrics) finishes before the next one starts, which is what makes retries and companion downloads reliable.
+Downloads are added to a queue when you submit a URL. By default, the queue begins processing immediately after each submission (**Auto-Start Downloads** is enabled in Settings > General). If you prefer to batch-add multiple URLs before starting, disable auto-start — items will remain in the "Queued" state until you click the **Start** button at the top of the Queue page. The queue processes one item at a time by design — there is no setting to run several downloads at once. Each item's whole pipeline (download, companion formats, metadata enrichment, lyrics) finishes before the next one starts, which is what makes retries and companion downloads reliable.
 
 Each item in the queue displays:
 
@@ -98,15 +98,16 @@ The following queue actions are available:
 - **Cancel** — stops the active download immediately and marks it as cancelled. Any extra format copies it was making alongside (see [Companion Downloads](#companion-downloads)) are stopped too
 - **Retry** — re-queues a failed download so it can be attempted again. When a partial download exists on disk, MeedyaDL reads the album's `manifest.meedyadl` and re-runs only the tracks that actually failed (smart retry). If every expected track is already on disk, the retry is refused with a friendly message instead of pointlessly re-fetching
 - **Retry without Wrapper** — (only on items that used wrapper auth) re-runs with wrapper disabled, falling back to cookie-based auth
-- **Retry All Failed** — header button; re-queues every failed item in one click. Confirmation modal shows the count first
+- **Retry all failed** — in the **More** menu at the top of the Queue page; re-queues every failed item in one click. Confirmation modal shows the count first
 - **Right-click any row** — opens a context menu with Copy Source Link, Open Folder (when output exists), Retry (when failed), and Retry without Wrapper (when applicable)
-- **Clear Completed** — removes completed and cancelled items from the queue list. Failed items are deliberately kept, so you can read what went wrong and retry them. Use **Clear All** if you want the failures gone too
-- **Clear All** — after asking you to confirm, removes every queued, completed, failed and cancelled item. Anything downloading or being processed right now is left running
-- **Abort Queue** — stops the current download straight away and cancels everything still waiting. Completed downloads are kept. It asks you to confirm first; tick **Don't ask again** in that window if you would rather it did not. You can turn the question back on any time in **Settings > General > Preferences > Confirm before aborting the queue**. The same action is on the status bar at the bottom of the window and on the keyboard shortcut **Cmd/Ctrl + Shift + .**. If the abort cannot be carried out, MeedyaDL tells you
-- **Export** — saves the current queue to a `.meedyadl` file (JSON-based) that can be imported on another device or MeedyaDL instance. Only shown when there are active or pending items in the queue
-- **Import** — loads a previously exported `.meedyadl` queue file and adds the items to the current queue. The imported items use the current device's global settings as the base, with any per-download overrides from the export preserved
+- **Clear completed** (in the **More** menu) — removes completed and cancelled items from the queue list. Failed items are deliberately kept, so you can read what went wrong and retry them. Use **Clear all** if you want the failures gone too
+- **Clear all** (in the **More** menu) — after asking you to confirm, removes every queued, completed, failed and cancelled item. Anything downloading or being processed right now is left running
+- **Pause** / **Resume** — at the top of the Queue page. Pausing lets whatever is running finish but starts nothing new; **Resume** carries on from where it stopped
+- **Abort** — at the top of the Queue page; stops the current download straight away and cancels everything still waiting. Completed downloads are kept. It asks you to confirm first; tick **Don't ask again** in that window if you would rather it did not. You can turn the question back on any time in **Settings > General > Preferences > Confirm before aborting the queue**. The same action is on the status bar at the bottom of the window (after the download counts) and on the keyboard shortcut **Cmd/Ctrl + Shift + .**. If the abort cannot be carried out, MeedyaDL tells you
+- **Export the queue** (in the **More** menu) — saves the current queue to a `.meedyadl` file (JSON-based) that can be imported on another device or MeedyaDL instance. Greyed out when there is nothing active or waiting to export
+- **Import a queue file** (in the **More** menu) — loads a previously exported `.meedyadl` queue file and adds the items to the current queue. The imported items use the current device's global settings as the base, with any per-download overrides from the export preserved
 
-The History page exposes the same Retry / Retry All Failed actions for entries already moved out of the queue. Re-enqueuing from History creates a fresh queue item; the original History entry is preserved.
+The History page exposes the same Retry / Retry All Failed actions (as buttons in its header) for entries already moved out of the queue. Re-enqueuing from History creates a fresh queue item; the original History entry is preserved.
 
 **Clear History** on the History page asks you to confirm first. Clearing it cannot be undone, and it also changes what MeedyaDL knows about past downloads — the history is what it uses to spot a duplicate or tell you that something was downloaded before.
 
@@ -137,15 +138,15 @@ You can transfer your download queue between devices or MeedyaDL installations u
 
 **Exporting:**
 
-1. Click the **Export** button in the queue header (shown when there are active or pending items)
+1. Open the **More** menu at the top of the Queue page and choose **Export the queue** (greyed out when there is nothing active or waiting)
 2. Choose a save location in the native file dialog — the default filename is `queue.meedyadl`
 3. The exported file contains the URLs and any per-download quality overrides, but not your global settings
 
 **Importing:**
 
-1. Click the **Import** button in the queue header
+1. Open the **More** menu at the top of the Queue page and choose **Import a queue file**
 2. Select a `.meedyadl` file from the native file picker
-3. The imported items are added to your current queue and begin processing immediately (if auto-start is enabled) or remain queued until you click **Start Queue**
+3. The imported items are added to your current queue and begin processing immediately (if auto-start is enabled) or remain queued until you click **Start**
 4. Each imported item uses your device's global settings as the base, with any per-download overrides from the export applied on top
 
 This is useful for transferring download lists between a desktop and laptop, sharing playlists with others, or backing up a download queue before reinstalling the app.
@@ -260,9 +261,9 @@ There are three ways to re-download content from a `.meedyadl` manifest:
 
 2. **Drag and drop** — Drag a `.meedyadl` file from your file manager and drop it on the MeedyaDL application window. MeedyaDL checks the file first. If it is not a manifest it understands, or has no links in it, you are told so and nothing is changed. Otherwise the links are put into the URL box on the Download page, just like the Import button (up to 500 links from one file — if there are more, a message says only the first 500 were used). Press **Add to Queue** to download them.
 
-3. **Queue Import** — The **Import** button in the Queue page header also accepts `.meedyadl` files exported via the Queue Export feature. These go straight into the queue.
+3. **Queue Import** — **Import a queue file**, in the **More** menu at the top of the Queue page, also accepts `.meedyadl` files exported via the Queue Export feature. These go straight into the queue.
 
-A manifest brought in through the Download page (the **Import** button or drag and drop) only fills in the links: the downloads use your current settings, plus any choices you make on screen before adding them. A file brought in through the Queue page's **Import** also restores the per-download choices that were exported with it, applied on top of your current settings.
+A manifest brought in through the Download page (the **Import** button or drag and drop) only fills in the links: the downloads use your current settings, plus any choices you make on screen before adding them. A file brought in through the Queue page's **Import a queue file** also restores the per-download choices that were exported with it, applied on top of your current settings.
 
 ### Manifest File Location
 
@@ -328,7 +329,7 @@ The same URL will not trigger a second prompt within the same app session, even 
 - **Monitor the fallback indicator.** If you see frequent fallbacks, the codec you selected may not be widely available. Consider switching your default codec in [Quality Settings](quality-settings.md).
 - **Your queue survives app restarts.** If you need to close the app while downloads are pending, they will automatically resume on the next launch. There is no need to manually save or re-enter URLs.
 - **Use export/import to transfer queues between devices.** If you set up downloads on one machine and want to continue on another, export the queue to a `.meedyadl` file and import it on the other device. The imported items will use the destination device's quality settings.
-- **Disable auto-start for batch queuing.** If you want to add multiple URLs before any downloads begin, turn off **Auto-Start Downloads** in Settings > General. Add all your URLs, then click **Start Queue** in the Queue page when ready.
+- **Disable auto-start for batch queuing.** If you want to add multiple URLs before any downloads begin, turn off **Auto-Start Downloads** in Settings > General. Add all your URLs, then click **Start** at the top of the Queue page when ready.
 
 ---
 

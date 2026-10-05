@@ -54,6 +54,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
  */
 import {
   Download,
+  MoreHorizontal,
   Pause,
   Play,
   RefreshCw,
@@ -88,7 +89,7 @@ import {
 } from '@/lib/tauri-commands';
 
 /** Reusable UI components from the common library. */
-import { Button, Modal, getStatusLabel } from '@/components/common';
+import { Button, MenuButton, Modal, getStatusLabel } from '@/components/common';
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
@@ -1085,15 +1086,29 @@ export function DownloadQueue() {
        * The `actions` slot contains "Clear Finished" and "Refresh" buttons.
        * @see PageHeader in @/components/layout/PageHeader.tsx
        */}
+      {/*
+       * Page header: the item count, then the actions.
+       *
+       * Only the three actions that change what is running stay as
+       * buttons: Start, Pause/Resume and Abort. Everything else is in the
+       * "More" menu. There used to be up to nine buttons here; at the
+       * smallest window (800x550) they pushed Clear All, Abort Queue and
+       * Refresh off the right edge, "Retry All Failed (1)" broke onto
+       * four lines, and at the default size every label broke in two
+       * (polish audit H5). One-word labels keep the row on one line at
+       * the minimum window; each button's tooltip says what it does in
+       * full. PageHeader wraps the row under the title if it still does
+       * not fit, so nothing can be pushed out of reach.
+       */}
       <PageHeader
         title="Queue"
         subtitle={`${queueItems.length} item${queueItems.length !== 1 ? 's' : ''} in queue`}
         actions={
-          <div className="flex gap-2">
+          <>
             {/*
-             * "Start Queue" button -- shown when there are queued items
-             * waiting to be processed and no downloads are currently active.
-             * Always visible in manual mode; also shown in auto mode as a
+             * Start -- shown when there are queued items waiting to be
+             * processed and no downloads are currently active. Always
+             * visible in manual mode; also shown in auto mode as a
              * fallback if processing stalled.
              */}
             {queuedCount > 0 && activeCount === 0 && (
@@ -1102,81 +1117,18 @@ export function DownloadQueue() {
                 size="sm"
                 icon={<Play size={14} />}
                 onClick={handleStartQueue}
+                title="Start downloading the items waiting in the queue"
               >
-                Start Queue ({queuedCount})
+                Start ({queuedCount})
               </Button>
             )}
 
             {/*
-             * "Import" button -- always shown, opens a native file picker
-             * to import queue items from a .meedyadl file.
-             */}
-            <Button variant="ghost" size="sm" icon={<Download size={14} />} onClick={handleImport}>
-              Import
-            </Button>
-
-            {/*
-             * "Export" button -- always visible when queue has items.
-             * Disabled when there are no non-terminal items to export.
-             */}
-            {queueItems.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Upload size={14} />}
-                onClick={handleExport}
-                disabled={exportableCount === 0}
-              >
-                Export{exportableCount > 0 ? ` (${exportableCount})` : ''}
-              </Button>
-            )}
-
-            {/*
-             * "Clear Completed" button -- only rendered when there are
-             * completed or cancelled items to clear. Errored items are
-             * kept so the user can review and retry them.
-             */}
-            {finishedCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Trash2 size={14} />}
-                onClick={handleClearFinished}
-              >
-                Clear Completed ({finishedCount})
-              </Button>
-            )}
-
-            {/*
-             * "Retry All Failed" button (#665) — appears when at least one
-             * failed item exists. Each retry goes through the smart manifest
-             * planner (#667), so already-downloaded tracks are skipped at
-             * the planner layer. Confirmation-gated to prevent a misclick
-             * from re-queueing twelve items at once.
-             */}
-            {failedCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<RotateCcw size={14} />}
-                onClick={retryAllConfirm.open}
-              >
-                Retry All Failed ({failedCount})
-              </Button>
-            )}
-
-            {/*
-             * "Pause Queue" / "Resume Queue" button (#889). Shown
-             * whenever there is at least one item that the scheduler
-             * could potentially pick up (queued or active). This is
-             * the non-destructive complement to Abort Queue — pausing
-             * lets running items finish naturally but stops the
-             * scheduler from pulling the next item. Resume picks up
-             * where it left off.
-             *
-             * Label and icon flip in place based on the current state
-             * (`Pause` icon when running, `Play` icon when paused).
-             * No confirmation modal — the action is reversible.
+             * Pause / Resume (#889). Shown whenever there is at least one
+             * item that the scheduler could potentially pick up (queued or
+             * active). The non-destructive complement to Abort: running
+             * items finish naturally, but nothing new starts. No
+             * confirmation -- the action is reversible.
              */}
             {(activeCount > 0 || queuedCount > 0 || isPaused) && (
               <Button
@@ -1186,30 +1138,19 @@ export function DownloadQueue() {
                 onClick={() => void togglePause()}
                 title={
                   isPaused
-                    ? 'Resume the scheduler — items in Queued state will start as slots free up'
-                    : 'Pause the scheduler — running items will complete, but no new items will start'
+                    ? 'Resume the queue — waiting items start again as soon as there is room'
+                    : 'Pause the queue — what is running finishes, but nothing new starts'
                 }
               >
-                {isPaused ? 'Resume Queue' : 'Pause Queue'}
-              </Button>
-            )}
-
-            {queueItems.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Trash2 size={14} />}
-                onClick={clearAllConfirm.open}
-              >
-                Clear All
+                {isPaused ? 'Resume' : 'Pause'}
               </Button>
             )}
 
             {/*
-             * "Abort Queue" button (#620). Shown whenever there is at least
-             * one item in a non-terminal state that could be stopped.
-             * Destructive-styled + confirmation-gated — a misclick here
-             * would cancel an entire batch download.
+             * Abort (#620). Shown whenever there is at least one item in a
+             * non-terminal state that could be stopped. Destructive-styled
+             * and confirmation-gated -- a misclick here would cancel an
+             * entire batch download.
              */}
             {(activeCount > 0 || queuedCount > 0) && (
               <Button
@@ -1218,26 +1159,59 @@ export function DownloadQueue() {
                 icon={<Square size={14} />}
                 onClick={triggerAbort}
                 className="text-status-error-text hover:bg-status-error/10"
-                title="Stop every active and queued download immediately (Cmd/Ctrl+Shift+.)"
+                title="Abort the queue: stop every active and waiting download now (Cmd/Ctrl+Shift+.)"
               >
-                Abort Queue
+                Abort
               </Button>
             )}
 
             {/*
-             * Manual refresh button -- fetches the latest queue state
-             * from the backend. Useful if real-time events are delayed
-             * or if the user wants an instant update.
+             * Everything else. The menu always lists the same actions, in
+             * the same order; one that cannot be used right now is shown
+             * greyed out rather than removed, so people can learn where
+             * things are.
              */}
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<RefreshCw size={14} />}
-              onClick={() => refreshQueue()}
-            >
-              Refresh
-            </Button>
-          </div>
+            <MenuButton
+              label="More"
+              title="More queue actions"
+              icon={<MoreHorizontal size={14} />}
+              items={[
+                { label: 'Import a queue file…', icon: <Download size={14} />, onClick: () => void handleImport() },
+                {
+                  label: exportableCount > 0 ? `Export the queue (${exportableCount})` : 'Export the queue',
+                  icon: <Upload size={14} />,
+                  onClick: () => void handleExport(),
+                  disabled: exportableCount === 0,
+                },
+                {
+                  label: failedCount > 0 ? `Retry all failed (${failedCount})` : 'Retry all failed',
+                  icon: <RotateCcw size={14} />,
+                  onClick: retryAllConfirm.open,
+                  disabled: failedCount === 0,
+                  separator: true,
+                },
+                {
+                  label: finishedCount > 0 ? `Clear completed (${finishedCount})` : 'Clear completed',
+                  icon: <Trash2 size={14} />,
+                  onClick: () => void handleClearFinished(),
+                  disabled: finishedCount === 0,
+                  separator: true,
+                },
+                {
+                  label: 'Clear all…',
+                  icon: <Trash2 size={14} />,
+                  onClick: clearAllConfirm.open,
+                  disabled: queueItems.length === 0,
+                },
+                {
+                  label: 'Refresh',
+                  icon: <RefreshCw size={14} />,
+                  onClick: () => void refreshQueue(),
+                  separator: true,
+                },
+              ]}
+            />
+          </>
         }
       />
 
@@ -1293,7 +1267,10 @@ export function DownloadQueue() {
                     }`}
                     aria-pressed={active}
                   >
-                    {state} ({count})
+                    {/* The same words as the status pills on each row
+                        ("Complete", "Cancelled"). It used to show the
+                        program's own lowercase state names. */}
+                    {getStatusLabel(state)} ({count})
                   </button>
                 );
               },

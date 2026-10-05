@@ -75,12 +75,15 @@ function QueueColumnHeader({ hasSelection }: { hasSelection: boolean }) {
       <div className="w-12 h-12 flex-shrink-0" aria-hidden="true" />
 
       {/* Tier 2 — Platform label (hidden below md, matching the
-       * row's `hidden md:flex` platform icon column). */}
+       * row's `hidden md:flex` platform icon column). It used to read
+       * "Svc" (shown as "SVC") in a column only 20px wide; the whole
+       * word needs about 50px, so both this header and the row's icon
+       * cell are now `w-14` (56px), with the icon centred under it. */}
       <div
         role="columnheader"
-        className="hidden md:flex flex-shrink-0 w-5 justify-center"
+        className="hidden md:flex flex-shrink-0 w-14 justify-center"
       >
-        <span aria-hidden="true">Svc</span>
+        Service
       </div>
 
       {/* Tier 1 — primary identifier column header. The row's
@@ -91,9 +94,10 @@ function QueueColumnHeader({ hasSelection }: { hasSelection: boolean }) {
         Artist — Album — Track
       </div>
 
-      {/* Tier 3 — Speed / ETA (≥ lg). */}
+      {/* Tier 3 — Speed / time left (≥ lg). Says "Time Left" rather
+       * than "ETA", matching the "… left" the cell shows. */}
       <div role="columnheader" className="hidden lg:flex flex-shrink-0">
-        Speed / ETA
+        Speed / Time Left
       </div>
 
       {/* Tier 4 — Codec / quality (≥ xl). */}

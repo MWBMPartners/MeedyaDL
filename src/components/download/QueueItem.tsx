@@ -288,6 +288,27 @@ function AlbumArtThumbnail({ artworkUrl }: { artworkUrl: string | null | undefin
 }
 
 /**
+ * Download speed and time left, as one line of text: "12.4 MiB/s ·
+ * 00:03:12 left".
+ *
+ * One <span> on purpose. These figures used to sit directly inside a
+ * flex container as separate pieces of text, and a flex container
+ * trims the spaces at the ends of each piece -- which is why the row
+ * read "12.4 MiB/s ·00:03:12". Inside one span the spaces are ordinary
+ * text and stay. The word "left" says what the second figure is, to
+ * everyone; it replaces a visually hidden "ETA" that only screen readers
+ * got.
+ */
+export function SpeedEta({ speed, eta }: { speed: string; eta: string | null | undefined }) {
+  return (
+    <span>
+      {speed}
+      {eta ? ` · ${eta} left` : ''}
+    </span>
+  );
+}
+
+/**
  * Renders a single item in the download queue with status icon,
  * progress tracking, fallback indicator, and context-sensitive
  * action buttons.
@@ -604,7 +625,10 @@ function QueueItemComponent({
          * readable; the album art alone already encodes content
          * identity at that width. Click-to-expand affordance
          * (future PR) will surface this column inline at any width. */}
-        <div className="hidden md:flex flex-shrink-0">
+        {/* `w-14 justify-center`: the same width as the "Service" column
+            header above it (QueueListVirtualized), so the icon sits
+            centred under its label. */}
+        <div className="hidden md:flex flex-shrink-0 w-14 justify-center">
           <PlatformIcon platform={platform} size={20} />
         </div>
 
@@ -653,28 +677,11 @@ function QueueItemComponent({
          * the row; this column surfaces the headline number compactly
          * for at-a-glance monitoring on wide windows. */}
         {isActive && item.speed && (
-          // Fix 7 (a11y audit): a plain <div> has role "generic", which
-          // ARIA says must never take its name from aria-label -- so the
-          // old `aria-label` here was silently ignored by screen readers
-          // (the exact "silent icon" shape flagged elsewhere in this
-          // file's sibling components, just with text instead of an
-          // icon). Rather than reach for a role whose naming behaviour
-          // isn't reliably supported everywhere, the fix is simpler:
-          // the visible text already says everything a sighted user
-          // sees, so make it say the same to a screen reader too by
-          // adding a visually-hidden "ETA" word in the same place a
-          // sighted person sees the separator dot.
+          // Fix 7 (a11y audit): this used to carry an `aria-label` on a
+          // plain <div>, which screen readers ignore; the visible words
+          // are what everyone gets now (see SpeedEta).
           <div className="hidden lg:flex flex-shrink-0 text-xs text-content-tertiary whitespace-nowrap tabular-nums">
-            {item.speed}
-            {item.eta ? (
-              <>
-                {' · '}
-                <span className="sr-only">ETA </span>
-                {item.eta}
-              </>
-            ) : (
-              ''
-            )}
+            <SpeedEta speed={item.speed} eta={item.eta} />
           </div>
         )}
 
@@ -849,15 +856,13 @@ function QueueItemComponent({
            * Speed and ETA information -- shown when `item.speed` is
            * available (set by `downloadStore.handleProgressEvent()`
            * when the backend emits a `download_progress` event).
-           *
-           * `text-[11px]` uses an arbitrary value for a compact font.
            */}
+          {/* Only below the `lg` width: from `lg` up the same figures are
+              already in their own column on the row above (Tier 3), and
+              they used to be shown twice. */}
           {item.speed && (
-            <div className="flex gap-3 mt-1 text-[11px] text-content-tertiary">
-              {/* Download speed (e.g., "1.2 MB/s") */}
-              {item.speed && <span>{item.speed}</span>}
-              {/* Estimated time remaining (e.g., "ETA: 2:30") */}
-              {item.eta && <span>ETA: {item.eta}</span>}
+            <div className="lg:hidden mt-1 text-xs text-content-tertiary tabular-nums">
+              <SpeedEta speed={item.speed} eta={item.eta} />
             </div>
           )}
         </div>

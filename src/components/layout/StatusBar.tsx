@@ -34,6 +34,7 @@ import { useCallback } from 'react';
 import { useAppVersion } from '@/hooks/useAppVersion';
 
 import { Square } from 'lucide-react';
+import { Button } from '@/components/common';
 
 // This component is visible on every screen of the app (it's pinned under
 // every page), so every word in it needs to go through i18next rather than
@@ -340,11 +341,21 @@ export function StatusBar() {
         )}
         {/* Queued count -- items waiting to start */}
         {queuedCount > 0 && <span>{t('statusBar.queued', { count: queuedCount })}</span>}
+        {/* Completed count -- successfully finished items */}
+        {completedCount > 0 && <span>{t('statusBar.completed', { count: completedCount })}</span>}
+        {/* Empty-queue fallback message */}
+        {queueItems.length === 0 && <span>{t('statusBar.noDownloads')}</span>}
+
         {/*
           Global "Abort Queue" affordance (#620). Always available — even
           when the user is on Settings / History pages and can't reach the
           queue-page button. Fires the same abort path (confirmation
           respects `abort_queue_confirm`).
+
+          It used to sit in the MIDDLE of the counts ("1 queued [Abort] 1
+          completed"), where it read as one more count. It now comes after
+          all of them, set apart by a thin divider, and is the shared
+          Button (size xs) rather than a hand-made one.
 
           The "Cmd/Ctrl+Shift+." keyboard hint is deliberately kept out of
           the translated sentence and passed in as `{{shortcut}}` — key
@@ -352,21 +363,20 @@ export function StatusBar() {
           means a translator can't accidentally reword it.
         */}
         {(activeCount > 0 || queuedCount > 0) && (
-          <button
-            type="button"
-            onClick={triggerAbort}
-            aria-label={t('statusBar.abortAriaLabel')}
-            title={t('statusBar.abortTitle', { shortcut: 'Cmd/Ctrl+Shift+.' })}
-            className="flex items-center gap-1 text-status-error-text hover:bg-status-error/10 rounded px-1.5 py-0.5 transition-colors"
-          >
-            <Square size={12} />
-            <span className="text-xs">{t('statusBar.abort')}</span>
-          </button>
+          <span className="flex items-center border-l border-border-light pl-3">
+            <Button
+              variant="ghost"
+              size="xs"
+              icon={<Square size={12} />}
+              onClick={triggerAbort}
+              aria-label={t('statusBar.abortAriaLabel')}
+              title={t('statusBar.abortTitle', { shortcut: 'Cmd/Ctrl+Shift+.' })}
+              className="text-status-error-text hover:bg-status-error/10"
+            >
+              {t('statusBar.abort')}
+            </Button>
+          </span>
         )}
-        {/* Completed count -- successfully finished items */}
-        {completedCount > 0 && <span>{t('statusBar.completed', { count: completedCount })}</span>}
-        {/* Empty-queue fallback message */}
-        {queueItems.length === 0 && <span>{t('statusBar.noDownloads')}</span>}
       </div>
 
       {/* Centre: after-queue action indicator (if non-default) */}

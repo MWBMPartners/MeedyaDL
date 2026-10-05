@@ -28,7 +28,7 @@
  *      Tailwind CSS docs -- hover, focus, active, and disabled state modifiers.
  */
 
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 
 /**
  * Visual style variants for the button.
@@ -46,7 +46,7 @@ type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
  * - md: default (most form buttons)
  * - lg: prominent (large CTAs)
  */
-type ButtonSize = 'sm' | 'md' | 'lg';
+type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 
 /**
  * Props accepted by the {@link Button} component.
@@ -93,6 +93,15 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
    * parent container's width (useful in stacked / card layouts).
    */
   fullWidth?: boolean;
+
+  /**
+   * The underlying <button> element. React 19 passes `ref` to function
+   * components as an ordinary prop, so it reaches the element through
+   * the `...props` spread below; it is declared here only so callers
+   * (for example MenuButton, which positions its menu under the button)
+   * can type it.
+   */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 /**
@@ -133,6 +142,10 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
  * (text-*), and the flexbox gap between the icon and label text (gap-*).
  */
 const SIZE_CLASSES: Record<ButtonSize, string> = {
+  /** Extra compact, for the status bar: 6px horizontal, 2px vertical,
+   *  12px font, 4px gap. Added so the status bar's Abort action could use
+   *  this component instead of a hand-made button with its own look. */
+  xs: 'px-1.5 py-0.5 text-xs gap-1',
   /** Compact: 10px horizontal, 4px vertical, 12px font, 6px gap */
   sm: 'px-2.5 py-1 text-xs gap-1.5',
   /** Default: 16px horizontal, 8px vertical, 14px font, 8px gap */
