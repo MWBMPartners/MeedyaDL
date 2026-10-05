@@ -1230,6 +1230,10 @@ on PRs to / pushes to main.
   - Filed **core #105** (Windows named streams) and commented on #99.
   - **Review: waiting for Codex, not a stand-in.** These are Codex's own findings, and its limit resets at about 04:00, three hours away. With the machine this loaded, a stand-in review followed by Codex would mean doing the review twice. A chained script (`codex-chain-0406.sh`) runs Codex on core straight after the 04:06 plugin review; a watchdog watches it. Until Codex has reviewed it, the round counts as not reviewed.
 - **MeedyaPlayer `7a71a15` / MeedyaSubtitler `4c382aa` pushed** (the round-17 fixes, handoffs only); the eighteenth review is running.
+- **MeedyaDL: the stand-in review of round 6 (`5bcd7f06..c1999825`) is NOT clean — 1 medium, 8 low, 1 nit.** All six of Codex's round-5 findings held when attacked. Every check passed: 2,180 Rust tests, 933 vitest tests, 241 conformance cases, all 12 audit checks.
+  - **Medium:** on a Mac exFAT drive no music-video subtitle can be saved any more. Both of the new no-replace steps are "not supported" there, while 1.10.8 did save them. The reviewer proved this with disk images.
+  - **Lead's decision:** add a third step that also never replaces a file: create the real name exclusively, copy, flush, and delete it on any failure. Its stated limit: a forced stop mid-copy can leave a partial subtitle.
+  - **Round-7 builder running** (Opus, `brief-meedyadl-r7.md`, branch `r7` in the builder clone), with a watchdog. It uses this checkout's `src-tauri/target` as a build cache only, and must rebuild it from clean code at the end.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
