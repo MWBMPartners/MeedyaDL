@@ -14,6 +14,8 @@ This guide explains how to download songs, albums, playlists, and artist discogr
 
 MeedyaDL supports downloading audio content from Apple Music by accepting URLs and processing them through the GAMDL backend. You can download individual songs, full albums, entire playlists, or an artist's complete catalog. Simply paste a URL from `music.apple.com` into the download form, choose your preferred audio quality, and the app handles the rest — including metadata embedding, lyrics, and automatic quality fallback when a codec is unavailable.
 
+You can paste several links at once, one per line. If you keep your links in a plain text file, the **Link List** button beside the box adds every link in the file (one link per line). **Import** brings in a MeedyaDL download record (`.meedyadl` file), and **Scan** looks through a folder for those records — see [Download Manifests](#download-manifests-meedyadl-files).
+
 ---
 
 ## Supported URL Types

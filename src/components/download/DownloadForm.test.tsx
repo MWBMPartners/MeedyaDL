@@ -184,6 +184,50 @@ describe('DownloadForm', () => {
   });
 
   // ===========================================================================
+  // Layout of the input row (polish pass: H4, L19)
+  // ===========================================================================
+
+  it('draws the service badge beside the label, never inside the text box', () => {
+    // The badge used to be positioned over the right-hand end of the box,
+    // so a long link ran underneath it. It must not sit in the box's own
+    // wrapper any more, for a single link or for several.
+    act(() => {
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: true } }));
+    });
+    render(<DownloadForm />);
+    const textarea = screen.getByLabelText('Media URL input');
+    fireEvent.change(textarea, { target: { value: 'https://open.spotify.com/album/abc123' } });
+    const badge = screen.getByTestId('url-badge');
+    expect(textarea.parentElement?.contains(badge)).toBe(false);
+    expect(badge.parentElement?.contains(screen.getByText('Media URL'))).toBe(true);
+
+    fireEvent.change(textarea, {
+      target: { value: 'https://music.apple.com/us/album/foo/123\nhttps://music.apple.com/us/album/bar/456' },
+    });
+    expect(textarea.parentElement?.contains(screen.getByTestId('url-badge'))).toBe(false);
+  });
+
+  it('puts the buttons under the box on a narrow row and beside it on a wide one', () => {
+    // jsdom does no layout, so this pins the rule itself; the screenshots
+    // at 800x550 and 1100x700 prove what it looks like.
+    render(<DownloadForm />);
+    const row = screen.getByTestId('url-input-row');
+    expect(row.className).toMatch(/(^|\s)flex-col(\s|$)/);
+    expect(row.className).toContain('@5xl:flex-row');
+    expect(row.parentElement?.className).toContain('@container');
+  });
+
+  it('gives the text-file button the same size as its neighbours and a label that says what it does', () => {
+    render(<DownloadForm />);
+    const linkList = screen.getByRole('button', { name: /^link list$/i });
+    const importButton = screen.getByRole('button', { name: /^import$/i });
+    // Same size class as Import (the old ".txt" button was size="sm").
+    expect(linkList.className).toContain('px-4 py-2 text-sm');
+    expect(importButton.className).toContain('px-4 py-2 text-sm');
+    expect(screen.queryByRole('button', { name: /^\.txt$/i })).toBeNull();
+  });
+
+  // ===========================================================================
   // Multi-URL detection
   // ===========================================================================
 

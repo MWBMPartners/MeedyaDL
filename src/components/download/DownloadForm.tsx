@@ -85,6 +85,7 @@ import {
   Layers,
   FileDown,
   FolderSearch,
+  ListPlus,
   MoreVertical,
 } from 'lucide-react';
 
@@ -1111,20 +1112,107 @@ export function DownloadForm() {
          * button, and validation feedback text.
          */}
         <div className="space-y-2">
-          {/* Accessible <label> linked to the input via `htmlFor` */}
-          <label htmlFor="url-input" className="block text-sm font-medium text-content-primary">
-            Media URL
-          </label>
-
-          {/* Input row: textarea + submit button side-by-side.
-              `items-start` keeps the button top-aligned when textarea grows. */}
-          <div className="flex gap-2 items-start">
+          {/*
+           * Label row: the accessible <label> (linked to the input via
+           * `htmlFor`) on the left, and the "what did you paste" badge on
+           * the right.
+           *
+           * The badge used to be drawn INSIDE the text box, absolutely
+           * positioned over its right-hand end, so a long link (or a
+           * second line) ran underneath it and the badge covered what the
+           * person was typing. Up here it can never cover the typing area,
+           * whatever the box's width or height.
+           */}
+          <div className="flex items-center justify-between gap-2 min-h-[1.25rem]">
+            <label htmlFor="url-input" className="block text-sm font-medium text-content-primary">
+              Media URL
+            </label>
             {/*
-             * URL text input with inline content-type badge.
-             * `relative` positioning on the wrapper allows the badge
-             * to be absolutely positioned inside the input.
+             * Content-type badge.
+             *
+             * Single-URL mode: shows the detected content type icon +
+             * label (e.g., "Album") when `urlIsValid` is true.
+             *
+             * Multi-URL mode: shows a count badge (e.g., "3 URLs")
+             * with the valid/invalid breakdown.
+             *
+             * `rounded-full` makes it pill-shaped.
+             * `bg-accent-light text-accent` uses the accent colour
+             * at a light tint for the background.
              */}
-            <div className="flex-1 relative">
+            {isMultiUrl && multiUrlInfo && multiUrlInfo.validUrls.length > 0 && (
+              <div
+                data-testid="url-badge"
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium"
+              >
+                <Layers size={12} />
+                {multiUrlInfo.validUrls.length} URL{multiUrlInfo.validUrls.length !== 1 ? 's' : ''}
+                {/*
+                  Says which of the two it is, rather than calling both
+                  "invalid" (#1157). A recognised service that we cannot
+                  download from yet is not the user getting it wrong.
+                */}
+                {multiUrlInfo.notYetSupportedCount > 0 && (
+                  <span className="text-status-warning-text ml-1">
+                    ({multiUrlInfo.notYetSupportedCount} not supported yet)
+                  </span>
+                )}
+                {multiUrlInfo.unrecognisedCount > 0 && (
+                  <span className="text-status-warning-text ml-1">
+                    ({multiUrlInfo.unrecognisedCount} not recognised)
+                  </span>
+                )}
+              </div>
+            )}
+            {!isMultiUrl && urlIsValid && (() => {
+              // #983: non-Apple services (currently just Spotify) have no
+              // Apple Music content type — fall back to the service name
+              // with a generic Music icon instead of "Unknown".
+              const singleService = detectService(urlInput.trim());
+              const isNonApple = singleService !== null && singleService !== 'apple-music';
+              const BadgeIcon = isNonApple ? Music : ContentIcon;
+              const badgeLabel = isNonApple
+                ? MEDIA_SERVICE_LABELS[singleService]
+                : CONTENT_TYPE_LABELS[contentType];
+              return (
+                <div
+                  data-testid="url-badge"
+                  className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium"
+                >
+                  <BadgeIcon size={12} />
+                  {badgeLabel}
+                </div>
+              );
+            })()}
+          </div>
+
+          {/*
+           * Input row: the text box, then the buttons.
+           *
+           * The row measures ITS OWN width (`@container`), not the
+           * window's, because the sidebar can be collapsed: the space
+           * the box gets depends on both. Below 64rem (1024px) of
+           * content width the box takes the whole width and the buttons
+           * move to a row of their own underneath (wrapping if they must);
+           * from 64rem up they sit beside the box.
+           *
+           * Why 64rem: the five buttons need about 540px, and the box
+           * needs about 450px to show its longest placeholder on one
+           * line. Side by side at the default 1100px window (about 830px
+           * of content), the box was left with under 300px, so its
+           * placeholder wrapped and the second line was cut in half; at
+           * the 800px minimum window it was about 50px wide and showed
+           * only "Past". Tried and rejected: wrapping the whole row
+           * (`flex-wrap` alone) -- the box then shrinks to its minimum
+           * before anything wraps, which is the same fault.
+           */}
+          <div className="@container">
+          <div data-testid="url-input-row" className="flex flex-col gap-2 @5xl:flex-row @5xl:items-start">
+            {/*
+             * URL text input. Takes the full width when the buttons are
+             * underneath it, and the remaining width when they are beside it.
+             */}
+            <div className="w-full @5xl:flex-1 @5xl:min-w-0">
               {/*
                * Controlled textarea bound to `downloadStore.urlInput`.
                *
@@ -1176,60 +1264,15 @@ export function DownloadForm() {
                 style={{ minHeight: '38px' }}
               />
 
-              {/*
-               * Content-type badge -- absolutely positioned inside the
-               * textarea (right-aligned, top-aligned for multi-line).
-               *
-               * Single-URL mode: shows the detected content type icon +
-               * label (e.g., "Album") when `urlIsValid` is true.
-               *
-               * Multi-URL mode: shows a count badge (e.g., "3 URLs")
-               * with the valid/invalid breakdown.
-               *
-               * `rounded-full` makes it pill-shaped.
-               * `bg-accent-light text-accent` uses the accent colour
-               * at a light tint for the background.
-               */}
-              {isMultiUrl && multiUrlInfo && multiUrlInfo.validUrls.length > 0 && (
-                <div className="absolute right-2 top-2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium">
-                  <Layers size={12} />
-                  {multiUrlInfo.validUrls.length} URL{multiUrlInfo.validUrls.length !== 1 ? 's' : ''}
-                  {/*
-                    Says which of the two it is, rather than calling both
-                    "invalid" (#1157). A recognised service that we cannot
-                    download from yet is not the user getting it wrong.
-                  */}
-                  {multiUrlInfo.notYetSupportedCount > 0 && (
-                    <span className="text-status-warning-text ml-1">
-                      ({multiUrlInfo.notYetSupportedCount} not supported yet)
-                    </span>
-                  )}
-                  {multiUrlInfo.unrecognisedCount > 0 && (
-                    <span className="text-status-warning-text ml-1">
-                      ({multiUrlInfo.unrecognisedCount} not recognised)
-                    </span>
-                  )}
-                </div>
-              )}
-              {!isMultiUrl && urlIsValid && (() => {
-                // #983: non-Apple services (currently just Spotify) have no
-                // Apple Music content type — fall back to the service name
-                // with a generic Music icon instead of "Unknown".
-                const singleService = detectService(urlInput.trim());
-                const isNonApple = singleService !== null && singleService !== 'apple-music';
-                const BadgeIcon = isNonApple ? Music : ContentIcon;
-                const badgeLabel = isNonApple
-                  ? MEDIA_SERVICE_LABELS[singleService]
-                  : CONTENT_TYPE_LABELS[contentType];
-                return (
-                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium">
-                    <BadgeIcon size={12} />
-                    {badgeLabel}
-                  </div>
-                );
-              })()}
             </div>
 
+            {/*
+             * The buttons, as one group: beside the box on a wide row,
+             * on their own row (wrapping if they must) on a narrow one.
+             * `whitespace-nowrap` keeps each label on one line -- a
+             * button whose label breaks in two looks broken.
+             */}
+            <div className="flex flex-wrap items-start gap-2 whitespace-nowrap">
             {/*
              * "Add to Queue" button.
              *
@@ -1252,34 +1295,47 @@ export function DownloadForm() {
               variant="secondary"
               icon={<FileDown size={16} />}
               onClick={handleImportManifest}
-              title="Import a .meedyadl manifest file"
+              title="Import a MeedyaDL download record (.meedyadl file)"
             >
               Import
             </Button>
+            {/*
+             * Adds every link in a plain text file. This used to be a
+             * smaller button labelled just ".txt" -- shorter than its
+             * neighbours, with a label that said what kind of file it
+             * wanted but not what it did. Same size and shape as Import
+             * and Scan now, with an icon and a label that says it.
+             */}
             <Button
               variant="secondary"
-              size="sm"
+              icon={<ListPlus size={16} />}
               onClick={handleImportTxtFile}
-              title="Import URLs from a .txt file (one URL per line)"
+              title="Add every link in a text file (.txt, one link per line)"
             >
-              .txt
+              Link List
             </Button>
             <Button
               variant="secondary"
               icon={<FolderSearch size={16} />}
               onClick={handleScanFolder}
-              title="Scan a folder for manifest files to re-download"
+              title="Scan a folder for MeedyaDL download records to download again"
             >
               Scan
             </Button>
+            {/* Icon-only, so the compact padding keeps it from pushing the
+                row onto a second line at the minimum window; `self-stretch`
+                gives it the same height as the labelled buttons beside it. */}
             <Button
               variant="ghost"
-              size="md"
+              size="sm"
+              className="self-stretch"
               icon={<MoreVertical size={16} />}
               onClick={handleAfterQueueOverflowClick}
               title="Set a one-off action to run after the queue finishes"
               aria-label="After-queue actions"
             />
+            </div>
+          </div>
           </div>
 
           {/*
