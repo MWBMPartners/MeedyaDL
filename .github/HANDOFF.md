@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (19:14) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (19:29) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1457,12 +1457,17 @@ on PRs to / pushes to main.
 - **Codex catch-up results (19:10–19:13):**
   - **#1275 (`bc4cadce`, `51d49b21`): 1 high.** A Cargo feature chain (`default = ["legacy"]`, `legacy = ["foo/risky"]`) can still give a false "already fixed".
     - **Decision:** when the fix changes `Cargo.toml`, also require the whole `[features]` table, `edition` and `resolver` to match; treat underscore table names as dependency tables.
-    - The same builder is building it as a follow-up PR to `main` (branch `ci/forward-port-feature-graph`), with a watchdog.
+    - **#1320 opened** (`ci/forward-port-feature-graph`, 3 commits; also closes #1312). 66 + 27 tests; the real data now gives ALREADY_FIXED on all three channels.
   - **MeedyaDL round 9: 2 high.**
     - (a) The exFAT placeholder put-back can overwrite a subtitle saved in that instant. **Fix:** never put back on such drives; keep the file under its private name and report.
     - (b) A program watching the folder could swap the random `.discard` or placeholder file between check and delete. **Judged NOT a real problem:** a program that can write to that folder can delete the subtitles directly, and no ordinary program can know the random name. Record it as a design limit.
-    - Round-10 builder running, with a watchdog.
-  - **Polish branch: Codex ran out partway** (resets 21:28). So far: the title permission covers only the main window, and the error displays still use the redaction commands. The retry at 21:29 is queued (`catchup/out3-polish-r2.out`), with a watchdog.
+    - **Round 10 pushed: `a69c7218`, `0503fbd5`.** No put-back on drives without the no-replace rename (exFAT); the watched-folder limit is documented. Re-checked here: clippy, 2,231 Rust tests, 938 vitest, copies, notes. Posted on #1255.
+  - **Polish branch: Codex ran out partway** (resets 21:28). So far: the title permission covers only the main window, and the error displays still use the redaction commands.
+  - **Queue from 21:29, one at a time** (`scratchpad/catchup/`):
+    1. #1320 (`out4-fpf.out`);
+    2. the polish branch (`out3-polish-r2.out`);
+    3. MeedyaDL round 10 (`out5-mdl10.out`).
+    Watchdog on the first. If Codex refuses, the rest wait for the next reset.
 - **Trap found:** `pgrep -f "codex exec"` also matches the ChatGPT app's permanent `codex exec-server` process, so a "wait until no Codex is running" loop never ends. The #1275 review chain had stalled on it; it was started directly at about 09:15.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
