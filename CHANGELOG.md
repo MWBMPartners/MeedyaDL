@@ -6,9 +6,90 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(ci)** Let security fixes on main reach the other channels again (#1165) (#1275)
+
+Security fixes that Dependabot merges to `main` have stopped reaching
+  `alpha`, `beta` and `release-candidate`. This repairs the workflow that
+  copies them. Only `main`'s copy of that workflow ever runs.
+
+  **What went wrong.**
+  - `forward-port-security.yml` runs on every push to `main`, and needed
+  the PR's author to be spelled exactly `dependabot[bot]`. GitHub's API
+  says `app/dependabot`, so every Dependabot security fix was skipped.
+  - The last two were #1264 (undici) and #1266 (brace-expansion) on 1
+  October. All three channel branches still carry those two high
+  advisories (#1265).
+
+  **How it got here.**
+  1. The first commit brought `alpha`'s version across unchanged (#1165).
+  2. Codex then reviewed it twice and found faults that were already in
+  `alpha`'s version:
+  - its "this channel already has the fix" shortcut could wrongly skip a
+  channel;
+  - its rule for forwarding a PR whose description named a superseded
+  Dependabot PR either rejected real fixes or forwarded unrelated changes.
+  3. The later commits fix both.
+
+  **What it does now.**
+  - **Which PRs are forwarded:**
+    - a PR Dependabot wrote, unless it is a routine grouped update;
+    - a PR a maintainer labelled `security`;
+    - a PR named in a hand-run of the workflow.
+
+  release-please PRs never are. The workflow no longer guesses from a PR's
+  description.
+  - **The safety net:** any other merged PR that changed a lockfile gets a
+  comment saying it was not forwarded. If its description names a
+  Dependabot PR, the comment says so and gives the two commands that
+  forward it. The weekly channel security audit catches a fix nobody
+  labelled.
+  - **"Already fixed"** is decided by
+  `.github/scripts/check_lockfile_already_fixed.py`, and needs all of
+  these:
+  - every copy of every changed package on the channel is at or above the
+  fixed version;
+    - every added package is present, and every removed one is gone;
+  - every changed dependency entry in `package.json` or `Cargo.toml` is
+  identical on the channel;
+    - no other file changed.
+
+    Anything uncertain means "needs the fix".
+  - **Tests:** 52 for the helper and 27 for the workflow's real scripts,
+  run by `ci.yml` on every PR to `main`.
+
+  **Checked on a Mac** (each exit code read directly):
+  - actionlint passes, and both test files pass.
+  - The gate, run against the real API:
+    - forwards #1266 and #1264;
+  - does not forward #1152 (a routine update), #1230 (an ordinary CI
+  change) or #1128 (whose comment would name its Dependabot PRs).
+  - The helper on both fixes:
+    - `alpha` and `beta` "need the fix";
+    - `release-candidate` "already fixed".
+
+  **Review.**
+  - Codex reviewed this four times, and each round's findings are fixed
+  here. Its fourth review found one problem, fixed in `bc4cadce`.
+  - Codex then ran out of allowance until 19:08. A fresh Opus agent that
+  built none of this reviewed `bc4cadce` as a stand-in, and found two more
+  cases, fixed in `51d49b21`.
+  - It then reviewed `51d49b21` and found it **clean**: no high or medium
+  problems. Four low ones are filed as #1312.
+  - **The last two commits (`bc4cadce`, `51d49b21`) have not yet been
+  reviewed by Codex.** That catch-up review is owed after 19:08, and
+  anything it finds will be fixed in a follow-up.
+
+  **After it merges:** I'll run the workflow by hand for #1264 and #1266
+  to carry both fixes to `alpha` and `beta`. Then `alpha` gets the same
+  two files by a separate PR.
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.10.8 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
