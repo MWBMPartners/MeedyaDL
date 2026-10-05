@@ -29,7 +29,7 @@ Additional requirements:
 
 ### Required Software
 
-MeedyaDL has **no special software prerequisites**. All dependencies -- including Python, GAMDL, votify, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo -- are automatically downloaded and installed into the application's sandboxed data directory on first launch. You do not need to install any of these tools yourself.
+MeedyaDL has **no special software prerequisites**. All dependencies -- including Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo -- are automatically downloaded and installed into the application's sandboxed data directory on first launch. You do not need to install any of these tools yourself.
 
 The only things you need before using MeedyaDL are:
 

@@ -201,7 +201,7 @@ A few other hardcoded/locally-detected tags exist too, but — unlike the ones a
 | BPM (`tmpo` / `BPM` / `TBPM`) | ✅ (`tmpo`) | ✅ (`BPM` Vorbis) | ✅ (`TBPM` ID3v2) | ✅ |
 | Enhanced LRC lyrics (`©lyr`) | ✅ | ❔ (text only, no `<mm:ss.xx>` parsing in most players) | ❔ | ❔ |
 
-GAMDL produces M4A (audio) and M4V (music videos) by default. The other formats appear when MeedyaDL is configured to use a non-GAMDL engine (e.g., yt-dlp for YouTube → MP3, votify for Spotify → Ogg Vorbis).
+GAMDL produces M4A (audio) and M4V (music videos). The other columns are for services MeedyaDL plans to support (for example MP3 from YouTube, Ogg Vorbis from Spotify); none of them is produced today.
 
 ---
 

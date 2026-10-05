@@ -38,6 +38,31 @@ use tauri::AppHandle;
 use crate::models::spotify_anti_ban::AntiBanSettings;
 use crate::utils::atomic_write::atomic_write_json;
 
+/// What someone without developer access is told when a Spotify link
+/// reaches the backend (a deep link, the clipboard watcher, a dropped link,
+/// a queue file, or a download restored from a previous run).
+///
+/// Spotify is a developer-only preview, so it is answered exactly like any
+/// other service MeedyaDL cannot download from yet -- the same words the
+/// Download page uses. It deliberately says nothing about developer access
+/// or how to switch it on: until October 2026 this message told everyone to
+/// "unlock" Spotify in a settings section only developers can see, and named
+/// the hidden key sequence that opens it.
+pub const SPOTIFY_NOT_AVAILABLE: &str = "MeedyaDL cannot download from Spotify yet. The link \
+     itself is fine — support for that service is planned.";
+
+/// pip packages that only matter to a developer-only preview service, and
+/// so are not installed, checked for updates or listed for anyone without
+/// developer access. Today that is votify, the Spotify engine.
+pub const DEVELOPER_PREVIEW_PIP_PACKAGES: &[&str] = &["votify"];
+
+/// True when `package` belongs to a developer-only preview service -- see
+/// [`DEVELOPER_PREVIEW_PIP_PACKAGES`].
+#[must_use]
+pub fn is_developer_preview_package(package: &str) -> bool {
+    DEVELOPER_PREVIEW_PIP_PACKAGES.contains(&package)
+}
+
 // ============================================================
 // Throttle math — pure functions
 // ============================================================
@@ -321,6 +346,31 @@ pub fn increment_counter(app: &AppHandle, tracks: u32) -> Result<DailyCapCounter
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The refusal a person without developer access sees must read like
+    /// any other "not supported yet" answer, and must never point at the
+    /// hidden switch. It used to say "Unlock via Settings > Advanced >
+    /// Developer Tools (Konami code)" -- a section ordinary users cannot see,
+    /// and the name of the key sequence that reveals it.
+    #[test]
+    fn spotify_refusal_never_points_at_the_hidden_switch() {
+        let lower = SPOTIFY_NOT_AVAILABLE.to_lowercase();
+        for hint in ["konami", "developer", "unlock", "advanced >", "dev access"] {
+            assert!(
+                !lower.contains(hint),
+                "the Spotify refusal mentions {hint:?}: {SPOTIFY_NOT_AVAILABLE}"
+            );
+        }
+        assert!(SPOTIFY_NOT_AVAILABLE.contains("cannot download from Spotify yet"));
+    }
+
+    /// votify is the Spotify engine, so it is a developer-preview package;
+    /// GAMDL (Apple Music) is not.
+    #[test]
+    fn only_the_spotify_engine_is_a_developer_preview_package() {
+        assert!(is_developer_preview_package("votify"));
+        assert!(!is_developer_preview_package("gamdl"));
+    }
     use chrono::NaiveDate;
 
     fn settings_default() -> AntiBanSettings {

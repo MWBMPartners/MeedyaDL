@@ -56,6 +56,7 @@ import { parseSubmittableUrl } from '@/lib/url-parser';
 // `#[tauri::command]` handler in the Rust backend.
 import * as commands from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 /**
  * Module-level handle for the undo-buffer auto-expiry timer (#894).
@@ -419,7 +420,10 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    * All three fields are updated atomically in a single `set()` call.
    */
   setUrlInput: (url) => {
-    const parsed = parseSubmittableUrl(url);
+    // Spotify links count as valid only with developer access on -- the
+    // backend refuses them otherwise (see `submittableServices()`).
+    const spotify = useSettingsStore.getState().settings.dev_access_enabled === true;
+    const parsed = parseSubmittableUrl(url, { spotify });
     set({
       urlInput: url,
       urlIsValid: parsed.isValid, // true if URL matches a submittable service

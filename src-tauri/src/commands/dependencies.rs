@@ -1189,11 +1189,21 @@ pub async fn get_component_versions(app: AppHandle) -> Result<Vec<ComponentVersi
     super::super::services::votify_capabilities::set_detected_version(
         votify_version.clone(),
     );
-    versions.push(ComponentVersion {
-        name: "votify".to_string(),
-        version: votify_version,
-        installed: gamdl_version.is_some(), // Python presence proxies install availability
-    });
+    // Listed only with developer access on: votify is the engine of the
+    // Spotify preview, which nobody else can use. The probe above still runs
+    // for everyone, as before, because other code reads the version it
+    // caches. (Listing it for everyone meant the About page and diagnostics
+    // named a Spotify engine to people who were refused Spotify.)
+    let developer_previews = crate::services::config_service::load_settings(&app)
+        .map(|s| s.dev_access_enabled)
+        .unwrap_or(false);
+    if developer_previews {
+        versions.push(ComponentVersion {
+            name: "votify".to_string(),
+            version: votify_version,
+            installed: gamdl_version.is_some(), // Python presence proxies install availability
+        });
+    }
 
     // External tools: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box
     for tool in dependency_manager::get_all_tools() {

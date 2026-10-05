@@ -53,7 +53,7 @@
  * @see https://react.dev/reference/react/useCallback
  * @see https://react.dev/reference/react/useMemo
  */
-import { useId, useState, useRef, useCallback, useMemo, type MouseEvent } from 'react';
+import { useEffect, useId, useState, useRef, useCallback, useMemo, type MouseEvent } from 'react';
 
 /**
  * Lucide React icons used for content-type badges and UI controls.
@@ -126,7 +126,7 @@ import {
 } from '@/lib/tauri-commands';
 
 /** Multi-service URL parser for multi-URL validation (#983: Apple Music + Spotify). */
-import { classifyForSubmission, detectService } from '@/lib/url-parser';
+import { classifyForSubmission, detectService, explainSubmissionCheck } from '@/lib/url-parser';
 import { ServiceDownloadPreview } from './ServiceDownloadPreview';
 
 /** Single-operation async lifecycle hook (audit v2 #2). */
@@ -286,6 +286,24 @@ export function DownloadForm() {
   // automatic starting off must be told to press Start Queue, not told it
   // will happen on its own (#1156).
   const autoStartQueue = useSettingsStore((s) => s.settings.auto_start_queue);
+  /**
+   * Spotify is a developer-only preview: it is offered, accepted and named
+   * on this page only when developer access is on. Everyone else is never
+   * invited to paste a Spotify link, and one pasted anyway is answered like
+   * any other service MeedyaDL cannot download from yet. (Before October
+   * 2026 this page invited Spotify links from everyone, accepted them, and
+   * only the last check refused them -- pointing at a settings section
+   * ordinary users cannot see.)
+   */
+  const spotifyEnabled = useSettingsStore((s) => s.settings.dev_access_enabled === true);
+  const submission = useMemo(() => ({ spotify: spotifyEnabled }), [spotifyEnabled]);
+
+  /** Re-check whatever is typed when developer access changes, so the
+   * Add to Queue button and the message below follow it straight away. */
+  useEffect(() => {
+    const store = useDownloadStore.getState();
+    store.setUrlInput(store.urlInput);
+  }, [spotifyEnabled]);
   /** Shows a toast notification (success/error) after submission. */
   const addToast = useUiStore((s) => s.addToast);
 
@@ -392,7 +410,7 @@ export function DownloadForm() {
     const notYetSupportedServices = new Set<string>();
 
     for (const line of parsedLines) {
-      const check = classifyForSubmission(line);
+      const check = classifyForSubmission(line, submission);
       if (check.kind === 'supported') {
         validUrls.push(check.url);
       } else if (check.kind === 'not-yet-supported') {
@@ -413,7 +431,7 @@ export function DownloadForm() {
       invalidCount: notYetSupportedCount + unrecognisedCount,
       totalLines: parsedLines.length,
     };
-  }, [isMultiUrl, parsedLines]);
+  }, [isMultiUrl, parsedLines, submission]);
 
   /**
    * Determine whether the submit button should be enabled.
@@ -563,8 +581,13 @@ export function DownloadForm() {
             return;
           }
           case 'dev_access_required':
+            // Only reachable if developer access was switched off between
+            // pasting and pressing Add to Queue. Answered like any other
+            // service MeedyaDL cannot download from yet -- this used to tell
+            // everyone to "unlock" Spotify in a section only developers see.
             addToast(
-              'Spotify downloads require developer access. Unlock via Settings > Advanced > Developer Tools.',
+              explainSubmissionCheck({ kind: 'not-yet-supported', url: '', service: 'spotify' }) ??
+                'MeedyaDL cannot download from Spotify yet.',
               'warning'
             );
             return;
@@ -1068,7 +1091,11 @@ export function DownloadForm() {
        */}
       <PageHeader
         title="Download"
-        subtitle="Enter an Apple Music or Spotify URL to download music or videos"
+        subtitle={
+          spotifyEnabled
+            ? 'Enter an Apple Music or Spotify URL to download music or videos'
+            : 'Enter an Apple Music URL to download music or videos'
+        }
       />
 
       {/*
@@ -1132,7 +1159,11 @@ export function DownloadForm() {
                   requestAnimationFrame(autoResizeTextarea);
                 }}
                 onKeyDown={handleKeyDown}
-                placeholder="Paste one or more Apple Music or Spotify URLs (one per line)"
+                placeholder={
+                  spotifyEnabled
+                    ? 'Paste one or more Apple Music or Spotify URLs (one per line)'
+                    : 'Paste one or more Apple Music URLs (one per line)'
+                }
                 rows={1}
                 className={`
                   w-full px-3 py-2 text-sm rounded-platform border
@@ -1256,15 +1287,29 @@ export function DownloadForm() {
            *  - Red error text when the input has text but URL is invalid.
            *  - Grey helper text when the input is empty (shows supported types).
            */}
+          {/* The single-link message says what really happened: a service
+              MeedyaDL cannot download from yet (YouTube, BBC iPlayer, and
+              Spotify without developer access) is told so, rather than
+              being called invalid. */}
           {urlInput && !canSubmit && !isMultiUrl && (
-            <p id={urlHelpId} role="alert" className="text-xs text-status-error-text">Please enter a valid Apple Music or Spotify URL</p>
+            <p id={urlHelpId} role="alert" className="text-xs text-status-error-text">
+              {explainSubmissionCheck(classifyForSubmission(urlInput, submission), submission) ??
+                'That link cannot be downloaded.'}
+            </p>
           )}
           {urlInput && !canSubmit && isMultiUrl && (
-            <p id={urlHelpId} role="alert" className="text-xs text-status-error-text">No valid Apple Music or Spotify URLs found</p>
+            <p id={urlHelpId} role="alert" className="text-xs text-status-error-text">
+              None of these links can be downloaded.{' '}
+              {spotifyEnabled
+                ? 'MeedyaDL supports Apple Music and Spotify links.'
+                : 'MeedyaDL supports Apple Music links.'}
+            </p>
           )}
           {!urlInput && (
             <p id={urlHelpId} className="text-xs text-content-tertiary">
-              Supports songs, albums, playlists, music videos, and artist pages. Spotify links (open.spotify.com) are also accepted. Paste multiple URLs (one per line) to queue them all.
+              Supports songs, albums, playlists, music videos, and artist pages.
+              {spotifyEnabled && ' Spotify links (open.spotify.com) are also accepted.'} Paste
+              multiple URLs (one per line) to queue them all.
             </p>
           )}
 

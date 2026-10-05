@@ -5368,11 +5368,13 @@ pub(crate) async fn run_spotify_dispatch_arm(
     use crate::commands::spotify_anti_ban::DispatchGateOutcome;
     let gate_error: Option<String> = match gate_result {
         DispatchGateOutcome::Allowed => None,
-        DispatchGateOutcome::DevAccessRequired => Some(
-            "Spotify dispatch blocked — developer access not enabled. \
-             Restored from disk: re-enable dev access to resume."
-                .to_string(),
-        ),
+        // A Spotify item restored from a previous run, after developer
+        // access was switched off. Same words as everywhere else (see
+        // SPOTIFY_NOT_AVAILABLE), plus what happened to this item.
+        DispatchGateOutcome::DevAccessRequired => Some(format!(
+            "{} This download was not started.",
+            crate::services::spotify_anti_ban::SPOTIFY_NOT_AVAILABLE
+        )),
         DispatchGateOutcome::ConsentRequired => Some(
             "Spotify dispatch blocked — first-run consent not acknowledged.".to_string(),
         ),

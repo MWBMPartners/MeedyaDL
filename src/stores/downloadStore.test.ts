@@ -17,6 +17,7 @@
 import { useDownloadStore, __resetUndoBufferTimerForTests } from '@/stores/downloadStore';
 import * as commands from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 import type { QueueItemStatus, GamdlProgress } from '@/types';
 
@@ -144,11 +145,20 @@ describe('downloadStore', () => {
       expect(useDownloadStore.getState().urlContentType).toBe('unknown');
     });
 
-    it('accepts a Spotify URL (#983)', () => {
+    it('accepts a Spotify URL with developer access on (#983)', () => {
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: true } }));
       useDownloadStore.getState().setUrlInput('https://open.spotify.com/track/12345');
 
       expect(useDownloadStore.getState().urlIsValid).toBe(true);
       expect(useDownloadStore.getState().urlContentType).toBe('unknown');
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: false } }));
+    });
+
+    it('refuses a Spotify URL without developer access -- Spotify is a developer-only preview', () => {
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: false } }));
+      useDownloadStore.getState().setUrlInput('https://open.spotify.com/track/12345');
+
+      expect(useDownloadStore.getState().urlIsValid).toBe(false);
     });
 
     it('rejects a not-yet-submittable service URL (YouTube)', () => {

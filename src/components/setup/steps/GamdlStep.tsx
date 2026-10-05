@@ -71,7 +71,7 @@ export function GamdlStep() {
   const isInstalling = useDependencyStore((s) => s.isInstalling);
   /** Triggers the backend check for GAMDL */
   const checkGamdl = useDependencyStore((s) => s.checkGamdl);
-  /** Triggers installation of all bundled pip engines (GAMDL + votify + ...) */
+  /** Triggers installation of the bundled pip engines (GAMDL; votify with developer access) */
   const installBundledEngines = useDependencyStore((s) => s.installBundledEngines);
   /** Error message from the most recent operation */
   const error = useDependencyStore((s) => s.error);
@@ -136,10 +136,12 @@ export function GamdlStep() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-content-primary">Download Engines</h2>
+        <h2 className="text-xl font-semibold text-content-primary">Download Engine</h2>
+        {/* Used to name votify and Spotify to everyone; both are a
+            developer-only preview, installed only with developer access. */}
         <p className="text-sm text-content-secondary mt-1">
-          Installing core download engines (GAMDL, votify) into the portable Python environment.
-          These power Apple Music and Spotify downloads.
+          MeedyaDL downloads from Apple Music with GAMDL, a free download engine. It is installed
+          into MeedyaDL&apos;s own Python.
         </p>
       </div>
 

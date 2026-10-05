@@ -478,7 +478,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry
 - ✅ Automatic dependency management with first-run setup wizard
 - ✅ CI/CD pipeline with release-please, a four-tier channel ladder (Alpha → Beta → RC → Stable), automated tag-and-release per channel, and bundled dependencies
-- ✅ Settings UI with 11 configuration tabs (General, Codec & Resolution, Codec Fallback Order, Tools, Cookies, Lyrics, Cover Art, Metadata, Templates, Spotify, Advanced)
+- ✅ Settings UI with 10 configuration tabs (General, Codec & Resolution, Codec Fallback Order, Tools, Cookies, Lyrics, Cover Art, Metadata, Templates, Advanced); a Spotify tab appears only in the developer-only preview
 - ✅ Cookie import (browser auto-detect, built-in login, manual import)
 - ✅ Auto-update checker with in-app download and install (on a pre-release build, the Updates page also links to the latest stable release; a one-click in-app rollback is not built yet — see Stable rollback below)
 - ✅ System tray integration

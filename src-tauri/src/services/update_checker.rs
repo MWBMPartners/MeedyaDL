@@ -944,10 +944,14 @@ async fn verify_manifest_has_platform(client: &reqwest::Client, tag: &str) -> bo
 /// * `check_pre_releases` - Whether to include pre-release versions when
 ///   checking for app updates. When true, queries all recent GitHub releases
 ///   (including betas/RCs); when false, only checks the latest stable release.
+/// * `developer_previews` - Whether developer access is on. Without it, the
+///   engines of developer-only preview services (votify, for Spotify) are
+///   not checked -- see [`pip_engines_offered`].
 pub async fn check_all_updates(
     app: &AppHandle,
     check_pre_releases: bool,
     user_channel: UpdateChannel,
+    developer_previews: bool,
 ) -> UpdateCheckResult {
     let mut components = Vec::new();
     let mut errors = Vec::new();
@@ -986,8 +990,9 @@ pub async fn check_all_updates(
     }
 
     // Check all enabled pip-based engines from engines.toml for updates.
-    // Skips GAMDL (already checked above) and disabled engines.
-    for (name, package) in get_enabled_pip_engines() {
+    // Skips GAMDL (already checked above), disabled engines, and -- without
+    // developer access -- the engines of developer-only previews.
+    for (name, package) in pip_engines_offered(get_enabled_pip_engines(), developer_previews) {
         // Skip GAMDL — already checked with its own compatibility gate
         if package == "gamdl" {
             continue;
@@ -2784,6 +2789,26 @@ fn get_enabled_pip_engines() -> Vec<(String, String)> {
         .collect()
 }
 
+/// The pip engines to check for updates, given whether developer access is on.
+///
+/// Without developer access, engines that belong only to a developer-only
+/// preview service are left out (today: votify, for Spotify). Until October
+/// 2026 votify was checked for everyone, so once the setup wizard stopped
+/// installing it for people without developer access, the Updates page would
+/// have shown them an "update" offering to install the engine of a service
+/// they cannot use.
+fn pip_engines_offered(
+    engines: Vec<(String, String)>,
+    developer_previews: bool,
+) -> Vec<(String, String)> {
+    engines
+        .into_iter()
+        .filter(|(_, package)| {
+            developer_previews || !super::spotify_anti_ban::is_developer_preview_package(package)
+        })
+        .collect()
+}
+
 /// Checks for votify (Spotify engine) updates by comparing the installed
 /// version against the latest version on PyPI, gated by the validated
 /// support window in `votify_capabilities` (A4).
@@ -2926,6 +2951,26 @@ async fn check_pip_engine_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Without developer access, the Spotify engine (votify) is never
+    /// checked for updates -- otherwise, once the setup wizard stopped
+    /// installing it for everyone, the Updates page would offer people an
+    /// "update" that installs the engine of a service they cannot use.
+    /// Uses the real engines.toml list, so it also notices if votify stops
+    /// being an enabled pip engine there (the `with` half would fail).
+    #[test]
+    fn votify_is_checked_for_updates_only_with_developer_access() {
+        let without = pip_engines_offered(get_enabled_pip_engines(), false);
+        assert!(
+            !without.iter().any(|(_, package)| package == "votify"),
+            "votify offered without developer access: {without:?}"
+        );
+        let with = pip_engines_offered(get_enabled_pip_engines(), true);
+        assert!(
+            with.iter().any(|(_, package)| package == "votify"),
+            "votify missing with developer access: {with:?}"
+        );
+    }
 
     /// Tests that UpdateChannel::from_tag correctly maps release tag suffixes
     /// to their channel. Stable is the fallback for anything unrecognised so

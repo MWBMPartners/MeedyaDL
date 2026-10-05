@@ -38,7 +38,7 @@ import { describe, it, expect } from 'vitest';
  * Import the functions under test from the url-parser module.
  * These are the public API of the parser that components consume.
  */
-import { parseAppleMusicUrl, isAppleMusicUrl, getContentTypeLabel, detectService, parseMediaUrl, isSupportedUrl, parseSubmittableUrl } from './url-parser';
+import { parseAppleMusicUrl, isAppleMusicUrl, getContentTypeLabel, detectService, parseMediaUrl, isSupportedUrl, parseSubmittableUrl, classifyForSubmission, explainSubmissionCheck } from './url-parser';
 
 /**
  * Test suite for `isAppleMusicUrl()` - domain validation.
@@ -538,11 +538,20 @@ describe('parseSubmittableUrl (#983)', () => {
     expect(result.service).toBe('apple-music');
   });
 
-  it('accepts a Spotify URL', () => {
-    const result = parseSubmittableUrl('https://open.spotify.com/album/abc123');
+  it('accepts a Spotify URL with developer access on', () => {
+    const result = parseSubmittableUrl('https://open.spotify.com/album/abc123', { spotify: true });
     expect(result.isValid).toBe(true);
     expect(result.service).toBe('spotify');
     expect(result.contentType).toBeNull();
+  });
+
+  it('refuses a Spotify URL without developer access, which is the default', () => {
+    // Spotify is a developer-only preview: the backend refuses it for
+    // everyone else, so offering it here would only lead to a refusal later.
+    expect(parseSubmittableUrl('https://open.spotify.com/album/abc123').isValid).toBe(false);
+    expect(
+      parseSubmittableUrl('https://open.spotify.com/album/abc123', { spotify: false }).isValid
+    ).toBe(false);
   });
 
   it('rejects a recognised-but-not-yet-submittable service (YouTube)', () => {
@@ -559,5 +568,34 @@ describe('parseSubmittableUrl (#983)', () => {
   it('rejects garbage input', () => {
     const result = parseSubmittableUrl('not-a-url-at-all');
     expect(result.isValid).toBe(false);
+  });
+});
+
+// ============================================================
+// What a person is told about a link that cannot be downloaded
+// ============================================================
+
+describe('explaining why a link cannot be downloaded', () => {
+  it('answers a Spotify link without developer access like any unsupported service, with no hint of a hidden switch', () => {
+    const check = classifyForSubmission('https://open.spotify.com/album/abc123');
+    expect(check.kind).toBe('not-yet-supported');
+    const message = explainSubmissionCheck(check) ?? '';
+    expect(message).toMatch(/cannot download from Spotify yet/);
+    expect(message).not.toMatch(/developer|unlock|Konami|Settings/i);
+  });
+
+  it('does not mention Spotify when explaining an unrecognised link to someone without developer access', () => {
+    const message = explainSubmissionCheck(classifyForSubmission('not-a-link')) ?? '';
+    expect(message).not.toMatch(/Spotify/);
+    expect(message).toMatch(/Apple Music/);
+  });
+
+  it('never says it "cannot download from Apple Music" for a malformed Apple Music link', () => {
+    // An Apple Music address that is not a song, album, playlist, music
+    // video or artist page used to be filed under "a service MeedyaDL
+    // cannot download from yet".
+    const check = classifyForSubmission('https://music.apple.com/us/browse');
+    expect(check.kind).toBe('unrecognised');
+    expect(explainSubmissionCheck(check) ?? '').not.toMatch(/cannot download from Apple Music/);
   });
 });

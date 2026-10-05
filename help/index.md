@@ -61,7 +61,7 @@ If you are new to MeedyaDL, we recommend starting with the [Getting Started](get
 
 ## About MeedyaDL
 
-MeedyaDL is a multiplatform media downloader built with [Tauri](https://tauri.app/) and [React](https://react.dev/). It supports multiple media services through a plugin-based engine architecture: Apple Music (via GAMDL) is fully available today; Spotify (via votify) is largely built but sits behind a hidden developer-only preview switch until it's ready for everyone; YouTube (via yt-dlp) and BBC iPlayer (via get_iplayer/yt-dlp) are planned for future releases.
+MeedyaDL is a multiplatform media downloader built with [Tauri](https://tauri.app/) and [React](https://react.dev/). It supports multiple media services through a plugin-based engine architecture: Apple Music (via GAMDL) is fully available today; Spotify (via votify) is in development and not available yet; YouTube (via yt-dlp) and BBC iPlayer (via get_iplayer/yt-dlp) are planned for future releases.
 
 - **License:** MIT
 - **Author:** MeedyaSuite

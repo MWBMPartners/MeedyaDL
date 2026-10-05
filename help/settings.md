@@ -6,7 +6,7 @@
 
 # Settings
 
-MeedyaDL's Settings screen has 11 tabs, grouped into five sections in the sidebar: General, Download (Codec & Resolution, Codec Fallback Order, Lyrics, Cover Art, Metadata, Templates), Authentication (Cookies), Services (Spotify), and System (Tools, Advanced). This page covers what each one actually controls.
+MeedyaDL's Settings screen has 10 tabs, grouped into four sections in the sidebar: General, Download (Codec & Resolution, Codec Fallback Order, Lyrics, Cover Art, Metadata, Templates), Authentication (Cookies), and System (Tools, Advanced). This page covers what each one actually controls.
 
 **Saving and resetting.** Changes you make on these tabs are not kept until you press **Save Changes** at the top of the Settings screen (the button reads **Saved** when there is nothing waiting). If saving fails, MeedyaDL says so and your changes stay on screen, still unsaved. **Reset** puts the settings on these tabs back to how they were when MeedyaDL was first installed (a one-off after-queue action you chose on the Download page is not cancelled by it). It asks first, and lists what you would lose that is hard to set up again -- where your cookies file and helper tools are, your Apple Music credentials and API keys, your wrapper addresses, and your download folder. A reset is not written to disk until you press **Save Changes**; until then, closing Settings and opening it again gets your old settings back.
 
@@ -61,13 +61,6 @@ Reorder the audio codec and video codec fallback chains using the up/down arrow 
 
 - **Folder Templates** -- How output folders are named, using variables like `{artist}`, `{album}`, `{platform}`.
 - **File Templates** -- How individual files are named, using variables like `{title}`, `{track:02d}`.
-
-## Spotify
-
-Spotify support is largely built but sits behind a hidden developer-only preview switch until it's ready for regular users -- pasting a Spotify link is only accepted as far as the safety checks described here; it does not yet produce a finished download for a normal user.
-
-- **Session** -- Spotify sign-in (cookie-based, the same shape as Apple Music, not OAuth).
-- **Risk acknowledgement / Anti-ban safeguards / Daily cap status** -- Spotify enforces stricter anti-automation rules than Apple Music. This tab surfaces a first-run consent step, a daily download cap, and status on where you stand against that cap, so MeedyaDL doesn't put your Spotify account at risk.
 
 ## Advanced
 

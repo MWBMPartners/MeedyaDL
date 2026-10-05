@@ -60,6 +60,8 @@ vi.mock('@/lib/tauri-commands', () => ({
  */
 beforeEach(() => {
   act(() => {
+    // Developer access off unless a test turns it on: the ordinary case.
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: false } }));
     useDownloadStore.getState().setUrlInput('');
     useDownloadStore.getState().setOverrideOptions(null);
     useUiStore.setState({ toasts: [] });
@@ -129,15 +131,47 @@ describe('DownloadForm', () => {
     const textarea = screen.getByLabelText('Media URL input');
     fireEvent.change(textarea, { target: { value: 'not-a-real-url' } });
     expect(
-      screen.getByText('Please enter a valid Apple Music or Spotify URL')
+      screen.getByText(/That does not look like a link MeedyaDL can download/)
     ).toBeInTheDocument();
   });
 
+  it('says a YouTube link cannot be downloaded YET, instead of calling it invalid', () => {
+    render(<DownloadForm />);
+    const textarea = screen.getByLabelText('Media URL input');
+    fireEvent.change(textarea, { target: { value: 'https://www.youtube.com/watch?v=abc123' } });
+    expect(screen.getByText(/MeedyaDL cannot download from YouTube yet/)).toBeInTheDocument();
+  });
+
   // ===========================================================================
-  // Spotify URL acceptance (#983)
+  // Spotify: a developer-only preview
+  //
+  // Until October 2026 this page invited Spotify links from everyone and
+  // accepted them, and only the final check refused them -- pointing at a
+  // settings section ordinary users cannot see.
   // ===========================================================================
 
-  it('accepts a Spotify URL and shows the Spotify badge', () => {
+  it('without developer access, never mentions Spotify and refuses a Spotify link like any unsupported service', () => {
+    render(<DownloadForm />);
+    // Nothing on the empty page names Spotify: not the subtitle, the
+    // placeholder, or the helper text.
+    expect(document.body.textContent).not.toMatch(/Spotify/);
+    const textarea = screen.getByLabelText('Media URL input');
+    expect(textarea.getAttribute('placeholder')).not.toMatch(/Spotify/);
+
+    fireEvent.change(textarea, {
+      target: { value: 'https://open.spotify.com/album/abc123' },
+    });
+    expect(useDownloadStore.getState().urlIsValid).toBe(false);
+    expect(screen.getByRole('button', { name: /add to queue/i })).toBeDisabled();
+    expect(screen.getByText(/MeedyaDL cannot download from Spotify yet/)).toBeInTheDocument();
+    // And never a hint about how to switch the hidden preview on.
+    expect(document.body.textContent).not.toMatch(/developer|unlock|Konami/i);
+  });
+
+  it('with developer access, accepts a Spotify URL and shows the Spotify badge (as before)', () => {
+    act(() => {
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: true } }));
+    });
     render(<DownloadForm />);
     const textarea = screen.getByLabelText('Media URL input');
     fireEvent.change(textarea, {
@@ -146,7 +180,7 @@ describe('DownloadForm', () => {
     expect(useDownloadStore.getState().urlIsValid).toBe(true);
     expect(screen.getByRole('button', { name: /add to queue/i })).toBeEnabled();
     // Non-Apple services render the service label instead of a content type.
-    expect(screen.getByText('Spotify')).toBeInTheDocument();
+    expect(screen.getAllByText('Spotify').length).toBeGreaterThan(0);
   });
 
   // ===========================================================================
@@ -215,7 +249,7 @@ describe('DownloadForm', () => {
     fireEvent.change(textarea, {
       target: { value: ['nope', 'still-nope', 'https://example.com'].join('\n') },
     });
-    expect(screen.getByText('No valid Apple Music or Spotify URLs found')).toBeInTheDocument();
+    expect(screen.getByText(/None of these links can be downloaded/)).toBeInTheDocument();
   });
 
   // ===========================================================================

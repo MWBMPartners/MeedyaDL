@@ -3,7 +3,7 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file SettingsPage.tsx -- Settings page container. Holds the eleven tabs
- * listed in TABS below, arranged into the groups in SETTINGS_GROUPS.
+ * listed in TABS below, arranged into the groups in settingsGroups.ts.
  *
  * This is the top-level settings component rendered when the user navigates to
  * the "Settings" page via the application sidebar. It provides:
@@ -68,11 +68,11 @@
 // React hooks: useState for active tab tracking, useEffect for loading settings on mount.
 // @see https://react.dev/reference/react/useState
 // @see https://react.dev/reference/react/useEffect
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 // This page's tab list and page heading are on screen every time someone
 // opens Settings, so they go through i18next rather than staying as typed
-// English strings in the TABS/SETTINGS_GROUPS arrays below.
+// English strings in the TABS array below and SETTINGS_GROUPS in settingsGroups.ts.
 import { useTranslation } from 'react-i18next';
 
 // Lucide icon components used for the tab sidebar and header action buttons.
@@ -98,6 +98,7 @@ import {
 // uiStore provides toast notification capabilities.
 // @see https://zustand.docs.pmnd.rs/getting-started/introduction
 import { useSettingsStore } from '@/stores/settingsStore';
+import { visibleSettingsGroups, type SettingsGroup } from './settingsGroups';
 import { useUiStore } from '@/stores/uiStore';
 import { withErrorToast } from '@/lib/withErrorToast';
 import { useConfirmation } from '@/lib/useConfirmation';
@@ -188,31 +189,6 @@ function tabTranslationKey(id: string): string {
   return id.replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
 }
 
-/**
- * Groups settings tabs into logical sections for the sidebar navigation.
- * Each group has an id (used to look up its translated heading under
- * `settings.groups.*`), an English fallback label, and a list of tab IDs
- * that belong to that group. The tab IDs must match entries in the TABS array.
- *
- * Groups are rendered as static (non-collapsible) sections with visually
- * distinct headers -- with only 5 groups, collapsible behaviour would add
- * UI complexity without meaningful benefit.
- */
-const SETTINGS_GROUPS: { id: string; label: string; tabs: string[] }[] = [
-  { id: 'general', label: 'General', tabs: ['general'] },
-  {
-    id: 'download',
-    label: 'Download',
-    tabs: ['quality', 'fallback', 'lyrics', 'cover-art', 'metadata', 'templates'],
-  },
-  { id: 'authentication', label: 'Authentication', tabs: ['cookies'] },
-  // M9-UI: Spotify tab joins a new 'Services' group between
-  // Authentication and System. YouTube + BBC iPlayer placeholder
-  // tabs will land in the same group as their integrations
-  // (M10 / M8 respectively) ship.
-  { id: 'services', label: 'Services', tabs: ['spotify'] },
-  { id: 'system', label: 'System', tabs: ['tools', 'advanced'] },
-];
 
 /**
  * SettingsPage -- Top-level settings page component.
@@ -242,6 +218,15 @@ export function SettingsPage() {
    */
   const [activeTab, setActiveTab] = useState('general');
 
+  /**
+   * The tab list for this person: developer-only tabs (the Spotify
+   * preview) appear only with developer access on. If developer access is
+   * switched off while one of those tabs is open, the General tab is shown
+   * instead (see `ActiveComponent` below).
+   */
+  const developerAccess = useSettingsStore((s) => s.settings.dev_access_enabled === true);
+  const groups = useMemo(() => visibleSettingsGroups(developerAccess), [developerAccess]);
+
   /** i18n translation function for the tab list and page heading. */
   const { t } = useTranslation();
 
@@ -259,7 +244,7 @@ export function SettingsPage() {
   };
 
   /** Same fallback pattern as {@link tabLabel}, for a group's section heading. */
-  const groupLabel = (group: (typeof SETTINGS_GROUPS)[number]): string => {
+  const groupLabel = (group: SettingsGroup): string => {
     const key = `settings.groups.${group.id}`;
     const translated = t(key);
     return translated === key ? group.label : translated;
@@ -494,7 +479,10 @@ Please quit and reopen MeedyaDL manually.`,
    * `component` property. Falls back to GeneralTab if the activeTab ID
    * does not match any entry (defensive guard, should not happen in practice).
    */
-  const ActiveComponent = TABS.find((t) => t.id === activeTab)?.component || GeneralTab;
+  const ActiveComponent =
+    (groups.some((g) => g.tabs.includes(activeTab))
+      ? TABS.find((t) => t.id === activeTab)?.component
+      : undefined) || GeneralTab;
 
   return (
     <div className="flex flex-col h-full">
@@ -605,7 +593,7 @@ Please quit and reopen MeedyaDL manually.`,
             landmark (the sidebar) -- this second, unnamed <nav> was
             indistinguishable from it in a screen reader's landmark list. */}
         <nav aria-label="Settings tabs" className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2">
-          {SETTINGS_GROUPS.map((group, groupIndex) => (
+          {groups.map((group, groupIndex) => (
             <div key={group.id} className={groupIndex > 0 ? 'mt-3' : ''}>
               {/* Group section header -- uppercase, small, muted colour */}
               <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-tertiary select-none">

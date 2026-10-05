@@ -257,7 +257,7 @@ fn classify_batch_urls(urls: &[String]) -> Result<(bool, bool), String> {
                         "MeedyaDL cannot download from {service} yet. The link itself is fine — support for that service is planned. ({url})"
                     ),
                     None => format!(
-                        "That does not look like a link MeedyaDL recognises: {url}. It supports Apple Music, Apple Music Classical and iTunes links, and Spotify links where they have been enabled."
+                        "That does not look like a link MeedyaDL recognises: {url}. It supports Apple Music, Apple Music Classical and iTunes links."
                     ),
                 });
             }
@@ -467,12 +467,10 @@ pub async fn start_download(
                 log::info!("Spotify dispatch gate: Allowed");
             }
             DispatchGateOutcome::DevAccessRequired => {
-                return Err(
-                    "Spotify downloads require developer access. \
-                     Unlock via Settings > Advanced > Developer Tools \
-                     (Konami code) before queueing Spotify URLs."
-                        .to_string(),
-                );
+                // Spotify is a developer-only preview: answered like any
+                // other service MeedyaDL cannot download from yet, never with
+                // a pointer to the hidden switch (see SPOTIFY_NOT_AVAILABLE).
+                return Err(crate::services::spotify_anti_ban::SPOTIFY_NOT_AVAILABLE.to_string());
             }
             DispatchGateOutcome::ConsentRequired => {
                 return Err(
