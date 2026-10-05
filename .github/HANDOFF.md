@@ -1254,6 +1254,11 @@ on PRs to / pushes to main.
   - The standard form's length is judged before the registry check, and the probe now runs under `open_basedir`.
   - #210 has a comment that corrects three overstatements in the round-8 comment.
   - A stand-in review of round 9 is running, with a watchdog.
+- **iHymns: the eighth review (stand-in) of round 8 (`c60ed8b7..e9cf5fea`) is NOT clean — 0 high, 0 medium, 11 low.** Nothing breaks a song save, and both databases pass 291/291.
+  - Two findings change behaviour:
+    - the geo-cache write still fails an admin geolocate request after a deadlock outside a transaction, and its activity row is lost;
+    - the "is a transaction open?" probe changes the next transaction when the session default is read-only.
+  - **Round-9 builder running** (Opus, `brief-ihymns-r9.md`), with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
