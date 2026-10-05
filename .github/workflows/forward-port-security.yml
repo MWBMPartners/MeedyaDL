@@ -67,16 +67,29 @@
 # So a PR that merges to `main` and isn't authored by dependabot[bot] can
 # still qualify for forward-porting two other ways:
 #   (a) it carries the `security` label, or
-#   (b) its body names another pull request (a plain "#1122") that IS a real
-#       Dependabot security fix (authored by dependabot[bot], and not itself
-#       a routine grouped update). The "combine, don't stack" convention
-#       already requires saying what a combined PR closes — #1128's body
-#       literally says "Supersedes and closes: #1122, #1123" — so this reads
-#       information the convention was already producing, rather than
-#       needing a new one.
+#   (b) its description names another pull request (a plain "#1122") that
+#       it really superseded and carries. The "combine, don't stack"
+#       convention already requires saying what a combined PR closes —
+#       #1128's body literally says "Supersedes and closes: #1122, #1123" —
+#       so this reads information the convention was already producing.
+#       But a description is ordinary text anybody can write, so naming a
+#       pull request is not enough on its own (Codex's review of #1275 showed
+#       "See #42 for an unrelated dependency fix" qualifying an unrelated
+#       code change). The named pull request must be Dependabot's, closed
+#       without being merged, and not a routine grouped update; this PR must
+#       have changed nothing but the lockfiles and the two manifests; and
+#       every lockfile version change the named pull request made must be in
+#       this PR's merge commit. The `gate` job checks each of these, and
+#       anything it cannot check means "does not qualify".
 # Whichever reason applies is written to the run's log in plain words (see
 # the `gate` job below) so nobody has to guess why a given PR was or wasn't
 # forward-ported.
+#
+# Never forwarded, whatever else would qualify them (a manual run
+# included): release-please's own release PRs (`release-please--branches--`
+# branches), which bump version numbers in the lockfiles on every release
+# and must never be copied onto the channel branches, and routine grouped
+# dependency updates (see "TELLING A SECURITY FIX APART..." above).
 #
 # This widening is secondary, not the main fix for #1165 — it only helps
 # when SOME pull request, however it was later combined, carried the fix.
@@ -154,9 +167,10 @@ on:
   # that closes a Dependabot fix — the gate job below resolves the merged PR
   # once and decides, for every push, whether it should be forward-ported
   # (dependabot[bot], OR the widened `security`-label/superseded-PR checks —
-  # see "WIDENING THE AUTHOR GATE" above), whether it's a routine grouped
-  # update to skip (by branch name, see "TELLING A SECURITY FIX APART..."
-  # above), and — for anything that qualifies for neither — whether it touched
+  # see "WIDENING THE AUTHOR GATE" above), whether it's a release-please PR or
+  # a routine grouped update to skip (by branch name, see "TELLING A SECURITY
+  # FIX APART..." above), and — for anything that qualifies for neither —
+  # whether it touched
   # a lockfile and deserves the plain-English "this wasn't forward-ported"
   # comment from the `flag-unported-lockfile-change` job. Non-PR pushes exit
   # fast at the gate as before.
@@ -199,10 +213,12 @@ jobs:
       pr_title: ${{ steps.decide.outputs.pr_title }}
       author: ${{ steps.decide.outputs.author }}
       # Whether the `forward-port` job below should act on this PR at all —
-      # true for dependabot[bot], for the widened `security`-label / body-
-      # references-a-Dependabot-fix cases, and (author check bypassed) for a
-      # manual workflow_dispatch — false for a routine grouped update or an
-      # ordinary PR that qualifies none of those ways.
+      # true for dependabot[bot], for the widened `security`-label /
+      # description-names-a-superseded-Dependabot-fix-it-carries cases, and
+      # (author check bypassed) for a manual workflow_dispatch — false for a
+      # release-please PR or a routine grouped update (whatever else would
+      # qualify them, a manual run included) and for an ordinary PR that
+      # qualifies none of those ways.
       should_forward_port: ${{ steps.decide.outputs.should_forward_port }}
       # Plain-English reason for the should_forward_port verdict, logged and
       # also used by the miss-comment job so the comment can say why.
@@ -212,9 +228,10 @@ jobs:
       # ever needs to say anything when this is true.
       touched_lockfile: ${{ steps.decide.outputs.touched_lockfile }}
       # true if the PR's head branch is a release-please version-bump branch
-      # (`release-please--branches--...`) — excluded from the miss-comment
-      # job because those PRs touch both lockfiles' version fields on every
-      # release and are never a security fix.
+      # (`release-please--branches--...`) — never forward-ported, and
+      # excluded from the miss-comment job too, because those PRs touch both
+      # lockfiles' version fields on every release and are never a security
+      # fix.
       is_release_please: ${{ steps.decide.outputs.is_release_please }}
       # true if the PR's head branch is a routine grouped dependency update
       # (`.../npm-minor-patch-...` or `.../cargo-minor-patch-...`) — also
@@ -227,6 +244,21 @@ jobs:
       # an alarm" is not supposed to become.
       is_routine_grouped: ${{ steps.decide.outputs.is_routine_grouped }}
     steps:
+      # The "description names a Dependabot pull request it superseded"
+      # check in the next step compares lockfiles with git and the helper
+      # script, so the gate needs the repository and its history. This only
+      # reads: it uses the default token, which this workflow limits to
+      # reading (`permissions: contents: read` above), and nothing is
+      # pushed. `filter: blob:none` fetches every commit and folder listing
+      # but fetches a file's contents only when something reads it (here,
+      # the files of the commit being checked out and a few lockfiles), so
+      # this stays cheap on every push to main.
+      - name: Checkout (history; file contents fetched only when read)
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
       - name: Resolve source PR and decide
         id: decide
         env:
@@ -264,6 +296,11 @@ jobs:
 
           AUTHOR=$(jq -r '.author.login' <<<"$data")
           HEAD_REF=$(jq -r '.headRefName' <<<"$data")
+          # Read the merge commit before deciding anything: the "description
+          # names a superseded Dependabot fix" check below compares it.
+          MERGE_SHA=$(jq -r '.mergeCommit.oid // empty' <<<"$data")
+          TITLE=$(jq -r '.title' <<<"$data")
+          [ -n "$MERGE_SHA" ] || skip "No merge commit SHA for PR #$PR — skipping."
 
           # GitHub's REST API reports Dependabot's login as "dependabot[bot]",
           # but `gh pr view --json author` goes through the GraphQL API,
@@ -309,7 +346,10 @@ jobs:
           # release-please's own version-bump PRs use this exact branch name
           # shape (see CLAUDE.md's "Release Please Branch Naming"). They touch
           # both lockfiles' version fields on every release but are never a
-          # security fix, so the miss-comment job needs to know to skip them.
+          # security fix, so they are never forward-ported — whatever else
+          # might qualify them, even a manual run (copying a release's version
+          # bumps onto the channel branches would be wrong in itself) — and
+          # the miss-comment job skips them too.
           IS_RELEASE_PLEASE=false
           case "$HEAD_REF" in
             release-please--branches--*) IS_RELEASE_PLEASE=true ;;
@@ -320,37 +360,137 @@ jobs:
             HAS_SECURITY_LABEL=true
           fi
 
-          # Does the body name another PR that IS a genuine Dependabot
-          # security fix? This repo's "combine instead of stacking" rule
-          # (CLAUDE.md) requires a combining PR to say what it closes — PR
-          # #1128 really does say "Supersedes and closes: #1122, #1123" — so
-          # this reads a fact the convention already produces. A referenced
-          # number only counts if ITS OWN author is dependabot[bot] and it
-          # isn't itself a routine grouped update, so a combining PR that
-          # merely mentions an unrelated issue number can't accidentally
-          # qualify.
-          find_qualifying_dependabot_reference() {
-            local body="$1" ref ref_data ref_head
-            for ref in $(grep -oE '#[0-9]+' <<<"$body" | tr -d '#' | sort -u); do
-              [ "$ref" != "$PR" ] || continue
-              ref_data=$(gh pr view "$ref" --repo "$REPO" --json author,headRefName 2>/dev/null) || continue
-              is_dependabot_login "$(jq -r '.author.login // empty' <<<"$ref_data")" || continue
-              ref_head=$(jq -r '.headRefName // empty' <<<"$ref_data")
-              case "$ref_head" in
-                */npm-minor-patch-*|*/cargo-minor-patch-*) continue ;;
-              esac
-              echo "$ref"
+          # Does the description name a Dependabot pull request that this one
+          # superseded AND carries? This repo's "combine instead of stacking"
+          # rule (CLAUDE.md) requires a combining PR to say what it closes —
+          # PR #1128 really does say "Supersedes and closes: #1122, #1123" —
+          # so this reads a fact the convention already produces.
+          #
+          # Merely naming a Dependabot pull request is not enough. A
+          # description is ordinary text anybody can write ("See #42 for an
+          # unrelated dependency fix"), and a pass here copies this pull
+          # request's whole merge commit onto three branches using
+          # RELEASE_PAT. So a named pull request only qualifies this one if
+          # ALL of these hold, and every one is checked rather than assumed:
+          #   - the named pull request was opened by Dependabot (either
+          #     spelling, see is_dependabot_login) and closed WITHOUT being
+          #     merged — a merged one was not superseded, and if it was a
+          #     security fix it was forwarded on its own;
+          #   - its branch is not a routine grouped update;
+          #   - this pull request changed nothing but the lockfiles and the
+          #     two manifests (package.json, src-tauri/Cargo.toml) — the
+          #     forward-port copies the WHOLE merge commit, so anything else
+          #     in it would ride along on the strength of somebody else's
+          #     fix;
+          #   - every lockfile version change the named pull request made is
+          #     contained in this pull request's merge commit, checked with
+          #     the same helper the forward-port uses
+          #     (`--lockfile-changes-only`): the named pull request's own
+          #     commit is the "fix" and this merge commit is the "target".
+          #     GitHub keeps serving that commit at refs/pull/<n>/head even
+          #     after Dependabot deletes its branch.
+          # Anything that cannot be checked — the lookup fails, the commit
+          # cannot be fetched, the helper cannot tell — means it does not
+          # qualify, and the reason is written to this step's log. That errs
+          # toward "not forwarded", the direction that can lose a fix, so it
+          # is never silent: a pull request that changed a lockfile and was
+          # not forwarded gets the plain-English notice from the
+          # `flag-unported-lockfile-change` job below.
+          #
+          # What this cannot know: whether the named pull request was a
+          # security fix at all (Dependabot's routine single-package updates
+          # look the same), and, because the helper insists on every copy
+          # of a package, a lockfile that also holds a second copy of the
+          # same package on another release line makes the check say "cannot
+          # tell", so such a pull request does not qualify this way.
+          explain() { echo "  $1" >&2; }  # to the log, never into a captured result
+          HELPER="$GITHUB_WORKSPACE/.github/scripts/check_lockfile_already_fixed.py"
+
+          merged_commit_is_dependency_only() {
+            local files others
+            if ! files=$(git diff --no-renames --name-only "${MERGE_SHA}^" "$MERGE_SHA"); then
+              explain "could not list the files this pull request's merge commit changed — cannot check, so no named pull request can qualify it"
+              return 1
+            fi
+            if [ -z "$files" ]; then
+              explain "this pull request's merge commit changed no files — no named pull request can qualify it"
+              return 1
+            fi
+            others=$(grep -vE '^(package-lock\.json|package\.json|src-tauri/Cargo\.lock|src-tauri/Cargo\.toml)$' <<<"$files" || true)
+            if [ -n "$others" ]; then
+              explain "this pull request changed files other than the lockfiles and manifests, so a pull request named in its description cannot qualify it: $(tr '\n' ' ' <<<"$others")"
+              return 1
+            fi
+          }
+
+          named_pr_is_a_carried_dependabot_fix() {
+            local ref="$1" ref_data ref_author ref_state ref_head ref_commit fork_point result line
+            if ! ref_data=$(gh pr view "$ref" --repo "$REPO" --json author,state,headRefName 2>/dev/null); then
+              explain "#$ref: could not be looked up as a pull request — passed over"
+              return 1
+            fi
+            ref_author=$(jq -r '.author.login // empty' <<<"$ref_data")
+            ref_state=$(jq -r '.state // empty' <<<"$ref_data")
+            ref_head=$(jq -r '.headRefName // empty' <<<"$ref_data")
+            if ! is_dependabot_login "$ref_author"; then
+              explain "#$ref: opened by '$ref_author', not Dependabot — does not qualify"
+              return 1
+            fi
+            if [ "$ref_state" != "CLOSED" ]; then
+              explain "#$ref: its state is '$ref_state', not closed without being merged — does not qualify"
+              return 1
+            fi
+            case "$ref_head" in
+              */npm-minor-patch-*|*/cargo-minor-patch-*)
+                explain "#$ref: '$ref_head' is a routine grouped update — does not qualify"
+                return 1 ;;
+            esac
+            if ! git fetch --no-tags --quiet origin "refs/pull/$ref/head"; then
+              explain "#$ref: could not fetch its commit (refs/pull/$ref/head) — cannot check, so it does not qualify"
+              return 1
+            fi
+            ref_commit=$(git rev-parse FETCH_HEAD)
+            if ! fork_point=$(git merge-base "$ref_commit" "$MERGE_SHA"); then
+              explain "#$ref: its commit shares no history with this merge commit — cannot check, so it does not qualify"
+              return 1
+            fi
+            # The helper only reads git; it never needs this step's
+            # write-capable GH_TOKEN, so it does not get it.
+            if result=$(env -u GH_TOKEN python3 "$HELPER" --repo-root "$GITHUB_WORKSPACE" \
+                  --old "$fork_point" --new "$ref_commit" --target "$MERGE_SHA" \
+                  --lockfile-changes-only package-lock.json src-tauri/Cargo.lock) \
+               && grep -qx 'RESULT=ALREADY_FIXED' <<<"$result"; then
+              while IFS= read -r line; do explain "#$ref: $line"; done <<<"$result"
               return 0
+            fi
+            explain "#$ref: its lockfile changes are not all in this pull request's merge commit, or that could not be checked — does not qualify:"
+            while IFS= read -r line; do explain "#$ref: $line"; done <<<"$result"
+            return 1
+          }
+
+          find_qualifying_dependabot_reference() {
+            local body="$1" ref
+            echo "Checking whether the description names a Dependabot pull request this one superseded and carries:" >&2
+            merged_commit_is_dependency_only || return 1
+            for ref in $(grep -oE '#[0-9]+' <<<"$body" | tr -d '#' | sort -un); do
+              [ "$ref" != "$PR" ] || continue
+              if named_pr_is_a_carried_dependabot_fix "$ref"; then
+                echo "$ref"
+                return 0
+              fi
             done
             return 1
           }
 
-          # Order matters: a routine grouped update is disqualified no matter
-          # how it got here; a manual dispatch bypasses only the author check
+          # Order matters: a release-please PR and a routine grouped update
+          # are disqualified no matter how they got here, a manual run
+          # included; a manual dispatch bypasses only the author check
           # (matching the pre-existing, documented behaviour); everything
           # else is the widened gate from issue #1165.
           SHOULD_FORWARD_PORT=false
-          if [ "$IS_ROUTINE_GROUPED" = "true" ]; then
+          if [ "$IS_RELEASE_PLEASE" = "true" ]; then
+            REASON="PR #$PR head branch '$HEAD_REF' is a release-please release pull request, which is never forward-ported"
+          elif [ "$IS_ROUTINE_GROUPED" = "true" ]; then
             REASON="PR #$PR head branch '$HEAD_REF' is a routine grouped dependency update, not a security fix"
           elif [ "$IS_MANUAL" = "1" ]; then
             SHOULD_FORWARD_PORT=true
@@ -363,9 +503,9 @@ jobs:
             REASON="carries the 'security' label"
           elif QUALIFYING_REF=$(find_qualifying_dependabot_reference "$(jq -r '.body // empty' <<<"$data")"); then
             SHOULD_FORWARD_PORT=true
-            REASON="body references #$QUALIFYING_REF, a Dependabot security-fix PR it superseded"
+            REASON="its description names #$QUALIFYING_REF, a Dependabot pull request closed without being merged, and this pull request's merge commit contains every lockfile change it made"
           else
-            REASON="author is not dependabot[bot], and it has neither a 'security' label nor a body reference to a Dependabot security-fix PR it superseded"
+            REASON="author is not Dependabot, it has no 'security' label, and its description names no closed Dependabot pull request whose lockfile changes it carries (the gate job's log says what was checked)"
           fi
 
           if [ "$SHOULD_FORWARD_PORT" = "true" ] && [ "$IS_DEPENDABOT" = "false" ] && [ "$IS_MANUAL" != "1" ]; then
@@ -375,13 +515,6 @@ jobs:
           TOUCHED_LOCKFILE=false
           if jq -e '.files[]? | select(.path=="package-lock.json" or .path=="src-tauri/Cargo.lock")' <<<"$data" >/dev/null 2>&1; then
             TOUCHED_LOCKFILE=true
-          fi
-
-          MERGE_SHA=$(jq -r '.mergeCommit.oid' <<<"$data")
-          TITLE=$(jq -r '.title' <<<"$data")
-
-          if [ -z "$MERGE_SHA" ] || [ "$MERGE_SHA" = "null" ]; then
-            skip "No merge commit SHA for PR #$PR — skipping."
           fi
 
           {
@@ -557,9 +690,12 @@ jobs:
 
   # ---------------------------------------------------------------------------
   # "Make a miss loud": a PR merged to `main`, changed a lockfile, and didn't
-  # qualify for automatic forward-porting above for any reason (not
-  # Dependabot, no `security` label, no body reference to a Dependabot fix
-  # it superseded, or it was a routine grouped update). That's usually fine
+  # qualify for automatic forward-porting above (not Dependabot, no
+  # `security` label, and no description naming a closed Dependabot pull
+  # request whose lockfile changes it carries — or one of those could not be
+  # checked, which the gate's log explains). Release-please PRs and routine
+  # grouped updates are left out, because they cannot be security fixes;
+  # see "WHEN NOTHING FORWARD-PORTS AUTOMATICALLY". That's usually fine
   # — most such PRs are ordinary dependency bumps with nothing security-
   # relevant about them — but if this one WAS a security fix, the channel
   # branches are exposed right now and nobody would otherwise be told. One
