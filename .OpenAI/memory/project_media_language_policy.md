@@ -140,10 +140,16 @@ did not change.
   GAMDL's command line with the same NUL/CR/LF removed as the `config.ini` line.
 - Music-video subtitle extraction writes ffmpeg's output to a short,
   exclusively created temporary file (`.meedyadl-partial-<pid>-<n>.srt`) and
-  publishes it under the real name without ever overwriting: a hard link, or
-  on a drive without hard links the system's one-step rename-only-if-free
-  (`fs_safe::rename_no_replace`); a drive that cannot do that gets no
-  subtitle and an activity-log message, never a plain rename. A forced stop
+  publishes it under the real name without ever overwriting: a hard link; on
+  a drive without hard links the system's one-step rename-only-if-free
+  (`fs_safe::rename_no_replace`; FAT32 on a Mac); and where that is refused
+  too (exFAT on a Mac, which refuses it whenever the name is free) a copy
+  into a new file created only if the name is free, deleted again on any
+  failure (`fs_safe::copy_to_new_file`; stand-in review of round 6). Never a
+  plain rename. That third step is not one operation: a forced stop
+  part-way through its copy can leave a partly written subtitle under the
+  real name, which later runs keep. If it fails, no subtitle, and an
+  activity-log message saying what to do. A forced stop
   can leave a temporary file; the next extraction in that folder removes it
   if its process has ended or it is a second name of a finished subtitle,
   never a running process's. Failed removals are reported. The fake ffmpeg

@@ -930,10 +930,11 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
         {
             Ok(report) => {
                 // Anything the person needs to know, even when nothing
-                // failed outright: a subtitle deliberately not saved on a
-                // drive that cannot add a file without the risk of
-                // replacing one, or a temporary file that could not be
-                // removed (Codex's review of round 5, findings 3 and 4).
+                // failed outright: a subtitle that could not be saved
+                // because the drive refused every way of adding it without
+                // the risk of replacing a file, or a temporary file that
+                // could not be removed (Codex's review of round 5, findings
+                // 3 and 4; stand-in review of round 6, finding 1).
                 for notice in &report.notices {
                     emit_download_warn(app, dl_id, notice);
                 }

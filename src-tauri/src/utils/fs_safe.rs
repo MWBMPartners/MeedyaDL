@@ -502,8 +502,9 @@ pub fn is_filesystem_sidecar(path: &std::path::Path) -> bool {
 //              `MOVEFILE_REPLACE_EXISTING`, so it refuses a taken name.
 //
 // A file system that cannot do that step reports it (see
-// `is_no_replace_rename_unsupported`); callers then REFUSE rather than
-// fall back to a plain rename.
+// `is_no_replace_rename_unsupported`); callers then never fall back to a
+// plain rename. They may use `copy_to_new_file`, which also never replaces
+// but is not one step (read its limits), or refuse.
 //
 // The Windows branches are compiled for Windows (checked with
 // `cargo check --target x86_64-pc-windows-msvc`) but have not been run on
@@ -602,15 +603,68 @@ fn rename_no_replace_impl(_from: &Path, _to: &Path) -> std::io::Result<()> {
     ))
 }
 
+/// Copies the file at `from` into a NEW file at `to`, never replacing
+/// anything: `to` is created only if no file has that name (the
+/// "create only if new" step, which every drive offers -- FAT and exFAT
+/// included), then filled and flushed to the drive (`sync_all`). `from` is
+/// left as it is; the caller removes it.
+///
+/// For a drive that can neither make hard links nor rename without
+/// replacing -- an exFAT drive on a Mac (stand-in review of round 6,
+/// finding 1: checked on macOS 27, which refuses `renamex_np` with
+/// `RENAME_EXCL` there with "not supported" whenever the name is free).
+///
+/// On ANY failure after `to` was created, `to` is deleted again: it is
+/// certainly the file this call made, because it was created only if new.
+///
+/// **What this cannot do: be one step.** A forced stop (the app killed,
+/// the power lost) while the bytes are being copied leaves a PARTLY
+/// written file under the real name, and nothing can then tell it from a
+/// finished one, so later runs keep it. Hard links and
+/// [`rename_no_replace`] never leave a partial file under the real name;
+/// use this only when neither is available.
+///
+/// # Errors
+/// - [`std::io::ErrorKind::AlreadyExists`] when `to` is taken: nothing is
+///   created or changed.
+/// - Any other error opening `from`, or creating, writing or flushing `to`.
+///   If deleting the partly written `to` then also fails, the message says
+///   so and names it (the kind stays that of the first failure).
+pub fn copy_to_new_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut source = std::fs::File::open(from)?;
+    let mut target = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(to)?;
+    let filled = std::io::copy(&mut source, &mut target).and_then(|_| target.sync_all());
+    drop(target);
+    let Err(error) = filled else {
+        return Ok(());
+    };
+    match std::fs::remove_file(to) {
+        Ok(()) => Err(error),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(error),
+        Err(left) => Err(std::io::Error::new(
+            error.kind(),
+            format!(
+                "{error}; the partly written {} could not be deleted either ({left})",
+                to.display()
+            ),
+        )),
+    }
+}
+
 /// True when [`rename_no_replace`] failed because the file system (or the
 /// system) cannot rename without replacing -- not because of anything
-/// about these particular files. A caller must then refuse; falling back
-/// to a plain rename would bring back the overwrite this exists to stop.
+/// about these particular files. A caller must then NOT fall back to a
+/// plain rename, which would bring back the overwrite this exists to stop
+/// ([`copy_to_new_file`] is the step that never replaces).
 ///
 /// - Any system: [`std::io::ErrorKind::Unsupported`] (the call does not
 ///   exist, `ENOSYS`; or `EOPNOTSUPP`).
 /// - macOS: `EINVAL`, `ENOTSUP` (a volume that cannot honour
-///   `RENAME_EXCL`).
+///   `RENAME_EXCL`: an exFAT drive answers `ENOTSUP` whenever the name is
+///   free -- checked on macOS 27; a FAT32 drive does honour it).
 /// - Linux: `EINVAL` (a file system that does not support
 ///   `RENAME_NOREPLACE`).
 /// - Windows: `ERROR_INVALID_FUNCTION`, `ERROR_NOT_SUPPORTED`.
@@ -1238,6 +1292,46 @@ mod tests {
         assert!(!is_no_replace_rename_unsupported(&err));
         assert_eq!(fs::read_to_string(&from).unwrap(), "a");
         assert_eq!(fs::read_to_string(&to).unwrap(), "b");
+    }
+
+    // ── copy_to_new_file (stand-in review of round 6, finding 1) ────────
+
+    #[test]
+    fn copy_to_new_file_copies_to_a_free_name_and_leaves_the_source() {
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = (dir.path().join("a"), dir.path().join("b"));
+        fs::write(&from, "subtitle text").unwrap();
+        copy_to_new_file(&from, &to).unwrap();
+        assert_eq!(fs::read_to_string(&to).unwrap(), "subtitle text");
+        assert_eq!(fs::read_to_string(&from).unwrap(), "subtitle text");
+    }
+
+    #[test]
+    fn copy_to_new_file_refuses_a_taken_name_and_changes_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let (from, to) = (dir.path().join("a"), dir.path().join("b"));
+        fs::write(&from, "ours").unwrap();
+        fs::write(&to, "theirs").unwrap();
+        let err = copy_to_new_file(&from, &to).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists, "{err}");
+        assert_eq!(fs::read_to_string(&to).unwrap(), "theirs");
+        assert_eq!(fs::read_to_string(&from).unwrap(), "ours");
+    }
+
+    /// A failure after the new file was created deletes it again. Made to
+    /// fail part way by copying from a FOLDER: opening one for reading
+    /// works on macOS and Linux, and reading it then fails, after the new
+    /// file exists. (Windows refuses to open a folder at all, before
+    /// anything is created, so this is Unix only.)
+    #[cfg(unix)]
+    #[test]
+    fn copy_to_new_file_deletes_the_file_it_made_when_the_copy_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("a folder");
+        fs::create_dir(&from).unwrap();
+        let to = dir.path().join("b");
+        assert!(copy_to_new_file(&from, &to).is_err());
+        assert!(!to.exists(), "the partly written file was left behind");
     }
 
     #[test]

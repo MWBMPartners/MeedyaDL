@@ -102,9 +102,10 @@ pub struct SubtitleExtraction {
     /// subtitle streams, or every stream was already extracted).
     pub written: usize,
     /// Plain sentences the person should see in the activity log: a
-    /// subtitle that was deliberately NOT saved because the drive cannot
-    /// add a file without the risk of replacing one, or a temporary file
-    /// that could not be removed. Each is also in the log file.
+    /// subtitle that could not be saved because the drive refused every way
+    /// of adding it without the risk of replacing a file (saying what they
+    /// can do), or a temporary file that could not be removed. Each is also
+    /// in the log file.
     pub notices: Vec<String>,
 }
 
@@ -521,15 +522,17 @@ fn publish_extracted_subtitle(
 type PublishOperation = fn(&Path, &Path) -> std::io::Result<()>;
 
 /// The file-system operations [`publish_with`] tries, in order. Passed in
-/// so the tests can force the path a drive without hard links takes, on
+/// so the tests can force the paths a drive without hard links takes, on
 /// any machine. Generic so that a test can also pass an operation that
 /// holds on to something (the race test stops both writers at a barrier
 /// inside the hard-link step).
-struct PublishOperations<L, R> {
+struct PublishOperations<L, R, C> {
     /// Step 1: a hard link from the temporary name to the real one.
     hard_link: L,
     /// Step 2: `fs_safe::rename_no_replace`.
     rename_no_replace: R,
+    /// Step 3: `fs_safe::copy_to_new_file`.
+    copy_to_new_file: C,
 }
 
 /// The operations the app really uses, named in this ONE place:
@@ -540,10 +543,12 @@ struct PublishOperations<L, R> {
 /// a plain `std::fs::rename` -- which REPLACES an existing file -- then left
 /// every test green, because the only test of the real route ran on a
 /// drive where the hard link works and the second step is never reached.
-fn real_publish_operations() -> PublishOperations<PublishOperation, PublishOperation> {
+fn real_publish_operations(
+) -> PublishOperations<PublishOperation, PublishOperation, PublishOperation> {
     PublishOperations {
         hard_link: |from, to| std::fs::hard_link(from, to),
         rename_no_replace: crate::utils::fs_safe::rename_no_replace,
+        copy_to_new_file: crate::utils::fs_safe::copy_to_new_file,
     }
 }
 
@@ -556,27 +561,43 @@ fn real_publish_operations() -> PublishOperations<PublishOperation, PublishOpera
 ///    The temporary name is then removed (it is a second name for the same
 ///    file, so nothing is lost if that fails; it is reported).
 /// 2. ONLY when the link failed because the file system cannot make hard
-///    links (`fs_safe::is_hard_link_unsupported`; FAT, exFAT, many network
-///    shares): `fs_safe::rename_no_replace`, which asks the operating
-///    system to move the file into place only if the name is free, as one
-///    step with no gap. This used to be "check the name is free, then a
-///    plain rename" -- a gap in which a racing extraction could create the
-///    name, which the rename then replaced.
-/// 3. If the file system cannot do that step either, NOTHING is published:
-///    the temporary file is removed and the person is told why, in the
-///    activity log. Never a plain rename.
+///    links (`fs_safe::is_hard_link_unsupported`; FAT and exFAT drives,
+///    many network shares): `fs_safe::rename_no_replace`, which asks the
+///    operating system to move the file into place only if the name is
+///    free, as one step with no gap. This used to be "check the name is
+///    free, then a plain rename" -- a gap in which a racing extraction could
+///    create the name, which the rename then replaced. A FAT32 drive on a
+///    Mac takes this step (checked on macOS 27).
+/// 3. ONLY when the file system cannot do that step either
+///    (`fs_safe::is_no_replace_rename_unsupported`): an exFAT drive on a
+///    Mac, which refuses it with "not supported" whenever the name is free
+///    (stand-in review of round 6, finding 1; checked on macOS 27). The
+///    subtitle is copied into a NEW file under the real name
+///    (`fs_safe::copy_to_new_file`): created only if no file has that name,
+///    filled, flushed, and deleted again on any failure, so it too never
+///    replaces a file. Its limit, which steps 1 and 2 do not have: a forced
+///    stop (the app killed, the power lost) part-way through the copy
+///    leaves a PARTLY written subtitle under the real name, and later runs
+///    then keep it as though it were finished. Before this step existed,
+///    such a drive got no subtitle at all, although version 1.10.8 saved
+///    them there.
+/// 4. If the copy fails too, NOTHING is published and the person is told
+///    why, and what they can do, in the activity log. Never a plain rename.
 ///
-/// Any other failure of the link (no permission, disk full) is a real
-/// failure and is reported as one; it does not try the second step.
-fn publish_with<L, R>(
+/// Whatever happens, the temporary file is removed at the end (after a
+/// successful step 2 it is already gone). Any other failure of the link
+/// (no permission, disk full), or of step 2, is a real failure and is
+/// reported as one; it does not try the next step.
+fn publish_with<L, R, C>(
     temp_path: &Path,
     final_path: &Path,
     notices: &mut Vec<String>,
-    operations: &PublishOperations<L, R>,
+    operations: &PublishOperations<L, R, C>,
 ) -> Result<ExtractOutcome, String>
 where
     L: Fn(&Path, &Path) -> std::io::Result<()>,
     R: Fn(&Path, &Path) -> std::io::Result<()>,
+    C: Fn(&Path, &Path) -> std::io::Result<()>,
 {
     use crate::utils::fs_safe::{is_hard_link_unsupported, is_no_replace_rename_unsupported};
     let link_error = match (operations.hard_link)(temp_path, final_path) {
@@ -603,24 +624,36 @@ where
             remove_temporary(temp_path, notices);
             Ok(ExtractOutcome::AlreadyThere(final_path.to_path_buf()))
         }
-        Err(e) if is_no_replace_rename_unsupported(&e) => {
+        Err(rename_error) if is_no_replace_rename_unsupported(&rename_error) => {
+            let copied = (operations.copy_to_new_file)(temp_path, final_path);
             remove_temporary(temp_path, notices);
-            let name = final_path.file_name().map_or_else(
-                || final_path.display().to_string(),
-                |n| n.to_string_lossy().into_owned(),
-            );
-            log::warn!(
-                "Not publishing {}: the file system can neither make hard links ({link_error}) \
-                 nor rename without replacing ({e})",
-                final_path.display()
-            );
-            let notice = format!(
-                "Subtitle \"{name}\" was not saved: the drive it would go on cannot add a file \
-                 without the risk of replacing one with the same name, so nothing was written \
-                 there."
-            );
-            notices.push(notice.clone());
-            Err(notice)
+            match copied {
+                Ok(()) => Ok(ExtractOutcome::Written(final_path.to_path_buf())),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    Ok(ExtractOutcome::AlreadyThere(final_path.to_path_buf()))
+                }
+                Err(copy_error) => {
+                    log::warn!(
+                        "Not publishing {}: the file system can neither make hard links \
+                         ({link_error}) nor rename without replacing ({rename_error}), and \
+                         copying into a new file failed: {copy_error}",
+                        final_path.display()
+                    );
+                    let name = final_path.file_name().map_or_else(
+                        || final_path.display().to_string(),
+                        |n| n.to_string_lossy().into_owned(),
+                    );
+                    let notice = format!(
+                        "Subtitle \"{name}\" was not saved: it could not be written to the \
+                         drive ({copy_error}). Check that the drive is still connected, has \
+                         free space and can be written to. Then, to get the subtitle, delete \
+                         the music video (and this subtitle file, if a partly written one is \
+                         there) and download the video again."
+                    );
+                    notices.push(notice.clone());
+                    Err(notice)
+                }
+            }
         }
         Err(e) => {
             remove_temporary(temp_path, notices);
@@ -646,11 +679,13 @@ where
 /// file there, and the existence check above then took it for finished
 /// work on every retry. Now ffmpeg writes only to an exclusively created
 /// temporary file, which is published under the real name only after
-/// ffmpeg succeeded -- never overwriting, on any file system, and not at
-/// all on a drive that cannot promise that (see `publish_with`) -- and
-/// removed on any failure. A removal that fails is reported (log and
-/// activity log), never ignored. This blocking is new on this branch:
-/// v1.10.8 wrote a numbered copy instead.
+/// ffmpeg succeeded -- never overwriting, on any file system (see
+/// `publish_with`) -- and removed on any failure. A removal that fails is
+/// reported (log and activity log), never ignored. One exception, on a
+/// drive that needs `publish_with`'s third step (an exFAT drive on a Mac):
+/// a FORCED stop part-way through that step's copy can leave a partly
+/// written subtitle under the real name, which later runs keep. This
+/// blocking is new on this branch: v1.10.8 wrote a numbered copy instead.
 ///
 /// Before #1251 this used `resolve_non_clobbering_path` and then checked
 /// whether the result was the planned path — which can never be true
@@ -1566,127 +1601,193 @@ mod tests {
 
     /// The app's own publish operations, with only the hard link replaced
     /// by one that fails the way a FAT or exFAT drive makes it fail.
-    fn real_operations_without_hard_links() -> PublishOperations<PublishOperation, PublishOperation>
-    {
+    fn real_operations_without_hard_links(
+    ) -> PublishOperations<PublishOperation, PublishOperation, PublishOperation> {
         PublishOperations {
             hard_link: no_hard_links,
             ..real_publish_operations()
         }
     }
 
-    /// The app's own second step, reached as on a drive without hard links,
-    /// refuses a taken name. This is the test that fails if the real
-    /// operation becomes a plain rename (stand-in review of round 6,
-    /// finding 2).
+    /// The error a drive gives when it cannot rename without replacing (see
+    /// `fs_safe::is_no_replace_rename_unsupported`): what an exFAT drive on
+    /// a Mac answers whenever the name is free.
+    fn no_rename_without_replacing(_: &Path, _: &Path) -> std::io::Result<()> {
+        Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+    }
+
+    /// The app's own operations as on an exFAT drive on a Mac: no hard
+    /// links, no one-step rename without replacing, so the REAL third step
+    /// runs (stand-in review of round 6, finding 1).
+    fn real_operations_as_on_mac_exfat(
+    ) -> PublishOperations<PublishOperation, PublishOperation, PublishOperation> {
+        PublishOperations {
+            hard_link: no_hard_links,
+            rename_no_replace: no_rename_without_replacing,
+            ..real_publish_operations()
+        }
+    }
+
+    /// The app's own second and third steps, reached as on a drive without
+    /// hard links, refuse a taken name. These fail if the real operation
+    /// becomes a plain rename (stand-in review of round 6, finding 2), or
+    /// if the third step stops creating the file only if it is new.
     #[test]
     fn without_hard_links_an_existing_subtitle_is_never_replaced() {
-        let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
-        let fin = dir.path().join("V.en.srt");
-        fs::write(&temp, "ours").unwrap();
-        fs::write(&fin, "theirs").unwrap();
-        let mut notices = Vec::new();
-        let outcome = publish_with(
-            &temp,
-            &fin,
-            &mut notices,
-            &real_operations_without_hard_links(),
-        );
-        assert!(
-            matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_))),
-            "{outcome:?}"
-        );
-        assert_eq!(fs::read_to_string(&fin).unwrap(), "theirs");
-        assert_eq!(folder_listing(dir.path()), ["V.en.srt"]);
-        assert!(notices.is_empty(), "{notices:?}");
+        for (drive, operations) in [
+            ("no hard links", real_operations_without_hard_links()),
+            ("exFAT on a Mac", real_operations_as_on_mac_exfat()),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+            let fin = dir.path().join("V.en.srt");
+            fs::write(&temp, "ours").unwrap();
+            fs::write(&fin, "theirs").unwrap();
+            let mut notices = Vec::new();
+            let outcome = publish_with(&temp, &fin, &mut notices, &operations);
+            assert!(
+                matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_))),
+                "{drive}: {outcome:?}"
+            );
+            assert_eq!(fs::read_to_string(&fin).unwrap(), "theirs", "{drive}");
+            assert_eq!(folder_listing(dir.path()), ["V.en.srt"], "{drive}");
+            assert!(notices.is_empty(), "{drive}: {notices:?}");
+        }
     }
 
     #[test]
     fn without_hard_links_a_free_name_is_published() {
-        let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
-        let fin = dir.path().join("V.en.srt");
-        fs::write(&temp, "ours").unwrap();
-        let outcome = publish_with(
-            &temp,
-            &fin,
-            &mut Vec::new(),
-            &real_operations_without_hard_links(),
-        );
-        assert!(
-            matches!(outcome, Ok(ExtractOutcome::Written(_))),
-            "{outcome:?}"
-        );
-        assert_eq!(fs::read_to_string(&fin).unwrap(), "ours");
-        assert_eq!(folder_listing(dir.path()), ["V.en.srt"]);
+        for (drive, operations) in [
+            ("no hard links", real_operations_without_hard_links()),
+            ("exFAT on a Mac", real_operations_as_on_mac_exfat()),
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+            let fin = dir.path().join("V.en.srt");
+            fs::write(&temp, "ours").unwrap();
+            let mut notices = Vec::new();
+            let outcome = publish_with(&temp, &fin, &mut notices, &operations);
+            assert!(
+                matches!(outcome, Ok(ExtractOutcome::Written(_))),
+                "{drive}: {outcome:?}"
+            );
+            assert_eq!(fs::read_to_string(&fin).unwrap(), "ours", "{drive}");
+            // The temporary file is gone in both cases: moved by the
+            // second step, removed after the third step's copy.
+            assert_eq!(folder_listing(dir.path()), ["V.en.srt"], "{drive}");
+            assert!(notices.is_empty(), "{drive}: {notices:?}");
+        }
     }
 
     /// Two extractions publish to one name at the same moment on a drive
     /// without hard links: exactly one wins, the winner's text is what is
     /// there, the loser's is thrown away, and no temporary file is left.
     /// Both are held at a barrier inside the (failing) link step, so they
-    /// reach the second step together. Repeated, because a race shows
-    /// only sometimes; with "check the name is free, then rename" this
-    /// reported two winners.
+    /// reach the later steps together. Repeated, because a race shows only
+    /// sometimes; with "check the name is free, then rename" this reported
+    /// two winners. Run twice: as on a drive where the second step works,
+    /// and as on an exFAT drive on a Mac, where the third step does the
+    /// work (stand-in review of round 6, finding 1).
     #[test]
     fn without_hard_links_two_racing_publishes_never_overwrite_each_other() {
         use std::sync::Barrier;
-        for round in 0..100 {
-            let dir = tempfile::tempdir().unwrap();
-            let fin = dir.path().join("V.en.srt");
-            let temps: Vec<PathBuf> = (0..2)
-                .map(|i| {
-                    let temp = dir.path().join(format!(".meedyadl-partial-1-{i}.srt"));
-                    fs::write(&temp, format!("writer {i}")).unwrap();
-                    temp
-                })
-                .collect();
-            let barrier = Barrier::new(2);
-            let outcomes: Vec<_> = std::thread::scope(|scope| {
-                let handles: Vec<_> = temps
-                    .iter()
-                    .map(|temp| {
-                        let (barrier, fin) = (&barrier, &fin);
-                        scope.spawn(move || {
-                            let operations = PublishOperations {
-                                hard_link: |a: &Path, b: &Path| {
-                                    barrier.wait();
-                                    no_hard_links(a, b)
-                                },
-                                rename_no_replace: real_publish_operations().rename_no_replace,
-                            };
-                            publish_with(temp, fin, &mut Vec::new(), &operations)
-                        })
+        for (drive, rename_no_replace) in [
+            ("no hard links", real_publish_operations().rename_no_replace),
+            (
+                "exFAT on a Mac",
+                no_rename_without_replacing as PublishOperation,
+            ),
+        ] {
+            for round in 0..100 {
+                let dir = tempfile::tempdir().unwrap();
+                let fin = dir.path().join("V.en.srt");
+                let temps: Vec<PathBuf> = (0..2)
+                    .map(|i| {
+                        let temp = dir.path().join(format!(".meedyadl-partial-1-{i}.srt"));
+                        fs::write(&temp, format!("writer {i}")).unwrap();
+                        temp
                     })
                     .collect();
-                handles.into_iter().map(|h| h.join().unwrap()).collect()
-            });
-            let winners: Vec<usize> = outcomes
-                .iter()
-                .enumerate()
-                .filter(|(_, o)| matches!(o, Ok(ExtractOutcome::Written(_))))
-                .map(|(i, _)| i)
-                .collect();
-            assert_eq!(winners.len(), 1, "round {round}: {outcomes:?}");
-            assert!(
-                outcomes
+                let barrier = Barrier::new(2);
+                let outcomes: Vec<_> = std::thread::scope(|scope| {
+                    let handles: Vec<_> = temps
+                        .iter()
+                        .map(|temp| {
+                            let (barrier, fin) = (&barrier, &fin);
+                            scope.spawn(move || {
+                                let operations = PublishOperations {
+                                    hard_link: |a: &Path, b: &Path| {
+                                        barrier.wait();
+                                        no_hard_links(a, b)
+                                    },
+                                    rename_no_replace,
+                                    copy_to_new_file: real_publish_operations().copy_to_new_file,
+                                };
+                                publish_with(temp, fin, &mut Vec::new(), &operations)
+                            })
+                        })
+                        .collect();
+                    handles.into_iter().map(|h| h.join().unwrap()).collect()
+                });
+                let winners: Vec<usize> = outcomes
                     .iter()
-                    .any(|o| matches!(o, Ok(ExtractOutcome::AlreadyThere(_)))),
-                "round {round}: {outcomes:?}"
-            );
-            assert_eq!(
-                fs::read_to_string(&fin).unwrap(),
-                format!("writer {}", winners[0]),
-                "round {round}"
-            );
-            assert_eq!(folder_listing(dir.path()), ["V.en.srt"], "round {round}");
+                    .enumerate()
+                    .filter(|(_, o)| matches!(o, Ok(ExtractOutcome::Written(_))))
+                    .map(|(i, _)| i)
+                    .collect();
+                assert_eq!(winners.len(), 1, "{drive}, round {round}: {outcomes:?}");
+                assert!(
+                    outcomes
+                        .iter()
+                        .any(|o| matches!(o, Ok(ExtractOutcome::AlreadyThere(_)))),
+                    "{drive}, round {round}: {outcomes:?}"
+                );
+                assert_eq!(
+                    fs::read_to_string(&fin).unwrap(),
+                    format!("writer {}", winners[0]),
+                    "{drive}, round {round}"
+                );
+                assert_eq!(
+                    folder_listing(dir.path()),
+                    ["V.en.srt"],
+                    "{drive}, round {round}"
+                );
+            }
         }
     }
 
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
-    fn a_drive_that_cannot_rename_without_replacing_gets_nothing_and_says_why() {
-        // No hard links, and the no-replace step itself not available
-        // (`EINVAL` from Linux, say): refuse, never a plain rename.
+    fn einval_from_the_no_replace_step_counts_as_not_supported() {
+        // `EINVAL` (what Linux answers for a file system without
+        // `RENAME_NOREPLACE`) leads to the third step, not to a failure.
+        let dir = tempfile::tempdir().unwrap();
+        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+        let fin = dir.path().join("V.en.srt");
+        fs::write(&temp, "ours").unwrap();
+        let mut notices = Vec::new();
+        fn einval(_: &Path, _: &Path) -> std::io::Result<()> {
+            Err(std::io::Error::from_raw_os_error(libc::EINVAL))
+        }
+        let operations = PublishOperations {
+            rename_no_replace: einval as PublishOperation,
+            ..real_operations_as_on_mac_exfat()
+        };
+        let outcome = publish_with(&temp, &fin, &mut notices, &operations);
+        assert!(
+            matches!(outcome, Ok(ExtractOutcome::Written(_))),
+            "{outcome:?}"
+        );
+        assert_eq!(fs::read_to_string(&fin).unwrap(), "ours");
+        assert_eq!(folder_listing(dir.path()), ["V.en.srt"]);
+        assert!(notices.is_empty(), "{notices:?}");
+    }
+
+    #[test]
+    fn a_drive_that_refuses_every_step_gets_nothing_and_is_told_what_to_do() {
+        // No hard links, no rename without replacing, and the copy into a
+        // new file fails too (a full drive, say): nothing published, never
+        // a plain rename, and the activity-log message says what to do.
         let dir = tempfile::tempdir().unwrap();
         let temp = dir.path().join(".meedyadl-partial-1-0.srt");
         let fin = dir.path().join("V.en.srt");
@@ -1694,8 +1795,9 @@ mod tests {
         let mut notices = Vec::new();
         let operations = PublishOperations {
             hard_link: no_hard_links,
-            rename_no_replace: |_: &Path, _: &Path| {
-                Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+            rename_no_replace: no_rename_without_replacing,
+            copy_to_new_file: |_: &Path, _: &Path| {
+                Err(std::io::Error::from(std::io::ErrorKind::StorageFull))
             },
         };
         let outcome = publish_with(&temp, &fin, &mut notices, &operations);
@@ -1707,50 +1809,220 @@ mod tests {
             notices[0].contains("\"V.en.srt\" was not saved"),
             "{notices:?}"
         );
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
-    #[test]
-    fn einval_from_the_no_replace_step_is_a_refusal_not_a_failure_to_retry() {
-        let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
-        let fin = dir.path().join("V.en.srt");
-        fs::write(&temp, "ours").unwrap();
-        let mut notices = Vec::new();
-        let operations = PublishOperations {
-            hard_link: no_hard_links,
-            rename_no_replace: |_: &Path, _: &Path| {
-                Err(std::io::Error::from_raw_os_error(libc::EINVAL))
-            },
-        };
-        let outcome = publish_with(&temp, &fin, &mut notices, &operations);
-        assert!(outcome.is_err(), "{outcome:?}");
-        assert_eq!(folder_listing(dir.path()), Vec::<String>::new());
-        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(
+            notices[0].contains("has free space")
+                && notices[0].contains("download the video again"),
+            "the message must say what the person can do: {notices:?}"
+        );
     }
 
     #[test]
-    fn any_other_hard_link_failure_is_a_failure_not_a_fallback() {
-        // No permission, say: reported, and the second step never tried.
-        let dir = tempfile::tempdir().unwrap();
-        let temp = dir.path().join(".meedyadl-partial-1-0.srt");
-        let fin = dir.path().join("V.en.srt");
-        fs::write(&temp, "ours").unwrap();
-        let tried_rename = std::cell::Cell::new(false);
-        let operations = PublishOperations {
-            hard_link: |_: &Path, _: &Path| {
-                Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
-            },
-            rename_no_replace: |_: &Path, _: &Path| {
-                tried_rename.set(true);
-                Ok(())
-            },
+    fn any_other_failure_is_a_failure_not_a_fallback() {
+        // No permission, say. A link failure that is not "not supported"
+        // never tries the second step; a second-step failure that is not
+        // "not supported" never tries the third. Reported either way, with
+        // the temporary file removed.
+        let denied = |_: &Path, _: &Path| -> std::io::Result<()> {
+            Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
         };
-        let outcome = publish_with(&temp, &fin, &mut Vec::new(), &operations);
-        assert!(outcome.is_err(), "{outcome:?}");
-        assert!(!tried_rename.get());
-        assert!(!fin.exists());
-        assert!(!temp.exists());
+        for link_works_as_on_exfat in [false, true] {
+            let dir = tempfile::tempdir().unwrap();
+            let temp = dir.path().join(".meedyadl-partial-1-0.srt");
+            let fin = dir.path().join("V.en.srt");
+            fs::write(&temp, "ours").unwrap();
+            let (tried_rename, tried_copy) =
+                (std::cell::Cell::new(false), std::cell::Cell::new(false));
+            let operations = PublishOperations {
+                hard_link: |a: &Path, b: &Path| {
+                    if link_works_as_on_exfat {
+                        no_hard_links(a, b)
+                    } else {
+                        denied(a, b)
+                    }
+                },
+                rename_no_replace: |a: &Path, b: &Path| {
+                    tried_rename.set(true);
+                    denied(a, b)
+                },
+                copy_to_new_file: |_: &Path, _: &Path| {
+                    tried_copy.set(true);
+                    Ok(())
+                },
+            };
+            let outcome = publish_with(&temp, &fin, &mut Vec::new(), &operations);
+            assert!(outcome.is_err(), "{outcome:?}");
+            assert_eq!(tried_rename.get(), link_works_as_on_exfat);
+            assert!(!tried_copy.get());
+            assert!(!fin.exists());
+            assert!(!temp.exists());
+        }
+    }
+
+    /// The whole extraction, on a REAL drive of any kind: a folder named by
+    /// the `MEEDYADL_SUBTITLE_DRIVE_TEST_DIR` environment variable, for
+    /// example a FAT32 or exFAT disk image attached with `hdiutil` (stand-in
+    /// review of round 6, finding 1: on a Mac, an exFAT drive refuses both
+    /// hard links and the one-step no-replace rename, and the unit tests
+    /// above can only imitate that). Uses the fake ffprobe and ffmpeg, so
+    /// macOS only, and ignored by default. Run it with
+    /// `MEEDYADL_SUBTITLE_DRIVE_TEST_DIR=<folder> cargo test --lib
+    /// on_a_real_drive -- --ignored --nocapture`. It works in a new
+    /// sub-folder and deletes it afterwards.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    #[ignore] // Needs a folder on the drive to test, named by the variable.
+    async fn on_a_real_drive_subtitles_are_saved_and_never_replace_a_file() {
+        let base = PathBuf::from(
+            std::env::var("MEEDYADL_SUBTITLE_DRIVE_TEST_DIR")
+                .expect("set MEEDYADL_SUBTITLE_DRIVE_TEST_DIR to a folder on the drive to test"),
+        )
+        .join(format!("meedyadl-drive-test-{}", std::process::id()));
+        let fresh = |name: &str| {
+            let dir = base.join(name);
+            fs::create_dir_all(&dir).unwrap();
+            dir
+        };
+        // What a drive like this adds by itself (`._V.mp4` on FAT and exFAT
+        // on a Mac) is not ours and is left out of every listing.
+        let listing = |dir: &Path| -> Vec<String> {
+            folder_listing(dir)
+                .into_iter()
+                .filter(|n| !crate::utils::fs_safe::is_filesystem_sidecar(Path::new(n)))
+                .collect()
+        };
+        let tools = tempfile::tempdir().unwrap();
+        let ffprobe = fake_ffprobe(tools.path());
+        let ffmpeg = fake_ffmpeg(tools.path(), "ffmpeg", "1\nHello", 0);
+        let mut problems: Vec<String> = Vec::new();
+
+        // 1. An ordinary extraction saves the subtitle.
+        let dir = fresh("1-plain");
+        fs::write(dir.join("V.mp4"), "").unwrap();
+        let report = extract_subtitles_to_sidecars(&ffprobe, &ffmpeg, &dir.join("V.mp4")).await;
+        eprintln!("1 plain: {report:?} {:?}", listing(&dir));
+        if !matches!(&report, Ok(r) if r.written == 1 && r.notices.is_empty())
+            || fs::read_to_string(dir.join("V.en.srt")).ok().as_deref() != Some("1\nHello")
+            || listing(&dir) != ["V.en.srt", "V.mp4"]
+        {
+            problems.push(format!("1 plain: {report:?} {:?}", listing(&dir)));
+        }
+
+        // 2. A file already at the real name is never replaced, even when
+        //    the publish step is reached directly (no early check).
+        let dir = fresh("2-taken");
+        let taken = dir.join("V.en.srt");
+        fs::write(&taken, "mine").unwrap();
+        let temp = create_temp_sidecar_path(&dir, "srt").unwrap();
+        fs::write(&temp, "ours").unwrap();
+        let outcome = publish_extracted_subtitle(&temp, &taken, &mut Vec::new());
+        eprintln!("2 taken: {outcome:?} {:?}", listing(&dir));
+        if !matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_)))
+            || fs::read_to_string(&taken).unwrap() != "mine"
+            || listing(&dir) != ["V.en.srt"]
+        {
+            problems.push(format!("2 taken: {outcome:?} {:?}", listing(&dir)));
+        }
+
+        // 2b. The third step itself, on this drive, refuses a taken name
+        //     (on most drives the second step answers first, so this is the
+        //     only way to reach it with the name already taken).
+        let dir = fresh("2b-taken-copy");
+        let taken = dir.join("V.en.srt");
+        fs::write(&taken, "mine").unwrap();
+        let temp = create_temp_sidecar_path(&dir, "srt").unwrap();
+        fs::write(&temp, "ours").unwrap();
+        let outcome = publish_with(
+            &temp,
+            &taken,
+            &mut Vec::new(),
+            &real_operations_as_on_mac_exfat(),
+        );
+        eprintln!("2b taken, third step: {outcome:?} {:?}", listing(&dir));
+        if !matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_)))
+            || fs::read_to_string(&taken).unwrap() != "mine"
+            || listing(&dir) != ["V.en.srt"]
+        {
+            problems.push(format!("2b taken copy: {outcome:?} {:?}", listing(&dir)));
+        }
+
+        // 3. A 240-character video name, and 4. odd characters.
+        for (case, stem) in [
+            ("3-long", "a".repeat(240)),
+            ("4-odd", "V ; $(x) 'q' é [E] #%".to_string()),
+        ] {
+            let dir = fresh(case);
+            let video = dir.join(format!("{stem}.mp4"));
+            fs::write(&video, "").unwrap();
+            let report = extract_subtitles_to_sidecars(&ffprobe, &ffmpeg, &video).await;
+            eprintln!(
+                "{case}: {:?}",
+                report.as_ref().map(|r| (r.written, &r.notices))
+            );
+            if !matches!(&report, Ok(r) if r.written == 1 && r.notices.is_empty()) {
+                problems.push(format!("{case}: {report:?} {:?}", listing(&dir)));
+            }
+        }
+
+        // 5. Forty rounds of two extractions publishing to one name at the
+        //    same moment, with the real publish step: exactly one winner,
+        //    the winner's text in place, and no temporary file left.
+        let dir = fresh("5-race");
+        let mut outcomes_seen = std::collections::BTreeMap::new();
+        for round in 0..40 {
+            let fin = dir.join(format!("R{round}.en.srt"));
+            let temps: Vec<PathBuf> = (0..2)
+                .map(|i| {
+                    let temp = create_temp_sidecar_path(&dir, "srt").unwrap();
+                    fs::write(&temp, format!("writer {i}")).unwrap();
+                    temp
+                })
+                .collect();
+            let barrier = std::sync::Barrier::new(2);
+            let outs: Vec<_> = std::thread::scope(|scope| {
+                let handles: Vec<_> = temps
+                    .iter()
+                    .map(|temp| {
+                        let (barrier, fin) = (&barrier, &fin);
+                        scope.spawn(move || {
+                            barrier.wait();
+                            publish_extracted_subtitle(temp, fin, &mut Vec::new())
+                        })
+                    })
+                    .collect();
+                handles.into_iter().map(|h| h.join().unwrap()).collect()
+            });
+            let kinds: Vec<&str> = outs
+                .iter()
+                .map(|o| match o {
+                    Ok(ExtractOutcome::Written(_)) => "written",
+                    Ok(ExtractOutcome::AlreadyThere(_)) => "already there",
+                    Err(_) => "refused",
+                })
+                .collect();
+            *outcomes_seen.entry(kinds.join(" + ")).or_insert(0) += 1;
+            let winners: Vec<usize> = (0..2).filter(|&i| kinds[i] == "written").collect();
+            if winners.len() != 1
+                || fs::read_to_string(&fin).ok() != Some(format!("writer {}", winners[0]))
+                || temps.iter().any(|t| t.exists())
+            {
+                problems.push(format!("5 race, round {round}: {outs:?}"));
+            }
+        }
+        eprintln!("5 race: {outcomes_seen:?}");
+        if listing(&dir).iter().any(|n| n.starts_with(TEMP_PREFIX)) {
+            problems.push(format!("5 race: leftovers {:?}", listing(&dir)));
+        }
+
+        // Tidy up. On an exFAT drive a Mac can still be writing its `._`
+        // side files while the folder is deleted, which then fails with
+        // "Directory not empty"; a second try clears it. A folder that
+        // still cannot be deleted is reported, not counted as a failure:
+        // this test is about the subtitles, not about tidying up.
+        let tidied = (0..5).any(|_| fs::remove_dir_all(&base).is_ok() || !base.exists());
+        if !tidied {
+            eprintln!("could not delete the test folder {}", base.display());
+        }
+        assert!(problems.is_empty(), "{problems:#?}");
     }
 
     #[test]
