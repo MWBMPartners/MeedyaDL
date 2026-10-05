@@ -77,6 +77,15 @@ commit (`--new`) and the branch to check (`--target`), the answer is
      `[workspace.dependencies]` entry to be in the same file on both sides;
      if that table is in another Cargo.toml (a workspace member) the
      inherited settings cannot be checked, which means "needs the fix".
+     When the fix changes a Cargo.toml, the target's whole `[features]`
+     table and its `edition` and `resolver` settings (under `[package]`,
+     `[workspace]` and `[workspace.package]`) must also be identical to the
+     fix's. Features can switch on other features, which switch on a
+     dependency's features (`default = ["legacy"]`, `legacy =
+     ["foo/risky"]`), and the edition and resolver decide how Cargo merges
+     the features asked for by normal, test and build dependencies; this
+     check does not try to work out either, so any difference is "needs the
+     fix" (Codex's catch-up review of #1275; issue #1312).
      Anything else the fix changed in a manifest — a build setting, a
      script, a feature list, anything outside the dependency tables — means
      "needs the fix", and so does a manifest that cannot be read, parsed, or
@@ -744,16 +753,16 @@ def show_value(value) -> str:
 def compare_manifest(path: str, old: str | None, new: str | None, target: str | None) -> tuple[bool, list[str]]:
     """Does the target say exactly what the fix's manifest says about every
     package the fix touched — and did the fix change nothing else in it?"""
-    sides: list[tuple[dict, Mentions]] = []
+    sides: list[tuple[dict, dict, Mentions]] = []
     for side, text in (("before the fix", old), ("after the fix", new), ("on the target branch", target)):
         if text is None:
             return False, [f"{path}: the file could not be read {side} — cannot tell, so treating it as needing the fix"]
         try:
             doc = parse_manifest(path, text)
-            sides.append((split_manifest(path, doc)[1], manifest_mentions(path, doc)))
+            sides.append((doc, split_manifest(path, doc)[1], manifest_mentions(path, doc)))
         except (ValueError, ManifestError) as error:  # json and tomllib errors are ValueErrors
             return False, [f"{path}: the file {side} could not be parsed or understood ({error}) — cannot tell, so treating it as needing the fix"]
-    (old_rest, old_mentions), (new_rest, new_mentions), (_, target_mentions) = sides
+    (_, old_rest, old_mentions), (new_doc, new_rest, new_mentions), (target_doc, _, target_mentions) = sides
 
     fixed = True
     details: list[str] = []
@@ -820,9 +829,70 @@ def compare_manifest(path: str, old: str | None, new: str | None, target: str | 
             "treating it as needing the fix"
         )
 
+    if Path(path).name == "Cargo.toml":
+        for what, want, have in cargo_whole_settings(new_doc, target_doc):
+            if want != have:
+                fixed = False
+                details.append(
+                    f"{path}: {what} differs: {show_value(want)} after the fix, {show_value(have)} on the target "
+                    "branch — needs the fix"
+                )
+
     if fixed and not changed:
         details.append(f"{path}: the fix changed only the file's layout, not what it says")
     return fixed, details
+
+
+def cargo_whole_settings(new_doc: dict, target_doc: dict) -> list[tuple[str, object, object]]:
+    """Settings of a Cargo.toml that must be identical on the target as a
+    whole, not package by package: (what, after the fix, on the target).
+
+    Why the whole [features] table: a feature can switch on another feature,
+    which switches on a dependency's feature (`default = ["legacy"]`,
+    `legacy = ["foo/risky"]`). Following that chain is Cargo's job, not this
+    check's; listing the mentions of `foo` missed a channel whose `default`
+    reached `foo/risky` through `legacy` (Codex's catch-up review of #1275).
+    So any difference in [features] at all means "needs the fix". It is
+    strict on purpose: an unrelated extra feature also counts.
+    Why `edition` and `resolver`: they decide how Cargo merges the features
+    asked for by normal, dev and build dependencies. With the old resolver
+    ("1", the default before edition 2021) a feature the fix kept only for
+    tests is still built into the shipped crate (issue #1312). They are read
+    from [package] and [workspace] (and the edition from [workspace.package],
+    which members can inherit). A missing value counts as a value, so
+    "missing on one side only" is a difference."""
+
+    def dig(doc: dict, *keys: str):
+        value = doc
+        for key in keys:
+            if not isinstance(value, dict) or key not in value:
+                return MISSING_SETTING
+            value = value[key]
+        return value
+
+    return [
+        (what, dig(new_doc, *keys), dig(target_doc, *keys))
+        for what, keys in (
+            ("[features]", ("features",)),
+            ("[package] edition", ("package", "edition")),
+            ("[package] resolver", ("package", "resolver")),
+            ("[workspace] resolver", ("workspace", "resolver")),
+            ("[workspace.package] edition", ("workspace", "package", "edition")),
+        )
+    ]
+
+
+class _NotSet:
+    """A setting that is not there: equal only to itself (a real value from
+    a parsed file can never equal it), and shown as "(not set)"."""
+
+    def __repr__(self) -> str:
+        return "(not set)"
+
+    __str__ = __repr__
+
+
+MISSING_SETTING = _NotSet()
 
 
 def main() -> int:

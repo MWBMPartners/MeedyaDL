@@ -941,6 +941,70 @@ class ManifestsComparedAsData(HelperTestCase):
         )
         self.assertVerdict(NEEDS, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
 
+    # --- Cargo's feature graph, edition and resolver (catch-up review) -------
+
+    @staticmethod
+    def package_table(extra: str = "") -> str:
+        return '[package]\nname = "demo"\nversion = "1.0.0"\nedition = "2021"\n' + extra + "\n"
+
+    def test_a_feature_chain_on_the_channel_still_enables_it_codex_catch_up_review(self) -> None:
+        # Codex's case: both sides keep `legacy = ["foo/risky"]`, but only
+        # the channel turns `legacy` on by default. Cargo follows the chain
+        # default -> legacy -> foo/risky, so the channel still builds foo
+        # with `risky`. Per-package mentions alone cannot see that.
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n\n[features]\ndefault = []\nlegacy = ["foo/risky"]\n',
+            '[dependencies]\nfoo = { version = "1", features = [] }\n\n[features]\ndefault = []\nlegacy = ["foo/risky"]\n',
+            cargo_manifest('[dependencies]\nfoo = { version = "1", features = [] }\n\n[features]\ndefault = ["legacy"]\nlegacy = ["foo/risky"]\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+        self.assertIn("[features]", self.last_output)
+
+    def test_a_different_resolver_on_the_channel_needs_the_fix_issue_1312(self) -> None:
+        # The fix drops `risky` from the shipped dependency but keeps it for
+        # tests. With the old resolver ("1") Cargo merges the two, so the
+        # shipped crate is still built with `risky` on such a channel.
+        before = '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n\n[dev-dependencies]\nfoo = { version = "1", features = ["risky"] }\n'
+        after = '[dependencies]\nfoo = { version = "1", features = [] }\n\n[dev-dependencies]\nfoo = { version = "1", features = ["risky"] }\n'
+        old, new = self.fix(
+            {CARGO_MANIFEST: self.package_table() + before, CARGO_LOCK: LOCK_BEFORE},
+            {CARGO_MANIFEST: self.package_table() + after, CARGO_LOCK: LOCK_AFTER},
+        )
+        target = self.branch({CARGO_MANIFEST: self.package_table('resolver = "1"') + after, CARGO_LOCK: LOCK_AFTER})
+        self.assertVerdict(NEEDS, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
+        self.assertIn("resolver", self.last_output)
+
+    def test_a_different_edition_on_the_channel_needs_the_fix(self) -> None:
+        after = '[dependencies]\nfoo = { version = "1.2" }\n'
+        old, new = self.fix(
+            {CARGO_MANIFEST: self.package_table() + '[dependencies]\nfoo = { version = "1.1" }\n', CARGO_LOCK: LOCK_BEFORE},
+            {CARGO_MANIFEST: self.package_table() + after, CARGO_LOCK: LOCK_AFTER},
+        )
+        channel = self.package_table().replace('edition = "2021"', 'edition = "2018"') + after
+        target = self.branch({CARGO_MANIFEST: channel, CARGO_LOCK: LOCK_AFTER})
+        self.assertVerdict(NEEDS, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
+
+    def test_any_difference_in_the_features_table_needs_the_fix(self) -> None:
+        # Deliberately strict: an extra feature that has nothing to do with
+        # the fix still means "needs the fix". Working out which features
+        # can reach which dependency is exactly what this check does not try.
+        after = '[dependencies]\nfoo = { version = "1", features = [] }\n\n[features]\nstd = []\n'
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n\n[features]\nstd = []\n',
+            after,
+            cargo_manifest(after + 'extra = []\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_matching_features_edition_and_resolver_is_already_fixed(self) -> None:
+        after = '[dependencies]\nfoo = { version = "1", features = [] }\n\n[features]\ndefault = ["legacy"]\nlegacy = ["foo/std"]\n'
+        old, new = self.fix(
+            {CARGO_MANIFEST: self.package_table('resolver = "2"') + after.replace("features = []", 'features = ["risky"]'), CARGO_LOCK: LOCK_BEFORE},
+            {CARGO_MANIFEST: self.package_table('resolver = "2"') + after, CARGO_LOCK: LOCK_AFTER},
+        )
+        target = self.branch({CARGO_MANIFEST: self.package_table('resolver = "2"') + after, CARGO_LOCK: LOCK_AFTER})
+        self.assertVerdict(FIXED, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
+
     def test_npm_nested_override_must_match_exactly(self) -> None:
         # The fix pins `bar` inside `foo`'s override. The channel has that
         # pin under a different package's override, and not under `foo`.
