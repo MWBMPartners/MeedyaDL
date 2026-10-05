@@ -119,17 +119,6 @@ WHAT THIS CANNOT KNOW
     lockfileVersion 2 or 3) and `Cargo.lock`. Any other named lockfile the
     fix changed is "cannot tell".
 
-THE NARROWER MODE THE WORKFLOW'S GATE USES
-------------------------------------------
-`--lockfile-changes-only` answers a different question: "are this commit's
-lockfile changes all contained in that commit?" The gate uses it to check
-that a combining pull request really carries the Dependabot fix its
-description names (fix = the Dependabot pull request's own commit, target
-= the combining pull request's merge commit). In this mode files other than
-the named lockfiles are ignored, because that pull request's other files are
-checked separately, and `--manifest` is refused. The workflow's
-"already fixed" shortcut never uses this mode.
-
 HOW THE FILES ARE READ
 ----------------------
   - `package-lock.json` is real JSON, read with the standard `json` module.
@@ -669,15 +658,8 @@ def main() -> int:
         metavar="PATH",
         help="A dependency manifest (package.json or Cargo.toml) the fix may also change (repeatable). Every dependency entry it changed must match on the target.",
     )
-    parser.add_argument(
-        "--lockfile-changes-only",
-        action="store_true",
-        help="Only ask whether the named lockfiles' changes are on the target; ignore every other file. Not for the forward-port shortcut.",
-    )
     parser.add_argument("lockfiles", nargs="+", help="Repo-relative lockfile paths to check")
     args = parser.parse_args()
-    if args.lockfile_changes_only and args.manifest:
-        parser.error("--lockfile-changes-only ignores every file but the lockfiles, so --manifest cannot be used with it")
 
     repo_root = Path(args.repo_root)
     all_fixed = True
@@ -690,26 +672,25 @@ def main() -> int:
         print("DETAIL: git could not list the files the fix commit changed — cannot tell, so treating it as needing the fix")
         return 1
 
-    if not args.lockfile_changes_only:
-        allowed = set(args.lockfiles) | set(args.manifest)
-        others = [f for f in files if f not in allowed]
-        if others:
-            all_fixed = False
-            details.append(
-                f"the fix also changed {len(others)} file(s) that are not a lockfile or a named dependency manifest, "
-                "and this check cannot see whether the target branch has those changes — needs the fix: " + ", ".join(others)
-            )
-        for path in args.manifest:
-            if path not in files:
-                continue
-            fixed, lines = compare_manifest(
-                path,
-                git_show(repo_root, args.old, path),
-                git_show(repo_root, args.new, path),
-                git_show(repo_root, args.target, path),
-            )
-            all_fixed = all_fixed and fixed
-            details.extend(lines)
+    allowed = set(args.lockfiles) | set(args.manifest)
+    others = [f for f in files if f not in allowed]
+    if others:
+        all_fixed = False
+        details.append(
+            f"the fix also changed {len(others)} file(s) that are not a lockfile or a named dependency manifest, "
+            "and this check cannot see whether the target branch has those changes — needs the fix: " + ", ".join(others)
+        )
+    for path in args.manifest:
+        if path not in files:
+            continue
+        fixed, lines = compare_manifest(
+            path,
+            git_show(repo_root, args.old, path),
+            git_show(repo_root, args.new, path),
+            git_show(repo_root, args.target, path),
+        )
+        all_fixed = all_fixed and fixed
+        details.extend(lines)
 
     for path in args.lockfiles:
         if path not in files:

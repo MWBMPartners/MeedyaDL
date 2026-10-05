@@ -10,8 +10,13 @@ workflow's REAL shell scripts.
 WHAT IS TESTED
 --------------
   - The `gate` job's "decide" step, which reads a merged pull request from
-    GitHub and decides whether it is a security fix to copy onto the
-    `alpha`, `beta` and `release-candidate` branches.
+    GitHub and decides whether to copy it onto the `alpha`, `beta` and
+    `release-candidate` branches: Dependabot's own (not a routine grouped
+    update), anything with the `security` label, or anything run by hand —
+    never release-please, and never on the strength of a description.
+  - The `flag-unported-lockfile-change` job's comment step: the notice that
+    names any Dependabot pull request a description mentions, gives the two
+    commands that forward it, and is posted even when its lookups fail.
   - The `forward-port` job's cherry-pick step, to show that its "already
     has it" shortcut never skips a change it did not check.
 
@@ -394,9 +399,13 @@ GATE_OUTPUT_KEYS = {
 
 
 class GateDecides(WorkflowTestCase):
-    """The gate's decision for each kind of merged pull request. The made-up
-    repository is built once for the whole class: the gate only reads from
-    it (a fetch writes nothing but FETCH_HEAD in the checkout)."""
+    """The gate's decision for each kind of merged pull request.
+
+    The gate no longer reads git or a pull request's description, but the
+    made-up repository is kept: it lets the tests below show that pull
+    requests which DO carry a named Dependabot fix are still not forwarded
+    on the strength of their description. Built once for the whole class,
+    because nothing writes to it."""
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -421,7 +430,8 @@ class GateDecides(WorkflowTestCase):
         cls.dependabot_42 = o.commit("refs/pull/42/head", base, foo_fix, "bump foo from 1.0.1 to 1.0.3")
         # A Dependabot pull request merged as-is.
         cls.merged_dependabot = o.commit("refs/heads/merged-dependabot", base, foo_fix)
-        # A person's pull request combining #42 with another bump.
+        # A person's pull request combining #42 with another bump: it really
+        # does carry #42's fix.
         cls.combined = o.commit(
             "refs/heads/combined",
             base,
@@ -430,22 +440,28 @@ class GateDecides(WorkflowTestCase):
                 "package-lock.json": npm_lock({"node_modules/foo": "1.0.3", "node_modules/bar": "2.0.5"}),
             },
         )
-        # A person's pull request that carries #42's bump AND changes code.
-        cls.combined_with_code = o.commit(
-            "refs/heads/combined-with-code",
-            base,
-            {**foo_fix, "src/app.ts": "export const answer = 43;\n"},
+        # Codex's second review, finding 5: main already got foo 1.0.3 from an
+        # independent update, Dependabot's equivalent #43 was closed unmerged,
+        # and a later pull request that only bumps bar mentions #43.
+        old_main = o.commit(
+            "refs/heads/old-main",
+            None,
+            {"package.json": package_json(BASE_OVERRIDES), "package-lock.json": npm_lock(BASE_PACKAGES)},
+            "main before the independent update",
         )
-        # A person's code change whose description happens to mention #42.
-        cls.code_change = o.commit("refs/heads/code-change", base, {"src/app.ts": "export const answer = 42;\n"})
-        # A person's dependency change that does NOT include #42's bump.
+        landed = o.commit("refs/heads/landed", old_main, foo_fix, "an independent update lands foo 1.0.3")
+        cls.dependabot_43 = o.commit("refs/pull/43/head", old_main, foo_fix, "dependabot: bump foo to 1.0.3")
+        cls.bar_only = o.commit(
+            "refs/heads/bar-only",
+            landed,
+            {"package-lock.json": npm_lock({"node_modules/foo": "1.0.3", "node_modules/bar": "2.0.5"})},
+            "bump bar only",
+        )
+        # A person's ordinary change to a lockfile.
         cls.other_bump = o.commit(
             "refs/heads/other-bump",
             base,
-            {
-                "package.json": package_json([("bar", "^2.0.5"), ("foo", "^1.0.1")]),
-                "package-lock.json": npm_lock({"node_modules/foo": "1.0.1", "node_modules/bar": "2.0.5"}),
-            },
+            {"package-lock.json": npm_lock({"node_modules/foo": "1.0.1", "node_modules/bar": "2.0.5"})},
         )
         # A release-please version bump.
         cls.release = o.commit(
@@ -454,7 +470,9 @@ class GateDecides(WorkflowTestCase):
             {"package.json": package_json(BASE_OVERRIDES, version="1.1.0"), "CHANGELOG.md": "## 1.1.0\n"},
         )
         o.clone()
-        cls.gate = extract_step(WORKFLOW.read_text(encoding="utf-8"), "gate", step_id="decide")
+        workflow_text = WORKFLOW.read_text(encoding="utf-8")
+        cls.gate = extract_step(workflow_text, "gate", step_id="decide")
+        cls.notice = extract_step(workflow_text, "flag-unported-lockfile-change", name_prefix="Comment on the PR")
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -476,9 +494,8 @@ class GateDecides(WorkflowTestCase):
             "files": [{"path": path} for path in files],
         }
 
-    def dependabot_42_pr(self, *, state: str = "CLOSED", author: str = "app/dependabot",
-                         head: str = "dependabot/npm_and_yarn/foo-1.0.3") -> dict:
-        return self.pr(42, author=author, head=head, merge_sha=None, state=state)
+    def dependabot_pr(self, number: int = 42, *, author: str = "app/dependabot") -> dict:
+        return self.pr(number, author=author, head="dependabot/npm_and_yarn/foo-1.0.3", merge_sha=None, state="CLOSED")
 
     def decide(self, merged: dict, *others: dict, event: str = "push") -> dict[str, str]:
         """Run the gate for `merged` (pushed to main, or named by hand) and
@@ -514,6 +531,7 @@ class GateDecides(WorkflowTestCase):
         if outputs["proceed"] == "true":
             self.assertEqual(GATE_OUTPUT_KEYS - set(outputs), set(), "the gate left outputs unset" + shown)
         self.shown = shown
+        self.gate_calls = calls
         return outputs
 
     def assertForwarded(self, outputs: dict[str, str]) -> None:
@@ -522,6 +540,41 @@ class GateDecides(WorkflowTestCase):
 
     def assertNotForwarded(self, outputs: dict[str, str]) -> None:
         self.assertNotEqual(outputs.get("should_forward_port"), "true", self.shown)
+
+    def assertNoticeJobRuns(self, outputs: dict[str, str]) -> None:
+        """The conditions in the notice job's `if:`, for a push event."""
+        self.assertEqual(
+            (outputs.get("proceed"), outputs.get("should_forward_port"), outputs.get("touched_lockfile"),
+             outputs.get("is_release_please"), outputs.get("is_routine_grouped")),
+            ("true", "false", "true", "false", "false"),
+            "the notice job would not run for this pull request" + self.shown,
+        )
+
+    def post_notice(self, outputs: dict[str, str], gh_data: dict) -> tuple[subprocess.CompletedProcess, str | None]:
+        """Run the notice job's step with the gate's outputs; return the
+        finished process and the body of the comment it posted (None if it
+        posted none)."""
+        env = {
+            "GH_TOKEN": "fake-token",
+            "REPO": REPO,
+            "PR_NUMBER": outputs["pr_number"],
+            "MERGE_SHA": outputs["merge_sha"],
+            "REASON": outputs["forward_port_reason"],
+        }
+        done, calls, _ = self.run_step(self.notice, env, gh_data)
+        self.shown += f"\n--- notice step ---\nexit code: {done.returncode}\nstdout:\n{done.stdout}\nstderr:\n{done.stderr}\ngh calls: {calls}"
+        self.assertEqual(done.returncode, 0, "the notice step failed" + self.shown)
+        comments = [c for c in calls if c[:2] == ["pr", "comment"]]
+        self.assertLessEqual(len(comments), 1, self.shown)
+        if not comments:
+            return done, None
+        self.assertEqual(comments[0][2], outputs["pr_number"], self.shown)
+        return done, comments[0][comments[0].index("--body") + 1]
+
+    def assertCarriesInstructions(self, body: str | None, pr_number: str) -> None:
+        self.assertIsNotNone(body, "no notice was posted" + self.shown)
+        self.assertIn(f"gh pr edit {pr_number} --add-label security", body, self.shown)
+        self.assertIn(f"gh workflow run forward-port-security.yml -f pr_number={pr_number}", body, self.shown)
 
     # --- Dependabot's own pull requests ------------------------------------
 
@@ -541,6 +594,24 @@ class GateDecides(WorkflowTestCase):
         self.assertNotForwarded(outputs)
         self.assertEqual(outputs.get("is_routine_grouped"), "true", self.shown)
 
+    # --- a person's say-so: the label, or a manual run ----------------------
+
+    def test_security_label_forwards(self) -> None:
+        merged = self.pr(67, author="a-maintainer", head="chore/deps", merge_sha=self.combined, labels=("security",))
+        self.assertForwarded(self.decide(merged))
+
+    def test_manual_run_forwards(self) -> None:
+        merged = self.pr(68, author="a-maintainer", head="chore/deps", merge_sha=self.combined)
+        self.assertForwarded(self.decide(merged, event="workflow_dispatch"))
+
+    def test_label_or_manual_run_forwards_even_a_grouped_update(self) -> None:
+        # Decision B: a person choosing to forward is never second-guessed.
+        grouped = "dependabot/npm_and_yarn/main/npm-minor-patch-a4f3a99ccc"
+        labelled = self.pr(69, author="app/dependabot", head=grouped, merge_sha=self.merged_dependabot, labels=("security",))
+        self.assertForwarded(self.decide(labelled))
+        unlabelled = self.pr(69, author="app/dependabot", head=grouped, merge_sha=self.merged_dependabot)
+        self.assertForwarded(self.decide(unlabelled, event="workflow_dispatch"))
+
     # --- release-please ------------------------------------------------------
 
     def test_release_please_pr_naming_a_dependabot_fix_is_not_forwarded_codex_finding_5(self) -> None:
@@ -552,11 +623,11 @@ class GateDecides(WorkflowTestCase):
             body="Release 1.1.0. Includes the fix from #42.",
             files=("package.json", "CHANGELOG.md"),
         )
-        outputs = self.decide(merged, self.dependabot_42_pr())
+        outputs = self.decide(merged, self.dependabot_pr())
         self.assertNotForwarded(outputs)
         self.assertEqual(outputs.get("is_release_please"), "true", self.shown)
 
-    def test_release_please_pr_is_not_forwarded_whatever_else_qualifies_it(self) -> None:
+    def test_release_please_pr_is_never_forwarded_whatever_else_qualifies_it(self) -> None:
         merged = self.pr(
             71,
             author="app/github-actions",
@@ -569,80 +640,70 @@ class GateDecides(WorkflowTestCase):
         # ...including when someone runs the workflow by hand against it.
         self.assertNotForwarded(self.decide(merged, event="workflow_dispatch"))
 
-    # --- the "body names a Dependabot fix it superseded" path ---------------
+    # --- a description is never enough on its own ---------------------------
 
-    def test_contributor_pr_mentioning_an_unrelated_dependabot_pr_is_not_forwarded_codex_finding_4(self) -> None:
-        merged = self.pr(
-            80,
-            author="a-contributor",
-            head="feature/answer",
-            merge_sha=self.code_change,
-            body="See #42 for an unrelated dependency fix.",
-            files=("src/app.ts",),
-        )
-        self.assertNotForwarded(self.decide(merged, self.dependabot_42_pr()))
-
-    def test_dependency_pr_that_does_not_carry_the_named_fix_is_not_forwarded(self) -> None:
-        merged = self.pr(
-            81,
-            author="a-contributor",
-            head="chore/bump-bar",
-            merge_sha=self.other_bump,
-            body="Bumps bar. Supersedes #42.",
-            files=("package.json", "package-lock.json"),
-        )
-        self.assertNotForwarded(self.decide(merged, self.dependabot_42_pr()))
-
-    def test_combining_pr_that_carries_the_named_dependabot_fix_is_forwarded(self) -> None:
+    def test_pr_whose_description_names_a_dependabot_pr_is_not_forwarded_but_the_notice_says_how(self) -> None:
+        # This pull request genuinely carries #42's fix, and says so. It is
+        # still not forwarded on the strength of its description; instead
+        # the notice names #42 and gives the two commands that forward it.
         merged = self.pr(
             82,
             author="a-maintainer",
             head="chore/consolidate-deps-main",
             merge_sha=self.combined,
-            body="Supersedes and closes: #42, #43",
+            body="Supersedes and closes: #42, #43, #44",
             files=("package.json", "package-lock.json"),
         )
-        # #43 is an issue, not a pull request: it must simply be passed over.
-        outputs = self.decide(merged, self.dependabot_42_pr())
-        self.assertForwarded(outputs)
-        self.assertIn("#42", outputs.get("forward_port_reason", ""), self.shown)
-
-    def test_pr_carrying_the_named_fix_plus_a_code_change_is_not_forwarded(self) -> None:
-        # The forward-port copies the whole merge commit, so the code change
-        # would ride along on the strength of Dependabot's fix.
-        merged = self.pr(
-            86,
-            author="a-contributor",
-            head="feature/answer-and-deps",
-            merge_sha=self.combined_with_code,
-            body="Supersedes #42.",
-            files=("package.json", "package-lock.json", "src/app.ts"),
+        someone_else = self.pr(44, author="a-contributor", head="feature/x", merge_sha=None, state="CLOSED")
+        outputs = self.decide(merged, self.dependabot_pr(42), someone_else)
+        self.assertNotForwarded(outputs)
+        # The gate did not even look the named pull requests up.
+        self.assertEqual([c for c in self.gate_calls if c[:3] in (["pr", "view", "42"], ["pr", "view", "44"])], [], self.shown)
+        self.assertNoticeJobRuns(outputs)
+        # #43 is not a pull request at all (the fake gh does not know it),
+        # #44 is not Dependabot's: neither is named in the notice.
+        _, body = self.post_notice(
+            outputs,
+            {"prs": {"82": merged, "42": self.dependabot_pr(42), "44": someone_else}, "api": {f"repos/{REPO}/issues/82/comments": []}},
         )
-        self.assertNotForwarded(self.decide(merged, self.dependabot_42_pr()))
+        self.assertCarriesInstructions(body, "82")
+        self.assertIn("#42", body, self.shown)
+        self.assertNotIn("#43", body, self.shown)
+        self.assertNotIn("#44", body, self.shown)
 
-    def test_combining_pr_naming_a_merged_dependabot_pr_is_not_forwarded(self) -> None:
-        # A Dependabot pull request that was itself merged is not one this PR
-        # superseded; if it was a security fix it was forwarded on its own.
-        merged = self.pr(
-            83, author="a-maintainer", head="chore/deps", merge_sha=self.combined, body="Follows #42.",
-            files=("package.json", "package-lock.json"),
+    def test_notice_names_a_dependabot_pr_under_the_rest_spelling_too(self) -> None:
+        merged = self.pr(83, author="a-maintainer", head="chore/deps", merge_sha=self.combined, body="Closes #45.")
+        outputs = self.decide(merged)
+        dependabot_rest = self.dependabot_pr(45, author="dependabot[bot]")
+        _, body = self.post_notice(
+            outputs, {"prs": {"83": merged, "45": dependabot_rest}, "api": {f"repos/{REPO}/issues/83/comments": []}}
         )
-        self.assertNotForwarded(self.decide(merged, self.dependabot_42_pr(state="MERGED")))
+        self.assertCarriesInstructions(body, "83")
+        self.assertIn("#45", body, self.shown)
 
-    def test_combining_pr_naming_a_grouped_dependabot_update_is_not_forwarded(self) -> None:
+    def test_pr_mentioning_an_old_dependabot_fix_is_not_forwarded_codex_review_2_finding_5(self) -> None:
+        # Its tree "contains" #43's fix only because main already had it.
         merged = self.pr(
-            84, author="a-maintainer", head="chore/deps", merge_sha=self.combined, body="Supersedes #42.",
-            files=("package.json", "package-lock.json"),
+            87, author="a-contributor", head="chore/bump-bar", merge_sha=self.bar_only, body="Bumps bar. See #43."
         )
-        grouped = self.dependabot_42_pr(head="dependabot/npm_and_yarn/main/npm-minor-patch-0123456789")
-        self.assertNotForwarded(self.decide(merged, grouped))
+        self.assertNotForwarded(self.decide(merged, self.dependabot_pr(43)))
 
-    def test_combining_pr_naming_a_non_dependabot_pr_is_not_forwarded(self) -> None:
-        merged = self.pr(
-            85, author="a-maintainer", head="chore/deps", merge_sha=self.combined, body="Supersedes #42.",
-            files=("package.json", "package-lock.json"),
-        )
-        self.assertNotForwarded(self.decide(merged, self.dependabot_42_pr(author="someone-else")))
+    def test_notice_is_posted_even_when_every_lookup_fails(self) -> None:
+        merged = self.pr(84, author="a-contributor", head="chore/deps", merge_sha=self.other_bump, body="See #42.")
+        outputs = self.decide(merged, self.dependabot_pr(42))
+        self.assertNoticeJobRuns(outputs)
+        # The fake gh now knows nothing: the "already posted?" check, the
+        # description and #42 all fail to look up.
+        _, body = self.post_notice(outputs, {"prs": {}, "api": {}})
+        self.assertCarriesInstructions(body, "84")
+        self.assertIn("could not read the pull request's description", body, self.shown)
+
+    def test_notice_is_not_posted_twice(self) -> None:
+        merged = self.pr(85, author="a-contributor", head="chore/deps", merge_sha=self.other_bump)
+        outputs = self.decide(merged)
+        earlier = {"body": "<!-- forward-port-security: not-forward-ported notice -->\nearlier notice"}
+        _, body = self.post_notice(outputs, {"prs": {"85": merged}, "api": {f"repos/{REPO}/issues/85/comments": [earlier]}})
+        self.assertIsNone(body, self.shown)
 
     # --- pull requests the gate must not act on at all ----------------------
 

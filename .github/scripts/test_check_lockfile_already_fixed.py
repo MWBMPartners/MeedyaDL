@@ -692,56 +692,6 @@ class ShortcutOnlySkipsWhatItChecked(HelperTestCase):
         target = self.branch({NPM_LOCK: npm_lock({"node_modules/undici": "7.30.0"})})
         self.assertVerdict(NEEDS, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
 
-    def test_lockfile_changes_only_mode_ignores_other_files(self) -> None:
-        # This mode answers a narrower question for the workflow's gate: "are
-        # this fix's lockfile changes contained in that commit?" Other files
-        # are deliberately out of scope there.
-        old, new = self.fix(
-            {
-                NPM_MANIFEST: package_json([("undici", "^7.29.0")]),
-                NPM_LOCK: npm_lock({"node_modules/undici": "7.29.0"}),
-                "src/app.ts": "export const x = 1;\n",
-            },
-            {
-                NPM_MANIFEST: package_json([("undici", "^7.30.0")]),
-                NPM_LOCK: npm_lock({"node_modules/undici": "7.30.0"}),
-                "src/app.ts": "export const x = 2;\n",
-            },
-        )
-        target = self.branch({NPM_LOCK: npm_lock({"node_modules/undici": "7.31.0"})})
-        self.assertVerdict(FIXED, old, new, target, NPM_LOCK, CARGO_LOCK, options=("--lockfile-changes-only",))
-
-    def test_lockfile_changes_only_mode_refuses_a_manifest(self) -> None:
-        # The two options contradict each other; refuse rather than pick one.
-        old, new = self.fix(
-            {NPM_LOCK: npm_lock({"node_modules/undici": "7.29.0"})},
-            {NPM_LOCK: npm_lock({"node_modules/undici": "7.30.0"})},
-        )
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(HELPER),
-                "--repo-root",
-                str(self.repo.path),
-                "--old",
-                old,
-                "--new",
-                new,
-                "--target",
-                new,
-                "--lockfile-changes-only",
-                "--manifest",
-                NPM_MANIFEST,
-                NPM_LOCK,
-            ],
-            capture_output=True,
-            text=True,
-            env=GIT_ENV,
-            check=False,
-        )
-        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertNotIn("RESULT=ALREADY_FIXED", result.stdout)
-
     def test_no_lockfile_change_needs_the_fix(self) -> None:
         old, new = self.fix(
             {NPM_MANIFEST: package_json([("undici", "^7.29.0")])},
