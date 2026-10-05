@@ -149,15 +149,12 @@ did not change.
   (`fs_safe::rename_no_replace`; FAT32 on a Mac); and where that is refused
   too (exFAT on a Mac, which refuses it whenever the name is free) a copy
   into a new file created only if the name is free, and on any failure
-  deleted again only if the name still refers to the file it made (its
-  creating handle, held open, compared with the name at that moment; a
-  file put there meanwhile is left and the person told; Codex's review of
-  rounds 6-7, finding 1) (`fs_safe::copy_to_new_file`; stand-in review of
-  round 6). Never a plain rename. That third step is not one operation: a
-  forced stop part-way through its copy can leave a partly written
-  subtitle under the real name, which later runs keep; and its clean-up's
-  check and deletion are two steps, so a file put there in the instant
-  between them would still be deleted. If it fails, no subtitle, and an
+  deleted again only if proved to be the file it made (the shared removal
+  below; Codex's review of rounds 6-7, finding 1)
+  (`fs_safe::copy_to_new_file`; stand-in review of round 6). Never a plain
+  rename. That third step is not one operation: a forced stop part-way
+  through its copy can leave a partly written subtitle under the real
+  name, which later runs keep. If it fails, no subtitle, and an
   activity-log message saying what to do. A forced stop
   can leave a temporary file. No run deletes one it did not make: round 7's
   clean-up (process not running here AND unchanged for an hour, or any
@@ -169,15 +166,21 @@ did not change.
   lyrics files in a folder (lyrics pairing, the lyrics count, the leftover
   report) skips names starting with `.meedyadl-partial-` through one check,
   `fs_safe::is_temporary_subtitle_file`; the pairing step once copied a
-  leftover next to a video called "1" as its lyrics. A run removes its own temporary file
-  only if the name refers to the file its creating handle (held open) is
-  on, both read at that moment (`fs_safe::check_name_against_handle`); not
-  a number stored at creation, because a Mac's FAT32 and exFAT drives
-  renumber a file once it is written to or renamed. Otherwise it leaves
-  and reports it. The
-  check and the removal are two steps, so a replacement made in the instant
-  between them would still be removed (Codex's review of rounds 6-7,
-  finding 2). Failed removals are reported. The fake ffmpeg
+  leftover next to a video called "1" as its lyrics. Deleting only what is
+  provably ours (`fs_safe::remove_if_still_ours`, for the run's temporary
+  file and the failed copy): a name is never deleted directly (check, then
+  delete by name, left a gap; Codex's review of round 8, finding 1). macOS
+  and Linux move the file to a private name
+  (`.meedyadl-partial-<pid>-<random>.discard`) with the no-replace rename,
+  compare it there with the held creating handle (both read at that
+  moment; a stored number fails on FAT32/exFAT, which renumber files), and
+  delete only the private name; not ours: put back, or if its name was
+  taken again, left aside and both names reported. Windows deletes through
+  a checked handle (compiled, not run). Not guaranteed: a program that
+  learns the private name in that moment; and a drive that cannot rename
+  without replacing gets nothing deleted -- exFAT on a Mac always refuses,
+  so there every temporary file (and a failed copy's partial subtitle) is
+  left and reported, never deleted by name. Failed removals are reported. The fake ffmpeg
   in the tests obeys `-y`/`-n` (ffmpeg 9.0.1 given `-n` refuses an existing
   output yet exits 0, which published an empty file). Windows/Linux branches
   type-checked, only run on macOS (Codex's catch-up review and round 5).

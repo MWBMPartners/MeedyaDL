@@ -422,9 +422,9 @@ fn report_leftover_temporaries(folder: &Path, notices: &mut Vec<String>) {
 
 /// A temporary subtitle file this run created, with what proves it is this
 /// run's own: the handle that created it, kept open until the file is
-/// removed or published. Before removing the file, the run checks that the
-/// name still refers to the file this handle is on
-/// (`fs_safe::check_name_against_handle`, which reads both at that moment).
+/// removed or published. Only a file proved to be the one this handle is on
+/// is ever deleted (`fs_safe::remove_if_still_ours`, which compares the two
+/// as read at that moment).
 ///
 /// Why the handle, and not a number stored at creation: the file's number
 /// is not fixed on every drive -- a Mac's FAT32 and exFAT drives renumber a
@@ -472,15 +472,11 @@ const TEMP_NAME_TRIES: u32 = 8;
 /// 240-character video name -- and every extraction of it failed. At most
 /// 49 characters now, whatever the video is called.
 fn create_temp_sidecar(parent: &Path, extension: &str) -> Result<OwnTemporary, String> {
-    use rand::RngCore;
     let pid = std::process::id();
     for _ in 0..TEMP_NAME_TRIES {
-        let mut random = [0u8; 8];
-        rand::rngs::OsRng.try_fill_bytes(&mut random).map_err(|e| {
-            format!("could not get a random temporary subtitle file name from the system: {e}")
-        })?;
-        let random = u64::from_le_bytes(random);
-        let candidate = parent.join(format!("{TEMP_PREFIX}{pid}-{random:016x}.{extension}"));
+        let random = crate::utils::fs_safe::random_name_part()
+            .map_err(|e| format!("could not make a temporary subtitle file name: {e}"))?;
+        let candidate = parent.join(format!("{TEMP_PREFIX}{pid}-{random}.{extension}"));
         match std::fs::OpenOptions::new()
             .read(true)
             .write(true)
@@ -508,74 +504,82 @@ fn create_temp_sidecar(parent: &Path, extension: &str) -> Result<OwnTemporary, S
     ))
 }
 
-/// Removes this run's own temporary file -- but only after checking that
-/// the name still refers to the file this run created (Codex's review of
-/// rounds 6-7, finding 2): the file at the name, and the file the creating
-/// handle is open on, both read at this moment
-/// (`fs_safe::check_name_against_handle`; see [`OwnTemporary`] for why not
-/// a number stored at creation).
+/// Removes this run's own temporary file -- but only a file proved to be the
+/// one this run created, never one that took its name, whenever that
+/// happened (`fs_safe::remove_if_still_ours`). On macOS and Linux the file is
+/// first moved aside to a private name and checked there; only the private
+/// name is ever deleted. Round 8 checked the temporary name and then
+/// deleted that name, two steps with a gap between them (Codex's review of
+/// round 8, finding 1). On Windows it is deleted through a handle that was
+/// checked.
 ///
-/// - The name is gone: nothing to do (it counts as removed).
-/// - Same file: removed. A removal that fails is REPORTED, never ignored
-///   (Codex's review of round 5, finding 4): in the log, and as a notice
-///   for the activity log naming the file so the person can delete it.
-/// - A different file, or one that cannot be checked: LEFT ALONE, and
-///   reported. It may be another run's work.
+/// - Proved to be this run's: deleted. A deletion that fails is REPORTED,
+///   never ignored (Codex's review of round 5, finding 4): in the log, and
+///   as a notice for the activity log naming the file so the person can
+///   delete it.
+/// - A different file, or one that cannot be checked: LEFT (put back where
+///   it was), and reported. It may be another run's work.
+/// - A drive that cannot move a file aside without the risk of replacing
+///   another (an exFAT drive on a Mac, always): nothing is moved or deleted;
+///   the temporary file is left where it is and reported. Never deleted by
+///   name instead.
+/// - Moved aside, not this run's, and its name taken again meanwhile: left
+///   under the private name, and both names reported.
 ///
-/// **What this still cannot do: be one step.** The check and the removal
-/// are two operations, and no system offers "delete this name only if it
-/// is still this file" as one. A file that replaces this one in the
-/// instant between them would still be removed. Holding the handle closes
-/// only the other gap, a number being reused.
+/// See `fs_safe::remove_if_still_ours` for what is still not guaranteed.
 fn remove_temporary(temp: OwnTemporary, notices: &mut Vec<String>) {
-    use crate::utils::fs_safe::{check_name_against_handle, NameCheck};
+    remove_temporary_with(temp, notices, &mut |_| {});
+}
+
+/// [`remove_temporary`], with `pause` passed to the removal (for tests).
+fn remove_temporary_with(
+    temp: OwnTemporary,
+    notices: &mut Vec<String>,
+    pause: &mut dyn FnMut(crate::utils::fs_safe::RemovalStep<'_>),
+) {
+    use crate::utils::fs_safe::{remove_if_still_ours_with, Removal};
     let OwnTemporary { path, handle } = temp;
-    match check_name_against_handle(&path, &handle) {
-        NameCheck::Gone => {}
-        NameCheck::SameFile => match std::fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-            Err(e) => {
-                log::warn!(
-                    "Could not remove the temporary subtitle file {}: {e}",
-                    path.display()
-                );
-                notices.push(format!(
-                    "Could not remove the temporary file {} ({e}). It is left over from \
-                     saving a subtitle and can be deleted.",
-                    path.display()
-                ));
-            }
-        },
-        NameCheck::OtherFile => {
-            log::warn!(
-                "Not removing {}: it is no longer the temporary subtitle file this run created",
-                path.display()
-            );
-            notices.push(format!(
-                "Left the file {} alone: it has the name of a temporary file MeedyaDL made \
-                 while saving a subtitle, but it is now a different file, which MeedyaDL did \
-                 not make.",
-                path.display()
-            ));
-        }
-        NameCheck::CannotTell(e) => {
-            log::warn!(
-                "Not removing {}: could not check that it is still the temporary subtitle \
-                 file this run created: {e}",
-                path.display()
-            );
-            notices.push(format!(
-                "Left the temporary file {} in place: MeedyaDL could not check that it is \
-                 still the file it made while saving a subtitle ({e}). It can be deleted once \
-                 no copy of MeedyaDL is saving subtitles in that folder.",
-                path.display()
-            ));
-        }
-    }
+    let outcome = remove_if_still_ours_with(&path, &handle, pause);
     // Only now: until here the open handle kept the file's number from
     // being given to another file.
     drop(handle);
+    let notice = match outcome {
+        Removal::Removed | Removal::AlreadyGone => return,
+        Removal::LeftOtherFile => format!(
+            "Left the file {} alone: it has the name of a temporary file MeedyaDL made \
+             while saving a subtitle, but it is now a different file, which MeedyaDL did \
+             not make.",
+            path.display()
+        ),
+        Removal::LeftUnchecked(e) => format!(
+            "Left the temporary file {} in place: MeedyaDL could not check that it is \
+             still the file it made while saving a subtitle ({e}). It can be deleted once \
+             no copy of MeedyaDL is saving subtitles in that folder.",
+            path.display()
+        ),
+        Removal::NotMovedAside(e) => format!(
+            "Left the temporary file {} in place: MeedyaDL deletes a temporary file only \
+             after moving it aside and checking it is still its own, and this drive would \
+             not let it be moved aside ({e}). It is left over from saving a subtitle and \
+             can be deleted once no copy of MeedyaDL is saving subtitles in that folder.",
+            path.display()
+        ),
+        Removal::LeftAside { aside, why } => format!(
+            "Moved the file {} aside to {} to delete it, but did not delete it: {why}. It \
+             is left as {}. Whatever is now at {} was not touched.",
+            path.display(),
+            aside.display(),
+            aside.display(),
+            path.display()
+        ),
+        Removal::DeleteFailed { at, error } => format!(
+            "Could not remove the temporary file {} ({error}). It is left over from saving \
+             a subtitle and can be deleted.",
+            at.display()
+        ),
+    };
+    log::warn!("{notice}");
+    notices.push(notice);
 }
 
 /// Publishes a finished temporary file under its real name WITHOUT ever
@@ -647,9 +651,11 @@ fn real_publish_operations(
 ///    (stand-in review of round 6, finding 1; checked on macOS 27). The
 ///    subtitle is copied into a NEW file under the real name
 ///    (`fs_safe::copy_to_new_file`): created only if no file has that name,
-///    filled, flushed, and on any failure deleted again if the name still
-///    refers to the file it made (a file put there meanwhile is left alone
-///    and the person told), so it too never replaces a file. Its limit,
+///    filled, flushed, and on any failure deleted again only if it is proved
+///    to be the file it made (`fs_safe::remove_if_still_ours`; a file put
+///    there meanwhile is left alone and the person told; on an exFAT drive
+///    on a Mac, which cannot move a file aside, it is left and the person
+///    told), so it too never replaces a file. Its limit,
 ///    which steps 1 and 2 do not have: a forced
 ///    stop (the app killed, the power lost) part-way through the copy
 ///    leaves a PARTLY written subtitle under the real name, and later runs
@@ -2002,10 +2008,15 @@ mod tests {
             hard_link: no_hard_links,
             rename_no_replace: no_rename_without_replacing,
             copy_to_new_file: |_: &Path, to: &Path| {
-                crate::utils::fs_safe::copy_to_new_file_with(folder.path(), to, |to| {
-                    fs::rename(to, to.with_file_name("moved away")).unwrap();
-                    fs::write(to, "somebody else's").unwrap();
-                })
+                crate::utils::fs_safe::copy_to_new_file_with(
+                    folder.path(),
+                    to,
+                    |to| {
+                        fs::rename(to, to.with_file_name("moved away")).unwrap();
+                        fs::write(to, "somebody else's").unwrap();
+                    },
+                    &mut |_| {},
+                )
             },
         };
         let mut notices = Vec::new();
@@ -2081,6 +2092,10 @@ mod tests {
     #[tokio::test]
     #[ignore] // Needs a folder on the drive to test, named by the variable.
     async fn on_a_real_drive_subtitles_are_saved_and_never_replace_a_file() {
+        use crate::utils::fs_safe::{
+            copy_to_new_file, copy_to_new_file_with, is_no_replace_rename_unsupported,
+            left_a_file_in_place, rename_no_replace, RemovalStep,
+        };
         let Ok(drive) = std::env::var("MEEDYADL_SUBTITLE_DRIVE_TEST_DIR") else {
             eprintln!(
                 "skipped: set MEEDYADL_SUBTITLE_DRIVE_TEST_DIR to a folder on the drive to test"
@@ -2101,6 +2116,48 @@ mod tests {
                 .filter(|n| !crate::utils::fs_safe::is_filesystem_sidecar(Path::new(n)))
                 .collect()
         };
+        // The listing without this app's temporary and private names.
+        let finished = |dir: &Path| -> Vec<String> {
+            listing(dir)
+                .into_iter()
+                .filter(|n| !n.starts_with(TEMP_PREFIX))
+                .collect()
+        };
+        let temporaries = |dir: &Path| -> Vec<String> {
+            listing(dir)
+                .into_iter()
+                .filter(|n| n.starts_with(TEMP_PREFIX))
+                .collect()
+        };
+        // Can this drive move a file aside -- rename it to a free name,
+        // refusing to replace? Files are deleted only after that (Codex's
+        // review of round 8, finding 1). An exFAT drive on a Mac cannot, so
+        // there nothing is deleted: each temporary file is left and
+        // reported.
+        let probe = fresh("0-probe");
+        fs::write(probe.join("a"), "").unwrap();
+        let moves_aside = match rename_no_replace(&probe.join("a"), &probe.join("b")) {
+            Ok(()) => true,
+            Err(e) if is_no_replace_rename_unsupported(&e) => false,
+            Err(e) => panic!("could not tell whether this drive can move a file aside: {e}"),
+        };
+        eprintln!("this drive can move a file aside: {moves_aside}");
+        // What an extraction may leave besides its subtitle: nothing; or,
+        // where nothing can be moved aside, its temporary file(s), each with
+        // a notice naming it.
+        let left_as_expected = |dir: &Path, notices: &[String], temporaries_made: usize| {
+            let left = temporaries(dir);
+            if moves_aside {
+                left.is_empty() && notices.is_empty()
+            } else {
+                left.len() == temporaries_made
+                    && notices.len() == temporaries_made
+                    && notices
+                        .iter()
+                        .all(|n| n.contains("would not let it be moved aside"))
+                    && left.iter().all(|t| notices.iter().any(|n| n.contains(t)))
+            }
+        };
         let tools = tempfile::tempdir().unwrap();
         let ffprobe = fake_ffprobe(tools.path());
         let ffmpeg = fake_ffmpeg(tools.path(), "ffmpeg", "1\nHello", 0);
@@ -2111,9 +2168,9 @@ mod tests {
         fs::write(dir.join("V.mp4"), "").unwrap();
         let report = extract_subtitles_to_sidecars(&ffprobe, &ffmpeg, &dir.join("V.mp4")).await;
         eprintln!("1 plain: {report:?} {:?}", listing(&dir));
-        if !matches!(&report, Ok(r) if r.written == 1 && r.notices.is_empty())
+        if !matches!(&report, Ok(r) if r.written == 1 && left_as_expected(&dir, &r.notices, 1))
             || fs::read_to_string(dir.join("V.en.srt")).ok().as_deref() != Some("1\nHello")
-            || listing(&dir) != ["V.en.srt", "V.mp4"]
+            || finished(&dir) != ["V.en.srt", "V.mp4"]
         {
             problems.push(format!("1 plain: {report:?} {:?}", listing(&dir)));
         }
@@ -2123,12 +2180,13 @@ mod tests {
         let dir = fresh("2-taken");
         let taken = dir.join("V.en.srt");
         fs::write(&taken, "mine").unwrap();
-        let temp = own_temporary(&dir, "ours");
-        let outcome = publish_extracted_subtitle(temp, &taken, &mut Vec::new());
-        eprintln!("2 taken: {outcome:?} {:?}", listing(&dir));
+        let mut notices = Vec::new();
+        let outcome = publish_extracted_subtitle(own_temporary(&dir, "ours"), &taken, &mut notices);
+        eprintln!("2 taken: {outcome:?} {:?} {notices:?}", listing(&dir));
         if !matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_)))
             || fs::read_to_string(&taken).unwrap() != "mine"
-            || listing(&dir) != ["V.en.srt"]
+            || finished(&dir) != ["V.en.srt"]
+            || !left_as_expected(&dir, &notices, 1)
         {
             problems.push(format!("2 taken: {outcome:?} {:?}", listing(&dir)));
         }
@@ -2139,49 +2197,110 @@ mod tests {
         let dir = fresh("2b-taken-copy");
         let taken = dir.join("V.en.srt");
         fs::write(&taken, "mine").unwrap();
-        let temp = own_temporary(&dir, "ours");
+        let mut notices = Vec::new();
         let outcome = publish_with(
-            temp,
+            own_temporary(&dir, "ours"),
             &taken,
-            &mut Vec::new(),
+            &mut notices,
             &real_operations_as_on_mac_exfat(),
         );
         eprintln!("2b taken, third step: {outcome:?} {:?}", listing(&dir));
         if !matches!(outcome, Ok(ExtractOutcome::AlreadyThere(_)))
             || fs::read_to_string(&taken).unwrap() != "mine"
-            || listing(&dir) != ["V.en.srt"]
+            || finished(&dir) != ["V.en.srt"]
+            || !left_as_expected(&dir, &notices, 1)
         {
             problems.push(format!("2b taken copy: {outcome:?} {:?}", listing(&dir)));
         }
 
-        // 2c. A copy that fails on this drive deletes the file it made (the
-        //     check that the name still refers to that file works here),
-        //     and 2d. leaves a file put at the name meanwhile (Codex's
-        //     review of rounds 6-7, finding 1). Failed by copying from a
-        //     folder, which can be opened but not read.
+        // 2c-2e. The third step's clean-up after a failed copy, made to fail
+        //     by copying from a folder (which can be opened but not read).
+        let not_a_file = fresh("2c-not-a-file");
+        // 2c: it deletes the file it made -- where the drive can move it
+        //     aside; elsewhere it leaves it, and says so.
         let dir = fresh("2c-copy-fails");
-        let folder = fresh("2c-not-a-file");
-        let result = crate::utils::fs_safe::copy_to_new_file(&folder, &dir.join("V.en.srt"));
+        let to = dir.join("V.en.srt");
+        let result = copy_to_new_file(&not_a_file, &to);
         eprintln!("2c failed copy: {result:?} {:?}", listing(&dir));
-        if result.is_ok() || !listing(&dir).is_empty() {
+        let as_expected = if moves_aside {
+            result.as_ref().is_err_and(|e| !left_a_file_in_place(e)) && listing(&dir).is_empty()
+        } else {
+            result.as_ref().is_err_and(left_a_file_in_place) && to.exists()
+        };
+        if !as_expected {
             problems.push(format!("2c failed copy: {result:?} {:?}", listing(&dir)));
         }
-        let dir = fresh("2d-copy-fails-replaced");
+        // 2d: a file put at the name BEFORE the clean-up is left.
+        let dir = fresh("2d-copy-fails-replaced-before");
         let to = dir.join("V.en.srt");
-        let result = crate::utils::fs_safe::copy_to_new_file_with(&folder, &to, |to| {
-            fs::rename(to, to.with_file_name("moved away")).unwrap();
-            fs::write(to, "somebody else's").unwrap();
-        });
-        eprintln!("2d failed copy, replaced: {result:?} {:?}", listing(&dir));
-        if !result
-            .as_ref()
-            .is_err_and(crate::utils::fs_safe::left_a_file_in_place)
+        let result = copy_to_new_file_with(
+            &not_a_file,
+            &to,
+            |to| {
+                fs::rename(to, to.with_file_name("moved away")).unwrap();
+                fs::write(to, "somebody else's").unwrap();
+            },
+            &mut |_| {},
+        );
+        eprintln!("2d replaced before: {result:?} {:?}", listing(&dir));
+        if !result.as_ref().is_err_and(left_a_file_in_place)
             || fs::read_to_string(&to).ok().as_deref() != Some("somebody else's")
+            || !temporaries(&dir).is_empty()
         {
             problems.push(format!(
-                "2d failed copy, replaced: {result:?} {:?}",
+                "2d replaced before: {result:?} {:?}",
                 listing(&dir)
             ));
+        }
+        // 2e: a file put at the name AFTER the check, before the deletion,
+        //     survives (finding 1). Where nothing can be moved aside there is
+        //     no check: the copy's own file is left, and said so.
+        let dir = fresh("2e-copy-fails-replaced-after");
+        let to = dir.join("V.en.srt");
+        let result = copy_to_new_file_with(&not_a_file, &to, |_| {}, &mut |step| {
+            if let RemovalStep::AfterCheck { .. } = step {
+                fs::write(&to, "somebody else's").unwrap();
+            }
+        });
+        eprintln!(
+            "2e replaced after the check: {result:?} {:?}",
+            listing(&dir)
+        );
+        let as_expected = if moves_aside {
+            result.as_ref().is_err_and(|e| !left_a_file_in_place(e))
+                && fs::read_to_string(&to).ok().as_deref() == Some("somebody else's")
+                && listing(&dir) == ["V.en.srt"]
+        } else {
+            result.as_ref().is_err_and(left_a_file_in_place) && to.exists()
+        };
+        if !as_expected {
+            problems.push(format!("2e replaced after: {result:?} {:?}", listing(&dir)));
+        }
+        // 2f: the same for a temporary file: another file put at its name
+        //     after the check survives, and nothing is reported.
+        let dir = fresh("2f-temporary-replaced-after");
+        let temp = own_temporary(&dir, "ours");
+        let temp_path = temp.path.clone();
+        let mut notices = Vec::new();
+        remove_temporary_with(temp, &mut notices, &mut |step| {
+            if let RemovalStep::AfterCheck { .. } = step {
+                fs::write(&temp_path, "another run's new file").unwrap();
+            }
+        });
+        eprintln!(
+            "2f temporary replaced after: {:?} {notices:?}",
+            listing(&dir)
+        );
+        let as_expected = if moves_aside {
+            fs::read_to_string(&temp_path).ok().as_deref() == Some("another run's new file")
+                && notices.is_empty()
+                && listing(&dir).len() == 1
+        } else {
+            fs::read_to_string(&temp_path).ok().as_deref() == Some("ours")
+                && left_as_expected(&dir, &notices, 1)
+        };
+        if !as_expected {
+            problems.push(format!("2f: {notices:?} {:?}", listing(&dir)));
         }
 
         // 3. A 240-character video name, and 4. odd characters.
@@ -2197,14 +2316,16 @@ mod tests {
                 "{case}: {:?}",
                 report.as_ref().map(|r| (r.written, &r.notices))
             );
-            if !matches!(&report, Ok(r) if r.written == 1 && r.notices.is_empty()) {
+            if !matches!(&report, Ok(r) if r.written == 1 && left_as_expected(&dir, &r.notices, 1))
+            {
                 problems.push(format!("{case}: {report:?} {:?}", listing(&dir)));
             }
         }
 
         // 5. Forty rounds of two extractions publishing to one name at the
         //    same moment, with the real publish step: exactly one winner,
-        //    the winner's text in place, and no temporary file left.
+        //    the winner's text in place, and the temporary files removed
+        //    (or, where nothing can be moved aside, left and reported).
         let dir = fresh("5-race");
         let mut outcomes_seen = std::collections::BTreeMap::new();
         for round in 0..40 {
@@ -2239,17 +2360,29 @@ mod tests {
                 .collect();
             *outcomes_seen.entry(kinds.join(" + ")).or_insert(0) += 1;
             let winners: Vec<usize> = (0..2).filter(|&i| kinds[i] == "written").collect();
+            let temporaries_as_expected = if moves_aside {
+                temp_paths.iter().all(|t| !t.exists())
+                    && notices.iter().all(|n: &Vec<String>| n.is_empty())
+            } else {
+                // A temporary file published by the one-step rename has
+                // moved to the real name; any other is left and reported.
+                notices.iter().zip(&temp_paths).all(|(n, t)| {
+                    !t.exists() && n.is_empty()
+                        || t.exists()
+                            && n.len() == 1
+                            && n[0].contains("would not let it be moved aside")
+                })
+            };
             if winners.len() != 1
                 || fs::read_to_string(&fin).ok() != Some(format!("writer {}", winners[0]))
-                || temp_paths.iter().any(|t| t.exists())
-                || notices.iter().any(|n: &Vec<String>| !n.is_empty())
+                || !temporaries_as_expected
             {
                 problems.push(format!("5 race, round {round}: {outs:?} {notices:?}"));
             }
         }
         eprintln!("5 race: {outcomes_seen:?}");
-        if listing(&dir).iter().any(|n| n.starts_with(TEMP_PREFIX)) {
-            problems.push(format!("5 race: leftovers {:?}", listing(&dir)));
+        if moves_aside && !temporaries(&dir).is_empty() {
+            problems.push(format!("5 race: leftovers {:?}", temporaries(&dir)));
         }
 
         // Tidy up. On an exFAT drive a Mac can still be writing its `._`
@@ -2408,37 +2541,14 @@ mod tests {
         assert_eq!(notices.len(), 1, "{notices:?}");
     }
 
-    /// When the name cannot be checked at all, the file is left in place and
-    /// that is reported. Made unreadable by taking away permission to look
-    /// inside the folder (Unix; skipped when running as the superuser, who
-    /// may look anyway).
+    /// A temporary file that cannot be moved aside (an exFAT drive on a Mac
+    /// always refuses) is left where it is and reported -- never deleted by
+    /// name instead (Codex's review of round 8, finding 1). Made so here by
+    /// taking away permission to change the folder (Unix; skipped as the
+    /// superuser, who may change it anyway).
     #[cfg(unix)]
     #[test]
-    fn a_temporary_file_that_cannot_be_checked_is_left_and_reported() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let temp = own_temporary(dir.path(), "ours");
-        let temp_path = temp.path.clone();
-        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o600)).unwrap();
-        let blocked = fs::symlink_metadata(&temp_path).is_err();
-        let mut notices = Vec::new();
-        remove_temporary(temp, &mut notices);
-        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
-        if !blocked {
-            eprintln!("skipped: this user may look inside a folder without permission");
-            return;
-        }
-        assert!(temp_path.exists());
-        assert_eq!(notices.len(), 1, "{notices:?}");
-        assert!(notices[0].contains("could not check"), "{notices:?}");
-    }
-
-    /// A removal that fails is reported, never ignored (Codex's review of
-    /// round 5, finding 4). Made to fail by taking away permission to
-    /// change the folder (Unix; skipped as the superuser).
-    #[cfg(unix)]
-    #[test]
-    fn a_temporary_file_that_cannot_be_removed_is_reported() {
+    fn a_temporary_file_that_cannot_be_moved_aside_is_left_and_reported() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let temp = own_temporary(dir.path(), "ours");
@@ -2452,8 +2562,125 @@ mod tests {
             eprintln!("skipped: this user may change a read-only folder");
             return;
         }
-        assert!(temp_path.exists());
+        assert_eq!(fs::read_to_string(&temp_path).unwrap(), "ours");
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(
+            notices[0].contains("would not let it be moved aside"),
+            "{notices:?}"
+        );
+        assert!(
+            notices[0].contains(&temp_path.display().to_string()),
+            "{notices:?}"
+        );
+    }
+
+    /// Moved aside but not checkable there: put back and reported. Made so
+    /// by taking away permission to look inside the folder while the file
+    /// is aside, and giving it back before it is put back (Unix; skipped as
+    /// the superuser, who may look anyway).
+    #[cfg(unix)]
+    #[test]
+    fn a_temporary_file_that_cannot_be_checked_is_put_back_and_reported() {
+        use crate::utils::fs_safe::RemovalStep;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let temp = own_temporary(dir.path(), "ours");
+        let temp_path = temp.path.clone();
+        let mut blocked = false;
+        let mut notices = Vec::new();
+        remove_temporary_with(temp, &mut notices, &mut |step| match step {
+            RemovalStep::BeforeCheck { at } => {
+                fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o600)).unwrap();
+                blocked = fs::symlink_metadata(at).is_err();
+            }
+            RemovalStep::AfterCheck { .. } => {
+                fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+            }
+        });
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        if !blocked {
+            eprintln!("skipped: this user may look inside a folder without permission");
+            return;
+        }
+        assert_eq!(fs::read_to_string(&temp_path).unwrap(), "ours");
+        assert_eq!(
+            folder_listing(dir.path()).len(),
+            1,
+            "something else was left"
+        );
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(notices[0].contains("could not check"), "{notices:?}");
+    }
+
+    /// A deletion that fails is reported, never ignored (Codex's review of
+    /// round 5, finding 4). Made to fail by taking away permission to change
+    /// the folder after the file was moved aside and checked (Unix; skipped
+    /// as the superuser). The notice names where the file is left.
+    #[cfg(unix)]
+    #[test]
+    fn a_temporary_file_that_cannot_be_removed_is_reported() {
+        use crate::utils::fs_safe::RemovalStep;
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let temp = own_temporary(dir.path(), "ours");
+        let mut blocked = false;
+        let mut aside_seen = None;
+        let mut notices = Vec::new();
+        remove_temporary_with(temp, &mut notices, &mut |step| {
+            if let RemovalStep::AfterCheck { at } = step {
+                aside_seen = Some(at.to_path_buf());
+                fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o555)).unwrap();
+                blocked = fs::write(dir.path().join("probe"), "").is_err();
+            }
+        });
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        if !blocked {
+            eprintln!("skipped: this user may change a read-only folder");
+            return;
+        }
+        let aside = aside_seen.unwrap();
+        assert_eq!(fs::read_to_string(&aside).unwrap(), "ours");
         assert_eq!(notices.len(), 1, "{notices:?}");
         assert!(notices[0].contains("Could not remove"), "{notices:?}");
+        assert!(
+            notices[0].contains(&aside.display().to_string()),
+            "{notices:?}"
+        );
+    }
+
+    /// Codex's review of round 8, finding 1: the run has checked that the
+    /// temporary name holds its own file, and before the deletion another
+    /// file is put at that name. That file must survive; the run's own is
+    /// deleted, and nothing is reported. (Round 8 checked the name and then
+    /// deleted the name.)
+    #[test]
+    fn a_file_put_at_the_temporary_name_after_the_check_survives() {
+        use crate::utils::fs_safe::RemovalStep;
+        let dir = tempfile::tempdir().unwrap();
+        let temp = own_temporary(dir.path(), "ours");
+        let temp_path = temp.path.clone();
+        let mut notices = Vec::new();
+        remove_temporary_with(temp, &mut notices, &mut |step| {
+            if let RemovalStep::AfterCheck { .. } = step {
+                if temp_path.exists() {
+                    // Windows checks the name itself: move ours away first.
+                    fs::rename(&temp_path, dir.path().join("moved away")).unwrap();
+                }
+                fs::write(&temp_path, "another run's new file").unwrap();
+            }
+        });
+        assert_eq!(
+            fs::read_to_string(&temp_path).ok().as_deref(),
+            Some("another run's new file"),
+            "the file put there after the check was deleted"
+        );
+        assert!(notices.is_empty(), "{notices:?}");
+        assert!(
+            !folder_listing(dir.path())
+                .iter()
+                .any(|n| n.ends_with(".discard")),
+            "{:?}",
+            folder_listing(dir.path())
+        );
     }
 }

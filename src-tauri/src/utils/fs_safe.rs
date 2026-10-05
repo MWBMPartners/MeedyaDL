@@ -780,13 +780,14 @@ fn rename_no_replace_impl(_from: &Path, _to: &Path) -> std::io::Result<()> {
 /// program could rename or delete it and put its own file at the name
 /// before the clean-up, and the clean-up used to delete whatever was there.
 /// (The comment here used to say the file was "certainly" this call's.) So
-/// the handle that created it is kept open, and just before deleting, the
-/// file that handle is on is compared with the file at the name, both read
-/// at that moment ([`check_name_against_handle`]; a number stored at
-/// creation would not do, because a Mac's FAT32 and exFAT drives renumber a
-/// file once data is written into it). A different file at the name, or one
-/// that cannot be checked, is LEFT where it is, and the error says so
-/// ([`left_a_file_in_place`]).
+/// the handle that created it is kept open, and the clean-up is
+/// [`remove_if_still_ours`]: the file is moved aside to a private name and
+/// compared with the handle there, and only a file proved to be this call's
+/// is deleted, never the name `to` itself (Codex's review of round 8,
+/// finding 1: checking `to` and then deleting `to` left a gap between the
+/// two steps). Anything else -- a different file, one that cannot be
+/// checked, or a file this drive cannot move aside -- is LEFT, and the error
+/// says so ([`left_a_file_in_place`]).
 ///
 /// **What this cannot do.**
 /// - Be one step. A forced stop (the app killed, the power lost) while the
@@ -794,31 +795,35 @@ fn rename_no_replace_impl(_from: &Path, _to: &Path) -> std::io::Result<()> {
 ///   name, and nothing can then tell it from a finished one, so later runs
 ///   keep it. Hard links and [`rename_no_replace`] never leave a partial
 ///   file under the real name; use this only when neither is available.
-/// - Make the clean-up one step. The check and the deletion are two
-///   operations, so a file put at the name in the instant between them
-///   would still be deleted. No system offers "delete this name only if it
-///   is still this file" as one step.
+/// - Delete anything on a drive that cannot move a file aside without the
+///   risk of replacing another: an exFAT drive on a Mac. There a failed copy
+///   leaves its partly written file under the real name, reported, rather
+///   than delete by name. See [`remove_if_still_ours`] for its other limits.
 ///
 /// # Errors
 /// - [`std::io::ErrorKind::AlreadyExists`] when `to` is taken: nothing is
 ///   created or changed.
 /// - Any other error opening `from`, or creating, writing or flushing `to`.
-///   If deleting the partly written `to` then also fails, the message says
-///   so and names it (the kind stays that of the first failure). If a file
-///   was left at `to` because it could not be proved to be this call's,
-///   [`left_a_file_in_place`] is true for the error and its message names
-///   the file and why.
+///   If deleting the partly written file then also fails, the message says
+///   so and names where it is (the kind stays that of the first failure).
+///   If a file was left because it could not be proved to be this call's,
+///   or could not be moved aside, [`left_a_file_in_place`] is true for the
+///   error and its message names the file (both names, if it was moved
+///   aside and could not be put back) and why.
 pub fn copy_to_new_file(from: &Path, to: &Path) -> std::io::Result<()> {
-    copy_to_new_file_with(from, to, |_| {})
+    copy_to_new_file_with(from, to, |_| {}, &mut |_| {})
 }
 
 /// [`copy_to_new_file`], with `before_clean_up` run after a copy has failed
-/// and before the new name is checked. The tests put a different file at
-/// the name there; the app passes nothing (through [`copy_to_new_file`]).
+/// and before the clean-up starts, and `pause` passed to the clean-up
+/// ([`remove_if_still_ours_with`]). The tests put a different file at the
+/// name at those points; the app passes nothing (through
+/// [`copy_to_new_file`]).
 pub(crate) fn copy_to_new_file_with(
     from: &Path,
     to: &Path,
     before_clean_up: impl FnOnce(&Path),
+    pause: &mut dyn FnMut(RemovalStep<'_>),
 ) -> std::io::Result<()> {
     let mut source = std::fs::File::open(from)?;
     // Opened for reading too only because Windows needs read access to say
@@ -835,30 +840,43 @@ pub(crate) fn copy_to_new_file_with(
     before_clean_up(to);
     // `target` is still open: the file this call made still exists, so its
     // number cannot have been handed to a file put at the name meanwhile.
-    let outcome = match check_name_against_handle(to, &target) {
-        NameCheck::SameFile => match std::fs::remove_file(to) {
-            Ok(()) => Err(error),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(error),
-            Err(left) => Err(std::io::Error::new(
-                error.kind(),
-                format!(
-                    "{error}; the partly written {} could not be deleted either ({left})",
-                    to.display()
-                ),
-            )),
-        },
-        // Someone else removed it; there is nothing of this call's to
-        // delete, and nothing else is touched.
-        NameCheck::Gone => Err(error),
-        NameCheck::OtherFile => Err(left_in_place(
+    let outcome = match remove_if_still_ours_with(to, &target, pause) {
+        // Deleted; or someone else removed it, and nothing else is touched.
+        Removal::Removed | Removal::AlreadyGone => Err(error),
+        Removal::LeftOtherFile => Err(left_in_place(
             error,
             to,
             "a different file now has that name".to_string(),
         )),
-        NameCheck::CannotTell(e) => Err(left_in_place(
+        Removal::LeftUnchecked(e) => Err(left_in_place(
             error,
             to,
             format!("it could not be checked which file now has that name ({e})"),
+        )),
+        Removal::NotMovedAside(e) => Err(left_in_place(
+            error,
+            to,
+            format!(
+                "it could not be moved aside to be checked ({e}), and MeedyaDL deletes a \
+                 file only after moving it aside and checking it is its own"
+            ),
+        )),
+        Removal::LeftAside { aside, why } => Err(left_in_place(
+            error,
+            &aside,
+            format!(
+                "it was moved there from {} to be deleted, but {why}; whatever is now at {} \
+                 was not touched",
+                to.display(),
+                to.display()
+            ),
+        )),
+        Removal::DeleteFailed { at, error: left } => Err(std::io::Error::new(
+            error.kind(),
+            format!(
+                "{error}; the partly written file, at {}, could not be deleted either ({left})",
+                at.display()
+            ),
         )),
     };
     drop(target);
@@ -1175,10 +1193,10 @@ pub enum NameCheck {
 /// cannot have been handed to a new file meanwhile.
 ///
 /// The caller must keep `handle` open until it has acted on the answer, and
-/// should know the answer can go stale: a removal after [`NameCheck::SameFile`]
-/// is a second step, and a file put at the name in the instant between them
-/// would still be removed. No system offers "remove this name only if it is
-/// still this file" as one step.
+/// should know the answer can go stale: anything done by name after
+/// [`NameCheck::SameFile`] is a second step. So never delete the name this
+/// checked; use [`remove_if_still_ours`], which checks a private name the
+/// file has first been moved to (Codex's review of round 8, finding 1).
 #[must_use]
 pub fn check_name_against_handle(path: &Path, handle: &std::fs::File) -> NameCheck {
     let at_name = match file_identity(path) {
@@ -1190,6 +1208,313 @@ pub fn check_name_against_handle(path: &Path, handle: &std::fs::File) -> NameChe
         Ok(ours) if ours.is_same_file(&at_name) => NameCheck::SameFile,
         Ok(_) => NameCheck::OtherFile,
         Err(e) => NameCheck::CannotTell(e),
+    }
+}
+
+// ---------------------------------------------------------------------
+// Deleting a file only while it is provably this run's own
+// (Codex's review of round 8, finding 1)
+// ---------------------------------------------------------------------
+
+/// 64 bits from the operating system's random source, as 16 lower-case
+/// hexadecimal digits: the random part of the temporary and private names
+/// MeedyaDL makes, so that no such name is ever handed out twice.
+///
+/// # Errors
+/// When the system cannot supply random bits.
+pub fn random_name_part() -> std::io::Result<String> {
+    use rand::RngCore;
+    let mut bytes = [0u8; 8];
+    rand::rngs::OsRng.try_fill_bytes(&mut bytes).map_err(|e| {
+        std::io::Error::other(format!("could not get random bits from the system: {e}"))
+    })?;
+    Ok(format!("{:016x}", u64::from_le_bytes(bytes)))
+}
+
+/// A point in [`remove_if_still_ours`] at which a test can act. The app
+/// passes nothing.
+#[derive(Debug, Clone, Copy)]
+pub enum RemovalStep<'a> {
+    /// About to compare the file at `at` with the handle. On macOS and
+    /// Linux `at` is the private name the file has just been moved to; on
+    /// Windows it is the name itself, opened for deletion.
+    BeforeCheck { at: &'a Path },
+    /// Compared; about to delete the file, or to put it back.
+    AfterCheck { at: &'a Path },
+}
+
+/// What [`remove_if_still_ours`] did.
+#[derive(Debug)]
+pub enum Removal {
+    /// The file was this run's own, and it is deleted.
+    Removed,
+    /// Nothing had that name any more; nothing was deleted.
+    AlreadyGone,
+    /// The name held a different file. It is where it was: on macOS and
+    /// Linux it was moved aside, found not to be this run's, and put back.
+    LeftOtherFile,
+    /// It could not be told whether the file was this run's own, so it is
+    /// where it was (put back, on macOS and Linux).
+    LeftUnchecked(std::io::Error),
+    /// The file could not be moved aside to be checked, so nothing was
+    /// moved or deleted. An exFAT drive on a Mac always refuses (it cannot
+    /// rename without replacing when the new name is free).
+    NotMovedAside(std::io::Error),
+    /// Moved aside, found not to be this run's (or not checkable), and it
+    /// could not be put back -- the name was taken again meanwhile -- so it
+    /// is left under the private name `aside`. Whatever is now at the
+    /// original name was not touched.
+    LeftAside {
+        /// The private name the file is left under.
+        aside: PathBuf,
+        /// Why it was not deleted and not put back.
+        why: String,
+    },
+    /// This run's own file, but deleting it failed. It is left at `at`: the
+    /// private name on macOS and Linux, the name itself on Windows.
+    DeleteFailed {
+        /// Where the file is left.
+        at: PathBuf,
+        /// Why it could not be deleted.
+        error: std::io::Error,
+    },
+}
+
+/// Deletes the file at `path` only if it is the very file `handle` is open
+/// on -- never a file that took its name, whenever that happened.
+///
+/// **Why not "check the name, then delete the name"** (Codex's review of
+/// round 8, finding 1): those are two steps, and another program can put
+/// its own file at the name between them, which the deletion then removes.
+///
+/// **On macOS and Linux** the name is never deleted directly:
+/// 1. the file is moved to a private name in the same folder, made of the
+///    temporary prefix, fresh random bits and `.discard`
+///    (`.meedyadl-partial-<pid>-<random>.discard`), with the rename that
+///    refuses to replace a file ([`rename_no_replace`]);
+/// 2. the file now at the private name is compared with the file the handle
+///    is on, both read at that moment ([`check_name_against_handle`]; this
+///    works on a Mac's FAT32 drive too, which gives a file a new number when
+///    it is renamed -- checked on macOS 27);
+/// 3. the same file: the private name is deleted;
+/// 4. a different file (or one that cannot be checked): it is put back
+///    under its name, again only if that is free;
+/// 5. if putting it back fails, it stays under the private name, and the
+///    caller reports both names.
+///
+/// A file put at the original name at any moment is never deleted: only
+/// the private name is.
+///
+/// **On Windows**, where a file can be deleted through a handle, there is
+/// no name step between the check and the deletion: the name is opened for
+/// deletion (without following a link), the file that new handle is on is
+/// compared with the file `handle` is on, and only if they are the same is
+/// it deleted through the new handle (`SetFileInformationByHandle`, with
+/// POSIX semantics where the drive offers them, else the classic delete).
+/// Whatever the name holds after the check, the deletion reaches only the
+/// checked file.
+///
+/// **What this still does not guarantee.**
+/// - On macOS and Linux, a program that learns the private name (it is
+///   random and exists for a moment) and puts its own file there between
+///   steps 2 and 3 would lose that file. No system offers "delete this
+///   name only if it is still this file" as one step.
+/// - A drive that cannot rename without replacing gets nothing deleted:
+///   the file is left where it is ([`Removal::NotMovedAside`]). An exFAT
+///   drive on a Mac is such a drive whenever the new name is free, which a
+///   private name always is, so there every file this would delete is left
+///   and reported instead. This never falls back to deleting by name.
+/// - In the [`Removal::LeftAside`] case another program's file can end up
+///   under the private name; the caller names both.
+/// - The Windows branch has been compiled for Windows but not run there.
+#[must_use]
+pub fn remove_if_still_ours(path: &Path, handle: &std::fs::File) -> Removal {
+    remove_if_still_ours_with(path, handle, &mut |_| {})
+}
+
+/// [`remove_if_still_ours`], pausing at each [`RemovalStep`] (for tests).
+pub(crate) fn remove_if_still_ours_with(
+    path: &Path,
+    handle: &std::fs::File,
+    pause: &mut dyn FnMut(RemovalStep<'_>),
+) -> Removal {
+    remove_if_still_ours_impl(path, handle, pause)
+}
+
+#[cfg(not(windows))]
+fn remove_if_still_ours_impl(
+    path: &Path,
+    handle: &std::fs::File,
+    pause: &mut dyn FnMut(RemovalStep<'_>),
+) -> Removal {
+    // 1. Move aside, only to a free name.
+    let aside = match move_aside(path) {
+        Ok(Some(aside)) => aside,
+        Ok(None) => return Removal::AlreadyGone,
+        Err(e) => return Removal::NotMovedAside(e),
+    };
+    // 2. Compare, both read now.
+    pause(RemovalStep::BeforeCheck { at: &aside });
+    let check = check_name_against_handle(&aside, handle);
+    pause(RemovalStep::AfterCheck { at: &aside });
+    match check {
+        // 3. Ours: delete the private name, never the original one.
+        NameCheck::SameFile => match std::fs::remove_file(&aside) {
+            Ok(()) => Removal::Removed,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Removal::AlreadyGone,
+            Err(e) => Removal::DeleteFailed {
+                at: aside,
+                error: e,
+            },
+        },
+        NameCheck::Gone => Removal::AlreadyGone,
+        // 4. Not ours, or not provably: put it back, only if free.
+        NameCheck::OtherFile => put_back(
+            &aside,
+            path,
+            Removal::LeftOtherFile,
+            "it is not the file MeedyaDL made".to_string(),
+        ),
+        NameCheck::CannotTell(e) => {
+            let why = format!("it could not be checked ({e})");
+            put_back(&aside, path, Removal::LeftUnchecked(e), why)
+        }
+    }
+}
+
+/// Moves `path` to a fresh private name in its folder, only if that name is
+/// free ([`rename_no_replace`]). `Ok(None)` when nothing has the name.
+#[cfg(not(windows))]
+fn move_aside(path: &Path) -> std::io::Result<Option<PathBuf>> {
+    const TRIES: u32 = 8;
+    let folder = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    for _ in 0..TRIES {
+        let aside = folder.join(format!(
+            "{TEMPORARY_SUBTITLE_PREFIX}{}-{}.discard",
+            std::process::id(),
+            random_name_part()?
+        ));
+        match rename_no_replace(path, &aside) {
+            Ok(()) => return Ok(Some(aside)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            // Practically impossible with 64 random bits: try another.
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::AlreadyExists,
+        format!("no free private name to move the file aside to after {TRIES} tries"),
+    ))
+}
+
+/// Puts a file that turned out not to be this run's back under `path`,
+/// only if that name is free; `left` says what happened when it is. If
+/// that fails, the file stays at `aside` ([`Removal::LeftAside`]).
+#[cfg(not(windows))]
+fn put_back(aside: &Path, path: &Path, left: Removal, why: String) -> Removal {
+    match rename_no_replace(aside, path) {
+        Ok(()) => left,
+        Err(e) => Removal::LeftAside {
+            aside: aside.to_path_buf(),
+            why: format!("{why}, and putting it back failed ({e})"),
+        },
+    }
+}
+
+#[cfg(windows)]
+fn remove_if_still_ours_impl(
+    path: &Path,
+    handle: &std::fs::File,
+    pause: &mut dyn FnMut(RemovalStep<'_>),
+) -> Removal {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_FLAG_OPEN_REPARSE_POINT, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE,
+    };
+    // Opened for deletion (and to say which file it is), sharing
+    // everything, without following a link.
+    let doomed = match std::fs::OpenOptions::new()
+        .access_mode(DELETE | FILE_READ_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Removal::AlreadyGone,
+        Err(e) => return Removal::LeftUnchecked(e),
+    };
+    pause(RemovalStep::BeforeCheck { at: path });
+    let same = match (handle_identity(&doomed), handle_identity(handle)) {
+        (Ok(doomed_file), Ok(own_file)) => doomed_file.is_same_file(&own_file),
+        (Err(e), _) | (_, Err(e)) => return Removal::LeftUnchecked(e),
+    };
+    pause(RemovalStep::AfterCheck { at: path });
+    if !same {
+        return Removal::LeftOtherFile;
+    }
+    match delete_through_handle(&doomed) {
+        Ok(()) => Removal::Removed,
+        Err(e) => Removal::DeleteFailed {
+            at: path.to_path_buf(),
+            error: e,
+        },
+    }
+}
+
+/// Marks the file `file` is open on for deletion: with POSIX semantics
+/// (its name goes at once) where the drive offers them, else the classic
+/// way (it goes when the last handle to it closes). Either way only that
+/// file, whatever its name now holds.
+#[cfg(windows)]
+fn delete_through_handle(file: &std::fs::File) -> std::io::Result<()> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileDispositionInfo, FileDispositionInfoEx, SetFileInformationByHandle,
+        FILE_DISPOSITION_FLAG_DELETE, FILE_DISPOSITION_FLAG_POSIX_SEMANTICS, FILE_DISPOSITION_INFO,
+        FILE_DISPOSITION_INFO_EX,
+    };
+    let posix = FILE_DISPOSITION_INFO_EX {
+        Flags: FILE_DISPOSITION_FLAG_DELETE | FILE_DISPOSITION_FLAG_POSIX_SEMANTICS,
+    };
+    // SAFETY: the handle belongs to `file`, open for the call; `posix` is a
+    // valid FILE_DISPOSITION_INFO_EX that outlives it, and its size is
+    // passed (4 bytes, so the cast cannot truncate).
+    let ok = unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FileDispositionInfoEx,
+            std::ptr::from_ref(&posix).cast(),
+            std::mem::size_of::<FILE_DISPOSITION_INFO_EX>() as u32,
+        )
+    };
+    if ok != 0 {
+        return Ok(());
+    }
+    // Older Windows, or a drive (FAT, exFAT) without POSIX semantics.
+    let posix_error = std::io::Error::last_os_error();
+    let classic = FILE_DISPOSITION_INFO { DeleteFile: true };
+    // SAFETY: as above, for a FILE_DISPOSITION_INFO (1 byte).
+    let ok = unsafe {
+        SetFileInformationByHandle(
+            file.as_raw_handle(),
+            FileDispositionInfo,
+            std::ptr::from_ref(&classic).cast(),
+            std::mem::size_of::<FILE_DISPOSITION_INFO>() as u32,
+        )
+    };
+    if ok != 0 {
+        Ok(())
+    } else {
+        let e = std::io::Error::last_os_error();
+        Err(std::io::Error::new(
+            e.kind(),
+            format!("{e} (and with POSIX semantics: {posix_error})"),
+        ))
     }
 }
 
@@ -1879,14 +2204,19 @@ mod tests {
             fs::create_dir(&from).unwrap();
             let to = dir.path().join("b");
             let moved = dir.path().join("moved");
-            let err = copy_to_new_file_with(&from, &to, |to| {
-                if moved_away {
-                    fs::rename(to, &moved).unwrap();
-                } else {
-                    fs::remove_file(to).unwrap();
-                }
-                fs::write(to, "somebody else's file").unwrap();
-            })
+            let err = copy_to_new_file_with(
+                &from,
+                &to,
+                |to| {
+                    if moved_away {
+                        fs::rename(to, &moved).unwrap();
+                    } else {
+                        fs::remove_file(to).unwrap();
+                    }
+                    fs::write(to, "somebody else's file").unwrap();
+                },
+                &mut |_| {},
+            )
             .unwrap_err();
             assert_eq!(
                 fs::read_to_string(&to).ok().as_deref(),
@@ -1904,13 +2234,15 @@ mod tests {
         }
     }
 
-    /// When the name cannot be checked, the file is left where it is and the
-    /// error says so. Made unreadable by taking away permission to look
-    /// inside the folder (Unix; skipped as the superuser, who may look
-    /// anyway).
+    /// A failed copy whose file cannot be moved aside leaves it where it is
+    /// and says so: it is never deleted by name instead (Codex's review of
+    /// round 8, finding 1). Made so by taking away permission to change the
+    /// folder (Unix; skipped as the superuser, who may change it anyway).
+    /// An exFAT drive on a Mac refuses the move every time; the real-drive
+    /// test checks that.
     #[cfg(unix)]
     #[test]
-    fn a_failed_copy_that_cannot_check_the_name_leaves_the_file() {
+    fn a_failed_copy_that_cannot_move_its_file_aside_leaves_it() {
         use std::os::unix::fs::PermissionsExt;
         let dir = tempfile::tempdir().unwrap();
         let work = dir.path().join("work");
@@ -1919,9 +2251,58 @@ mod tests {
         fs::create_dir(&from).unwrap();
         let to = work.join("b");
         let mut blocked = false;
-        let result = copy_to_new_file_with(&from, &to, |to| {
-            fs::set_permissions(to.parent().unwrap(), fs::Permissions::from_mode(0o600)).unwrap();
-            blocked = fs::symlink_metadata(to).is_err();
+        let result = copy_to_new_file_with(
+            &from,
+            &to,
+            |to| {
+                let folder = to.parent().unwrap();
+                fs::set_permissions(folder, fs::Permissions::from_mode(0o555)).unwrap();
+                blocked = fs::write(folder.join("probe"), "").is_err();
+            },
+            &mut |_| {},
+        );
+        fs::set_permissions(&work, fs::Permissions::from_mode(0o755)).unwrap();
+        if !blocked {
+            eprintln!("skipped: this user may change a read-only folder");
+            return;
+        }
+        let err = result.unwrap_err();
+        assert!(left_a_file_in_place(&err), "{err}");
+        assert!(
+            err.to_string().contains("could not be moved aside"),
+            "{err}"
+        );
+        assert!(to.exists());
+        assert_eq!(
+            fs::read_dir(&work).unwrap().count(),
+            1,
+            "something else was left"
+        );
+    }
+
+    /// A failed copy whose file was moved aside but cannot be checked there
+    /// puts it back and leaves it. Made so by taking away permission to look
+    /// inside the folder while it is aside, and giving it back before the
+    /// file is put back (Unix; skipped as the superuser).
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_copy_that_cannot_check_its_file_puts_it_back() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let work = dir.path().join("work");
+        fs::create_dir(&work).unwrap();
+        let from = dir.path().join("a folder");
+        fs::create_dir(&from).unwrap();
+        let to = work.join("b");
+        let mut blocked = false;
+        let result = copy_to_new_file_with(&from, &to, |_| {}, &mut |step| match step {
+            RemovalStep::BeforeCheck { at } => {
+                fs::set_permissions(&work, fs::Permissions::from_mode(0o600)).unwrap();
+                blocked = fs::symlink_metadata(at).is_err();
+            }
+            RemovalStep::AfterCheck { .. } => {
+                fs::set_permissions(&work, fs::Permissions::from_mode(0o755)).unwrap();
+            }
         });
         fs::set_permissions(&work, fs::Permissions::from_mode(0o755)).unwrap();
         if !blocked {
@@ -1931,7 +2312,204 @@ mod tests {
         let err = result.unwrap_err();
         assert!(left_a_file_in_place(&err), "{err}");
         assert!(err.to_string().contains("could not be checked"), "{err}");
-        assert!(to.exists());
+        assert!(to.exists(), "the file was not put back");
+        assert_eq!(
+            fs::read_dir(&work).unwrap().count(),
+            1,
+            "something else was left"
+        );
+    }
+
+    /// What another program does in the removal tests: if the name still
+    /// holds a file (on Windows nothing is moved aside first), moves it
+    /// away; then puts its own finished file there.
+    fn put_replacement_at(name: &Path) {
+        if name.exists() {
+            fs::rename(name, name.with_file_name("moved away")).unwrap();
+        }
+        fs::write(name, "somebody else's finished file").unwrap();
+    }
+
+    /// Codex's review of round 8, finding 1: a failed copy has checked that
+    /// the new name holds its own file, and before the clean-up deletes it,
+    /// another program puts a finished file at that name. That file must
+    /// survive. The old clean-up deleted the name after checking it.
+    #[cfg(unix)]
+    #[test]
+    fn a_file_put_at_the_name_after_the_check_survives_a_failed_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let from = dir.path().join("a folder");
+        fs::create_dir(&from).unwrap();
+        let to = dir.path().join("V.en.srt");
+        let err = copy_to_new_file_with(&from, &to, |_| {}, &mut |step| {
+            if let RemovalStep::AfterCheck { .. } = step {
+                put_replacement_at(&to);
+            }
+        })
+        .unwrap_err();
+        assert_eq!(
+            fs::read_to_string(&to).ok().as_deref(),
+            Some("somebody else's finished file"),
+            "the file put there after the check was deleted"
+        );
+        assert!(!left_a_file_in_place(&err), "{err}");
+        assert!(
+            !folder_has_private_names(dir.path()),
+            "a private name was left behind"
+        );
+    }
+
+    /// Whether `dir` holds any `.discard` name made by `move_aside`.
+    fn folder_has_private_names(dir: &Path) -> bool {
+        fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().ends_with(".discard"))
+    }
+
+    /// A file created here, with the handle that created it kept open.
+    fn own_file(path: &Path, text: &str) -> fs::File {
+        let mut file = fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(path)
+            .unwrap();
+        std::io::Write::write_all(&mut file, text.as_bytes()).unwrap();
+        file
+    }
+
+    #[test]
+    fn remove_if_still_ours_deletes_its_own_file_and_leaves_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("V.en.srt");
+        let handle = own_file(&path, "ours");
+        assert!(matches!(
+            remove_if_still_ours(&path, &handle),
+            Removal::Removed
+        ));
+        drop(handle);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn remove_if_still_ours_leaves_a_file_that_took_the_name_before() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("V.en.srt");
+        let handle = own_file(&path, "ours");
+        put_replacement_at(&path);
+        let outcome = remove_if_still_ours(&path, &handle);
+        assert!(matches!(outcome, Removal::LeftOtherFile), "{outcome:?}");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "somebody else's finished file"
+        );
+        assert!(!folder_has_private_names(dir.path()));
+        assert!(matches!(
+            remove_if_still_ours(&dir.path().join("nothing"), &handle),
+            Removal::AlreadyGone
+        ));
+    }
+
+    /// Codex's review of round 8, finding 1, at the level of the shared
+    /// removal: the file is checked and found to be ours, and THEN another
+    /// file is put at the name, before the deletion. The new file survives,
+    /// and ours is deleted.
+    #[test]
+    fn a_file_put_at_the_name_after_the_check_survives_removal() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("V.en.srt");
+        let handle = own_file(&path, "ours");
+        let outcome = remove_if_still_ours_with(&path, &handle, &mut |step| {
+            if let RemovalStep::AfterCheck { .. } = step {
+                put_replacement_at(&path);
+            }
+        });
+        assert!(matches!(outcome, Removal::Removed), "{outcome:?}");
+        assert_eq!(
+            fs::read_to_string(&path).ok().as_deref(),
+            Some("somebody else's finished file"),
+            "the file put there after the check was deleted"
+        );
+        drop(handle);
+        assert!(!folder_has_private_names(dir.path()));
+    }
+
+    /// Moved aside, found not to be ours, and its name taken again before
+    /// it could be put back: it stays under the private name, nothing is
+    /// deleted, and the private name is given (macOS and Linux only; Windows
+    /// moves nothing aside).
+    #[cfg(unix)]
+    #[test]
+    fn a_moved_aside_file_that_is_not_ours_stays_aside_if_its_name_is_taken_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("V.en.srt");
+        let handle = own_file(&path, "ours");
+        put_replacement_at(&path);
+        let outcome = remove_if_still_ours_with(&path, &handle, &mut |step| {
+            if let RemovalStep::AfterCheck { .. } = step {
+                fs::write(&path, "a third file").unwrap();
+            }
+        });
+        let Removal::LeftAside { aside, why } = outcome else {
+            panic!("{outcome:?}");
+        };
+        assert_eq!(
+            fs::read_to_string(&aside).unwrap(),
+            "somebody else's finished file"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), "a third file");
+        assert!(why.contains("putting it back failed"), "{why}");
+        assert!(is_temporary_subtitle_file(&aside), "{}", aside.display());
+    }
+
+    /// A file that cannot be moved aside is left where it is, never deleted
+    /// by name instead. Made so by taking away permission to change the
+    /// folder (Unix; skipped as the superuser).
+    #[cfg(unix)]
+    #[test]
+    fn a_file_that_cannot_be_moved_aside_is_left_where_it_is() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("V.en.srt");
+        let handle = own_file(&path, "ours");
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o555)).unwrap();
+        let blocked = fs::write(dir.path().join("probe"), "").is_err();
+        let outcome = remove_if_still_ours(&path, &handle);
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+        if !blocked {
+            eprintln!("skipped: this user may change a read-only folder");
+            return;
+        }
+        assert!(matches!(outcome, Removal::NotMovedAside(_)), "{outcome:?}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), "ours");
+    }
+
+    /// The private name is the temporary prefix, the process id, 16 random
+    /// hexadecimal digits and `.discard`, so the lyrics steps skip it and
+    /// the leftover report counts it.
+    #[cfg(unix)]
+    #[test]
+    fn the_private_name_has_the_temporary_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("V.en.srt");
+        fs::write(&path, "x").unwrap();
+        let aside = move_aside(&path).unwrap().unwrap();
+        let name = aside.file_name().unwrap().to_string_lossy().into_owned();
+        let random = name
+            .strip_prefix(&format!(
+                "{TEMPORARY_SUBTITLE_PREFIX}{}-",
+                std::process::id()
+            ))
+            .and_then(|rest| rest.strip_suffix(".discard"))
+            .unwrap_or_else(|| panic!("{name}"));
+        assert_eq!(random.len(), 16, "{name}");
+        assert!(is_temporary_subtitle_file(&aside));
+        assert_eq!(aside.parent(), path.parent());
+        assert!(
+            matches!(move_aside(&path), Ok(None)),
+            "the name is gone now"
+        );
     }
 
     /// When the new file has been removed by someone else and nothing has
@@ -1944,7 +2522,8 @@ mod tests {
         let from = dir.path().join("a folder");
         fs::create_dir(&from).unwrap();
         let to = dir.path().join("b");
-        let err = copy_to_new_file_with(&from, &to, |to| fs::remove_file(to).unwrap()).unwrap_err();
+        let err = copy_to_new_file_with(&from, &to, |to| fs::remove_file(to).unwrap(), &mut |_| {})
+            .unwrap_err();
         assert!(!left_a_file_in_place(&err), "{err}");
         assert!(!to.exists());
     }
