@@ -106,6 +106,12 @@ pub struct LanguageIdentity {
     pub primary: String,
 }
 
+/// How every refusal of `language_identities` begins. The frontend
+/// (`TOO_LARGE_TO_IDENTIFY` in `src/hooks/useLanguageIdentities.ts`)
+/// recognises it and does not ask again; a test below checks that file
+/// still holds the same text.
+pub const TOO_LARGE_TO_IDENTIFY: &str = "Too large to identify:";
+
 /// For each tag, its standard form and grouping identity (Codex's
 /// catch-up review of #1244, finding 1).
 ///
@@ -114,18 +120,25 @@ pub struct LanguageIdentity {
 ///
 /// # Errors
 /// `Err` only for a call that is too large (same bounds as
-/// `order_languages_for_display`); the frontend then keeps its `Intl`
-/// reading for that batch.
+/// `order_languages_for_display`), with a message that begins with
+/// [`TOO_LARGE_TO_IDENTIFY`]. The frontend does not ask again after this
+/// error, because the same call would be refused the same way (stand-in
+/// review of round 6, finding 4; any other failure, such as no backend at
+/// all, is tried three more times). It then keeps every tag as a row of
+/// its own: a tag's standard form is the tag itself, so nothing is merged,
+/// and the browser's `Intl` reading is used only to sort the list.
 #[tauri::command]
 pub fn language_identities(tags: Vec<String>) -> Result<Vec<LanguageIdentity>, String> {
     if tags.len() > MAX_LIST_LEN {
         return Err(format!(
-            "Too many tags to identify ({}; at most {MAX_LIST_LEN})",
+            "{TOO_LARGE_TO_IDENTIFY} {} tags (at most {MAX_LIST_LEN})",
             tags.len()
         ));
     }
     if tags.iter().any(|value| value.len() > MAX_VALUE_LEN) {
-        return Err(format!("A value is longer than {MAX_VALUE_LEN} characters"));
+        return Err(format!(
+            "{TOO_LARGE_TO_IDENTIFY} a value is longer than {MAX_VALUE_LEN} bytes"
+        ));
     }
     Ok(tags
         .into_iter()
@@ -195,7 +208,24 @@ mod tests {
 
     #[test]
     fn refuses_an_identity_call_that_is_too_large() {
-        assert!(language_identities(vec!["en".to_string(); MAX_LIST_LEN + 1]).is_err());
-        assert!(language_identities(vec!["a".repeat(MAX_VALUE_LEN + 1)]).is_err());
+        for call in [
+            vec!["en".to_string(); MAX_LIST_LEN + 1],
+            vec!["a".repeat(MAX_VALUE_LEN + 1)],
+        ] {
+            let error = language_identities(call).unwrap_err();
+            assert!(error.starts_with(TOO_LARGE_TO_IDENTIFY), "{error}");
+        }
+    }
+
+    /// The frontend recognises a refusal by its first words and does not
+    /// ask again (stand-in review of round 6, finding 4). If either side's
+    /// text changed alone, it would quietly go back to retrying.
+    #[test]
+    fn the_frontend_recognises_the_same_refusal_text() {
+        let frontend = include_str!("../../../src/hooks/useLanguageIdentities.ts");
+        assert!(
+            frontend.contains(&format!("'{TOO_LARGE_TO_IDENTIFY}'")),
+            "src/hooks/useLanguageIdentities.ts must define the text {TOO_LARGE_TO_IDENTIFY:?}"
+        );
     }
 }

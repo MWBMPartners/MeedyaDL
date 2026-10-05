@@ -842,6 +842,9 @@ export function orderLanguagesForDisplay(
  *
  * Called only by `useLanguageIdentities`.
  *
+ * Rejects only for a call over the backend's size limits, with a message
+ * that begins "Too large to identify:", which the hook does not retry.
+ *
  * @param tags - The values to identify.
  * @returns One identity per tag, in the same order.
  */

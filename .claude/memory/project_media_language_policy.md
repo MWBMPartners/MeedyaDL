@@ -126,7 +126,8 @@ did not change.
   order; `src/hooks/useLanguageIdentities.ts` is the one place identity is
   fetched. Until the backend has answered for a tag -- while pending, AND
   for good if the request keeps failing (it is retried three times, after
-  0.5, 1 and 2 seconds) -- the tag's standard form is the tag itself, so
+  0.5, 1 and 2 seconds; a call refused as too large is not retried, since
+  it would be refused again) -- the tag's standard form is the tag itself, so
   nothing is merged or hidden on the browser's reading (which would hide a
   stored Mandarin `cmn-Hans-CN` behind the offered `zh-Hans-CN`); the
   browser's reading is used only to sort (Codex's review of round 5). Once

@@ -33,7 +33,11 @@
  *     never decides whether an entry is shown.
  * A failed request is tried again a few times, each time after a longer
  * wait (`IDENTITY_RETRY_DELAYS_MS`); after the last failure the raw
- * readings simply stay. A success at any point replaces them.
+ * readings simply stay. A success at any point replaces them. The one
+ * exception is a call the backend refused as too large
+ * (`TOO_LARGE_TO_IDENTIFY`): the same call would be refused the same way,
+ * so it is not tried again and the raw readings stay at once (stand-in
+ * review of round 6, finding 4).
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -50,10 +54,25 @@ interface Identity {
  * How long to wait before each further try after a failed request, in
  * milliseconds: three more tries, each after a longer wait, then no more.
  * Bounded on purpose -- the request only fails when the backend is not
- * there at all (or the list is malformed), and asking for ever would not
- * change that. Exported for the tests.
+ * there at all (or the call is too large, which is not retried at all;
+ * see `TOO_LARGE_TO_IDENTIFY`), and asking for ever would not change
+ * that. Exported for the tests.
  */
 export const IDENTITY_RETRY_DELAYS_MS: readonly number[] = [500, 1000, 2000];
+
+/**
+ * How the backend's refusal of a call that is too large begins
+ * (`TOO_LARGE_TO_IDENTIFY` in `src-tauri/src/commands/language.rs`, whose
+ * test checks that this file holds the same text). It is the one failure
+ * certain to come back the same on every try, so it is never retried.
+ */
+export const TOO_LARGE_TO_IDENTIFY = 'Too large to identify:';
+
+/** True when `error` is the backend refusing the call as too large. */
+function isRefusedAsTooLarge(error: unknown): boolean {
+  const text = typeof error === 'string' ? error : error instanceof Error ? error.message : '';
+  return text.startsWith(TOO_LARGE_TO_IDENTIFY);
+}
 
 /**
  * A tag's identity while the backend has not vouched for it: its standard
@@ -114,6 +133,14 @@ export function useLanguageIdentities(tags: readonly string[]): LanguageIdentity
         })
         .catch((error: unknown) => {
           if (cancelled) return;
+          if (isRefusedAsTooLarge(error)) {
+            console.warn(
+              '[settings] language identities refused as too large, not retried; ' +
+                'every entry keeps its own row',
+              error
+            );
+            return;
+          }
           const delay = IDENTITY_RETRY_DELAYS_MS[failuresSoFar];
           if (delay === undefined) {
             console.warn(

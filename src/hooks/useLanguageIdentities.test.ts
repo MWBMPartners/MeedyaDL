@@ -13,7 +13,9 @@
  *   - the browser's reading is still used for the GROUP while waiting, as
  *     an ordering hint only (it never removes an entry);
  *   - a failed request is tried again a bounded number of times, with a
- *     growing delay, and a success on a retry replaces the raw reading;
+ *     growing delay, and a success on a retry replaces the raw reading --
+ *     except a call the backend refused as too large, which would fail
+ *     the same way again and is not retried;
  *   - an answer, or a retry, for a list that has since changed is dropped,
  *     including an answer that arrives after the new list's.
  */
@@ -184,6 +186,21 @@ describe('useLanguageIdentities', () => {
     expect(ask).toHaveBeenCalledTimes(2);
     expect(result.current.ready).toBe(true);
     expect(result.current.standardOf('EN-us')).toBe('en-US');
+  });
+
+  it('does not retry a call the backend refused as too large', async () => {
+    // Stand-in review of round 6, finding 4: this is the one error that
+    // is certain to come back the same on every try (the backend refuses a
+    // call over its size limits), so asking again only wastes four calls.
+    // The text is the backend's own (`language_identities` in
+    // src-tauri/src/commands/language.rs); Tauri rejects with it as a string.
+    vi.useFakeTimers();
+    ask.mockRejectedValue('Too large to identify: 501 tags (at most 500)');
+    const { result } = renderHook(() => useLanguageIdentities(['EN-us']));
+    await wait(60_000);
+    expect(ask).toHaveBeenCalledTimes(1);
+    expect(result.current.ready).toBe(false);
+    expect(result.current.standardOf('EN-us')).toBe('EN-us');
   });
 
   it('asks again only when the list content changes', async () => {
