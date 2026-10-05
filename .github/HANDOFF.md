@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (09:20) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (09:23) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1389,7 +1389,10 @@ on PRs to / pushes to main.
   - **Why the fixes never reached the channels:** `main`'s `forward-port-security.yml` still needs the author to be exactly `dependabot[bot]`, but the API says `app/dependabot`. The fix (#1165) was on `alpha` only. The maintainer said to fix it (about 08:30).
     - **#1275** (`ci/forward-port-security-to-main`, `e39024f1`) copies `alpha`'s two files unchanged.
     - Tested locally against real merges: #1264 and #1266 forward-port; #1152 (a routine update) and #1230 do not.
-    - A focused Codex review (`scratchpad/deps/codex-chain-fp.sh`, output `codex-fp.out`) runs after the 09:08 MeedyaDL review, with a watchdog. **Do not merge #1275 before it is clean.**
+    - **Codex's focused review (09:19): NOT clean — 3 high, 2 medium**, all already in `alpha`'s version (output `scratchpad/deps/codex-fp.out`).
+      - The helper can wrongly say "already fixed": it checks one copy of a package only, ignores packages the fix added, and skips manifest changes it never checked.
+      - A mere mention of a Dependabot PR qualifies for forwarding, and so do release-please PRs.
+      - Fix builder running (Opus, `scratchpad/deps/brief-fp-r1.md`), with tests and a watchdog. **Do not merge #1275 until a review is clean.** `alpha` then needs the same two files by a separate PR.
     - After merge: run the workflow by hand for #1264 and #1266 to carry both fixes to `alpha` and `beta` (#1265 lists them).
     - #1275 is `fix(ci)`, so release-please will propose 1.10.9 for `main`; nothing ships until that release PR is merged.
 - **Codex reviewed MeedyaDL rounds 6–7 at 09:08 on 5 Oct: NOT clean — 2 high, 3 medium.** All five are ways the subtitle code can delete or lose a file (full answer: `scratchpad/lang/codex-mdl-r7.out`, last message):
