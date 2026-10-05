@@ -1235,6 +1235,9 @@ on PRs to / pushes to main.
   - **Lead's decision:** add a third step that also never replaces a file: create the real name exclusively, copy, flush, and delete it on any failure. Its stated limit: a forced stop mid-copy can leave a partial subtitle.
   - **Round-7 builder running** (Opus, `brief-meedyadl-r7.md`, branch `r7` in the builder clone), with a watchdog. It uses this checkout's `src-tauri/target` as a build cache only, and must rebuild it from clean code at the end.
 - **MeedyaPlayer/MeedyaSubtitler: the eighteenth review found 0 high, 0 medium, 3 low, 2 nits** — one broken sentence, a stale date and an unrecorded message claim. The lead fixed them directly with exact replacements (`bf4c355` / `48b3287`, pushed), and the nineteenth review (stand-in) is running with a watchdog. The trend is 7 low, then 3, 4 and 3, so the loop is close to done.
+- **NetPLAYERapp: the stand-in review of round 8 (`6bd61ed..fcac576`) is NOT clean — 0 high, 0 medium, 12 low, 3 nits.** All three size guards, the real-controller test and the deployment test held when attacked. The whole battery passed under PHP 8.4 with MySQL 8.0, the versions CI uses.
+  - Most findings are sentences that said slightly more than the code does. The posted #210 round-8 comment repeats three of them, so round 9's comment corrects them.
+  - **Round-9 builder running** (Sonnet, `brief-netplayer-r9.md`), with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
