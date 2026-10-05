@@ -117,9 +117,10 @@ import './styles/globals.css';
           // string, wherever in the report either happens to appear.
           beforeSend: (event) => scrubCrashReportEvent(event),
         });
-      } else {
-        console.debug('[Sentry] No DSN configured — error reporting disabled');
       }
+      // No address configured (local and fork builds): crash reporting
+      // simply stays off. A console.debug line used to say so; nothing
+      // needs to, since there is nothing anyone can do about it here.
     }
   } catch {
     // Settings not available yet (first run, or backend not ready) -- skip Sentry init

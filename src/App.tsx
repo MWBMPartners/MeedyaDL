@@ -1331,11 +1331,10 @@ function App() {
               useUiStore
                 .getState()
                 .addToast(`URL received from external link${codecSuffix}`, 'info');
-
-              // dev-only diagnostic; the user already gets the toast above
-              // (#951 — matches the console.debug convention in useTheme.ts
-              // and main.tsx, suppressed at default browser log levels)
-              console.debug(`Deep link received: ${url}${codec ? `, codec=${codec}` : ''}`);
+              // A console.debug line used to repeat the full address here.
+              // It was removed: the toast above already tells the person,
+              // and writing whole addresses to the console only spreads
+              // them further (the polish check refuses console.debug/log).
             } catch (err) {
               console.error('Error in deep-link-download handler:', err);
             }

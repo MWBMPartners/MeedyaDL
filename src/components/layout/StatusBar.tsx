@@ -28,10 +28,10 @@
  * @see https://react.dev/learn/rendering-lists       -- conditional rendering of count spans.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 
-// Tauri app API for reading the version from tauri.conf.json at runtime.
-import { getVersion } from '@tauri-apps/api/app';
+// The app's version number, never a placeholder (see the hook's notes).
+import { useAppVersion } from '@/hooks/useAppVersion';
 
 import { Square } from 'lucide-react';
 
@@ -149,17 +149,11 @@ export function StatusBar() {
   const { t } = useTranslation();
 
   /**
-   * Application version string, fetched once on mount from `tauri.conf.json`
-   * via the Tauri app API. Falls back to 'unknown' if the call fails
-   * (e.g., in a test environment without Tauri runtime).
+   * Application version string: the build's own version from the first
+   * frame, then the desktop app's answer (see `useAppVersion`). It used to
+   * show "v..." while loading and "vunknown" if the lookup failed.
    */
-  const [appVersion, setAppVersion] = useState('...');
-
-  useEffect(() => {
-    getVersion()
-      .then((v) => setAppVersion(v))
-      .catch(() => setAppVersion('unknown'));
-  }, []);
+  const appVersion = useAppVersion();
 
   /**
    * Subscribe to the `queueItems` slice of the download store.
@@ -384,7 +378,7 @@ export function StatusBar() {
           version-prefix convention ("v" + number) that reads the same in
           every language, so this is left as a plain string rather than
           wired through i18next. */}
-      <span>MeedyaDL v{appVersion}</span>
+      <span>MeedyaDL{appVersion ? ` v${appVersion}` : ''}</span>
     </div>
   );
 }

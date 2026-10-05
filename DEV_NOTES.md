@@ -776,7 +776,7 @@ Each settings tab is a self-contained React component. Labels, descriptions, and
 | Spotify | `src/components/settings/tabs/SpotifyTab.tsx` |
 | Advanced | `src/components/settings/tabs/AdvancedTab.tsx` |
 
-Two more tab component files exist (`BBCiPlayerTab.tsx`, `YouTubeTab.tsx`) but have no entry in the tab list below, so they render nothing today — they're staged for M8/M10.
+The BBC iPlayer and YouTube placeholder tab files were deleted in October 2026 (never in the tab list, they only said "Coming Soon"); each service gets a real tab when it ships (M8/M10). The Spotify tab is listed only with developer access on (`settingsGroups.ts`).
 
 The tab list itself (names, icons, order, and the grouping into General/Download/Authentication/Services/System sections) is the `TABS` and `SETTINGS_GROUPS` arrays in `src/components/settings/SettingsPage.tsx`.
 
@@ -986,7 +986,7 @@ MeedyaDL/
 
 │   │   ├── download/           #    DownloadForm, DownloadQueue, ActivityLog, QueueItem, HistoryPage, GlobalProgressBar
 
-│   │   ├── settings/           #    SettingsPage + 11 registered tab components (+ 2 unregistered: BBCiPlayerTab, YouTubeTab) + CrashReportSection, CrashReportDialog, DevToolsSection
+│   │   ├── settings/           #    SettingsPage + 11 tab components (Spotify only with developer access; see settingsGroups.ts) + CrashReportSection, CrashReportDialog, DevToolsSection
 
 │   │   ├── updates/            #    UpdatesPage (changelog + update actions)
 

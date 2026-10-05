@@ -25,6 +25,10 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
 import path from 'path';
+import { readFileSync } from 'fs';
+
+/** package.json, for the version number the build bakes in (see `define` below). */
+const pkg = JSON.parse(readFileSync(path.resolve(__dirname, 'package.json'), 'utf-8')) as { version: string };
 
 /**
  * defineConfig() from 'vitest/config' extends Vite's defineConfig with test-specific type hints.
@@ -40,6 +44,15 @@ export default defineConfig({
    * @see https://vitest.dev/config/#plugins
    */
   plugins: [react()],
+
+  /**
+   * define -- the same compile-time constant vite.config.ts bakes into the
+   * build, so code that shows the app's version behaves in tests as it does
+   * in the app (without it, `__APP_VERSION__` simply does not exist here).
+   */
+  define: {
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
 
   resolve: {
     /**
