@@ -1300,6 +1300,9 @@ on PRs to / pushes to main.
   - Filed **#1267** (the Interface Language dropdown with `de-AT`).
   - **Review:** the change can lose files, so it needs a round. Codex runs on rounds 6–7 straight after the core review, through the chained script `codex-chain-mdl7.sh`, with a watchdog.
 - **MeedyaConverter round 5 pushed (`6dfc16a..bbf2cd8`); CI green.** #531 has a comment. A stand-in review is running with a watchdog.
+- **MeedyaManager: the stand-in review of round 7 is NOT clean — 1 medium, 9 low, 3 nits.** Every round-6 fix held on real files, and 1,566 tests pass.
+  - **Medium (older than round 7):** setting or clearing a non-language field on a WAV reports success, but the RIFF INFO list keeps the old value. The new round-7 test asserts that wrong answer.
+  - **Round-8 builder running** (Opus, `brief-manager-r8.md`), with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
