@@ -1274,6 +1274,10 @@ on PRs to / pushes to main.
   - dev-team plugin: 5 plan files.
   - MeedyaDL itself, MeedyaPlayer, MeedyaSubtitler and iLyricsDB: none, apart from the `settings.local.json` files already raised.
   - **Recommended:** one clean-up commit per repository replacing the name and paths with "the maintainer", `~` or Salem874. The test fixtures need care, because the tests compare them. History stays for the history-rewrite decision. Nothing has been changed yet.
+- **MeedyaManager round 7 pushed (`49cec29..e4db8f8`, 13 commits).**
+  - My re-run: fmt and clippy clean, 1,566 tests passed with 1 ignored (#254), docs build clean, copy checker clean.
+  - Filed MeedyaManager #261 (a zero character in other fields) and #262 (`--json` log lines), commented on #256 and #251, and filed **core #106** (the copy checker's line-ending advice).
+  - A stand-in review of round 7 is running, with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
