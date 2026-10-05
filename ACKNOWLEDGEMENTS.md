@@ -101,7 +101,7 @@ exact number.
 | tracing-subscriber | 0.3 | MIT | `tracing` event collector and formatter (stderr + file) |
 | url | 2.5 | MIT/Apache-2.0 | URL parsing |
 | uuid | 1.23 | MIT/Apache-2.0 | UUID generation |
-| windows-sys | 0.61 | MIT/Apache-2.0 | Windows only: puts a finished subtitle in place only if nothing is already there, and checks whether a process is still running, when tidying up after a stopped run. Already part of the dependency tree; listed because the app calls it directly |
+| windows-sys | 0.61 | MIT/Apache-2.0 | Windows only: puts a finished subtitle in place only if nothing is already there; and, when tidying up after a stopped run, checks whether a process is still running and tells whether two file names are the same file (so a leftover second name of a finished subtitle can be removed). Already part of the dependency tree; listed because the app calls it directly |
 | zip | 2.4 | MIT | ZIP archive extraction |
 
 ### Tauri Plugins
