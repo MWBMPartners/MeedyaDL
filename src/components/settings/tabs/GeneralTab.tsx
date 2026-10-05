@@ -86,7 +86,7 @@ import type {
 import { Toggle, FilePickerButton, Select, Button, InlineError, SettingsSection, Modal } from '@/components/common';
 import ChannelSwitchWarning from '@/components/settings/ChannelSwitchWarning';
 import { PRE_RELEASE_CHANNELS, type UpdateChannel } from '@/types';
-import { LOCALES, isMachineAssisted } from '@/lib/i18n';
+import { isMachineAssisted, uiLanguageOptions } from '@/lib/i18n';
 
 // Lucide icons for the refresh/check action button and export/import buttons.
 import { Bell, Download, RefreshCw, Upload } from 'lucide-react';
@@ -118,33 +118,13 @@ const THEME_OPTIONS = [
   { value: 'dark', label: 'Dark' },
 ];
 
-/**
- * UI display language options for the language dropdown.
- *
- * - 'auto': Detect from OS locale (default). Internally stored as `""`
- *           in `settings.ui_language`. i18next's LanguageDetector resolves it.
- * - Every other row comes straight from `LOCALES` in `src/lib/i18n.ts`, so
- *   this dropdown can never fall out of step with the languages the app
- *   actually ships translation files for. To add a new language: create
- *   the locale JSON file and add one entry to `LOCALES` — nothing here
- *   needs to change.
- *
- * For a language nobody has checked yet (`machineAssisted: true` in
- * `LOCALES`), the row's own name is followed by a short qualifier written
- * in that same language -- e.g. "Deutsch (automatische Übersetzung)" --
- * so a German or French reader sees the caveat before they even pick it,
- * not after. The qualifier text lives in `LOCALES.machineAssistedLabel`,
- * not here, so this file never has to carry its own copy of it.
+/*
+ * The language list's rows come from `uiLanguageOptions()` in
+ * src/lib/i18n.ts: "Auto (System)" (stored as "" in `ui_language`), every
+ * complete language, and -- only while it is the saved choice -- an
+ * incomplete one, marked as such in its own language (polish pass M10).
+ * Nothing here needs to change to add a language.
  */
-const UI_LANGUAGE_OPTIONS = [
-  { value: 'auto', label: 'Auto (System)' },
-  ...LOCALES.map((locale) => ({
-    value: locale.code,
-    label: locale.machineAssisted
-      ? `${locale.nativeName} (${locale.machineAssistedLabel})`
-      : locale.nativeName,
-  })),
-];
 
 /**
  * Update check interval options. Value is in hours.
@@ -304,6 +284,9 @@ export function GeneralTab() {
   const highContrast = useSettingsField('high_contrast');
   const colourBlindMode = useSettingsField('colour_blind_mode');
   const uiLanguage = useSettingsField('ui_language');
+  // The language saved when the page opened: kept in the list (marked
+  // incomplete) even if the person picks something else before saving.
+  const [uiLanguageAtOpen] = useState(() => uiLanguage.value ?? '');
   const language = useSettingsField('language');
   const storefront = useSettingsField('storefront');
   const storefrontFallback = useSettingsField('storefront_fallback_on_failure');
@@ -686,7 +669,7 @@ export function GeneralTab() {
           <Select
             label="Language"
             description="The language MeedyaDL is shown in. Changes straight away."
-            options={UI_LANGUAGE_OPTIONS}
+            options={uiLanguageOptions(uiLanguageAtOpen, uiLanguage.value ?? '')}
             value={uiLanguage.value || 'auto'}
             onChange={(e) => {
               const val = e.target.value;

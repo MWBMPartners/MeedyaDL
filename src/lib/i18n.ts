@@ -54,18 +54,45 @@ import enTranslations from '../../public/locales/en/translation.json';
  * right next to the language's own native name, which is also written in
  * that language, so the two read as one consistent line instead of an
  * English sentence bolted onto a foreign word.
+ *
+ * `complete` (polish pass M10) says whether the language covers every
+ * piece of text the app shows. Only a complete language is offered in
+ * Settings > General > Appearance > Language, or chosen by "Auto". The
+ * German and French files have every key the code looks up -- but about
+ * 85% of the screens still write their text directly in English instead
+ * of looking it up, so choosing either gave a mostly English app with a
+ * few translated words. `tools/audit-checks/check_i18n.py` refuses
+ * `complete: true` while any on-screen text bypasses the catalogue or the
+ * language's file is missing a key the code uses, and reports how much is
+ * left.
+ *
+ * Somebody whose SAVED choice is an incomplete language keeps it: it is
+ * still applied, and the list shows it as their current choice, marked
+ * with `incompleteLabel` (written in that language), so nothing is taken
+ * away without a word. See `uiLanguageOptions`.
  */
 export const LOCALES = [
-  { code: 'en', nativeName: 'English', machineAssisted: false, machineAssistedLabel: '' },
+  {
+    code: 'en',
+    nativeName: 'English',
+    complete: true,
+    incompleteLabel: '',
+    machineAssisted: false,
+    machineAssistedLabel: '',
+  },
   {
     code: 'de',
     nativeName: 'Deutsch',
+    complete: false,
+    incompleteLabel: 'unvollständige Übersetzung',
     machineAssisted: true,
     machineAssistedLabel: 'automatische Übersetzung',
   },
   {
     code: 'fr',
     nativeName: 'Français',
+    complete: false,
+    incompleteLabel: 'traduction incomplète',
     machineAssisted: true,
     machineAssistedLabel: 'traduction automatique',
   },
@@ -80,6 +107,48 @@ export type LocaleCode = (typeof LOCALES)[number]['code'];
  * this name, and a flat list of codes is often all a caller needs.
  */
 export const AVAILABLE_LOCALES: readonly LocaleCode[] = LOCALES.map((l) => l.code);
+
+/**
+ * The languages offered in the language list and chosen by "Auto": the
+ * complete ones (see `complete` on `LOCALES`). English is always one.
+ */
+export const OFFERED_LOCALES: readonly string[] = LOCALES.filter((l) => l.complete).map((l) => l.code);
+
+/** One row of the Settings language list. */
+export interface LanguageOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * The rows of the Settings language list, given the person's choices
+ * (`ui_language` values; empty means "Auto") -- the one saved when the
+ * page opened and the one picked now, so changing your mind before Save
+ * can still go back.
+ *
+ * "Auto (System)", then every offered (complete) language. A chosen
+ * language that is NOT offered -- German or French today, chosen before
+ * they were withdrawn -- is still listed, so the list shows what the
+ * person chose: its own name followed by "incomplete translation" in that
+ * language (and the machine-made note when that applies). Once something
+ * else is saved, it is no longer anybody's choice and leaves the list.
+ */
+export function uiLanguageOptions(...chosen: string[]): LanguageOption[] {
+  const chosenBases = new Set(chosen.filter(Boolean).map((c) => baseLanguageOf(c)));
+  const rows: LanguageOption[] = [{ value: 'auto', label: 'Auto (System)' }];
+  for (const locale of LOCALES) {
+    const isSaved = chosenBases.has(locale.code);
+    if (!locale.complete && !isSaved) continue;
+    const notes: string[] = [];
+    if (!locale.complete) notes.push(locale.incompleteLabel);
+    if (locale.machineAssisted) notes.push(locale.machineAssistedLabel);
+    rows.push({
+      value: locale.code,
+      label: notes.length ? `${locale.nativeName} (${notes.join(', ')})` : locale.nativeName,
+    });
+  }
+  return rows;
+}
 
 /**
  * Turn whatever the browser/OS reports (e.g. "de-DE", "en-US", "fr") into
@@ -175,8 +244,9 @@ async function loadLocaleResources(lng: string): Promise<void> {
  *   keyed, via `baseLanguageOf()`, same as everywhere else in this file.
  */
 /**
- * The system's language if MeedyaDL has a translation for it, otherwise
- * English. What "Auto" means.
+ * The system's language if MeedyaDL offers a translation for it (a
+ * complete one -- see `OFFERED_LOCALES`), otherwise English. What "Auto"
+ * means. `offered` is there for tests; the app always uses the default.
  *
  * Asking for a language MeedyaDL does not have (a Spanish system, say)
  * would only ever fail to load a file that does not exist -- so it is not
@@ -184,9 +254,9 @@ async function loadLocaleResources(lng: string): Promise<void> {
  * itself, a Spanish-system user on "Auto" would have been told on every
  * launch that "es" could not be loaded (Codex, batch-3 review).
  */
-export function systemLanguageOrEnglish(): string {
+export function systemLanguageOrEnglish(offered: readonly string[] = OFFERED_LOCALES): string {
   const system = typeof navigator !== 'undefined' ? navigator.language : 'en';
-  return (AVAILABLE_LOCALES as readonly string[]).includes(baseLanguageOf(system)) ? system : 'en';
+  return offered.includes(baseLanguageOf(system)) ? system : 'en';
 }
 
 /**
@@ -333,9 +403,12 @@ export function setUpI18n(): void {
  * not already (tests call this directly), then fetches and applies the
  * system's language when it is one MeedyaDL has.
  *
- * Called once during app startup, from App.tsx.
+ * Called once during app startup, from App.tsx. `offered` is the list of
+ * languages "Auto" may choose (the complete ones, `OFFERED_LOCALES`); it is
+ * a parameter only so tests can exercise the start-up path with a language
+ * other than English while no other language is complete.
  */
-export async function initI18n(): Promise<void> {
+export async function initI18n(offered: readonly string[] = OFFERED_LOCALES): Promise<void> {
   setUpI18n();
 
   // If the detected language is not English, fetch its file and apply it
@@ -355,7 +428,7 @@ export async function initI18n(): Promise<void> {
   // system, as a real first launch does.
   const system = currentSystemLanguage();
   const detected = baseLanguageOf(system);
-  if (detected !== 'en' && (AVAILABLE_LOCALES as readonly string[]).includes(detected)) {
+  if (detected !== 'en' && offered.includes(detected)) {
     // `changeUiLanguage()` does two things: fetches the file (if it
     // isn't already loaded) and then calls `i18n.changeLanguage()`.
     // That second step matters on its own, separately from the fetch:
@@ -380,8 +453,9 @@ export async function initI18n(): Promise<void> {
       console.warn('Could not load the system language at startup; using English:', err);
     }
   } else if (detected !== 'en') {
-    // Not a language MeedyaDL has: show English, and say so in the log.
-    console.info(`No ${detected} translation is available; using English.`);
+    // Not a language MeedyaDL offers (none, or an incomplete one): show
+    // English, and say so in the log.
+    console.info(`No complete ${detected} translation is available; using English.`);
     await i18n.changeLanguage('en');
   }
 }

@@ -41,6 +41,17 @@ three as real faults, then reports a fourth as information:
      reported as a plain count and list, not as a `•` finding, and it
      never affects the exit code. See "Why #4 doesn't use bullets" below.
 
+  6. (polish pass M10) A language marked `complete: true` in LOCALES --
+     which offers it in the Settings language list and lets "Auto"
+     choose it -- while its file lacks a key the code looks up, or while
+     screens still write their text directly in English. That is a real
+     finding. How much is left (keys missing per language, and an
+     ESTIMATE of on-screen text that bypasses the catalogue) is reported
+     as information either way. The estimate counts text by pattern in
+     .tsx files, which the next paragraph's caution is about; it is only
+     ever used to say "not zero yet" and "about this much", never to
+     guess which particular string should be translated.
+
 What this script deliberately does NOT do: it does not look at `.tsx`
 files and guess which hardcoded English strings on screen "ought" to be
 translated. That would be pure guesswork -- flooding the output with
@@ -387,6 +398,77 @@ def collect_component_wiring() -> tuple[int, int]:
     return wired, total
 
 
+# ---------------------------------------------------------------------------
+# 6. Is a language offered before it is complete? (polish pass M10)
+# ---------------------------------------------------------------------------
+#
+# `LOCALES` in src/lib/i18n.ts marks each language `complete: true|false`,
+# and only complete languages are offered in the Settings language list or
+# chosen by "Auto". "Complete" means the language covers every piece of
+# text the app shows, which has two halves:
+#
+#   (a) its translation file has every key the code looks up, each with a
+#       real value -- the same comparison checks 1 and 2 make, limited to
+#       keys something actually reaches;
+#   (b) no screen still writes its text directly in English instead of
+#       looking it up. Until (b) holds, every language but English shows
+#       a mostly English app with a few translated words -- which is what
+#       German and French did (finding M10), although their files have
+#       every key the code uses.
+#
+# (b) is measured by pattern, not by parsing, and is an ESTIMATE: text
+# between JSX tags, the usual text props (title, placeholder, aria-label,
+# label, description, subtitle, alt), and messages passed straight to
+# addToast / showError, in .tsx files under src/components. It is used two
+# ways: a language marked complete while (b) is above zero is a finding;
+# and the count is reported as how much is left to translate.
+
+LOCALE_ENTRY_RE = re.compile(r"\{[^{}]*\}", re.S)
+JSX_TEXT_RE = re.compile(r">([^<>{};]*?[A-Za-z]{2,}[^<>{};]*?)<")
+JSX_CODE_RE = re.compile(r"=>|\b(?:const|let|return|import|export|function)\b|&&|\|\|")
+TEXT_PROP_RE = re.compile(
+    r"\b(?:title|placeholder|aria-label|label|description|subtitle|alt|helperText)=\"([^\"]*[A-Za-z]{2,}[^\"]*)\""
+)
+LITERAL_MESSAGE_RE = re.compile(r"\b(?:addToast|showError|showBackendError)\(\s*['\"`]")
+
+
+def collect_locale_completeness() -> dict[str, bool] | None:
+    """{code: complete} from `LOCALES` in src/lib/i18n.ts, or None when it
+    cannot be read (reported as a finding: "could not check" must never
+    look like "clean")."""
+    if not I18N_TS.exists():
+        return None
+    text = I18N_TS.read_text(encoding="utf-8", errors="ignore")
+    block, offset = extract_bracket_block(text, "LOCALES = [")
+    if offset == -1:
+        return None
+    out: dict[str, bool] = {}
+    for entry in LOCALE_ENTRY_RE.finditer(strip_line_comments(block)):
+        code = re.search(r"""code:\s*['"]([a-z]{2,3})['"]""", entry.group(0))
+        complete = re.search(r"\bcomplete:\s*(true|false)\b", entry.group(0))
+        if not code or not complete:
+            return None
+        out[code.group(1)] = complete.group(1) == "true"
+    return out or None
+
+
+def count_literal_screen_text() -> tuple[int, int]:
+    """(pieces of on-screen text written directly in English, files they
+    are in) -- an estimate; see the comment above."""
+    total = 0
+    files = 0
+    for f in sorted(COMPONENTS_DIR.rglob("*.tsx")):
+        if ".test." in f.name:
+            continue
+        code = strip_line_comments(f.read_text(encoding="utf-8", errors="ignore"))
+        n = sum(1 for m in JSX_TEXT_RE.finditer(code) if m.group(1).strip() and not JSX_CODE_RE.search(m.group(1)))
+        n += len(TEXT_PROP_RE.findall(code)) + len(LITERAL_MESSAGE_RE.findall(code))
+        if n:
+            total += n
+            files += 1
+    return total, files
+
+
 def check() -> int:
     locale_codes = collect_locale_codes()
     if REFERENCE_LOCALE not in locale_codes:
@@ -557,8 +639,53 @@ def check() -> int:
     )
     print()
 
+    # ---- 6. A language offered before it is complete (polish pass M10) --
+    completeness = collect_locale_completeness()
+    literal_count, literal_files = count_literal_screen_text()
+    completeness_findings: list[str] = []
+    if completeness is None:
+        completeness_findings.append(
+            "  • src/lib/i18n.ts — could not read `complete: true|false` for every entry in LOCALES, "
+            "so whether a language is offered before it is complete was not checked"
+        )
+    else:
+        print("### How complete each translation is (informational)\n")
+        print(
+            f"About {literal_count} pieces of on-screen text in {literal_files} files under "
+            f"src/components are still written directly in English (an estimate -- see the "
+            f"comment above count_literal_screen_text). Every language but {REFERENCE_LOCALE} "
+            f"needs those moved into the catalogue and translated before it can be offered."
+        )
+        print()
+        for code in other_codes:
+            cat = catalogues.get(code, {})
+            missing_used = sorted(
+                k for k in reference
+                if is_reachable(k, all_dotted_literals, dynamic_prefixes) and not cat.get(k)
+            )
+            state = "complete" if completeness.get(code) else "not offered (incomplete)"
+            print(
+                f"  - {code}: {state}; {len(missing_used)} key(s) the code looks up are missing or "
+                f"empty in its file, plus the ~{literal_count} pieces of text above"
+            )
+            if completeness.get(code) and (missing_used or literal_count):
+                completeness_findings.append(
+                    f"  • src/lib/i18n.ts — '{code}' is marked complete, but "
+                    + (f"{len(missing_used)} key(s) the code uses are missing or empty in its file"
+                       if missing_used else f"about {literal_count} pieces of on-screen text still bypass the catalogue")
+                    + " -- set `complete: false` until both are zero"
+                )
+        print()
+    if completeness_findings:
+        print("### A language is offered before its translation is complete\n")
+        for line in completeness_findings:
+            print(line)
+        print()
+        findings += len(completeness_findings)
+
     if (
         not load_errors
+        and not completeness_findings
         and not parity_findings
         and not empty_findings
         and not placeholder_findings

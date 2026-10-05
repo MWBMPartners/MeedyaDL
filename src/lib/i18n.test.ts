@@ -32,6 +32,8 @@ import LanguageDetector from 'i18next-browser-languagedetector';
 import i18n, {
   AVAILABLE_LOCALES,
   LOCALES,
+  OFFERED_LOCALES,
+  uiLanguageOptions,
   baseLanguageOf,
   changeUiLanguage,
   i18nOptions,
@@ -84,6 +86,15 @@ function LanguageProbe() {
   const { t } = useTranslation();
   return createElement('div', { 'data-testid': 'probe' }, t('nav.queue'));
 }
+
+/**
+ * German offered as if it were complete. Since the polish pass (M10) only
+ * complete languages are chosen by "Auto", and none but English is
+ * complete yet; the start-up path these tests pin still has to work for
+ * the day one is, so they hand `initI18n` this list instead of the real
+ * one. The real list is tested separately below.
+ */
+const GERMAN_OFFERED = ['en', 'de'] as const;
 
 describe('initI18n shows the detected language, not stale English (#111)', () => {
   beforeEach(() => {
@@ -162,7 +173,7 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     // so it has to be wrapped in act() or React Testing Library warns
     // that an update happened it didn't get to observe.
     await act(async () => {
-      await initI18n();
+      await initI18n(GERMAN_OFFERED);
     });
 
     // Before checking the screen, check that the setup actually took --
@@ -192,7 +203,7 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     // state.
     expect(document.documentElement.lang).toBe('en');
     await act(async () => {
-      await initI18n();
+      await initI18n(GERMAN_OFFERED);
     });
     expect(document.documentElement.lang).toBe('de');
   });
@@ -209,7 +220,7 @@ describe('document.documentElement.lang tracks every later language change too',
     // call again, so calling it explicitly here makes the precondition
     // this test needs true regardless of what ran before it.
     await act(async () => {
-      await initI18n();
+      await initI18n(GERMAN_OFFERED);
     });
   });
 
@@ -439,8 +450,18 @@ describe('startup on a system whose language MeedyaDL does not have', () => {
   it('"Auto" chooses English, not a language with no file', () => {
     vi.stubGlobal('navigator', { language: 'es-ES', languages: ['es-ES'] });
     expect(systemLanguageOrEnglish()).toBe('en');
+    // A language that is offered is chosen...
     vi.stubGlobal('navigator', { language: 'de-DE', languages: ['de-DE'] });
-    expect(systemLanguageOrEnglish()).toBe('de-DE');
+    expect(systemLanguageOrEnglish(GERMAN_OFFERED)).toBe('de-DE');
+  });
+
+  it('"Auto" does not choose an incomplete translation (polish pass M10)', async () => {
+    // ...but German is not complete yet, so with the real list a German
+    // system gets English, at start-up and from "Auto".
+    vi.stubGlobal('navigator', { language: 'de-DE', languages: ['de-DE'] });
+    expect(systemLanguageOrEnglish()).toBe('en');
+    await initI18n();
+    expect(baseLanguageOf(i18n.language)).toBe('en');
   });
 });
 
@@ -576,5 +597,36 @@ describe('isMachineAssisted', () => {
   it('is true for French', () => {
     expect(isMachineAssisted('fr')).toBe(true);
     expect(isMachineAssisted('fr-FR')).toBe(true);
+  });
+});
+
+describe('uiLanguageOptions (polish pass M10)', () => {
+  it('offers only complete languages', () => {
+    const values = uiLanguageOptions('').map((o) => o.value);
+    expect(values).toEqual(['auto', ...OFFERED_LOCALES]);
+    expect(values).not.toContain('de');
+    expect(values).not.toContain('fr');
+  });
+
+  it('keeps a saved incomplete choice, marked as incomplete in its own language', () => {
+    const de = uiLanguageOptions('de').find((o) => o.value === 'de');
+    expect(de?.label).toBe('Deutsch (unvollständige Übersetzung, automatische Übersetzung)');
+    const fr = uiLanguageOptions('fr-FR').find((o) => o.value === 'fr');
+    expect(fr?.label).toBe('Français (traduction incomplète, traduction automatique)');
+  });
+
+  it('keeps the choice saved when the page opened, even after picking another', () => {
+    const values = uiLanguageOptions('de', 'en').map((o) => o.value);
+    expect(values).toContain('de');
+    expect(values).not.toContain('fr');
+  });
+
+  it('every language marked complete has a file with every English key (the audit check enforces the rest)', () => {
+    const enKeys = flattenKeys(enTranslations);
+    const files: Record<string, unknown> = { en: enTranslations, de: deTranslations, fr: frTranslations };
+    for (const code of OFFERED_LOCALES) {
+      const keys = flattenKeys(files[code]);
+      expect([...enKeys.keys()].filter((k) => !keys.has(k))).toEqual([]);
+    }
   });
 });

@@ -83,7 +83,7 @@
 - **Graceful shutdown** — background tasks (enrichment, companion downloads, lyrics) stop cleanly on window close or tray quit instead of being abruptly terminated
 - **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, `cargo-deny` licence scanning in CI (org-level source allowlist for `MWBMPartners` and `MeedyaSuite` GitHub orgs — see `src-tauri/deny.toml`). The app also has the code needed to check a downloaded tool against a saved checksum, but that check is not turned on for any download yet ([#987](https://github.com/MWBMPartners/MeedyaDL/issues/987))
 - **Accessibility** — ARIA labels on interactive elements, `aria-live` regions for dynamic content updates, `prefers-reduced-motion` support, skip navigation, high-contrast mode, colour-blind themes (deuteranopia, protanopia, tritanopia)
-- **Translations** — the app runs in English, German, or French, chosen automatically from your OS language or manually in Settings > General. German and French are complete, machine-made translations (the language picker and an in-app note both say so); help pages can also be translated, one Markdown file per page under `help/<language>/`, and a page with no translation yet falls back to the English original with a note explaining why
+- **Translations** — the app runs in English. German and French translations are under way but cover only part of the app, so they are not offered yet; a language is offered (and chosen automatically from your OS language) only once its translation covers every screen. Someone who chose German or French earlier keeps it, marked in Settings > General as an incomplete translation; help pages can also be translated, one Markdown file per page under `help/<language>/`, and a page with no translation yet falls back to the English original with a note explaining why
 - **Pre-release version handling** — on an unfinished build (anything before 1.0, or any alpha, beta or release-candidate build such as `1.13.0-alpha.71`), verbose activity logging stays on across restarts for easier debugging, and a notice is shown the first time each new unfinished build is launched
 - **Component version info** — Help > About screen displays a Component Library table with installed versions of all tools (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo) via the `get_component_versions` IPC command
 - **Collapsible Help > About sections** — Credits, License, Links, Open Source Acknowledgements, and Component Library are wrapped in `<details>`/`<summary>` elements for clean, scannable layout
@@ -492,7 +492,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Queue persistence, crash recovery, and export/import
 - ✅ Updates page with rendered release notes
 - ✅ In-app help viewer with 20 topics and search
-- ✅ i18n (i18next, OS language detection, complete English/German/French translations, translatable help pages)
+- ✅ i18n (i18next, OS language detection, translatable help pages); German and French are partly translated and not offered until they cover every screen
 - ✅ Smart re-download detection — checks download history and Apple Music `lastModifiedDate` to detect album changes
 - ✅ **Library Scan page** — point MeedyaDL at an existing on-disk music library, find every album it has previously downloaded (via `manifest.meedyadl` files), surface the artist/album/track-count/codec inventory in a sortable table. Foundation for re-download gap-fill (#717 follow-ups for the smart-retry diff + music-video gap-fill prompts)
 - ✅ Per-track activity log separators with codec and auth info
@@ -525,7 +525,7 @@ Each milestone adds a new media service with its own CLI subprocess engine, URL 
 
 - 🔮 **Smart Download** ([#110](https://github.com/MWBMPartners/MeedyaDL/issues/110)) — cross-platform quality optimisation (search all services for the same content, download the best quality)
 - 🔮 **YouTube Music** ([#103](https://github.com/MWBMPartners/MeedyaDL/issues/103)) via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features beyond yt-dlp
-- 🔮 **More languages** ([#111](https://github.com/MWBMPartners/MeedyaDL/issues/111)) — German and French are already complete; this tracks adding further languages beyond those two
+- 🔮 **More languages** ([#111](https://github.com/MWBMPartners/MeedyaDL/issues/111)) — German and French are partly translated and not offered yet; this tracks finishing them and adding further languages
 - 🔮 **Enhanced MusicKit Integration** ([#108](https://github.com/MWBMPartners/MeedyaDL/issues/108)) — server-side token generation to remove Apple Developer credential requirement
 - 🔮 **Stable rollback** ([#267](https://github.com/MWBMPartners/MeedyaDL/issues/267)) — option to roll back from pre-release to latest stable version
 

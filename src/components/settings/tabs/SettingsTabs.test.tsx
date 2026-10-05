@@ -344,19 +344,28 @@ describe('GeneralTab', () => {
    * GeneralTab builds its options from that data instead of a
    * hand-written label that could drift out of sync with it.
    */
-  it('shows the machine-translation qualifier on the German and French options, but not on English', () => {
+  it('offers only complete languages: German and French are not listed for an English user (polish pass M10)', () => {
     render(<GeneralTab />);
 
     const select = screen.getByLabelText('Language') as HTMLSelectElement;
-    const options = Array.from(select.options);
+    const values = Array.from(select.options).map((o) => o.value);
 
-    expect(options.find((o) => o.value === 'de')?.textContent).toBe(
-      'Deutsch (automatische Übersetzung)',
+    expect(values).toEqual(['auto', 'en']);
+    expect(Array.from(select.options).find((o) => o.value === 'en')?.textContent).toBe('English');
+  });
+
+  it('keeps a saved German choice in the list, marked incomplete and machine-made (polish pass M10)', () => {
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, ui_language: 'de' } }));
+    render(<GeneralTab />);
+
+    const select = screen.getByLabelText('Language') as HTMLSelectElement;
+    expect(select.value).toBe('de');
+    expect(Array.from(select.options).find((o) => o.value === 'de')?.textContent).toBe(
+      'Deutsch (unvollständige Übersetzung, automatische Übersetzung)',
     );
-    expect(options.find((o) => o.value === 'fr')?.textContent).toBe(
-      'Français (traduction automatique)',
-    );
-    expect(options.find((o) => o.value === 'en')?.textContent).toBe('English');
+    // French was never chosen, so it is not offered.
+    expect(Array.from(select.options).some((o) => o.value === 'fr')).toBe(false);
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, ui_language: '' } }));
   });
 
   /**
