@@ -63,10 +63,17 @@ commit (`--new`) and the branch to check (`--target`), the answer is
      For every entry the fix added or changed, the target's entry in the
      SAME place must be exactly equal to the fix's new one (every field,
      nested values included); for every entry it removed, the target must
-     have no entry in that place. Anything else the fix changed in a
-     manifest — a build setting, a script, a feature list, anything outside
-     those tables — means "needs the fix", and so does a manifest that
-     cannot be read or parsed on any side.
+     have no entry in that place. An entry that takes settings from the
+     workspace (`workspace = true`, on any side) also needs its
+     `[workspace.dependencies]` entry to be in the same file on both the
+     fix's side and the target's, and exactly equal: Cargo adds the two
+     feature lists together, so the local entry alone proves nothing. If
+     that table is in another Cargo.toml (a workspace member), the
+     inherited settings cannot be checked, which means "needs the fix".
+     Anything else the fix changed in a manifest — a build setting, a
+     script, a feature list, anything outside those tables — means "needs
+     the fix", and so does a manifest that cannot be read or parsed on any
+     side.
      (This replaced a line-by-line comparison, which Codex's second review
      of #1275 showed could not tell WHICH dependency a setting belonged
      to: a fix turning off `foo`'s default features read as present on a
@@ -586,6 +593,71 @@ def split_manifest(path: str, doc: dict) -> tuple[dict[tuple, object], dict]:
     return entries, rest
 
 
+def inherits_from_workspace(entry) -> bool:
+    """True if a Cargo dependency entry takes settings from the workspace
+    (`foo = { workspace = true, ... }`). Any `workspace` value other than
+    `false` counts, so an odd value errs toward checking more, not less."""
+    return isinstance(entry, dict) and "workspace" in entry and entry["workspace"] is not False
+
+
+def compare_inherited_settings(
+    path: str, changed: list[tuple], old_entries: dict, new_entries: dict, target_entries: dict
+) -> tuple[bool, list[str]]:
+    """For each changed dependency entry that inherits from the workspace on
+    any side, the inherited `[workspace.dependencies.<name>]` entry must be
+    in this same manifest on both the fix's side and the target's, and
+    exactly equal.
+
+    Why: an entry with `workspace = true` takes its version and other
+    settings from `[workspace.dependencies]`, and Cargo ADDS the two feature
+    lists together. So the local entry matching proves nothing on its own:
+    Codex's fourth review of #1275 showed a fix dropping `risky` from foo's
+    own features read as "already fixed" on a branch whose workspace entry
+    still switched `risky` on. If the workspace table is not in this file
+    (a workspace member, whose table is in another Cargo.toml this check
+    does not read) or the entry is missing on either side, the inherited
+    settings cannot be checked, so the answer is "needs the fix". Only
+    dependency entries inherit this way; `workspace = true` elsewhere (in
+    [package], say) does not change which dependencies are built, and
+    `patch`, `replace` and the workspace table itself cannot inherit."""
+    ok = True
+    details: list[str] = []
+    checked: set[tuple] = set()
+    for position in changed:
+        if position[0] not in CARGO_DEPENDENCY_TABLES and position[0] != "target":
+            continue
+        sides = (old_entries.get(position, MISSING), new_entries.get(position, MISSING), target_entries.get(position, MISSING))
+        if not any(inherits_from_workspace(entry) for entry in sides):
+            continue
+        # Cargo looks the dependency up in the workspace by its key here.
+        inherited = ("workspace", "dependencies", position[-1])
+        if inherited in checked:
+            continue
+        checked.add(inherited)
+        where = " > ".join(position)
+        source = " > ".join(inherited)
+        wanted = new_entries.get(inherited, MISSING)
+        have = target_entries.get(inherited, MISSING)
+        if wanted is MISSING or have is MISSING:
+            ok = False
+            missing = " and ".join(
+                side for side, value in (("the fix's copy", wanted), ("the target branch's copy", have)) if value is MISSING
+            )
+            details.append(
+                f"{path}: {where} takes settings from {source}, which {missing} of this file does not have (it may "
+                "live in another Cargo.toml) — the inherited settings could not be checked, so treating it as needing the fix"
+            )
+        elif wanted != have:
+            ok = False
+            details.append(
+                f"{path}: {where} takes settings from {source}, which the fix has as {show_value(wanted)} but the "
+                f"target branch has as {show_value(have)} — needs the fix"
+            )
+        else:
+            details.append(f"{path}: {where} takes settings from {source}, which is the same on the target branch")
+    return ok, details
+
+
 def show_value(value) -> str:
     text = json.dumps(value, sort_keys=True, default=str)
     return text if len(text) <= 120 else text[:117] + "..."
@@ -637,6 +709,13 @@ def compare_manifest(path: str, old: str | None, new: str | None, target: str | 
             details.append(f"{path}: the fix removed {where}, but the target branch still has it — needs the fix")
         else:
             details.append(f"{path}: the fix removed {where}, and the target branch does not have it either")
+
+    if Path(path).name == "Cargo.toml":
+        inherited_ok, inherited_details = compare_inherited_settings(
+            path, changed, old_entries, new_entries, target_entries
+        )
+        fixed = fixed and inherited_ok
+        details.extend(inherited_details)
 
     if fixed and not changed:
         details.append(f"{path}: the fix changed only the file's layout, not what it says")

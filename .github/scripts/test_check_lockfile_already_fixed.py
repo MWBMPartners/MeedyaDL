@@ -811,6 +811,50 @@ class ManifestsComparedAsData(HelperTestCase):
         )
         self.assertEqual(answer, FIXED, self.last_output)
 
+    # --- settings a dependency takes from [workspace.dependencies] ----------
+
+    WS_PLAIN = '[workspace.dependencies]\nfoo = { version = "1" }\n'
+    WS_RISKY = '[workspace.dependencies]\nfoo = { version = "1", features = ["risky"] }\n'
+
+    def test_inherited_workspace_settings_must_match_codex_review_4(self) -> None:
+        # Codex's case: the fix drops `risky` from foo's own features. foo
+        # also takes settings from [workspace.dependencies], and Cargo adds
+        # the two feature lists together. The channel's local entry matches
+        # the fix, but its workspace entry still turns `risky` on.
+        answer = self.cargo_case(
+            self.WS_PLAIN + '\n[dependencies]\nfoo = { workspace = true, features = ["risky"] }\n',
+            self.WS_PLAIN + '\n[dependencies]\nfoo = { workspace = true, features = [] }\n',
+            cargo_manifest(self.WS_RISKY + '\n[dependencies]\nfoo = { workspace = true, features = [] }\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_matching_inherited_workspace_settings_is_already_fixed(self) -> None:
+        answer = self.cargo_case(
+            self.WS_PLAIN + '\n[dependencies]\nfoo = { workspace = true, features = ["risky"] }\n',
+            self.WS_PLAIN + '\n[dependencies]\nfoo = { workspace = true, features = [] }\n',
+            cargo_manifest(self.WS_PLAIN + '\n[dependencies]\nfoo = { workspace = true, features = [] }\n'),
+        )
+        self.assertEqual(answer, FIXED, self.last_output)
+
+    def test_inherited_entry_without_its_workspace_table_cannot_tell(self) -> None:
+        # A workspace member: its [workspace.dependencies] table lives in
+        # another Cargo.toml, which this check does not read.
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { workspace = true, features = ["risky"] }\n',
+            '[dependencies]\nfoo = { workspace = true, features = [] }\n',
+            cargo_manifest('[dependencies]\nfoo = { workspace = true, features = [] }\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+        self.assertIn("could not be checked", self.last_output)
+
+    def test_inherited_entry_missing_from_the_channels_workspace_table_cannot_tell(self) -> None:
+        answer = self.cargo_case(
+            self.WS_PLAIN + '\n[target.\'cfg(windows)\'.dependencies]\nfoo = { workspace = true, features = ["risky"] }\n',
+            self.WS_PLAIN + '\n[target.\'cfg(windows)\'.dependencies]\nfoo = { workspace = true }\n',
+            cargo_manifest('[workspace]\nmembers = []\n\n[target.\'cfg(windows)\'.dependencies]\nfoo = { workspace = true }\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
     def test_npm_nested_override_must_match_exactly(self) -> None:
         # The fix pins `bar` inside `foo`'s override. The channel has that
         # pin under a different package's override, and not under `foo`.
