@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (11:05) — see ★★★★ LATEST below
+**Last updated:** 2026-10-05 (14:15) — see ★★★★ LATEST below
 **Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
 **Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
@@ -1416,7 +1416,11 @@ on PRs to / pushes to main.
     - Lyrics pairing and the lyrics count skip temporary files.
     - Re-checked here: clippy, 2,217 Rust tests, type-check, lint, copies, and all release notes.
     - vitest 932/938 under a load of about 230. The 1 failure (HelpViewer German page) plus a hook timeout pass 15/15 alone; recorded in **#1298** with the other found items.
-    - **Codex review of round 8 queued** right after the #1275 review at 14:08 (`codex-prompt-mdl-r8.txt`, output `codex-mdl-r8.out`), with a watchdog.
+    - **Codex reviewed round 8 (14:14): NOT clean — 1 high, 1 medium.**
+      - High: a replacement made between the identity check and the removal is still deleted.
+      - Medium: a Windows drive-relative path (`D:Music`) resolves to the wrong folder; the long-path tests do not prove the real call uses the conversion.
+      - **Lead's decision:** never remove a name directly. Rename it to a private quarantine name, check that, then delete; else put it back, or leave it and report. On Windows, delete by handle. Make relative paths absolute with `std::path::absolute`.
+      - **Round-9 builder running** (same agent, branch `r9`, report `mdl9/builder-report.md`), with a watchdog.
 - **Trap found:** `pgrep -f "codex exec"` also matches the ChatGPT app's permanent `codex exec-server` process, so a "wait until no Codex is running" loop never ends. The #1275 review chain had stalled on it; it was started directly at about 09:15.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
