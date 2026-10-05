@@ -1359,6 +1359,10 @@ on PRs to / pushes to main.
   - Codex has now moved on to MeedyaDL rounds 6–7 (the chained script), with a watchdog.
 - **Codex ran out partway through MeedyaDL rounds 6–7** at about 04:28 on 5 Oct, before it gave any findings. It names 09:06 as the reset. A background command retries at 09:08, with a watchdog; the cut-off output is kept as `codex-mdl-r7-cutoff1.out`.
   - No stand-in meanwhile, and that is deliberate. Round 6 already had a stand-in review. All six helper slots are busy, and core revision 12 is first in line for the next free one. Until Codex reviews it, MeedyaDL round 7 counts as not reviewed.
+- **iHymns: the ninth review (stand-in) of round 9 is NOT clean — 0 high, 0 medium, 8 low.** Every code fix held on MariaDB 11.8 and MySQL 8.4, with 291/291 on both. The findings are gaps in what the checks can see, new misses in the English check, and notes made untrue.
+  - The round-10 brief is written (`brief-ihymns-r10.md`) and waits for a free helper slot (the limit is 6).
+  - **Round 10 changes only checks, tests, notes and one log line, so under the narrowed rule it needs no review round of its own.** After it, iHymns waits only for a Codex catch-up.
+- **Core revision 12 is now building** (Opus, `brief-revision-12.md`), with a watchdog. It took the slot the iHymns review freed.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
