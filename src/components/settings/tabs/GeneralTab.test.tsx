@@ -79,6 +79,20 @@ const order = vi.mocked(commands.orderLanguagesForDisplay);
 const identities = vi.mocked(commands.languageIdentities);
 
 /**
+ * How long the ordering test waits for the backend's order to reach the
+ * rendered rows. testing-library's default is one second, and on 5 October
+ * 2026 the full suite, run with the machine's load average near 300, checked
+ * before the (mocked, immediate) answer had been rendered: it saw the
+ * fallback order `auto, de, en, fr` and failed, though nothing was wrong
+ * (it passed 3 of 3 when run alone). Fifteen seconds is generous on purpose;
+ * a wrong order still fails, only later.
+ */
+const REORDER_WAIT_MS = 15_000;
+
+/** The test's own time limit: comfortably longer than the wait above. */
+const ORDER_TEST_LIMIT_MS = 30_000;
+
+/**
  * Answers the way the real backend does for the plain tags on this screen
  * (`utils::language::language_identity`, whose own tests pin `EN-us` ->
  * `en-US`): the standard letter case, grouped by the primary language.
@@ -104,53 +118,63 @@ describe('GeneralTab -- Interface Language dropdown (independent review, round 4
     vi.restoreAllMocks();
   });
 
-  it('orders the Interface Language rows by the backend answer and shows the translated Auto label', async () => {
-    // A recognisable order -- the reverse of AVAILABLE_LOCALES' own array
-    // order -- returned ONLY for the interface-language call (identified
-    // by its `tags` argument being exactly AVAILABLE_LOCALES; the
-    // Metadata Language dropdown asks the same command with a much
-    // longer tag list, and its answer is not what this test checks).
-    order.mockImplementation(async (tags) => {
-      if (tags.length === AVAILABLE_LOCALES.length) {
-        return [...tags].reverse();
-      }
-      return [...tags];
-    });
+  it(
+    'orders the Interface Language rows by the backend answer and shows the translated Auto label',
+    async () => {
+      // A recognisable order -- the reverse of AVAILABLE_LOCALES' own array
+      // order -- returned ONLY for the interface-language call (identified
+      // by its `tags` argument being exactly AVAILABLE_LOCALES; the
+      // Metadata Language dropdown asks the same command with a much
+      // longer tag list, and its answer is not what this test checks).
+      order.mockImplementation(async (tags) => {
+        if (tags.length === AVAILABLE_LOCALES.length) {
+          return [...tags].reverse();
+        }
+        return [...tags];
+      });
 
-    render(<GeneralTab />);
+      render(<GeneralTab />);
 
-    const select = screen.getByLabelText('Language') as HTMLSelectElement;
+      const select = screen.getByLabelText('Language') as HTMLSelectElement;
 
-    // Fault 1: the rendered order follows the backend's (recognisable,
-    // reversed) answer -- ['fr', 'de', 'en'] after 'auto' -- not
-    // `LOCALES`' own fixed array order (['en', 'de', 'fr']).
-    await waitFor(() => {
-      const values = within(select)
-        .getAllByRole('option')
-        .map((option) => (option as HTMLOptionElement).value);
-      expect(values).toEqual(['auto', 'fr', 'de', 'en']);
-    });
+      // Fault 1: the rendered order follows the backend's (recognisable,
+      // reversed) answer -- ['fr', 'de', 'en'] after 'auto' -- not
+      // `LOCALES`' own fixed array order (['en', 'de', 'fr']). Waits for
+      // the reordered rows themselves, for up to REORDER_WAIT_MS (see there).
+      await waitFor(
+        () => {
+          const values = within(select)
+            .getAllByRole('option')
+            .map((option) => (option as HTMLOptionElement).value);
+          expect(values).toEqual(['auto', 'fr', 'de', 'en']);
+        },
+        { timeout: REORDER_WAIT_MS }
+      );
 
-    // Fault 2: the "Auto (System)" row's label is the mocked German
-    // translation, not the hard-coded English text.
-    const autoOption = within(select).getByRole('option', { name: LANGUAGE_AUTO_DE });
-    expect((autoOption as HTMLOptionElement).value).toBe('auto');
-    // Scoped to THIS select -- the Theme dropdown elsewhere on the page
-    // legitimately has its own, unrelated "Auto (System)" option, and a
-    // whole-document query would wrongly flag that as a failure too.
-    expect(within(select).queryByRole('option', { name: 'Auto (System)' })).not.toBeInTheDocument();
+      // Fault 2: the "Auto (System)" row's label is the mocked German
+      // translation, not the hard-coded English text.
+      const autoOption = within(select).getByRole('option', { name: LANGUAGE_AUTO_DE });
+      expect((autoOption as HTMLOptionElement).value).toBe('auto');
+      // Scoped to THIS select -- the Theme dropdown elsewhere on the page
+      // legitimately has its own, unrelated "Auto (System)" option, and a
+      // whole-document query would wrongly flag that as a failure too.
+      expect(
+        within(select).queryByRole('option', { name: 'Auto (System)' })
+      ).not.toBeInTheDocument();
 
-    // Fault 3: the interface-language call's preferences argument is
-    // `['de']` -- the language actually showing -- never a hard-coded
-    // `['en']`.
-    const interfaceCall = order.mock.calls.find(
-      ([tags]) => tags.length === AVAILABLE_LOCALES.length
-    );
-    expect(interfaceCall).toBeDefined();
-    const [tags, preferences] = interfaceCall!;
-    expect(tags).toEqual(AVAILABLE_LOCALES);
-    expect(preferences).toEqual(['de']);
-  });
+      // Fault 3: the interface-language call's preferences argument is
+      // `['de']` -- the language actually showing -- never a hard-coded
+      // `['en']`.
+      const interfaceCall = order.mock.calls.find(
+        ([tags]) => tags.length === AVAILABLE_LOCALES.length
+      );
+      expect(interfaceCall).toBeDefined();
+      const [tags, preferences] = interfaceCall!;
+      expect(tags).toEqual(AVAILABLE_LOCALES);
+      expect(preferences).toEqual(['de']);
+    },
+    ORDER_TEST_LIMIT_MS
+  );
 });
 
 describe('GeneralTab -- Metadata Language dropdown (Codex review of round 5, finding 1)', () => {
