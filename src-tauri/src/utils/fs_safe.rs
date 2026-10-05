@@ -567,19 +567,26 @@ fn rename_no_replace_impl(from: &Path, to: &Path) -> std::io::Result<()> {
 #[cfg(windows)]
 fn rename_no_replace_impl(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::os::windows::ffi::OsStrExt;
-    let wide = |path: &Path| -> Vec<u16> {
-        path.as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect()
+    // Both names in the form Rust's own file code would hand Windows, so a
+    // name too long for the old 260-character limit still works (Codex's
+    // review of rounds 6-7, finding 5; see `windows_long_path`). The
+    // current folder is only needed for a relative name.
+    let current_dir: Option<Vec<u16>> = std::env::current_dir()
+        .ok()
+        .map(|dir| dir.as_os_str().encode_wide().collect());
+    let wide = |path: &Path| -> std::io::Result<Vec<u16>> {
+        let units: Vec<u16> = path.as_os_str().encode_wide().collect();
+        if units.contains(&0) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "a file name contains a zero character",
+            ));
+        }
+        let mut long = windows_long_path(&units, current_dir.as_deref());
+        long.push(0);
+        Ok(long)
     };
-    let (from_w, to_w) = (wide(from), wide(to));
-    if from_w[..from_w.len() - 1].contains(&0) || to_w[..to_w.len() - 1].contains(&0) {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "a file name contains a zero character",
-        ));
-    }
+    let (from_w, to_w) = (wide(from)?, wide(to)?);
     // SAFETY: both arguments are wide text ending in a zero character
     // that outlives the call, which reads them and keeps neither pointer.
     // Flags 0: no MOVEFILE_REPLACE_EXISTING, so a taken name is refused
@@ -593,6 +600,271 @@ fn rename_no_replace_impl(from: &Path, to: &Path) -> std::io::Result<()> {
     } else {
         Ok(())
     }
+}
+
+/// The form of a Windows path (as UTF-16, without the closing zero) that
+/// Rust's own Windows file code hands to Windows, so that a path longer than
+/// Windows' old 260-character limit still works (Codex's review of rounds
+/// 6-7, finding 5). `rename_no_replace` has to call `MoveFileExW` itself
+/// (Rust's own rename would replace a file), and without this a subtitle
+/// whose full path was too long could not be published on a drive without
+/// hard links, although every other file operation on it works.
+///
+/// It follows the standard library's `get_long_path`
+/// (`library/std/src/sys/path/windows.rs`) for when and how to convert:
+///   - already in extended form (`\\?\…` or `\??\…`), or empty: left alone;
+///   - shorter than 247 characters AND an ordinary drive path (`C:\…`,
+///     `C:/…`, or just `C:`) or one starting with two separators (a share,
+///     `\\server\share\…`): left alone, exactly as Rust does -- Windows
+///     takes these as they are;
+///   - anything else -- a long path, or a relative one -- is first made
+///     absolute and tidied the way Windows' `GetFullPathNameW` does it, then
+///     given the prefix: `\\?\C:\…` for a drive, `\\?\UNC\server\share\…`
+///     for a share, and `\\.\…` becomes `\\?\…`.
+///
+/// The tidying is done HERE, not by calling `GetFullPathNameW`, so that
+/// this is a pure function that is compiled and tested on every system. It
+/// follows Microsoft's description of path normalisation ("File path
+/// formats on Windows"): `/` becomes `\`; repeated separators become one;
+/// a `.` part is dropped and a `..` part removes the one before it, never
+/// going above the drive or share; a part ending in a single `.` loses it;
+/// and trailing dots and spaces are removed from the end of a path that
+/// does not end in a separator. A relative path is joined to
+/// `current_dir`; a path starting with one separator goes to the root of
+/// `current_dir`'s drive or share; `C:name` goes to `current_dir` when that
+/// is on drive C, else to `C:\` (Windows also remembers a separate current
+/// folder per drive, which is not known here). With no usable
+/// `current_dir`, a path that needs one is left as it is.
+///
+/// Not run on Windows: no Windows machine was available. The first real
+/// run is the Windows backend job in CI.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_long_path(path: &[u16], current_dir: Option<&[u16]>) -> Vec<u16> {
+    // What `get_long_path` calls `LEGACY_MAX_PATH`, counted with the
+    // closing zero, which `path` here does not have.
+    const LEGACY_MAX_PATH: usize = 248;
+    let is_sep = |c: u16| c == SEP || c == ALT_SEP;
+    if path.is_empty() || path.starts_with(&VERBATIM_PREFIX) || path.starts_with(&NT_PREFIX) {
+        return path.to_vec();
+    }
+    if path.len() + 1 < LEGACY_MAX_PATH {
+        match path {
+            [drive, COLON] if !is_sep(*drive) => return path.to_vec(),
+            [drive, COLON, sep, ..] if !is_sep(*drive) && is_sep(*sep) => return path.to_vec(),
+            [a, b, ..] if is_sep(*a) && is_sep(*b) => return path.to_vec(),
+            _ => {}
+        }
+    }
+    let Some(absolute) = windows_full_path(path, current_dir) else {
+        return path.to_vec();
+    };
+    match absolute.as_slice() {
+        [_, COLON, SEP, ..] => [&VERBATIM_PREFIX[..], &absolute].concat(),
+        [SEP, SEP, DOT, SEP, rest @ ..] => [&VERBATIM_PREFIX[..], rest].concat(),
+        [SEP, SEP, QUERY, SEP, ..] | [SEP, QUERY, QUERY, SEP, ..] => absolute,
+        [SEP, SEP, rest @ ..] => [&UNC_PREFIX[..], rest].concat(),
+        _ => absolute,
+    }
+}
+
+// The UTF-16 units `windows_long_path` works with (all ASCII).
+const SEP: u16 = b'\\' as u16;
+const ALT_SEP: u16 = b'/' as u16;
+const QUERY: u16 = b'?' as u16;
+const COLON: u16 = b':' as u16;
+const DOT: u16 = b'.' as u16;
+const SPACE: u16 = b' ' as u16;
+/// `\\?\`
+const VERBATIM_PREFIX: [u16; 4] = [SEP, SEP, QUERY, SEP];
+/// `\??\`
+const NT_PREFIX: [u16; 4] = [SEP, QUERY, QUERY, SEP];
+/// `\\?\UNC\`
+const UNC_PREFIX: [u16; 8] = [
+    SEP,
+    SEP,
+    QUERY,
+    SEP,
+    b'U' as u16,
+    b'N' as u16,
+    b'C' as u16,
+    SEP,
+];
+
+/// How a Windows path starts (see [`windows_path_start`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WindowsPathStart {
+    /// Complete on its own: a drive (`C:\`), a share (`\\server\share`),
+    /// or a device or extended path (`\\.\…`, `\\?\…`).
+    Absolute,
+    /// `C:name`: on drive C, relative to that drive's current folder.
+    DriveRelative(u16),
+    /// `\name`: from the root of the current drive or share.
+    Rooted,
+    /// `name`: from the current folder.
+    Relative,
+}
+
+/// Splits `path` into how it starts, its root (for an absolute path: the
+/// drive `C:`, the share `\\server\share`, or the device or extended
+/// prefix with its first part, never with a closing separator) and the rest.
+fn windows_path_start(path: &[u16]) -> (WindowsPathStart, Vec<u16>, &[u16]) {
+    let is_sep = |c: u16| c == SEP || c == ALT_SEP;
+    // Up to (not including) the next separator from `from`.
+    let part_end = |from: usize| {
+        path[from..]
+            .iter()
+            .position(|&c| is_sep(c))
+            .map_or(path.len(), |i| from + i)
+    };
+    match path {
+        // `\\?\UNC\server\share`
+        [a, b, QUERY, c, u, n, cc, d, ..]
+            if is_sep(*a)
+                && is_sep(*b)
+                && is_sep(*c)
+                && is_sep(*d)
+                && [*u, *n, *cc] == [b'U' as u16, b'N' as u16, b'C' as u16] =>
+        {
+            let server_end = part_end(8);
+            let share_end = if server_end < path.len() {
+                part_end(server_end + 1)
+            } else {
+                server_end
+            };
+            (
+                WindowsPathStart::Absolute,
+                with_backslashes(&path[..share_end]),
+                &path[share_end..],
+            )
+        }
+        // `\\?\X…`, `\\.\X…`: the prefix and its first part.
+        [a, b, QUERY | DOT, c, ..] if is_sep(*a) && is_sep(*b) && is_sep(*c) => {
+            let end = part_end(4);
+            (
+                WindowsPathStart::Absolute,
+                with_backslashes(&path[..end]),
+                &path[end..],
+            )
+        }
+        // `\??\X…`: likewise.
+        [a, QUERY, QUERY, c, ..] if is_sep(*a) && is_sep(*c) => {
+            let end = part_end(4);
+            (
+                WindowsPathStart::Absolute,
+                with_backslashes(&path[..end]),
+                &path[end..],
+            )
+        }
+        // `\\server\share`
+        [a, b, ..] if is_sep(*a) && is_sep(*b) => {
+            let server_end = part_end(2);
+            let share_end = if server_end < path.len() {
+                part_end(server_end + 1)
+            } else {
+                server_end
+            };
+            (
+                WindowsPathStart::Absolute,
+                with_backslashes(&path[..share_end]),
+                &path[share_end..],
+            )
+        }
+        [drive, COLON, sep, ..] if !is_sep(*drive) && is_sep(*sep) => {
+            (WindowsPathStart::Absolute, vec![*drive, COLON], &path[2..])
+        }
+        [drive, COLON, ..] if !is_sep(*drive) => (
+            WindowsPathStart::DriveRelative(*drive),
+            vec![*drive, COLON],
+            &path[2..],
+        ),
+        [sep, ..] if is_sep(*sep) => (WindowsPathStart::Rooted, Vec::new(), path),
+        _ => (WindowsPathStart::Relative, Vec::new(), path),
+    }
+}
+
+/// `part` with every `/` turned into `\\`.
+fn with_backslashes(part: &[u16]) -> Vec<u16> {
+    part.iter()
+        .map(|&c| if c == ALT_SEP { SEP } else { c })
+        .collect()
+}
+
+/// The absolute, tidied form of `path` that `GetFullPathNameW` would give
+/// (see [`windows_long_path`] for the rules), or `None` when `path` needs a
+/// current folder and `current_dir` is missing or not absolute.
+fn windows_full_path(path: &[u16], current_dir: Option<&[u16]>) -> Option<Vec<u16>> {
+    let is_sep = |c: u16| c == SEP || c == ALT_SEP;
+    let (start, root, rest) = windows_path_start(path);
+    // The current folder's root and parts, when it is needed.
+    let current = || -> Option<(Vec<u16>, Vec<&[u16]>)> {
+        let (kind, root, rest) = windows_path_start(current_dir?);
+        (kind == WindowsPathStart::Absolute).then(|| (root, rest.split(|&c| is_sep(c)).collect()))
+    };
+    let (root, mut parts): (Vec<u16>, Vec<&[u16]>) = match start {
+        WindowsPathStart::Absolute => (root, Vec::new()),
+        WindowsPathStart::DriveRelative(drive) => match current() {
+            Some((current_root, parts))
+                if current_root.len() == 2
+                    && char::from_u32(u32::from(current_root[0]))
+                        .zip(char::from_u32(u32::from(drive)))
+                        .is_some_and(|(a, b)| a.eq_ignore_ascii_case(&b)) =>
+            {
+                (current_root, parts)
+            }
+            _ => (root, Vec::new()),
+        },
+        WindowsPathStart::Rooted => (current()?.0, Vec::new()),
+        WindowsPathStart::Relative => current()?,
+    };
+    parts.extend(rest.split(|&c| is_sep(c)));
+
+    // `.` and `..`, repeated separators, and a part's single closing dot.
+    let mut tidy: Vec<Vec<u16>> = Vec::new();
+    for part in parts {
+        match part {
+            [] | [DOT] => {}
+            [DOT, DOT] => {
+                tidy.pop();
+            }
+            _ => {
+                let mut part = part.to_vec();
+                let all_dots = part.iter().all(|&c| c == DOT);
+                if !all_dots && part.ends_with(&[DOT]) && !part.ends_with(&[DOT, DOT]) {
+                    part.pop();
+                }
+                tidy.push(part);
+            }
+        }
+    }
+    let ends_in_separator = rest.last().is_some_and(|&c| is_sep(c));
+    if !ends_in_separator {
+        if let Some(last) = tidy.last_mut() {
+            while last.last().is_some_and(|&c| c == DOT || c == SPACE) {
+                last.pop();
+            }
+            if last.is_empty() {
+                tidy.pop();
+            }
+        }
+    }
+
+    let mut full = root.clone();
+    let drive_root = matches!(root.as_slice(), [_, COLON])
+        || matches!(root.as_slice(), [SEP, SEP, QUERY | DOT, SEP, _, COLON]);
+    if tidy.is_empty() {
+        if drive_root || ends_in_separator {
+            full.push(SEP);
+        }
+        return Some(full);
+    }
+    for part in &tidy {
+        full.push(SEP);
+        full.extend_from_slice(part);
+    }
+    if ends_in_separator {
+        full.push(SEP);
+    }
+    Some(full)
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
@@ -1442,6 +1714,159 @@ mod tests {
         assert!(!is_no_replace_rename_unsupported(&err));
         assert_eq!(fs::read_to_string(&from).unwrap(), "a");
         assert_eq!(fs::read_to_string(&to).unwrap(), "b");
+    }
+
+    // ── windows_long_path (Codex's review of rounds 6-7, finding 5) ─────
+    // Pure, so these run on every system; the code that hands the result
+    // to Windows has not been run on Windows.
+
+    /// `windows_long_path` on text, with an optional current folder.
+    fn long(path: &str, current_dir: Option<&str>) -> String {
+        let units: Vec<u16> = path.encode_utf16().collect();
+        let current: Option<Vec<u16>> = current_dir.map(|d| d.encode_utf16().collect());
+        String::from_utf16(&windows_long_path(&units, current.as_deref())).unwrap()
+    }
+
+    /// A folder name long enough to push any path past Windows' old limit.
+    fn long_part() -> String {
+        "a".repeat(250)
+    }
+
+    #[test]
+    fn a_short_ordinary_path_is_left_as_rust_leaves_it() {
+        for path in [
+            r"C:\Music\Artist\V.en.srt",
+            "C:/Music/Artist/V.en.srt",
+            r"C:\Music\.\x\..\V.en.srt",
+            r"\\server\share\Music\V.en.srt",
+            "C:",
+        ] {
+            assert_eq!(long(path, Some(r"D:\work")), path, "{path}");
+        }
+    }
+
+    #[test]
+    fn a_long_drive_path_gets_the_extended_prefix() {
+        let path = format!(r"C:\Music\{}\V.en.srt", long_part());
+        assert_eq!(long(&path, None), format!(r"\\?\{path}"));
+    }
+
+    #[test]
+    fn a_long_share_path_gets_the_unc_prefix() {
+        let path = format!(r"\\server\share\Music\{}\V.en.srt", long_part());
+        assert_eq!(
+            long(&path, None),
+            format!(r"\\?\UNC\server\share\Music\{}\V.en.srt", long_part())
+        );
+    }
+
+    #[test]
+    fn a_relative_path_is_made_absolute_first() {
+        assert_eq!(
+            long(r"sub\V.en.srt", Some(r"C:\work")),
+            r"\\?\C:\work\sub\V.en.srt"
+        );
+        assert_eq!(
+            long(r"..\V.en.srt", Some(r"\\server\share\work\deeper")),
+            r"\\?\UNC\server\share\work\V.en.srt"
+        );
+        // From the root of the current drive, or of the current share.
+        assert_eq!(
+            long(r"\Music\V.srt", Some(r"D:\work")),
+            r"\\?\D:\Music\V.srt"
+        );
+        assert_eq!(
+            long(r"\Music\V.srt", Some(r"\\srv\sh\work")),
+            r"\\?\UNC\srv\sh\Music\V.srt"
+        );
+        // `C:name`: the current folder when it is on drive C, else C's root.
+        assert_eq!(long(r"C:V.srt", Some(r"c:\work")), r"\\?\c:\work\V.srt");
+        assert_eq!(long(r"C:V.srt", Some(r"D:\work")), r"\\?\C:\V.srt");
+        // An extended current folder is used as it is.
+        assert_eq!(long(r"V.srt", Some(r"\\?\C:\work")), r"\\?\C:\work\V.srt");
+        assert_eq!(
+            long(r"V.srt", Some(r"\\?\UNC\srv\sh\work")),
+            r"\\?\UNC\srv\sh\work\V.srt"
+        );
+        // Without a usable current folder, nothing can be done.
+        assert_eq!(long(r"sub\V.srt", None), r"sub\V.srt");
+        assert_eq!(long(r"sub\V.srt", Some(r"relative\dir")), r"sub\V.srt");
+    }
+
+    #[test]
+    fn an_already_extended_path_is_left_alone() {
+        for path in [
+            format!(r"\\?\C:\x\..\{}\V.srt", long_part()),
+            format!(r"\\?\UNC\server\share\{}\V.srt", long_part()),
+            format!(r"\??\C:\{}\V.srt", long_part()),
+            String::new(),
+        ] {
+            assert_eq!(long(&path, Some(r"D:\work")), path);
+        }
+    }
+
+    #[test]
+    fn forward_slashes_and_repeated_separators_become_single_backslashes() {
+        let part = long_part();
+        assert_eq!(
+            long(&format!("C:/Music//{part}///V.en.srt"), None),
+            format!(r"\\?\C:\Music\{part}\V.en.srt")
+        );
+        assert_eq!(
+            long(&format!("//server/share/{part}/V.srt"), None),
+            format!(r"\\?\UNC\server\share\{part}\V.srt")
+        );
+        assert_eq!(
+            long("sub/dir/V.srt", Some("C:/work")),
+            r"\\?\C:\work\sub\dir\V.srt"
+        );
+    }
+
+    #[test]
+    fn dot_and_dot_dot_are_resolved_but_never_above_the_root() {
+        let part = long_part();
+        assert_eq!(
+            long(&format!(r"C:\a\.\b\..\{part}\.\V.srt"), None),
+            format!(r"\\?\C:\a\{part}\V.srt")
+        );
+        assert_eq!(
+            long(&format!(r"C:\..\..\{part}\V.srt"), None),
+            format!(r"\\?\C:\{part}\V.srt")
+        );
+        assert_eq!(
+            long(&format!(r"\\server\share\..\..\{part}\V.srt"), None),
+            format!(r"\\?\UNC\server\share\{part}\V.srt")
+        );
+        // A part of three or more dots is a name, not a step up.
+        assert_eq!(long(r"...\V.srt", Some(r"C:\w")), r"\\?\C:\w\...\V.srt");
+    }
+
+    #[test]
+    fn trailing_dots_and_spaces_are_tidied_as_windows_does() {
+        let part = long_part();
+        // A part ending in a single dot loses it; the end of the path loses
+        // all its trailing dots and spaces.
+        assert_eq!(
+            long(&format!(r"C:\Album.\{part}\V.srt. ."), None),
+            format!(r"\\?\C:\Album\{part}\V.srt")
+        );
+        // A closing separator is kept, and stops the end being trimmed.
+        assert_eq!(
+            long(&format!(r"C:\{part}\dir\"), None),
+            format!(r"\\?\C:\{part}\dir\")
+        );
+        assert_eq!(long(r"C:\x\..", Some(r"D:\w")), r"C:\x\..");
+        assert_eq!(long(r"..", Some(r"C:\w\sub")), r"\\?\C:\w");
+        assert_eq!(long(r"..\..\..", Some(r"C:\w")), r"\\?\C:\");
+    }
+
+    #[test]
+    fn a_long_device_path_gets_the_extended_prefix() {
+        let part = long_part();
+        assert_eq!(
+            long(&format!(r"\\.\C:\{part}\V.srt"), None),
+            format!(r"\\?\C:\{part}\V.srt")
+        );
     }
 
     // ── copy_to_new_file (stand-in review of round 6, finding 1) ────────
