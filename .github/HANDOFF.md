@@ -1278,6 +1278,11 @@ on PRs to / pushes to main.
   - My re-run: fmt and clippy clean, 1,566 tests passed with 1 ignored (#254), docs build clean, copy checker clean.
   - Filed MeedyaManager #261 (a zero character in other fields) and #262 (`--json` log lines), commented on #256 and #251, and filed **core #106** (the copy checker's line-ending advice).
   - A stand-in review of round 7 is running, with a watchdog.
+- **NetPLAYERapp round 10 pushed (`c43b4a3..ca00419`, 4 commits).**
+  - My re-run: language tests 18,538, deployment test 6, PHP-CS-Fixer clean.
+  - The probe now refuses to run unless `open_basedir` is really set (exit 6), and the second length message is tested.
+  - #210 has a comment that corrects the round-9 comment's item 4.
+  - A stand-in review of round 10 is running, with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
