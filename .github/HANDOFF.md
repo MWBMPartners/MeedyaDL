@@ -1346,6 +1346,17 @@ on PRs to / pushes to main.
     - **Part A builder running** (Opus, `polish/brief-polish-a.md`), with a watchdog. It covers the pre-push check (`tools/audit-checks/check_polish.py`, `tools/hooks/pre-push`, installer, self-test) plus H1–H3, H6, H7, M1–M4, M9, M11, M14–M16, and the low items that need no browser.
     - Part B follows: layout at small windows, error messages, bundle size and consistency.
   - **Waiting on the maintainer:** H8 (the RC and beta branches carry versions older than stable), M18 (the GitHub repository's description, topics, homepage and social preview), M19 (the wiki: stale, and it publishes the developer-access key sequence), M21 (the releases page: a draft duplicate and inconsistent pre-release flags), L18 (the OnlyFans engine entry ships in every installer).
+- **MeedyaSuite-core: Codex's review of revision 11 (`cd3ca07..0e43b14`) is NOT clean — 2 high, 1 medium, 3 low.**
+  - **High:**
+    - On macOS a folder's inherited ACL, or a different group, can still expose the "private" temporary copy.
+    - Zero-length `TLAN` frames bypass the memory budget.
+  - **Medium:** a copy renamed mid-save is not reported.
+  - **Low:**
+    - the count checker passes when a document is missing;
+    - the privacy tests pass under `umask 077` with the fix removed;
+    - the performance test does not count the real work.
+  - The brief for **revision 12** is written (`brief-revision-12.md`). It waits for a free helper slot: the concurrent-helper limit is 6, and 6 are running. Launch it as soon as one finishes.
+  - Codex has now moved on to MeedyaDL rounds 6–7 (the chained script), with a watchdog.
 - **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
   (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
   payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
