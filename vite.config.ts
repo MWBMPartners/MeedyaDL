@@ -221,12 +221,42 @@ export default defineConfig({
      * back to Vite's default (500 kB) under the polish rule that a size
      * warning is fixed by making the bundle smaller, not by raising the
      * limit -- tools/audit-checks/check_polish.py refuses a raised limit.
-     * The build prints the warning until the rarely opened pages (Help,
-     * Updates) are split out of the main bundle; that work is tracked
-     * separately. The figures above are kept as the history.
+     * The figures above are kept as the history.
+     *
+     * How the bundle got under 500 kB (polish pass M12, 5 October 2026),
+     * with the start-up script at 1,456 kB before:
+     *  - Help, Updates and Settings are loaded when first opened (lazy
+     *    imports in App.tsx). That takes the help text, the Markdown and
+     *    HTML libraries only Help and Updates use, and the Settings
+     *    screens out of the start-up script: about 820 kB.
+     *  - React itself goes in a file of its own (`codeSplitting` below,
+     *    about 220 kB). It is still loaded at start-up -- this only stops
+     *    one file carrying everything. Lazy pages alone left the start-up
+     *    script at about 600 kB.
+     *  - The help text goes in a file of its own too, loaded with the
+     *    Help page; with it, the Help page's file was 572 kB.
+     * Measured after: see the build output (the largest file must stay
+     * under 500 kB, or the build warns again).
      */
 
     rolldownOptions: {
+      output: {
+        // Two files of their own (see the size note above):
+        //  - React, React DOM and their scheduler. `test` matches those
+        //    folders in node_modules only, so nothing of MeedyaDL's own
+        //    lands in it.
+        //  - The help pages' text (help/*.md, read at build time by
+        //    src/components/help/helpTopics.ts). It is only ever loaded
+        //    with the Help page, but on its own it is about 350 kB, and
+        //    with the Help page's HTML parser it came to 572 kB in one
+        //    file.
+        codeSplitting: {
+          groups: [
+            { name: 'react', test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/ },
+            { name: 'help-pages', test: /[\\/]help[\\/][^?]*\.md(\?|$)/ },
+          ],
+        },
+      },
       onwarn(warning, warn) {
         // Suppress the "dynamically imported by X but also statically imported by Y"
         // warning for uiStore.ts. The dynamic imports in main.tsx's global error

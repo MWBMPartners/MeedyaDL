@@ -37,7 +37,9 @@ WHAT IT CHECKS -- one `### ` section per rule, findings as bullets
 10. Drafts, backups, Word files and test files in public/, help/ or the
     installer's bundled resources.
 11. The bundle-size warning not silenced: `chunkSizeWarningLimit` not
-    raised above Vite's default (500 kB).
+    raised above Vite's default (500 kB), and the Help, Updates and
+    Settings pages still loaded on demand (lazy imports in App.tsx), which
+    is what keeps the start-up script under that limit.
 12. Nothing fake: no `href="#"`, no empty click handlers.
 13. Every "Settings > Tab > Section" mentioned in help, README,
     translations or the interface names a real tab and a real section or
@@ -633,7 +635,7 @@ def check_button_names() -> None:
 
 SECTION_DEBUG = "Debug output left in shipped code"
 SECTION_DRAFTS = "Draft, backup or test file in a folder that ships"
-SECTION_CHUNK = "The bundle-size warning is silenced"
+SECTION_CHUNK = "The bundle-size warning is silenced, or a page meant to load on demand is loaded at start-up"
 SECTION_FAKE = "Link or button that does nothing"
 DRAFT_NAME = re.compile(
     r"\.(?:docx?|odt|pages|bak|orig|rej|tmp|swp)$|~$|^\.DS_Store$|draft|\.test\.|\.spec\.|^Thumbs\.db$",
@@ -678,6 +680,11 @@ def check_drafts() -> None:
                 add(SECTION_DRAFTS, p, 0, "ships to everyone who installs MeedyaDL; move it out (docs/drafts/ for drafts)")
 
 
+# Pages App.tsx loads on demand, so they stay out of the start-up script
+# (polish pass M12): (component, its folder under src/components).
+LAZY_PAGES = (("HelpViewer", "help"), ("UpdatesPage", "updates"), ("SettingsPage", "settings"))
+
+
 def check_chunk_limit() -> None:
     vite = ROOT / "vite.config.ts"
     if not vite.exists():
@@ -692,6 +699,25 @@ def check_chunk_limit() -> None:
             Lines(code).at(m.start()),
             f"chunkSizeWarningLimit is {m.group(1)} kB, above Vite's {VITE_DEFAULT_CHUNK_LIMIT}; make the bundle smaller instead",
         )
+
+    # The pages kept out of the start-up script (polish pass M12): each must
+    # stay a lazy import in App.tsx. A plain `import { HelpViewer } ...`
+    # puts the help text and the Markdown and HTML libraries back into the
+    # script every launch loads -- 1.46 MB, nearly three times Vite's limit
+    # -- and the build only warns, which is easy to miss.
+    app = ROOT / "src/App.tsx"
+    if not app.exists():
+        add(SECTION_CHUNK, "src/App.tsx", 0, "missing, so the pages loaded on demand were not checked")
+        return
+    app_code = blank_comments(read(app))
+    app_lines = Lines(app_code)
+    for name, folder in LAZY_PAGES:
+        static = re.search(rf"^import\s+[^;]*\b{name}\b[^;]*from\s+['\"][^'\"]*components/{folder}[^'\"]*['\"]", app_code, re.M)
+        lazy = re.search(rf"\b{name}\s*=\s*lazy\(\s*\(\)\s*=>\s*import\(\s*['\"][^'\"]*components/{folder}/", app_code)
+        if static:
+            add(SECTION_CHUNK, app, app_lines.at(static.start()), f"{name} is imported up front; load it on demand with lazy(() => import(...)) (it is kept out of the start-up script)")
+        elif not lazy:
+            add(SECTION_CHUNK, app, 0, f"{name} is not loaded on demand with lazy(() => import(...)) any more")
 
 
 # Empty handlers kept on purpose, each with its reason. Keep this short.

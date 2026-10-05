@@ -201,9 +201,19 @@ def cases():
         ),
         (
             "a silenced bundle-size warning",
-            "The bundle-size warning is silenced",
+            "The bundle-size warning is silenced, or a page meant to load on demand is loaded at start-up",
             "chunkSizeWarningLimit",
             lambda r: edit(r / "vite.config.ts", "rolldownOptions: {", "chunkSizeWarningLimit: 1500,\n\n    rolldownOptions: {"),
+        ),
+        (
+            "the Help page imported up front again",
+            "The bundle-size warning is silenced, or a page meant to load on demand is loaded at start-up",
+            "HelpViewer is imported up front",
+            lambda r: sub(
+                r / "src/App.tsx",
+                r"const HelpViewer = lazy\(.*\n",
+                "import { HelpViewer } from './components/help';\n",
+            ),
         ),
         (
             'a link to "#"',

@@ -49,7 +49,7 @@
  * @see {@link https://react.dev/reference/react/useEffect}
  * @see {@link https://react.dev/reference/react/useState}
  */
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -144,6 +144,7 @@ import { useFeatureFlagStore, selectServiceEnabled } from './stores/featureFlagS
  * @see ./components/layout/ for layout component implementations
  */
 import { MainLayout } from './components/layout';
+import { PageLoading } from './components/layout/PageLoading';
 
 /* ─── Page Components ────────────────────────────────────────────────── */
 
@@ -153,8 +154,23 @@ import { MainLayout } from './components/layout';
  */
 import { DownloadForm, DownloadQueue, HistoryPage, ActivityLog } from './components/download';
 
-/** UpdatesPage: Detailed update view with full release notes */
-import { UpdatesPage } from './components/updates';
+/*
+ * Help, Updates and Settings are loaded the first time they are opened,
+ * not at start-up (polish pass M12). Help carries every help page's text
+ * (about 350 kB) and, with Updates, the Markdown and HTML libraries
+ * (about 320 kB) that nothing else uses; Settings is the largest set of
+ * screens after those (about 150 kB). Loading them up front made
+ * MeedyaDL's start-up script 1.46 MB -- nearly three times the size Vite
+ * warns about -- and every launch paid for it, although most launches
+ * never open any of them. `PageLoading` fills the short wait the first
+ * time one is opened.
+ *
+ * Each import names the component's own file, not its folder's index:
+ * the indexes are imported elsewhere for types only, and pointing a lazy
+ * import at an index would only work while nothing else imports a value
+ * from it.
+ */
+const UpdatesPage = lazy(() => import('./components/updates/UpdatesPage').then((m) => ({ default: m.UpdatesPage })));
 
 /**
  * LibraryScanPage (Phase 5 / #717): scan an existing on-disk music library
@@ -163,11 +179,11 @@ import { UpdatesPage } from './components/updates';
  */
 import { LibraryScanPage } from './components/library/LibraryScanPage';
 
-/** SettingsPage: Full application settings editor with save/reset */
-import { SettingsPage } from './components/settings';
+/** SettingsPage: Full application settings editor with save/reset (loaded when first opened). */
+const SettingsPage = lazy(() => import('./components/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
-/** HelpViewer: In-app help documentation and FAQ */
-import { HelpViewer } from './components/help';
+/** HelpViewer: In-app help documentation and FAQ (loaded when first opened). */
+const HelpViewer = lazy(() => import('./components/help/HelpViewer').then((m) => ({ default: m.HelpViewer })));
 
 /**
  * SetupWizard: Multi-step guided setup shown on first run or when
@@ -1473,11 +1489,11 @@ function App() {
       case 'activity':
         return <ActivityLog />; // Live subprocess output log
       case 'updates':
-        return <UpdatesPage />; // Update details with release notes
+        return <UpdatesPage />; // Update details with release notes (loaded on demand)
       case 'settings':
-        return <SettingsPage />; // Full settings editor
+        return <SettingsPage />; // Full settings editor (loaded on demand)
       case 'help':
-        return <HelpViewer />; // In-app help documentation
+        return <HelpViewer />; // In-app help documentation (loaded on demand)
       default:
         return <DownloadForm />; // Fallback to download form
     }
@@ -1496,7 +1512,15 @@ function App() {
    */
   return (
     <>
-      <MainLayout>{renderPage()}</MainLayout>
+      <MainLayout>
+        {/* Help, Updates and Settings arrive on demand (see their lazy
+            imports); the page's own header and a spinner fill the wait.
+            Keyed by page so moving to another page never shows the
+            previous page's fallback. */}
+        <Suspense key={currentPage} fallback={<PageLoading title={t(`nav.${currentPage}`)} />}>
+          {renderPage()}
+        </Suspense>
+      </MainLayout>
       {/* Pre-release first-load notice — rendered as an overlay on top of the
        * main application. Uses the Modal component so it doesn't block the UI
        * and can be dismissed independently. */}
