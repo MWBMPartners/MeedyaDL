@@ -266,7 +266,7 @@ export function SetupWizard() {
                   {/* Step label text beneath the circle */}
                   <span
                     className={`
-                      text-[11px] mt-1.5
+                      text-2xs mt-1.5
                       ${isCurrent ? 'text-accent-hover font-medium' : 'text-content-tertiary'}
                     `}
                   >

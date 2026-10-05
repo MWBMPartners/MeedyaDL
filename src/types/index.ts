@@ -350,7 +350,7 @@ export const COMPANION_MODE_LABELS: Record<CompanionMode, string> = {
   atmos_to_lossless_and_lossy: 'Atmos → Lossless + Lossy; ALAC → Lossy',
   specialist_to_lossy: 'Specialist → Lossy (AAC)',
   atmos_to_all_formats: 'Atmos → All Formats (AC3 + ALAC + AAC)',
-  custom: 'Custom...',
+  custom: 'Custom…',
 };
 
 /**

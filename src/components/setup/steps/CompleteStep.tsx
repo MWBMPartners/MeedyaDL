@@ -75,7 +75,7 @@ export function CompleteStep() {
   return (
     <div className="text-center space-y-6">
       {/* Success icon */}
-      <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-status-success">
+      <div className="inline-flex items-center justify-center w-20 h-20 rounded-platform-lg bg-status-success">
         {/* Same fix as Button.tsx's danger variant and the other
             success/warning/accent-filled buttons: `text-white` bypassed
             the theme's tokens for text sitting on a status fill, which

@@ -286,10 +286,20 @@ def cases():
             ),
         ),
         (
-            "a ratchet count going down without lowering the ceiling",
+            # Polish pass M17: three full stops in on-screen text, in a
+            # screen and in a translation. (Spread syntax such as
+            # `{...props}` is all over the unmodified copy, which must stay
+            # clean, so that side is covered by the first test.)
+            "three full stops in on-screen text",
             "Ratchet: a count that may only go down has moved",
-            "below the ceiling",
-            lambda r: drop_one_raw_select(r),
+            'three full stops "..."',
+            lambda r: append(r / "src/components/layout/CrashScreen.tsx", "\nexport const Waiting = () => <p>Loading...</p>;\n"),
+        ),
+        (
+            "three full stops in a translation",
+            "Ratchet: a count that may only go down has moved",
+            'three full stops "..."',
+            lambda r: sub(r / "public/locales/en/translation.json", r'"Checking…"', '"Checking..."'),
         ),
     ]
 
@@ -303,18 +313,6 @@ def sub(path: Path, pattern: str, repl: str) -> None:
     new, n = re.subn(pattern, repl, text, count=1)
     assert n == 1, f"{path}: cannot plant fault, pattern not found"
     path.write_text(new, encoding="utf-8")
-
-
-def drop_one_raw_select(root: Path) -> None:
-    """Turn one hand-made <select> outside components/common into a div."""
-    for p in sorted((root / "src/components").rglob("*.tsx")):
-        if "/common/" in str(p) or ".test." in p.name:
-            continue
-        text = p.read_text(encoding="utf-8")
-        if "<select" in text and "</select>" in text:
-            p.write_text(text.replace("<select", "<div", 1).replace("</select>", "</div>", 1), encoding="utf-8")
-            return
-    raise AssertionError("no <select> outside components/common to remove")
 
 
 def snapshot(root: Path) -> dict[Path, bytes]:
@@ -378,7 +376,25 @@ def main() -> int:
             failures += 1
             print(f"FAIL  a crashing check was not caught by the harness (problem={problem!r})")
 
-    total = len(cases()) + 2
+        # A count below its ceiling must be reported, so the ceiling gets
+        # lowered in the same change. Every ceiling is 0 since the polish
+        # pass, so no count can drop below it in the copy; instead the
+        # check itself is copied with one ceiling raised. (This used to turn
+        # a hand-made <select> into a <div>; none are left.)
+        raised = Path(tmp) / "check_polish_raised_ceiling.py"
+        raised_text = CHECK.read_text(encoding="utf-8").replace('    "raw_select": 0,\n', '    "raw_select": 1,\n', 1)
+        raised.write_text(raised_text, encoding="utf-8")
+        code, output = run_check(root, raised)
+        problem = outcome(code, output, "Ratchet: a count that may only go down has moved", "below the ceiling")
+        if '"raw_select": 1,' not in raised_text:
+            problem = "could not raise the ceiling in the copy of the check"
+        if problem:
+            failures += 1
+            print(f"FAIL  a ratchet count going down without lowering the ceiling: {problem}\n{output[-1500:]}")
+        else:
+            print("ok    a ratchet count going down without lowering the ceiling")
+
+    total = len(cases()) + 3
     print(f"\n{total - failures}/{total} passed")
     # The last line, always, for the same reason as in the check itself.
     print("test_check_polish finished.")

@@ -68,7 +68,6 @@ import { useEffect, useId, useState, useRef, useCallback, useMemo, type MouseEve
  *  - `HelpCircle` -> unknown      (@see https://lucide.dev/icons/help-circle)
  *
  * UI controls:
- *  - `ChevronDown` / `ChevronUp` -> expand/collapse quality overrides
  *  - `Plus` -> "Add to Queue" button icon
  */
 import {
@@ -79,8 +78,6 @@ import {
   User,
   Library,
   HelpCircle,
-  ChevronDown,
-  ChevronUp,
   Plus,
   Layers,
   FileDown,
@@ -111,7 +108,7 @@ import { useFeatureFlagStore, selectServiceEnabled } from '@/stores/featureFlagS
 import { useTranslation } from 'react-i18next';
 
 /** Reusable UI primitives from the common component library. */
-import { Button, Select, ContextMenu } from '@/components/common';
+import { Button, ContextMenu, DisclosureButton, Select, TextButton } from '@/components/common';
 import type { AfterQueueAction } from '@/types';
 
 /** Tauri IPC commands for pre-download checks (internet, cookies). */
@@ -1416,13 +1413,9 @@ export function DownloadForm() {
               <span className="text-status-warning-text text-sm mt-0.5">&#9888;</span>
               <div className="flex-1 text-xs text-content-primary">
                 <p>{cookieError}</p>
-                <button
-                  type="button"
-                  className="mt-1 text-accent-hover underline transition-colors"
-                  onClick={() => setPage('settings')}
-                >
+                <TextButton className="mt-1 block" onClick={() => setPage('settings')}>
                   Go to Settings
-                </button>
+                </TextButton>
               </div>
             </div>
           )}
@@ -1442,24 +1435,22 @@ export function DownloadForm() {
            * Displays the current global default codec in parentheses
            * so users know what they would override.
            */}
-          <button
-            type="button"
+          {/* The app's one expand control (polish pass L3): chevron before
+              the title, turning down when open. It used to be an up/down
+              arrow at the far right. */}
+          <DisclosureButton
+            open={showOverrides}
             onClick={() => setShowOverrides(!showOverrides)}
-            aria-expanded={showOverrides}
-            className="w-full flex items-center justify-between px-4 py-3 text-sm text-content-secondary hover:text-content-primary transition-colors"
+            className="px-4 py-3 text-sm text-content-secondary hover:text-content-primary"
           >
-            <span>
-              Quality Overrides{' '}
-              {/* "·", not brackets: codec labels such as "Lossless (ALAC)
-                  (Experimental)" carry their own, and this used to read
-                  "(default: Lossless (ALAC) (Experimental))". */}
-              <span className="text-content-tertiary">
-                · default: {SONG_CODEC_LABELS[defaultSongCodec]}
-              </span>
+            Quality Overrides{' '}
+            {/* "·", not brackets: codec labels such as "Lossless (ALAC)
+                (Experimental)" carry their own, and this used to read
+                "(default: Lossless (ALAC) (Experimental))". */}
+            <span className="text-content-tertiary">
+              · default: {SONG_CODEC_LABELS[defaultSongCodec]}
             </span>
-            {/* Chevron icon flips based on expand/collapse state */}
-            {showOverrides ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </button>
+          </DisclosureButton>
 
           {/*
            * Expandable override panel -- only rendered when `showOverrides`

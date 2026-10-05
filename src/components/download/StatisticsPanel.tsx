@@ -368,7 +368,7 @@ interface StatCardProps {
  */
 function StatCard({ value, label, colour }: StatCardProps) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-lg bg-surface-secondary/60 px-2 py-3 min-w-0">
+    <div className="flex flex-col items-center justify-center rounded-platform-lg bg-surface-secondary/60 px-2 py-3 min-w-0">
       <span className={`text-lg font-semibold leading-tight truncate max-w-full ${colour}`}>
         {value}
       </span>

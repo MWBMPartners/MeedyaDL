@@ -98,7 +98,7 @@ export function RiskPill({ tier }: RiskPillProps) {
   const cfg = TIER_CONFIG[tier];
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ${cfg.className}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-2xs font-medium ring-1 ${cfg.className}`}
       role="img"
       aria-label={cfg.ariaLabel}
     >

@@ -124,7 +124,7 @@ export default function SpotifyConsentModal() {
       maxWidth="max-w-lg"
     >
       <div className="space-y-4 text-sm text-content-secondary">
-        <div className="flex gap-3 rounded-lg border border-status-warning/40 bg-status-warning/5 p-3">
+        <div className="flex gap-3 rounded-platform-lg border border-status-warning/40 bg-status-warning/5 p-3">
           <AlertTriangle
             size={20}
             className="text-status-warning flex-shrink-0 mt-0.5"
@@ -167,7 +167,7 @@ export default function SpotifyConsentModal() {
           <button
             ref={dismissButtonRef}
             type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium text-content-secondary hover:text-content-primary transition-colors"
+            className="px-4 py-2 rounded-platform-lg text-sm font-medium text-content-secondary hover:text-content-primary transition-colors"
             onClick={handleDismiss}
             aria-label="Cancel Spotify download and return to the download form"
           >

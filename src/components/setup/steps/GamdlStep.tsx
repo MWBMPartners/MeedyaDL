@@ -149,7 +149,7 @@ export function GamdlStep() {
       {/* Status display */}
       <div className="p-4 rounded-platform-lg border border-border-light bg-surface-elevated">
         {isChecking ? (
-          <LoadingSpinner size="sm" label="Checking GAMDL status..." />
+          <LoadingSpinner size="sm" label="Checking GAMDL status…" />
         ) : gamdl?.installed ? (
           /* GAMDL is installed */
           <div className="flex items-center gap-3">
@@ -176,7 +176,7 @@ export function GamdlStep() {
               loading={isInstalling}
               onClick={handleInstall}
             >
-              {isInstalling ? 'Installing GAMDL...' : 'Install GAMDL'}
+              {isInstalling ? 'Installing GAMDL…' : 'Install GAMDL'}
             </Button>
           </div>
         )}

@@ -17,7 +17,7 @@
     "ready": "Bereit",
     "setupRequired": "Einrichtung erforderlich",
     "checkForUpdates": "Nach Updates suchen",
-    "checking": "Wird geprüft...",
+    "checking": "Wird geprüft…",
     "updatesAvailable_one": "{{count}} Update",
     "updatesAvailable_other": "{{count}} Updates",
     "toolMissing": "{{tool}} fehlt",
@@ -107,7 +107,7 @@
     "dialogTitle": "Absturz an Entwickler melden",
     "privacyNotice": "Die folgenden Absturzdaten werden geteilt, wenn Sie das GitHub-Issue öffnen. Überprüfen Sie die Informationen unten, bevor Sie fortfahren. Sie benötigen ein GitHub-Konto, um das Issue einzureichen.",
     "openGitHub": "GitHub-Issue öffnen",
-    "opening": "GitHub Issues wird in Ihrem Browser geöffnet...",
+    "opening": "GitHub Issues wird in Ihrem Browser geöffnet…",
     "openFailed": "GitHub Issues konnte nicht geöffnet werden",
     "cancel": "Abbrechen",
     "previewFailed": "Vorschau des Absturzberichts konnte nicht geladen werden.",
@@ -180,7 +180,7 @@
     "pageNotTranslated": "Diese Seite wurde noch nicht auf {{language}} übersetzt und wird daher auf Englisch angezeigt."
   },
   "common": {
-    "loading": "Laden...",
+    "loading": "Laden…",
     "error": "Fehler",
     "success": "Erfolg",
     "cancel": "Abbrechen",

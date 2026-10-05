@@ -86,6 +86,7 @@ vi.mock('lucide-react', () => {
     Shield: stub('Shield'),
     ShieldOff: stub('ShieldOff'),
     Headphones: stub('Headphones'),
+    ChevronRight: stub('ChevronRight'),
   };
 });
 

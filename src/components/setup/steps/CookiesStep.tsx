@@ -642,7 +642,7 @@ export function CookiesStep() {
             <div className="p-4 rounded-platform border border-accent bg-surface-elevated space-y-3">
               <div className="flex items-center gap-2.5">
                 <Loader2 size={16} className="animate-spin text-accent" />
-                <span className="text-sm font-medium text-content-primary">Signing in...</span>
+                <span className="text-sm font-medium text-content-primary">Signing in…</span>
               </div>
               <p className="text-xs text-content-secondary">
                 A browser window is open. Sign in with your Apple ID at music.apple.com, then return
@@ -673,7 +673,7 @@ export function CookiesStep() {
           {isDetecting ? (
             <div className="flex items-center gap-2 py-4 text-sm text-content-secondary">
               <Loader2 size={16} className="animate-spin" />
-              Detecting installed browsers...
+              Detecting installed browsers…
             </div>
           ) : browsers.length > 0 ? (
             <div className="rounded-platform border border-border-light bg-surface-elevated overflow-hidden">

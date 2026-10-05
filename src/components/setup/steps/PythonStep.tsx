@@ -189,7 +189,7 @@ export function PythonStep() {
       {/* Status / action card */}
       <div className="p-4 rounded-platform-lg border border-border-light bg-surface-elevated">
         {isChecking ? (
-          <LoadingSpinner size="sm" label="Checking Python status..." />
+          <LoadingSpinner size="sm" label="Checking Python status…" />
         ) : python?.installed ? (
           /* Managed Python is provisioned */
           <div className="flex items-center gap-3">
@@ -263,7 +263,7 @@ export function PythonStep() {
             )}
 
             {isDetectingPythons ? (
-              <LoadingSpinner size="sm" label="Looking for an existing Python..." />
+              <LoadingSpinner size="sm" label="Looking for an existing Python…" />
             ) : reusable.length > 0 ? (
               <div className="space-y-3">
                 <div>
@@ -337,7 +337,7 @@ export function PythonStep() {
                 disabled={isInstalling}
                 onClick={handleInstallPortable}
               >
-                {isInstalling ? 'Setting up Python...' : 'Download portable Python'}
+                {isInstalling ? 'Setting up Python…' : 'Download portable Python'}
               </Button>
               <Button
                 variant="ghost"

@@ -212,7 +212,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
         // target ~18px square, under the 24x24 CSS-pixel minimum
         // (WCAG 2.5.8). `p-1.5` brings it to 26px without changing how
         // large the icon itself looks.
-        className="flex-shrink-0 p-1.5 rounded text-content-tertiary hover:text-content-primary transition-colors"
+        className="flex-shrink-0 p-1.5 rounded-platform-sm text-content-tertiary hover:text-content-primary transition-colors"
         aria-label={t('toast.dismiss')}
       >
         <X size={14} />

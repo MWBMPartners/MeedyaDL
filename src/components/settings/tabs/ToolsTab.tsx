@@ -56,7 +56,6 @@ import {
   Download,
   AlertCircle,
   RefreshCw,
-  ChevronDown,
   ChevronRight,
   RotateCcw,
 } from 'lucide-react';
@@ -84,7 +83,7 @@ import { useConfirmation } from '@/lib/useConfirmation';
 import { withErrorToast } from '@/lib/withErrorToast';
 import { sourceLabel } from '@/lib/pm-source';
 
-import { Button, LoadingSpinner, FilePickerButton, InlineError, SettingsSection, Modal } from '@/components/common';
+import { Button, ExpandChevron, IconButton, Input, LoadingSpinner, FilePickerButton, InlineError, SettingsSection, Modal } from '@/components/common';
 
 import { useState } from 'react';
 import { GAMDL_INSTALL_FAILED, explainError, showError } from '@/lib/errorMessages';
@@ -302,7 +301,7 @@ export function ToolsTab() {
       >
 
         {isChecking && !python && !gamdl ? (
-          <LoadingSpinner label="Checking dependencies..." />
+          <LoadingSpinner label="Checking dependencies…" />
         ) : (
           <div className="space-y-2">
             {/* Python status. Fix 7 (a11y audit): colour alone used to
@@ -420,7 +419,7 @@ export function ToolsTab() {
               onClick={handleInstallAll}
             >
               {isInstalling
-                ? `Installing ${installingName}...`
+                ? `Installing ${installingName}…`
                 : `Install All (${missingCount} missing)`}
             </Button>
           )}
@@ -428,7 +427,7 @@ export function ToolsTab() {
 
         {/* Tool list */}
         {isChecking && tools.length === 0 ? (
-          <LoadingSpinner label="Checking tools..." />
+          <LoadingSpinner label="Checking tools…" />
         ) : (
           <div className="space-y-2">
             {tools.map((tool) => {
@@ -472,11 +471,13 @@ export function ToolsTab() {
                           {tool.name}
                         </span>
                         {tool.required ? (
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-status-error/10 text-status-error-text">
+                          // Neutral, not the error colour (polish pass L3): it was red on
+                          // every healthy tool. A missing tool is shown by the icon on the left.
+                          <span className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-surface-secondary text-content-secondary">
                             Required
                           </span>
                         ) : (
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-surface-secondary text-content-tertiary">
+                          <span className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-surface-secondary text-content-tertiary">
                             Optional
                           </span>
                         )}
@@ -487,12 +488,12 @@ export function ToolsTab() {
                            * is the real token; `text-accent-hover` is its
                            * darkened-for-text sibling (plain `text-accent`
                            * falls short of 4.5:1 as small text). */
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent-hover">
+                          <span className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent-hover">
                             System
                           </span>
                         )}
                         {customPath && (
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                          <span className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
                             Custom
                           </span>
                         )}
@@ -552,16 +553,13 @@ export function ToolsTab() {
                         title since the button has no visible text of
                         its own for its accessible name to fall back on. */}
                     {pathKey && (
-                      <button
-                        type="button"
-                        className="p-1 rounded text-content-tertiary hover:text-content-secondary transition-colors"
+                      <IconButton
+                        size="sm"
                         onClick={() => togglePathExpanded(tool.name)}
-                        title="Configure custom binary path"
-                        aria-label="Configure custom binary path"
+                        label="Configure custom binary path"
                         aria-expanded={isExpanded}
-                      >
-                        {isExpanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
-                      </button>
+                        icon={<ExpandChevron open={isExpanded} size={16} />}
+                      />
                     )}
                   </div>
 
@@ -845,24 +843,21 @@ function GamdlVersionManagement({
 
         {/* Install specific version input */}
         <div>
-          <label htmlFor="gamdl-version-input" className="block text-xs font-medium text-content-secondary mb-1">
-            Advanced: install specific version
-          </label>
-          <div className="flex gap-2">
-            <input
-              id="gamdl-version-input"
-              type="text"
-              value={versionInput}
-              onChange={(e) => setVersionInput(e.target.value)}
-              placeholder="e.g. 2.9.3"
-              disabled={anyBusy}
-              /* `focus:ring-accent-primary` was never a defined colour,
-               * so this field had no visible focus ring at all beyond
-               * whatever the browser drew by default. `focus:ring-accent`
-               * is the real token. */
-              className="flex-1 px-3 py-1.5 text-sm rounded-platform border border-border-light bg-surface-elevated text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
-              aria-describedby="gamdl-version-help"
-            />
+          <div className="flex items-end gap-2">
+            {/* The shared Input (polish pass M17), in a flex-1 box beside
+                the Install button. */}
+            <div className="flex-1">
+              <Input
+                id="gamdl-version-input"
+                label="Advanced: install specific version"
+                type="text"
+                value={versionInput}
+                onChange={(e) => setVersionInput(e.target.value)}
+                placeholder="e.g. 3.9.1"
+                disabled={anyBusy}
+                aria-describedby="gamdl-version-help"
+              />
+            </div>
             <Button
               variant="secondary"
               size="sm"
@@ -1033,7 +1028,7 @@ function BackupManagement() {
         </div>
 
         {snapshots === null ? (
-          <LoadingSpinner label="Loading snapshots..." />
+          <LoadingSpinner label="Loading snapshots…" />
         ) : snapshots.length === 0 ? (
           <p className="text-sm text-content-tertiary">
             No snapshots yet. Click "Create snapshot now" or quit MeedyaDL to take one

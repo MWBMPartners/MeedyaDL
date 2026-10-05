@@ -64,6 +64,16 @@ export default {
      */
     extend: {
       /**
+       * One step below Tailwind's smallest size (text-xs, 12px), for badges,
+       * column headers and other small print (polish pass M17). Those used
+       * to be written as fixed pixel sizes -- 10px in 28 places, 11px in 17
+       * -- so the smallest text varied from screen to screen. Everything
+       * that small is now this one size: 11px (0.6875rem), on a 16px line.
+       */
+      fontSize: {
+        '2xs': ['0.6875rem', { lineHeight: '1rem' }],
+      },
+      /**
        * fontFamily -- Custom font stacks for each supported platform.
        *
        * These generate Tailwind classes like `font-sf-pro`, `font-segoe`, `font-system`.

@@ -71,7 +71,7 @@ import { useUpdateStore } from '@/stores/updateStore';
 import { usePlatform } from '@/hooks/usePlatform';
 
 /** Tooltip component shown when sidebar is collapsed (icon-only mode). */
-import { Tooltip } from '@/components/common';
+import { IconButton, NavListItem, Tooltip } from '@/components/common';
 
 /**
  * `AppPage` union type: 'download' | 'queue' | 'settings' | 'help'.
@@ -337,7 +337,7 @@ export function Sidebar() {
               <p className="text-sm font-semibold text-sidebar-text-active leading-tight">
                 MeedyaDL
               </p>
-              <p className="text-[11px] text-content-secondary leading-tight">{t('app.subtitle')}</p>
+              <p className="text-2xs text-content-secondary leading-tight">{t('app.subtitle')}</p>
             </div>
           </>
         )}
@@ -378,28 +378,22 @@ export function Sidebar() {
             : '';
 
           const button = (
-            <button
+            // The shared NavListItem (polish pass M17), also used by the
+            // Settings tabs and the Help topics; `aria-current` marks the
+            // page on screen. The label is left out when the sidebar is
+            // collapsed (the Tooltip below shows it).
+            <NavListItem
               key={page}
+              tone="sidebar"
+              active={isActive}
               onClick={() => setPage(page)}
               title={`${label}${shortcutHint}`}
               aria-label={label}
-              aria-current={isActive ? 'page' : undefined}
-              className={`
-                no-drag w-full flex items-center gap-3 px-3 py-2
-                rounded-platform text-sm transition-colors
-                ${sidebarCollapsed ? 'justify-center' : ''}
-                ${
-                  isActive
-                    ? 'bg-sidebar-active text-sidebar-text-active font-medium'
-                    : 'text-sidebar-text hover:bg-sidebar-hover'
-                }
-              `}
+              className="no-drag"
+              icon={<Icon size={18} className="flex-shrink-0" />}
             >
-              {/* Lucide icon at 18px; flex-shrink-0 prevents icon squishing */}
-              <Icon size={18} className="flex-shrink-0" />
-              {/* Label text is hidden when the sidebar is collapsed */}
-              {!sidebarCollapsed && <span>{label}</span>}
-            </button>
+              {sidebarCollapsed ? undefined : label}
+            </NavListItem>
           );
 
           /*
@@ -494,30 +488,25 @@ export function Sidebar() {
               : t('sidebar.checkForUpdates');
 
           const updateButton = (
-            <button
-              type="button"
+            <NavListItem
+              size="sm"
+              active={false}
+              highlight={hasUpdates}
               onClick={handleUpdateClick}
               disabled={isChecking}
-              className={`
-                no-drag w-full flex items-center gap-2 mt-2 px-2 py-1.5
-                rounded-platform text-xs transition-colors
-                ${sidebarCollapsed ? 'justify-center' : ''}
-                ${
-                  hasUpdates
-                    ? 'text-accent-hover hover:bg-sidebar-hover'
-                    : 'text-content-tertiary hover:text-content-primary hover:bg-sidebar-hover'
-                }
-              `}
               aria-label={label}
+              className="no-drag mt-2"
+              icon={
+                <span className="relative flex-shrink-0">
+                  <RefreshCw size={14} className={isChecking ? 'animate-spin' : ''} />
+                  {hasUpdates && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-accent" />
+                  )}
+                </span>
+              }
             >
-              <span className="relative flex-shrink-0">
-                <RefreshCw size={14} className={isChecking ? 'animate-spin' : ''} />
-                {hasUpdates && (
-                  <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-accent" />
-                )}
-              </span>
-              {!sidebarCollapsed && <span>{label}</span>}
-            </button>
+              {sidebarCollapsed ? undefined : label}
+            </NavListItem>
           );
 
           if (sidebarCollapsed) {
@@ -544,13 +533,12 @@ export function Sidebar() {
          * `no-drag` prevents the button from acting as a window drag handle.
          * `aria-label` provides an accessible description of the action.
          */}
-        <button
+        <IconButton
+          className="no-drag w-full mt-2"
           onClick={toggleSidebar}
-          className="no-drag w-full flex items-center justify-center mt-2 p-1.5 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-sidebar-hover transition-colors"
-          aria-label={sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')}
-        >
-          {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
-        </button>
+          label={sidebarCollapsed ? t('sidebar.expandSidebar') : t('sidebar.collapseSidebar')}
+          icon={sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+        />
       </div>
     </aside>
   );

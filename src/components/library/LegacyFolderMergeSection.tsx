@@ -170,7 +170,7 @@ export function LegacyFolderMergeSection() {
       </div>
 
       {pairs !== null && pairs.length > 0 && (
-        <div className="border border-border-light rounded-md overflow-hidden">
+        <div className="border border-border-light rounded-platform overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-surface-secondary text-content-secondary text-xs uppercase tracking-wider">
               <tr>
@@ -254,7 +254,7 @@ export function LegacyFolderMergeSection() {
             </ul>
 
             {activePreview.potential_collisions.length > 0 && (
-              <div className="rounded-md border border-status-warning/30 bg-status-warning/10 p-3 text-status-warning-text text-xs">
+              <div className="rounded-platform border border-status-warning/30 bg-status-warning/10 p-3 text-status-warning-text text-xs">
                 <div className="flex items-center gap-2 font-medium mb-1">
                   <FileWarning size={14} />
                   Potential filename collisions
@@ -308,7 +308,7 @@ export function LegacyFolderMergeSection() {
           surface non-fatal warnings inline so the user has a visible
           paper trail of anything that didn't go perfectly. */}
       {lastReport && lastReport.warnings.length > 0 && (
-        <div className="mt-4 rounded-md border border-status-warning/30 bg-status-warning/10 p-3 text-status-warning-text text-xs">
+        <div className="mt-4 rounded-platform border border-status-warning/30 bg-status-warning/10 p-3 text-status-warning-text text-xs">
           <div className="flex items-center gap-2 font-medium mb-2">
             <AlertTriangle size={14} />
             Merge of "{lastReport.pair.album_basename}" completed with warnings

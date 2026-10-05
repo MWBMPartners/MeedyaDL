@@ -33,10 +33,10 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 
 import type { ActivityLogEntry } from '@/types';
 import { useActivityStore } from '@/stores/activityStore';
-import { Button, FilterChip, Input, MenuButton, Toggle } from '@/components/common';
+import { Button, FilterChip, IconButton, Input, MenuButton, Toggle } from '@/components/common';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { StatisticsPanel } from '@/components/download/StatisticsPanel';
-import { Download, Trash2, Search, X, Copy, ScrollText, HardDrive, FolderOpen, MoreHorizontal } from 'lucide-react';
+import { ArrowDown, Download, Trash2, Search, X, Copy, ScrollText, HardDrive, FolderOpen, MoreHorizontal } from 'lucide-react';
 import { exportActivityLog, exportDiskActivityLog, getLogsFolderPath } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import { useLocalWallClock } from '@/hooks/useLocalWallClock';
@@ -817,19 +817,13 @@ export function ActivityLog() {
       <div className="mx-6 mb-2 space-y-2">
         {/* Search input */}
         <Input
-          placeholder="Search activity log..."
+          placeholder="Search activity log…"
           value={searchQuery}
           onChange={handleSearchChange}
           icon={<Search size={16} />}
           suffix={
             searchQuery ? (
-              <button
-                onClick={handleClearSearch}
-                className="text-content-tertiary hover:text-content-primary transition-colors cursor-pointer"
-                aria-label="Clear search"
-              >
-                <X size={14} />
-              </button>
+              <IconButton size="sm" icon={<X size={14} />} label="Clear search" onClick={handleClearSearch} />
             ) : undefined
           }
           aria-label="Search activity log"
@@ -941,7 +935,7 @@ export function ActivityLog() {
                       width: '100%',
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
-                    className="flex items-center gap-2 py-1 px-1 font-mono text-[11px] text-content-tertiary select-none"
+                    className="flex items-center gap-2 py-1 px-1 font-mono text-2xs text-content-tertiary select-none"
                     role="separator"
                     aria-label={`Date changed to ${item.date}`}
                   >
@@ -981,25 +975,21 @@ export function ActivityLog() {
                     </>
                   )}
                   {entry.line}
-                  <button
-                    type="button"
-                    // Fix 14 (a11y audit): this button only revealed
-                    // itself on mouse hover -- Tab still landed on it
-                    // (it was always in the DOM and focusable), it was
-                    // just invisible when it got there. With ~150 of
-                    // these rendered at once, that's ~150 silent,
-                    // invisible stops for a keyboard user.
-                    // `focus-visible:opacity-100` reveals it on
-                    // keyboard focus the same way hover does for a mouse.
-                    className="absolute right-0 top-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:!opacity-100 transition-opacity p-0.5"
-                    title="Copy to clipboard"
-                    aria-label="Copy log entry"
+                  {/* Fix 14 (a11y audit): this button only revealed itself on
+                      mouse hover -- Tab still landed on it, invisibly. With
+                      ~150 rows rendered, that was ~150 silent stops for a
+                      keyboard user. `focus-visible:!opacity-100` reveals it
+                      on keyboard focus the same way hover does for a mouse.
+                      The shared IconButton since the polish pass (M17). */}
+                  <IconButton
+                    size="sm"
+                    className="absolute right-0 top-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:!opacity-100 transition-opacity"
+                    label="Copy log entry"
+                    icon={<Copy size={10} />}
                     onClick={() => {
                       navigator.clipboard.writeText(entry.line);
                     }}
-                  >
-                    <Copy size={10} />
-                  </button>
+                  />
                 </div>
               );
             })}
@@ -1012,15 +1002,18 @@ export function ActivityLog() {
             Gives a one-click resume that's more discoverable than
             unticking and re-ticking the Auto-scroll checkbox. */}
         {paused && entries.length > 0 && (
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
+            pill
+            className="absolute bottom-3 right-3 z-10 shadow-md"
+            icon={<ArrowDown size={14} />}
             onClick={resumeAutoScroll}
-            className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent text-content-on-accent text-xs font-medium shadow-md hover:bg-accent-hover transition-colors cursor-pointer"
             title="Scroll to the latest line and resume auto-scroll"
             aria-label="Jump to latest activity log line and resume auto-scroll"
           >
-            ↓ Jump to latest
-          </button>
+            Jump to latest
+          </Button>
         )}
       </div>
     </div>

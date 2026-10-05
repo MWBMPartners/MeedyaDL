@@ -49,7 +49,7 @@ import { useSettingsField } from '@/hooks/useSettingsField';
 import { useAsyncTask } from '@/hooks/useAsyncTask';
 
 // Shared form component: Toggle for boolean switches.
-import { Button, InlineError, Toggle, SettingsSection } from '@/components/common';
+import { Button, Checkbox, InlineError, Toggle, SettingsSection } from '@/components/common';
 import { explainError } from '@/lib/errorMessages';
 
 // IPC wrapper for the word-level lyrics connectivity probe (#934).
@@ -174,7 +174,7 @@ export function LyricsTab() {
               onClick={() => lyricsTest.run()}
               disabled={lyricsTest.isRunning}
             >
-              {lyricsTest.isRunning ? 'Testing...' : 'Test word-level lyrics connection'}
+              {lyricsTest.isRunning ? 'Testing…' : 'Test word-level lyrics connection'}
             </Button>
             {/* Fix 13 (a11y audit): plain text after a button press,
                 with nothing announcing it to a screen reader. */}
@@ -311,26 +311,20 @@ export function LyricsTab() {
                 const isLocked = settings.enhanced_lrc && value === 'ttml';
 
                 return (
-                  <label
+                  // The shared Checkbox (polish pass M17), tinted with the
+                  // theme's accent colour like every other checkbox.
+                  <Checkbox
                     key={value}
-                    className={`flex items-center gap-2.5 ${formatsDisabled || isLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={settings.enhanced_lrc ? (value === 'ttml' || checkedFormats.has(value)) : isChecked}
-                      disabled={formatsDisabled || isLocked}
-                      onChange={(e) => handleFormatToggle(value, e.target.checked)}
-                      /* `--color-accent` was never a defined custom
-                       * property (the real name is `--accent`), so this
-                       * checkbox's tick mark rendered in the browser's
-                       * default blue instead of the theme's accent
-                       * colour. `accent-accent` is the equivalent
-                       * generated Tailwind utility for the real token. */
-                      className="h-4 w-4 rounded border-border accent-accent cursor-pointer disabled:cursor-not-allowed"
-                    />
-                    <span className="text-sm text-content-primary">{label}</span>
-                    {isPrimary && <span className="text-xs text-content-tertiary">(Primary)</span>}
-                  </label>
+                    checked={settings.enhanced_lrc ? (value === 'ttml' || checkedFormats.has(value)) : isChecked}
+                    disabled={formatsDisabled || isLocked}
+                    onChange={(on) => handleFormatToggle(value, on)}
+                    label={
+                      <>
+                        <span className="text-content-primary">{label}</span>
+                        {isPrimary && <span className="ml-2 text-xs text-content-tertiary">(Primary)</span>}
+                      </>
+                    }
+                  />
                 );
               })}
             </div>

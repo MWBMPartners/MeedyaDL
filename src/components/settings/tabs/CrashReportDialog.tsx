@@ -98,7 +98,7 @@ export function CrashReportDialog({ open, onClose, report, onReported }: CrashRe
         await deleteCrashReport(report.id);
         addToast('Report opened in browser and cleaned up locally', 'info');
       } catch {
-        addToast('Opening GitHub Issues in your browser...', 'info');
+        addToast('Opening GitHub Issues in your browser…', 'info');
       }
       onReported?.();
       onClose();

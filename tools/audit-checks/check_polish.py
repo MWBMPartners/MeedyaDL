@@ -996,13 +996,22 @@ SECTION_RATCHET = "Ratchet: a count that may only go down has moved"
 # DOWN: when a change makes a count smaller, lower its ceiling to the new
 # count in the same change (the check insists, so the count cannot quietly
 # creep back up later). Raising one needs a reason written here.
+#
+# Part B of the polish pass (M17) brought every one to 0: buttons, dropdowns,
+# text boxes and checkboxes outside components/common moved to the shared
+# components (Button, IconButton, TextButton, DisclosureButton, NavListItem,
+# Select, Input, Checkbox, Toggle); corner rounding uses rounded-platform /
+# rounded-platform-sm / rounded-platform-lg / rounded-full; the hand-set pixel
+# sizes moved to the type scale (text-2xs was added to tailwind.config.js for
+# the 11px captions); and "..." became "…". Nothing needed an allowlist.
 RATCHETS = {
-    "raw_button": 51,
-    "raw_select": 3,
-    "raw_input": 11,
-    "px_font_size": 47,
-    "non_token_rounding": 85,
+    "raw_button": 0,
+    "raw_select": 0,
+    "raw_input": 0,
+    "px_font_size": 0,
+    "non_token_rounding": 0,
     "failed_to_toast": 0,
+    "ascii_ellipsis": 0,
 }
 
 RATCHET_WHAT = {
@@ -1012,6 +1021,7 @@ RATCHET_WHAT = {
     "px_font_size": "hard-coded text-[Npx] font size (use the type scale)",
     "non_token_rounding": "corner rounding that bypasses rounded-platform",
     "failed_to_toast": 'toast whose message is the raw error ("Failed to X: ${error}", "${err}", "err.message")',
+    "ascii_ellipsis": 'three full stops "..." in on-screen text or a translation (use the one character "…")',
 }
 
 
@@ -1044,6 +1054,17 @@ RAW_ERROR_TOAST = re.compile(
 )
 
 
+# Three full stops in on-screen text. The audit found "..." 32 times against
+# "…" 28 times; the app now uses the one character everywhere. Matched line by
+# line in comment-free code (the JSX-text helper misses a line that starts with
+# a tag), skipping spread syntax: "..." followed by a name, "[", "{" or "("
+# (`...rest`, `[...items]`, `{...props}`, `...(x ? a : b)`) is code, not text.
+# Backend messages (the activity log, setup progress lines) are not counted:
+# they were outside the audit's count, about 80 still use "...", and some only
+# reach the log file, so each needs a look before it changes.
+ASCII_ELLIPSIS = re.compile(r"\.\.\.(?![\w$\[{(])")
+
+
 def _count_ratchets() -> dict[str, int]:
     counts = dict.fromkeys(RATCHETS, 0)
     for p in interface_sources():
@@ -1058,6 +1079,9 @@ def _count_ratchets() -> dict[str, int]:
             re.findall(r"(?<![\w-])rounded(?:-(?:t|b|l|r|s|e|tl|tr|bl|br))?(?:-(?:sm|md|lg|xl|2xl|3xl))?(?![\w-])", code)
         )
         counts["failed_to_toast"] += len(re.findall(RAW_ERROR_TOAST, code))
+        counts["ascii_ellipsis"] += len(ASCII_ELLIPSIS.findall(code))
+    for _p, _n, value in locale_values():
+        counts["ascii_ellipsis"] += len(ASCII_ELLIPSIS.findall(value))
     return counts
 
 

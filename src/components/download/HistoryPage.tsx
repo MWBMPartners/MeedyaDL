@@ -16,7 +16,7 @@
 import { useEffect, useId, useMemo, useState, useCallback } from 'react';
 
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Button, ContextMenu, ErrorMessageDisplay, Modal } from '@/components/common';
+import { Button, ContextMenu, ErrorMessageDisplay, IconButton, Input, Modal } from '@/components/common';
 import type { ContextMenuItem } from '@/components/common';
 import {
   Trash2,
@@ -72,7 +72,7 @@ function getDisplayLabel(entry: HistoryEntry): string {
   // Truncate long URLs for display
   const url = entry.url;
   if (url.length > 80) {
-    return url.slice(0, 77) + '...';
+    return url.slice(0, 77) + '…';
   }
   return url;
 }
@@ -406,27 +406,22 @@ export function HistoryPage() {
           <label htmlFor={searchInputId} className="sr-only">
             Search history by title, artist, album, or URL
           </label>
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary" aria-hidden="true" />
-          <input
+          {/* The shared Input (polish pass M17, L2). The magnifying glass
+              used to be drawn before a hand-made box, which painted over
+              it, so the icon could not be seen. */}
+          <Input
             id={searchInputId}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by title, artist, album, or URL..."
-            /* `bg-input-bg` / `border-input-border` were never defined
-             * colours -- see the matching fix in DownloadQueue.tsx. */
-            className="w-full pl-9 pr-8 py-2 text-sm rounded-platform bg-surface-elevated border border-border-light text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+            placeholder="Search by title, artist, album, or URL…"
+            icon={<Search size={16} aria-hidden="true" />}
+            suffix={
+              searchQuery ? (
+                <IconButton size="sm" icon={<X size={14} />} label="Clear search" onClick={() => setSearchQuery('')} />
+              ) : undefined
+            }
           />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-content-tertiary hover:text-content-primary"
-              aria-label="Clear search"
-            >
-              <X size={14} />
-            </button>
-          )}
         </div>
       </div>
 
@@ -434,7 +429,7 @@ export function HistoryPage() {
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center h-32 text-content-tertiary text-sm">
-            Loading history...
+            Loading history…
           </div>
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-content-tertiary">
@@ -484,7 +479,7 @@ export function HistoryPage() {
                         {getDisplayLabel(entry)}
                       </span>
                       {entry.codec && (
-                        <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-accent/10 text-accent uppercase">
+                        <span className="flex-shrink-0 px-1.5 py-0.5 text-2xs font-medium rounded-platform-sm bg-accent/10 text-accent uppercase">
                           {entry.codec}
                         </span>
                       )}
@@ -542,7 +537,7 @@ export function HistoryPage() {
                         — which often run past the visible row width — are
                         readable on hover without resizing the window. */}
                     <p
-                      className="text-[11px] text-content-tertiary mt-0.5 truncate"
+                      className="text-2xs text-content-tertiary mt-0.5 truncate"
                       title={entry.url}
                     >
                       {entry.url}
@@ -555,40 +550,21 @@ export function HistoryPage() {
                       power-user workflows (#665). */}
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {isFailed(entry) && (
-                      <button
-                        type="button"
-                        onClick={() => handleRetryOne(entry)}
-                        className="p-1 text-content-tertiary hover:text-content-primary rounded-platform hover:bg-surface-tertiary transition-colors"
-                        aria-label="Retry download"
-                        title="Retry download"
-                      >
-                        <RotateCcw size={14} />
-                      </button>
+                      <IconButton size="sm" icon={<RotateCcw size={14} />} label="Retry download" onClick={() => handleRetryOne(entry)} />
                     )}
                     {entry.file_path && (
-                      <button
-                        type="button"
-                        onClick={() => handleOpenFolder(entry.file_path!)}
-                        className="p-1 text-content-tertiary hover:text-content-primary rounded-platform hover:bg-surface-tertiary transition-colors"
-                        aria-label="Open folder"
-                        title="Open folder"
-                      >
-                        <FolderOpen size={14} />
-                      </button>
+                      <IconButton size="sm" icon={<FolderOpen size={14} />} label="Open folder" onClick={() => handleOpenFolder(entry.file_path!)} />
                     )}
                     {/* Overflow ("⋯") button — a11y audit Fix 1. Deleting
                         or copying a history row used to be reachable
                         only by right-clicking; this opens the same menu
                         for keyboard and screen-reader users. */}
-                    <button
-                      type="button"
+                    <IconButton
+                      size="sm"
+                      icon={<MoreVertical size={14} aria-hidden="true" />}
+                      label={`More actions for ${getDisplayLabel(entry)}`}
                       onClick={(e) => handleOverflowClick(e, entry)}
-                      className="p-1 text-content-tertiary hover:text-content-primary rounded-platform hover:bg-surface-tertiary transition-colors"
-                      aria-label={`More actions for ${getDisplayLabel(entry)}`}
-                      title="More actions"
-                    >
-                      <MoreVertical size={14} aria-hidden="true" />
-                    </button>
+                    />
                   </div>
                 </div>
               </div>

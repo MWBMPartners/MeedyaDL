@@ -124,7 +124,7 @@ export default function PrereleaseNoticeModal() {
 
         {/* Stable release offer (only if available) */}
         {latestUpdate && (
-          <div className="p-3 rounded-lg bg-status-success-bg border border-status-success">
+          <div className="p-3 rounded-platform-lg bg-status-success-bg border border-status-success">
             <p className="text-xs font-semibold text-status-success-text mb-1">
               Stable Release Available
             </p>
@@ -145,7 +145,7 @@ export default function PrereleaseNoticeModal() {
           {latestUpdate && (
             <button
               type="button"
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-status-success text-content-on-status-success hover:opacity-90 transition-opacity"
+              className="px-4 py-2 rounded-platform-lg text-sm font-medium bg-status-success text-content-on-status-success hover:opacity-90 transition-opacity"
               onClick={handleInstallStable}
             >
               Install Stable Release
@@ -159,7 +159,7 @@ export default function PrereleaseNoticeModal() {
              * white/near-white dialog background: invisible in light
              * mode. `bg-accent` is the real token for "the button that
              * confirms/accepts". */
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity"
+            className="px-4 py-2 rounded-platform-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity"
             onClick={handleDismiss}
           >
             I Understand

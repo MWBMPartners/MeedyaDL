@@ -73,8 +73,6 @@ import {
   AlertTriangle, // Warning/error indicator
   CheckCircle, // Success indicator
   XCircle, // Failure indicator
-  ChevronDown, // Expanded state arrow
-  ChevronRight, // Collapsed state arrow
   Copy, // Copy-to-clipboard button icon
   Clock, // Expiry warning icon
   Globe, // Domain indicator icon
@@ -96,7 +94,7 @@ import { useSettingsField } from '@/hooks/useSettingsField';
 import * as commands from '@/lib/tauri-commands';
 
 // Shared UI components used in the form controls and action buttons.
-import { FilePickerButton, Button, InlineError, Tooltip, SettingsSection } from '@/components/common';
+import { FilePickerButton, Button, DisclosureButton, InlineError, Select, Tooltip, SettingsSection } from '@/components/common';
 import { COOKIES_IMPORT_FAILED, explainError } from '@/lib/errorMessages';
 
 // TypeScript types for cookie data.
@@ -344,26 +342,18 @@ function BrowserInstructions() {
   return (
     <div className="rounded-platform border border-border-light bg-surface-elevated overflow-hidden">
       {/* Outer collapsible header */}
-      <button
-        type="button"
+      {/* The app's one expand control (polish pass L3); it used to swap
+          between two chevron icons. */}
+      <DisclosureButton
+        open={isOpen}
         onClick={() => setIsOpen((prev) => !prev)}
-        className="
-          w-full flex items-center gap-3 px-4 py-3
-          text-sm font-medium text-content-primary
-          hover:bg-surface-secondary transition-colors
-          cursor-pointer
-        "
-        aria-expanded={isOpen ? "true" : "false"}
+        className="px-4 py-3 text-sm font-medium text-content-primary hover:bg-surface-secondary"
       >
-        {/* Chevron rotates to indicate open/closed state */}
-        {isOpen ? (
-          <ChevronDown size={16} className="text-content-tertiary flex-shrink-0" />
-        ) : (
-          <ChevronRight size={16} className="text-content-tertiary flex-shrink-0" />
-        )}
-        <Info size={16} className="text-accent flex-shrink-0" />
-        <span>How to Export Cookies</span>
-      </button>
+        <span className="inline-flex items-center gap-2">
+          <Info size={16} className="text-accent flex-shrink-0" />
+          How to Export Cookies
+        </span>
+      </DisclosureButton>
 
       {/* Expandable instruction content */}
       {isOpen && (
@@ -381,25 +371,16 @@ function BrowserInstructions() {
               className="rounded-platform border border-border-light overflow-hidden"
             >
               {/* Browser header button */}
-              <button
-                type="button"
+              <DisclosureButton
+                open={expandedBrowser === browser}
                 onClick={() => toggleBrowser(browser)}
-                className="
-                  w-full flex items-center gap-2 px-3 py-2
-                  text-xs font-medium text-content-primary
-                  hover:bg-surface-secondary transition-colors
-                  cursor-pointer
-                "
-                aria-expanded={expandedBrowser === browser ? "true" : "false"}
+                className="px-3 py-2 text-xs font-medium text-content-primary hover:bg-surface-secondary"
               >
-                {expandedBrowser === browser ? (
-                  <ChevronDown size={14} className="text-content-tertiary flex-shrink-0" />
-                ) : (
-                  <ChevronRight size={14} className="text-content-tertiary flex-shrink-0" />
-                )}
-                <Globe size={14} className="text-accent flex-shrink-0" />
-                <span>{browser}</span>
-              </button>
+                <span className="inline-flex items-center gap-2">
+                  <Globe size={14} className="text-accent flex-shrink-0" />
+                  {browser}
+                </span>
+              </DisclosureButton>
 
               {/* Numbered step list (shown only when this browser is expanded) */}
               {expandedBrowser === browser && (
@@ -994,7 +975,7 @@ export function CookiesTab() {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Loader2 size={14} className="animate-spin text-accent" />
-              <span className="text-xs font-medium text-content-primary">Signing in...</span>
+              <span className="text-xs font-medium text-content-primary">Signing in…</span>
             </div>
             <p className="text-xs text-content-tertiary">
               Sign in with your Apple ID in the browser window, then return here.
@@ -1034,29 +1015,24 @@ export function CookiesTab() {
 
           {/* Browser selector and import button */}
           <div className="flex items-center gap-2">
-            <select
-              aria-label="Select browser for cookie import"
-              className="
-                flex-1 px-3 py-1.5 text-sm rounded-platform
-                border border-border-light bg-surface-primary
-                text-content-primary
-                focus:outline-none focus:ring-2 focus:ring-accent/50
-              "
-              value={selectedBrowser}
-              onChange={(e) => {
-                setSelectedBrowser(e.target.value);
-                setImportResult(null);
-                setImportError(null);
-              }}
-              disabled={isImporting}
-            >
-              {browsers.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                  {b.requires_fda ? ' (requires Full Disk Access)' : ''}
-                </option>
-              ))}
-            </select>
+            {/* The shared Select (polish pass M17), in a flex-1 box so it
+                takes the room beside the Import button. */}
+            <div className="flex-1">
+              <Select
+                aria-label="Select browser for cookie import"
+                options={browsers.map((b) => ({
+                  value: b.id,
+                  label: b.requires_fda ? `${b.name} (requires Full Disk Access)` : b.name,
+                }))}
+                value={selectedBrowser}
+                onChange={(e) => {
+                  setSelectedBrowser(e.target.value);
+                  setImportResult(null);
+                  setImportError(null);
+                }}
+                disabled={isImporting}
+              />
+            </div>
             <Button
               variant="secondary"
               size="sm"
@@ -1150,7 +1126,7 @@ export function CookiesTab() {
       {isDetecting && (
         <div className="flex items-center gap-2 py-2 text-xs text-content-tertiary">
           <Loader2 size={14} className="animate-spin" />
-          Detecting browsers...
+          Detecting browsers…
         </div>
       )}
 

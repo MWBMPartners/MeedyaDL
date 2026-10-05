@@ -78,7 +78,7 @@ import { PlatformIcon } from '@/lib/PlatformIcon';
  * percentage value. Accepts `null` to display an indeterminate state.
  * @see ProgressBar in @/components/common
  */
-import { ProgressBar, ContextMenu, ErrorMessageDisplay, StatusPill } from '@/components/common';
+import { Button, Checkbox, ContextMenu, ErrorMessageDisplay, ExpandChevron, IconButton, ProgressBar, StatusPill } from '@/components/common';
 import type { ContextMenuItem } from '@/components/common';
 
 /**
@@ -602,9 +602,8 @@ function QueueItemComponent({
          * parent passing isSelected + onToggleSelect; otherwise the
          * row renders without a checkbox column. */}
         {isSelected !== undefined && onToggleSelect && (
-          <input
-            type="checkbox"
-            className="accent-accent cursor-pointer flex-shrink-0"
+          <Checkbox
+            className="flex-shrink-0"
             checked={isSelected}
             onChange={() => onToggleSelect(item.id)}
             aria-label={
@@ -689,7 +688,7 @@ function QueueItemComponent({
          * the codec the backend actually wrote (may differ from the
          * requested codec when fallback occurred). */}
         {item.codec_used && (
-          <div className="hidden xl:flex flex-shrink-0 px-2 py-0.5 rounded-full bg-surface-elevated text-[11px] text-content-secondary whitespace-nowrap uppercase tracking-wide">
+          <div className="hidden xl:flex flex-shrink-0 px-2 py-0.5 rounded-full bg-surface-elevated text-2xs text-content-secondary whitespace-nowrap uppercase tracking-wide">
             {item.codec_used}
           </div>
         )}
@@ -700,7 +699,7 @@ function QueueItemComponent({
          * menu. */}
         {submittedRelative && (
           <div
-            className="hidden 2xl:flex flex-shrink-0 text-[11px] text-content-tertiary whitespace-nowrap tabular-nums"
+            className="hidden 2xl:flex flex-shrink-0 text-2xs text-content-tertiary whitespace-nowrap tabular-nums"
             title={`Queued ${item.created_at}`}
           >
             {submittedRelative}
@@ -724,28 +723,12 @@ function QueueItemComponent({
          * track of the active button. #911-5. */}
         <div className="flex items-center gap-1 flex-shrink-0 opacity-40 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
           {(isActive || item.state === 'queued') && (
-            <button
-              onClick={() => onCancel(item.id)}
-              className="p-1.5 rounded-platform text-content-tertiary hover:text-status-error hover:bg-surface-elevated transition-colors"
-              // a11y: title matches aria-label so sighted-hover tooltip
-              // and screen-reader announcement say the same thing (#950)
-              title="Cancel download"
-              aria-label="Cancel download"
-            >
-              <X size={14} />
-            </button>
+            // IconButton gives the tooltip and the screen-reader name the
+            // same words, as #950 asked.
+            <IconButton tone="danger" icon={<X size={14} />} label="Cancel download" onClick={() => onCancel(item.id)} />
           )}
           {(item.state === 'error' || item.state === 'cancelled') && (
-            <button
-              onClick={() => onRetry(item.id)}
-              className="p-1.5 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-surface-elevated transition-colors"
-              // a11y: title matches aria-label so sighted-hover tooltip
-              // and screen-reader announcement say the same thing (#950)
-              title="Retry download"
-              aria-label="Retry download"
-            >
-              <RotateCcw size={14} />
-            </button>
+            <IconButton icon={<RotateCcw size={14} />} label="Retry download" onClick={() => onRetry(item.id)} />
           )}
         </div>
 
@@ -769,27 +752,17 @@ function QueueItemComponent({
          * (zeroes transition-duration to 0.01ms). No explicit
          * `motion-safe:` prefix needed.
          */}
-        <button
-          type="button"
+        {/* The app's one expand chevron (polish pass L3): right when
+            closed, down when open. It used to be a separate down-arrow
+            that turned upside down. */}
+        <IconButton
+          className="ml-1"
           onClick={() => setExpanded((prev) => !prev)}
           aria-expanded={expanded}
           aria-controls={detailsPanelId}
-          aria-label={
-            expanded
-              ? 'Hide additional download details'
-              : 'Show additional download details'
-          }
-          className="flex-shrink-0 ml-1 p-1.5 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-surface-elevated transition-colors"
-          title={expanded ? 'Hide details' : 'Show details'}
-        >
-          <ChevronDown
-            size={14}
-            className={`transition-transform duration-200 ${
-              expanded ? 'rotate-180' : ''
-            }`}
-            aria-hidden="true"
-          />
-        </button>
+          label={expanded ? 'Hide additional download details' : 'Show additional download details'}
+          icon={<ExpandChevron open={expanded} />}
+        />
 
         {/*
          * Overflow ("⋯") button — a11y audit fix. Right-clicking a row
@@ -801,15 +774,12 @@ function QueueItemComponent({
          * reader user tabbing through many rows knows which row's menu
          * they are about to open.
          */}
-        <button
-          type="button"
+        <IconButton
+          className="ml-0.5"
           onClick={handleOverflowClick}
-          aria-label={`More actions for ${primaryIdentifier || 'this download'}`}
-          className="flex-shrink-0 ml-0.5 p-1.5 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-surface-elevated transition-colors"
-          title="More actions"
-        >
-          <MoreVertical size={14} aria-hidden="true" />
-        </button>
+          label={`More actions for ${primaryIdentifier || 'this download'}`}
+          icon={<MoreVertical size={14} aria-hidden="true" />}
+        />
       </div>
 
       {/*
@@ -898,18 +868,20 @@ function QueueItemComponent({
        */}
       {item.state === 'error' && item.used_wrapper && (
         <div className="mt-2 pl-[60px]" data-testid="retry-without-wrapper-pill">
-          <button
-            type="button"
+          {/* The shared Button, secondary style (polish pass M17); it
+              still stands out from the row's icon-only actions (#890). */}
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<RotateCcw size={14} />}
             onClick={() => onRetryWithoutWrapper(item.id)}
-            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-platform border border-accent/40 text-accent bg-accent/5 hover:bg-accent/10 hover:border-accent/60 transition-colors"
             title="Disable wrapper and retry this download with cookie-based authentication"
             // #945: long-form aria-label carries the cookie-vs-wrapper
             // distinction for screen reader users.
             aria-label="Retry without wrapper (uses cookie-based authentication)"
           >
-            <RotateCcw size={14} />
             Retry without Wrapper
-          </button>
+          </Button>
         </div>
       )}
 
@@ -942,10 +914,11 @@ function QueueItemComponent({
         <div className="mt-2 pl-[60px] flex gap-2">
           {/* Hide "Open File" for directories (albums/playlists) -- not meaningful for multiple files */}
           {!item.output_is_directory && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="xs"
+              icon={<FileOutput size={12} />}
               onClick={handleOpenFile}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
               title="Open in default application"
               // Fix 5 (a11y audit): a voice-control user says the words
               // they can see. The accessible name has to start with
@@ -955,22 +928,21 @@ function QueueItemComponent({
               // two words actually printed on the button.
               aria-label="Open File — opens in the default application"
             >
-              <FileOutput size={12} />
               Open File
-            </button>
+            </Button>
           )}
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="xs"
+            icon={<FolderOpen size={12} />}
             onClick={handleOpenFolder}
-            className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs rounded-platform text-content-secondary hover:text-content-primary bg-surface-secondary hover:bg-surface-elevated transition-colors"
             title="Reveal in file manager"
             // Fix 5 (a11y audit): same reasoning as "Open File" above --
             // the name must start with the visible words "Open Folder".
             aria-label="Open Folder — reveals it in the file manager"
           >
-            <FolderOpen size={12} />
             Open Folder
-          </button>
+          </Button>
         </div>
       )}
 

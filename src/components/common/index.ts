@@ -108,6 +108,17 @@ export type { ContextMenuItem } from './ContextMenu';
 export { MenuButton } from './MenuButton';
 
 /**
+ * The shared small controls (polish pass M17): an icon-only button with a
+ * required name, a link-style button, a single checkbox, the one expand
+ * toggle and chevron, and an entry in a vertical list of places.
+ */
+export { IconButton } from './IconButton';
+export { TextButton } from './TextButton';
+export { Checkbox } from './Checkbox';
+export { DisclosureButton, ExpandChevron } from './DisclosureButton';
+export { NavListItem } from './NavListItem';
+
+/**
  * A small on/off pill that filters a list (toggle-button semantics).
  * Used in: DownloadQueue (state filters), ActivityLog (category filters).
  */

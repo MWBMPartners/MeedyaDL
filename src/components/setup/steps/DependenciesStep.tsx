@@ -159,7 +159,7 @@ export function DependenciesStep() {
 
       {/* Loading state */}
       {isChecking ? (
-        <LoadingSpinner label="Checking dependencies..." />
+        <LoadingSpinner label="Checking dependencies…" />
       ) : (
         <>
           {/* Install all button */}
@@ -171,7 +171,7 @@ export function DependenciesStep() {
               onClick={handleInstallAll}
             >
               {isInstalling
-                ? `Installing ${installingName}...`
+                ? `Installing ${installingName}…`
                 : `Install All (${missingCount} missing)`}
             </Button>
           )}
@@ -210,12 +210,14 @@ export function DependenciesStep() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-content-primary">{tool.name}</span>
                     {tool.required && (
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-status-error/10 text-status-error-text">
+                      // Neutral, not the error colour (polish pass L3): it was red on
+                      // every healthy tool. A missing tool is shown by the icon on the left.
+                      <span className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-surface-secondary text-content-secondary">
                         Required
                       </span>
                     )}
                     {!tool.required && (
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-surface-secondary text-content-tertiary">
+                      <span className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-surface-secondary text-content-tertiary">
                         Optional
                       </span>
                     )}
@@ -225,7 +227,7 @@ export function DependenciesStep() {
                          * were never defined colours (same defect as the
                          * matching badge in ToolsTab.tsx) -- this badge
                          * had no background and unstyled text. */
-                        className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent-hover"
+                        className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent-hover"
                         title="Using your existing install — no duplicate download"
                       >
                         {sourceLabel(tool.source)}

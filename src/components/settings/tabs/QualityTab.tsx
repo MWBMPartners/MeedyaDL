@@ -214,7 +214,7 @@ export function QualityTab() {
         {/* Companion download mode */}
         <Select
           label="Companion Downloads"
-          description="Automatically download additional format versions alongside the primary download. Specialist formats get a suffix ([Dolby Atmos], [Lossless]); the most compatible companion uses a clean filename. Select 'Custom...' to pick exact codecs."
+          description="Automatically download additional format versions alongside the primary download. Specialist formats get a suffix ([Dolby Atmos], [Lossless]); the most compatible companion uses a clean filename. Select 'Custom…' to pick exact codecs."
           options={companionModeOptions}
           value={companionMode.value}
           onChange={(e) => companionMode.set(e.target.value as CompanionMode)}
@@ -343,7 +343,7 @@ export function QualityTab() {
         />
 
         {musicVideoCompanion.value && (
-          <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+          <div className="p-3 rounded-platform-lg bg-status-warning-bg border border-status-warning">
             <p className="text-xs font-semibold text-status-warning-text mb-1">
               Experimental Feature
             </p>

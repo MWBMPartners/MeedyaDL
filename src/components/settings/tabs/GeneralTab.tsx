@@ -83,7 +83,7 @@ import type {
 // - FilePickerButton: renders a button that opens the Tauri native file dialog
 // - Select: renders a labelled <select> dropdown
 // - Button: platform-adaptive button with loading/icon support
-import { Toggle, FilePickerButton, Select, Button, InlineError, SettingsSection, Modal } from '@/components/common';
+import { Toggle, FilePickerButton, Select, Button, Checkbox, Input, InlineError, SettingsSection, Modal } from '@/components/common';
 import ChannelSwitchWarning from '@/components/settings/ChannelSwitchWarning';
 import { PRE_RELEASE_CHANNELS, type UpdateChannel } from '@/types';
 import { isMachineAssisted, uiLanguageOptions } from '@/lib/i18n';
@@ -98,6 +98,66 @@ import { explainError, isCancellation, showError } from '@/lib/errorMessages';
  * Each entry maps an ISO locale code (BCP 47) to a human-readable label.
  * The selected value is passed directly to GAMDL's `--language` flag.
  */
+/**
+ * Apple Music storefront regions for the Storefront list (Settings >
+ * General > Preferences). "Auto-detect" (empty) derives the region from the
+ * metadata language setting.
+ */
+const STOREFRONT_OPTIONS = [
+  { value: '', label: 'Auto-detect' },
+  // A divider between "Auto-detect" and the countries (cannot be chosen).
+  { value: '__divider', label: '──────────', disabled: true },
+  { value: 'au', label: 'Australia' },
+  { value: 'at', label: 'Austria' },
+  { value: 'be', label: 'Belgium' },
+  { value: 'br', label: 'Brazil' },
+  { value: 'ca', label: 'Canada' },
+  { value: 'cn', label: 'China' },
+  { value: 'co', label: 'Colombia' },
+  { value: 'cz', label: 'Czech Republic' },
+  { value: 'dk', label: 'Denmark' },
+  { value: 'eg', label: 'Egypt' },
+  { value: 'fi', label: 'Finland' },
+  { value: 'fr', label: 'France' },
+  { value: 'de', label: 'Germany' },
+  { value: 'gr', label: 'Greece' },
+  { value: 'hk', label: 'Hong Kong' },
+  { value: 'hu', label: 'Hungary' },
+  { value: 'in', label: 'India' },
+  { value: 'id', label: 'Indonesia' },
+  { value: 'ie', label: 'Ireland' },
+  { value: 'il', label: 'Israel' },
+  { value: 'it', label: 'Italy' },
+  { value: 'jp', label: 'Japan' },
+  { value: 'ke', label: 'Kenya' },
+  { value: 'kr', label: 'Korea, South' },
+  { value: 'my', label: 'Malaysia' },
+  { value: 'mx', label: 'Mexico' },
+  { value: 'nl', label: 'Netherlands' },
+  { value: 'nz', label: 'New Zealand' },
+  { value: 'ng', label: 'Nigeria' },
+  { value: 'no', label: 'Norway' },
+  { value: 'pk', label: 'Pakistan' },
+  { value: 'ph', label: 'Philippines' },
+  { value: 'pl', label: 'Poland' },
+  { value: 'pt', label: 'Portugal' },
+  { value: 'ro', label: 'Romania' },
+  { value: 'ru', label: 'Russia' },
+  { value: 'sa', label: 'Saudi Arabia' },
+  { value: 'sg', label: 'Singapore' },
+  { value: 'za', label: 'South Africa' },
+  { value: 'es', label: 'Spain' },
+  { value: 'se', label: 'Sweden' },
+  { value: 'ch', label: 'Switzerland' },
+  { value: 'tw', label: 'Taiwan' },
+  { value: 'th', label: 'Thailand' },
+  { value: 'tr', label: 'Turkey' },
+  { value: 'ae', label: 'United Arab Emirates' },
+  { value: 'gb', label: 'United Kingdom' },
+  { value: 'us', label: 'United States' },
+  { value: 'vn', label: 'Vietnam' },
+];
+
 /**
  * Theme mode options for the appearance selector dropdown.
  *
@@ -709,72 +769,17 @@ export function GeneralTab() {
         />
 
         {/* Apple Music storefront region */}
-        <div>
-          <label htmlFor={storefrontId} className="block text-sm font-medium text-content-primary mb-1">
-            Storefront
-          </label>
-          <select
-            id={storefrontId}
-            className="w-full rounded-platform border border-border-light bg-surface-elevated px-3 py-2 text-sm text-content-primary"
-            value={storefront.value}
-            onChange={(e) => storefront.set(e.target.value)}
-          >
-            <option value="">Auto-detect</option>
-            <option disabled>──────────</option>
-            <option value="au">Australia</option>
-            <option value="at">Austria</option>
-            <option value="be">Belgium</option>
-            <option value="br">Brazil</option>
-            <option value="ca">Canada</option>
-            <option value="cn">China</option>
-            <option value="co">Colombia</option>
-            <option value="cz">Czech Republic</option>
-            <option value="dk">Denmark</option>
-            <option value="eg">Egypt</option>
-            <option value="fi">Finland</option>
-            <option value="fr">France</option>
-            <option value="de">Germany</option>
-            <option value="gr">Greece</option>
-            <option value="hk">Hong Kong</option>
-            <option value="hu">Hungary</option>
-            <option value="in">India</option>
-            <option value="id">Indonesia</option>
-            <option value="ie">Ireland</option>
-            <option value="il">Israel</option>
-            <option value="it">Italy</option>
-            <option value="jp">Japan</option>
-            <option value="ke">Kenya</option>
-            <option value="kr">Korea, South</option>
-            <option value="my">Malaysia</option>
-            <option value="mx">Mexico</option>
-            <option value="nl">Netherlands</option>
-            <option value="nz">New Zealand</option>
-            <option value="ng">Nigeria</option>
-            <option value="no">Norway</option>
-            <option value="pk">Pakistan</option>
-            <option value="ph">Philippines</option>
-            <option value="pl">Poland</option>
-            <option value="pt">Portugal</option>
-            <option value="ro">Romania</option>
-            <option value="ru">Russia</option>
-            <option value="sa">Saudi Arabia</option>
-            <option value="sg">Singapore</option>
-            <option value="za">South Africa</option>
-            <option value="es">Spain</option>
-            <option value="se">Sweden</option>
-            <option value="ch">Switzerland</option>
-            <option value="tw">Taiwan</option>
-            <option value="th">Thailand</option>
-            <option value="tr">Turkey</option>
-            <option value="ae">United Arab Emirates</option>
-            <option value="gb">United Kingdom</option>
-            <option value="us">United States</option>
-            <option value="vn">Vietnam</option>
-          </select>
-          <p className="text-xs text-content-tertiary mt-1">
-            Apple Music storefront region. Leave as &quot;Auto-detect&quot; to derive from metadata language setting.
-          </p>
-        </div>
+        {/* The shared Select (polish pass M17); it was a hand-made
+            <select>. The list is STOREFRONT_OPTIONS at the top of this
+            file. */}
+        <Select
+          id={storefrontId}
+          label="Storefront"
+          options={STOREFRONT_OPTIONS}
+          value={storefront.value}
+          onChange={(e) => storefront.set(e.target.value)}
+          description="Apple Music storefront region. Leave as “Auto-detect” to derive it from the metadata language setting."
+        />
 
         {/* Storefront fallback on failure (#666) */}
         <Toggle
@@ -1011,7 +1016,7 @@ export function GeneralTab() {
               loading={isChecking}
               onClick={handleCheckForUpdates}
             >
-              {isChecking ? 'Checking...' : 'Check for Updates'}
+              {isChecking ? 'Checking…' : 'Check for Updates'}
             </Button>
             {/* Fix 13 (a11y audit): plain text after a button press,
                 with nothing announcing it -- a screen reader user
@@ -1043,7 +1048,7 @@ export function GeneralTab() {
             loading={isExporting}
             onClick={handleExportSettings}
           >
-            {isExporting ? 'Exporting...' : 'Export Settings'}
+            {isExporting ? 'Exporting…' : 'Export Settings'}
           </Button>
           <Button
             variant="secondary"
@@ -1052,7 +1057,7 @@ export function GeneralTab() {
             loading={isImporting}
             onClick={handleImportSettings}
           >
-            {isImporting ? 'Importing...' : 'Import Settings'}
+            {isImporting ? 'Importing…' : 'Import Settings'}
           </Button>
         </div>
       </SettingsSection>
@@ -1079,40 +1084,25 @@ export function GeneralTab() {
               label: 'Credentials (encrypted, requires a password)',
             },
           ].map(({ key, label }) => (
-            <label
+            <Checkbox
               key={key}
-              className="flex items-center gap-2 cursor-pointer"
-            >
-              <input
-                type="checkbox"
-                checked={Boolean(
-                  bundleOptions[key as keyof ExportProfileOptions],
-                )}
-                onChange={(e) =>
-                  setBundleOptions((prev) => ({
-                    ...prev,
-                    [key]: e.target.checked,
-                  }))
-                }
-              />
-              <span>{label}</span>
-            </label>
+              label={label}
+              checked={Boolean(bundleOptions[key as keyof ExportProfileOptions])}
+              onChange={(on) => setBundleOptions((prev) => ({ ...prev, [key]: on }))}
+            />
           ))}
         </fieldset>
         {bundleOptions.include_credentials && (
-          <div className="mb-3 p-2 border border-border rounded bg-surface-secondary/40">
-            <label htmlFor={exportCredentialsPasswordId} className="text-xs font-medium">Credentials password</label>
-            <input
+          <div className="mb-3 p-2 border border-border rounded-platform-sm bg-surface-secondary/40">
+            <Input
               id={exportCredentialsPasswordId}
+              label="Credentials password"
               type="password"
               value={credentialsPassword}
               onChange={(e) => setCredentialsPassword(e.target.value)}
               placeholder="At least 6 characters"
-              className="w-full mt-1 px-2 py-1 text-sm rounded border border-border bg-surface-primary"
+              description="The password protects cookies + MusicKit private key + web-player token at rest using AES-256-GCM with PBKDF2 (600k iterations). MeedyaDL never stores the password — keep it safe. If you forget it, credentials in the bundle become unrecoverable; the rest of the bundle imports cleanly."
             />
-            <p className="text-xs text-content-tertiary mt-1">
-              The password protects cookies + MusicKit private key + web-player token at rest using AES-256-GCM with PBKDF2 (600k iterations). MeedyaDL never stores the password — keep it safe. If you forget it, credentials in the bundle become unrecoverable; the rest of the bundle imports cleanly.
-            </p>
           </div>
         )}
         <div className="flex items-center gap-3">
@@ -1123,7 +1113,7 @@ export function GeneralTab() {
             loading={isExportingBundle}
             onClick={handleExportProfile}
           >
-            {isExportingBundle ? 'Exporting...' : 'Export Profile'}
+            {isExportingBundle ? 'Exporting…' : 'Export Profile'}
           </Button>
           <Button
             variant="secondary"
@@ -1132,7 +1122,7 @@ export function GeneralTab() {
             loading={isImportingBundle}
             onClick={handlePickImport}
           >
-            {isImportingBundle ? 'Importing...' : 'Import Profile'}
+            {isImportingBundle ? 'Importing…' : 'Import Profile'}
           </Button>
         </div>
       </SettingsSection>
@@ -1188,7 +1178,7 @@ export function GeneralTab() {
                 </div>
               )}
               {!pendingImport.produced_by_this_app && (
-                <div className="mt-2 p-2 rounded border border-status-warning/30 bg-status-warning/5 text-status-warning-text">
+                <div className="mt-2 p-2 rounded-platform-sm border border-status-warning/30 bg-status-warning/5 text-status-warning-text">
                   {/* Fix 7 (a11y audit): the warning triangle is
                       decorative -- the sentence itself already says
                       "not MeedyaDL", so a screen reader doesn't need
@@ -1216,24 +1206,12 @@ export function GeneralTab() {
                 <fieldset className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs border-0 m-0 p-0">
                   <legend className="sr-only">Sections to overwrite on import</legend>
                   {pendingImport.sections.map((section) => (
-                    <label
+                    <Checkbox
                       key={section}
-                      className="flex items-center gap-2 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={Boolean(importPicks[section])}
-                        onChange={(e) =>
-                          setImportPicks((prev) => ({
-                            ...prev,
-                            [section]: e.target.checked,
-                          }))
-                        }
-                      />
-                      <span className="capitalize">
-                        {section.replace(/_/g, ' ')}
-                      </span>
-                    </label>
+                      label={<span className="capitalize">{section.replace(/_/g, ' ')}</span>}
+                      checked={Boolean(importPicks[section])}
+                      onChange={(on) => setImportPicks((prev) => ({ ...prev, [section]: on }))}
+                    />
                   ))}
                 </fieldset>
               )}
@@ -1241,21 +1219,16 @@ export function GeneralTab() {
 
             {pendingImport.sections.includes('credentials') &&
               importPicks.credentials && (
-                <div className="p-2 border border-border rounded bg-surface-secondary/40">
-                  <label htmlFor={importCredentialsPasswordId} className="text-xs font-medium">
-                    Credentials password
-                  </label>
-                  <input
+                <div className="p-2 border border-border rounded-platform-sm bg-surface-secondary/40">
+                  <Input
                     id={importCredentialsPasswordId}
+                    label="Credentials password"
                     type="password"
                     value={importPassword}
                     onChange={(e) => setImportPassword(e.target.value)}
                     placeholder="The password used when this bundle was exported"
-                    className="w-full mt-1 px-2 py-1 text-sm rounded border border-border bg-surface-primary"
+                    description="Required to decrypt cookies + MusicKit private key + web-player token. Wrong password aborts only the credentials section — the rest of the bundle still restores."
                   />
-                  <p className="text-xs text-content-tertiary mt-1">
-                    Required to decrypt cookies + MusicKit private key + web-player token. Wrong password aborts only the credentials section — the rest of the bundle still restores.
-                  </p>
                 </div>
               )}
 
@@ -1278,7 +1251,7 @@ export function GeneralTab() {
                 onClick={handleConfirmImport}
                 loading={isImportingBundle}
               >
-                {isImportingBundle ? 'Restoring...' : 'Restore'}
+                {isImportingBundle ? 'Restoring…' : 'Restore'}
               </Button>
             </div>
           </div>

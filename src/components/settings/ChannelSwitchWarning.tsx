@@ -21,6 +21,7 @@
  * and are now selecting one of those channels.
  */
 import { Modal } from '../common/Modal';
+import { Button } from '../common/Button';
 import type { UpdateChannel } from '@/types';
 
 const CHANNEL_LABELS: Record<UpdateChannel, string> = {
@@ -94,20 +95,13 @@ export default function ChannelSwitchWarning({
         </p>
 
         <div className="flex justify-end gap-3 pt-2">
-          <button
-            type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-surface-secondary text-content-primary hover:opacity-90 transition-opacity border border-border"
-            onClick={onCancel}
-          >
+          <Button variant="secondary" onClick={onCancel}>
             Cancel
-          </button>
-          <button
-            type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-status-warning text-content-on-status-warning hover:opacity-90 transition-opacity"
-            onClick={onConfirm}
-          >
+          </Button>
+          {/* Amber: allowed, but a move to a less stable channel. */}
+          <Button variant="warning" onClick={onConfirm}>
             Continue on {channelLabel}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

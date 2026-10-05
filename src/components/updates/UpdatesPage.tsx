@@ -36,7 +36,7 @@ import {
 } from '@/stores/updateStore';
 import { useUiStore } from '@/stores/uiStore';
 import { PageHeader } from '@/components/layout';
-import { Button, InlineError } from '@/components/common';
+import { Button, IconButton, InlineError, TextButton } from '@/components/common';
 import { upgradeGenericComponent } from '@/lib/upgrade-generic-component';
 import type { ComponentUpdate } from '@/types';
 import { GAMDL_UPDATE_FAILED, RESTART_FAILED, UPDATE_FAILED, componentUpdateFailed, showError } from '@/lib/errorMessages';
@@ -229,8 +229,12 @@ export function UpdatesPage() {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Every page header has a one-line subtitle (polish pass L1): this
+          one had none, so its divider sat about 20px higher than on the
+          other pages. */}
       <PageHeader
         title="Updates"
+        subtitle="New versions of MeedyaDL and of the tools it uses"
         actions={
           <Button
             variant="secondary"
@@ -239,7 +243,7 @@ export function UpdatesPage() {
             loading={isChecking}
             onClick={handleCheck}
           >
-            {isChecking ? 'Checking...' : 'Check for Updates'}
+            {isChecking ? 'Checking…' : 'Check for Updates'}
           </Button>
         }
       />
@@ -283,13 +287,9 @@ export function UpdatesPage() {
                       Roll back to the latest stable release if you experience issues with this pre-release.
                     </p>
                   </div>
-                  <button
-                    /* `bg-surface-quaternary` was never a defined colour
-                     * (there is no fourth surface tier) -- this button's
-                     * hover state did nothing visible. `border-strong` is
-                     * the existing token one step further than
-                     * `surface-tertiary` in both light and dark mode. */
-                    className="px-3 py-1.5 text-xs font-medium rounded-platform bg-surface-tertiary hover:bg-border-strong text-content-primary transition-colors"
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={async () => {
                       if (lastResult.rollback_tag) {
                         const { open } = await import('@tauri-apps/plugin-shell');
@@ -298,7 +298,7 @@ export function UpdatesPage() {
                     }}
                   >
                     View Stable Release
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -398,7 +398,7 @@ export function UpdatesPage() {
                          * to run it themselves.
                          */}
                         {update.manual_update_command && (
-                          <p className="text-[11px] text-content-secondary mt-0.5 truncate">
+                          <p className="text-2xs text-content-secondary mt-0.5 truncate">
                             Runs: {update.manual_update_command}
                           </p>
                         )}
@@ -440,13 +440,13 @@ export function UpdatesPage() {
                       </span>
                     )}
                     {update.is_prerelease && (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-platform-sm text-2xs font-semibold bg-status-warning-bg text-status-warning-text">
                         Pre-Release
                       </span>
                     )}
                     {update.is_untested && !update.no_compatible_wheel && (
                       <span
-                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text"
+                        className="inline-flex items-center px-1.5 py-0.5 rounded-platform-sm text-2xs font-semibold bg-status-warning-bg text-status-warning-text"
                         title="This version was released after MeedyaDL's last validation pass. Install at your own risk."
                       >
                         Untested
@@ -463,7 +463,7 @@ export function UpdatesPage() {
                      */}
                     {update.no_compatible_wheel && (
                       <span
-                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text"
+                        className="inline-flex items-center px-1.5 py-0.5 rounded-platform-sm text-2xs font-semibold bg-status-warning-bg text-status-warning-text"
                         title="No compatible wheel has been published for this platform yet -- installing would fail."
                       >
                         Not Installable
@@ -530,8 +530,8 @@ export function UpdatesPage() {
                                 }}
                               />
                             </div>
-                            <span className="text-[10px] text-content-tertiary tabular-nums">
-                              {downloadProgress != null ? `${downloadProgress}%` : '...'}
+                            <span className="text-2xs text-content-tertiary tabular-nums">
+                              {downloadProgress != null ? `${downloadProgress}%` : '…'}
                             </span>
                           </div>
                         ) : (
@@ -551,14 +551,11 @@ export function UpdatesPage() {
 
                     {/* View release link */}
                     {update.release_url && (
-                      <button
-                        type="button"
+                      <IconButton
+                        icon={<ExternalLink size={14} />}
+                        label="View release on GitHub"
                         onClick={() => handleViewRelease(update.release_url!)}
-                        className="p-1.5 rounded hover:bg-surface-secondary transition-colors"
-                        title="View release on GitHub"
-                      >
-                        <ExternalLink size={14} className="text-content-tertiary" />
-                      </button>
+                      />
                     )}
 
                     {/* Dismiss */}
@@ -570,7 +567,7 @@ export function UpdatesPage() {
 
                 {/* Pre-release warning */}
                 {update.is_prerelease && (
-                  <p className="text-[11px] text-status-warning-text mb-3">
+                  <p className="text-2xs text-status-warning-text mb-3">
                     This is a pre-release version and may contain bugs or incomplete features. Not
                     recommended for regular use.
                   </p>
@@ -587,7 +584,7 @@ export function UpdatesPage() {
                  * blocker with its own paragraph below.
                  */}
                 {update.is_untested && !update.is_prerelease && !update.no_compatible_wheel && (
-                  <p className="text-[11px] text-status-warning-text mb-3">
+                  <p className="text-2xs text-status-warning-text mb-3">
                     This GAMDL release was published after MeedyaDL&apos;s last compatibility verification.
                     The upgrade is installable, but compatibility with MeedyaDL&apos;s functionality isn&apos;t
                     guaranteed — install at your own risk, or wait for the next MeedyaDL version to validate it.
@@ -602,7 +599,7 @@ export function UpdatesPage() {
                  * blocker: the Upgrade button is disabled, not just risky).
                  */}
                 {update.no_compatible_wheel && (
-                  <p className="text-[11px] text-status-warning-text mb-3">
+                  <p className="text-2xs text-status-warning-text mb-3">
                     Not installable — no compatible wheel has been published for this platform yet.
                     Installing would fall back to a source build MeedyaDL&apos;s bundled Python runtime
                     can&apos;t perform. Wait for a future GAMDL release, or a MeedyaDL build with a
@@ -615,13 +612,9 @@ export function UpdatesPage() {
                   <div className="rounded-platform border border-status-error/30 bg-status-error/5 p-3 mb-3">
                     <InlineError message={UPDATE_FAILED} details={downloadError} className="mb-2" />
                     {update.release_url && (
-                      <button
-                        type="button"
-                        onClick={() => handleViewRelease(update.release_url!)}
-                        className="text-xs text-accent-hover hover:underline cursor-pointer"
-                      >
+                      <TextButton size="xs" onClick={() => handleViewRelease(update.release_url!)}>
                         Download manually from GitHub
-                      </button>
+                      </TextButton>
                     )}
                   </div>
                 )}

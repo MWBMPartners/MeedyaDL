@@ -273,11 +273,10 @@ export function StatusBar() {
      * `bg-surface-secondary` -- slightly elevated background colour.
      * `border-t border-border-light` -- thin top border separating it
      * from the scrollable content above.
-     * `text-[11px]` -- 11px font size (below Tailwind's smallest preset)
-     * for an unobtrusive footer feel.
+     * `text-2xs` -- the smallest step of the type scale (11px, defined in
+     * tailwind.config.js) for an unobtrusive footer feel.
      * `text-content-tertiary` -- muted text colour from the design tokens.
      *
-     * @see https://tailwindcss.com/docs/font-size  -- arbitrary font size
      *
      * `role="group"` + `aria-label` (rather than `role="status"`)
      * because this container is no longer a live region -- see the
@@ -288,7 +287,7 @@ export function StatusBar() {
     <div
       role="group"
       aria-label={t('statusBar.ariaLabel')}
-      className="flex items-center justify-between px-4 py-1.5 bg-surface-secondary border-t border-border-light text-[11px] text-content-tertiary"
+      className="flex items-center justify-between px-4 py-1.5 bg-surface-secondary border-t border-border-light text-2xs text-content-tertiary"
     >
       {/*
        * Screen-reader-only live region carrying ONLY the plain-English

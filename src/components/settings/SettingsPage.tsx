@@ -104,7 +104,7 @@ import { withErrorToast } from '@/lib/withErrorToast';
 import { useConfirmation } from '@/lib/useConfirmation';
 
 // Shared UI components used in the header action bar.
-import { Button, Modal } from '@/components/common';
+import { Button, Modal, NavListItem } from '@/components/common';
 import { PageHeader } from '@/components/layout';
 
 // Individual tab components -- each renders its own section of settings.
@@ -596,7 +596,7 @@ export function SettingsPage() {
           {groups.map((group, groupIndex) => (
             <div key={group.id} className={groupIndex > 0 ? 'mt-3' : ''}>
               {/* Group section header -- uppercase, small, muted colour */}
-              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-tertiary select-none">
+              <div className="px-3 py-1.5 text-2xs font-semibold uppercase tracking-wider text-content-tertiary select-none">
                 {groupLabel(group)}
               </div>
 
@@ -607,28 +607,20 @@ export function SettingsPage() {
                   if (!tab) return null;
                   const { id, icon: Icon } = tab;
                   return (
-                    <button
+                    // The shared NavListItem (polish pass M17): the same
+                    // entry as the sidebar and the Help topics. Its label
+                    // is left-aligned -- a two-line label ("Codec &
+                    // Resolution") used to be centred, because a <button>
+                    // centres its text unless told otherwise.
+                    // `aria-current` (Fix 6, a11y audit) marks the open tab.
+                    <NavListItem
                       key={id}
+                      active={activeTab === id}
                       onClick={() => setActiveTab(id)}
-                      // Fix 6 (a11y audit): aria-current tells assistive
-                      // tech which tab is the current one, the same way
-                      // the accent background tells a sighted user.
-                      aria-current={activeTab === id ? 'page' : undefined}
-                      className={`
-                        w-full flex items-center gap-2.5 px-3 py-2
-                        rounded-platform text-sm transition-colors
-                        ${
-                          activeTab === id
-                            ? 'bg-accent-light text-accent-hover font-medium' /* Active tab styling -- text-accent-hover, not the plain accent, clears 4.5:1 as small text (see base.css) */
-                            : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary' /* Inactive tab styling */
-                        }
-                      `}
+                      icon={<Icon size={16} className="flex-shrink-0" />}
                     >
-                      {/* Tab icon -- flex-shrink-0 prevents it from collapsing */}
-                      <Icon size={16} className="flex-shrink-0" />
-                      {/* Tab label text */}
                       {tabLabel(tab)}
-                    </button>
+                    </NavListItem>
                   );
                 })}
               </div>

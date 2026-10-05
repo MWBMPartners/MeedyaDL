@@ -8,7 +8,7 @@
  * settings. Used across all settings tabs for consistent section styling.
  *
  * Features:
- * - Clickable header with chevron indicator (▶ / ▼)
+ * - Clickable header with the shared expand chevron (ExpandChevron)
  * - Bordered card with subtle background for visual separation
  * - Smooth content reveal via CSS transitions
  * - Optional `defaultOpen` prop (defaults to `true`)
@@ -16,6 +16,7 @@
  */
 
 import { useState, type ReactNode } from 'react';
+import { ExpandChevron } from './DisclosureButton';
 
 interface SettingsSectionProps {
   /** Section heading text */
@@ -43,14 +44,14 @@ export function SettingsSection({
   const [open, setOpen] = useState(defaultOpen);
 
   return (
-    <div className="rounded-lg border border-border bg-surface-secondary/30">
+    <div className="rounded-platform-lg border border-border bg-surface-secondary/30">
       {/* Header: the heading CONTAINS the button, not the other way round.
           It used to be <button><h3>…</h3></button>; a heading inside a
           button is flattened into the button's name, so screen readers
           found no headings at all in Settings. <h2> because the page title
           above is the page's <h1>. The description sits outside the button
           so the button's name is just the section title. */}
-      <div className="px-4 py-3 hover:bg-surface-secondary/50 transition-colors rounded-t-lg">
+      <div className="px-4 py-3 hover:bg-surface-secondary/50 transition-colors rounded-t-platform-lg">
         <h2 className="text-sm font-semibold text-content-primary">
           <button
             type="button"
@@ -58,22 +59,18 @@ export function SettingsSection({
             onClick={() => setOpen(!open)}
             aria-expanded={open ? 'true' : 'false'}
           >
-            {/* Fix 7 (a11y audit): without aria-hidden, a screen reader
-                read "black right-pointing triangle" out loud before every
-                single section title on every settings tab -- aria-expanded
-                on the button above already says open/closed, so this
-                glyph is purely decorative. */}
-            <span
-              className={`text-xs text-content-tertiary select-none transition-transform duration-150 ${open ? 'rotate-90' : 'rotate-0'}`}
-              aria-hidden="true"
-            >
-              ▶
-            </span>
+            {/* The shared chevron (polish pass L3): this used to be a "▶"
+                character, one of three expand styles in the app. It is
+                hidden from screen readers; aria-expanded on the button
+                already says open or closed. */}
+            <ExpandChevron open={open} />
             <span className="flex-1 min-w-0">{title}</span>
           </button>
         </h2>
         {description && (
-          <p className="text-xs text-content-tertiary mt-0.5 ml-5 leading-relaxed">{description}</p>
+          // ml-5.5 lines the description up under the title: the chevron
+          // is 14px wide plus the 8px gap (gap-2) beside it.
+          <p className="text-xs text-content-tertiary mt-0.5 ml-5.5 leading-relaxed">{description}</p>
         )}
       </div>
 

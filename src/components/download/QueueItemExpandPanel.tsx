@@ -138,7 +138,7 @@ function DetailField({
   if (value == null || value === '') return null;
   return (
     <div className={`flex flex-col gap-0.5 ${className}`}>
-      <span className="text-[10px] uppercase tracking-wide text-content-tertiary">
+      <span className="text-2xs uppercase tracking-wide text-content-tertiary">
         {label}
       </span>
       <span

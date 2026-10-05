@@ -17,7 +17,7 @@
     "ready": "Ready",
     "setupRequired": "Setup Required",
     "checkForUpdates": "Check for Updates",
-    "checking": "Checking...",
+    "checking": "Checking…",
     "updatesAvailable_one": "{{count}} Update",
     "updatesAvailable_other": "{{count}} Updates",
     "toolMissing": "{{tool}} is missing",
@@ -107,7 +107,7 @@
     "dialogTitle": "Report Crash to Developer",
     "privacyNotice": "The following crash report data will be shared when you open the GitHub issue. Review the information below before proceeding. You will need a GitHub account to submit the issue.",
     "openGitHub": "Open GitHub Issue",
-    "opening": "Opening GitHub Issues in your browser...",
+    "opening": "Opening GitHub Issues in your browser…",
     "openFailed": "Failed to open GitHub Issues",
     "cancel": "Cancel",
     "previewFailed": "Failed to load crash report preview.",
@@ -170,7 +170,7 @@
   "help": {
     "title": "Help",
     "subtitle": "Documentation and guides for using MeedyaDL",
-    "searchPlaceholder": "Search topics...",
+    "searchPlaceholder": "Search topics…",
     "searchAriaLabel": "Search help topics",
     "clearSearch": "Clear search",
     "resultCount_one": "{{count}} result",
@@ -180,7 +180,7 @@
     "pageNotTranslated": "This page has not been translated into {{language}} yet, so it is shown in English."
   },
   "common": {
-    "loading": "Loading...",
+    "loading": "Loading…",
     "error": "Error",
     "success": "Success",
     "cancel": "Cancel",

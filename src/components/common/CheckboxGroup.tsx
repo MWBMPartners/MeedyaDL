@@ -88,7 +88,7 @@ export function CheckboxGroup<T extends string>({
         {(Object.entries(options) as [T, string][]).map(([value, optLabel]) => (
           <label
             key={value}
-            className={`flex items-center gap-2 px-2 py-1.5 rounded text-sm
+            className={`flex items-center gap-2 px-2 py-1.5 rounded-platform-sm text-sm
               ${disabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-tertiary'}
               ${selected.includes(value) ? 'text-content-primary' : 'text-content-secondary'}`}
           >
@@ -97,7 +97,7 @@ export function CheckboxGroup<T extends string>({
               checked={selected.includes(value)}
               onChange={() => handleToggle(value)}
               disabled={disabled}
-              className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent"
+              className="h-3.5 w-3.5 rounded-platform-sm border-border text-accent focus:ring-accent"
             />
             <span className="leading-tight break-words">{optLabel}</span>
           </label>

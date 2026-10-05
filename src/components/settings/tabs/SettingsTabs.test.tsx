@@ -94,6 +94,9 @@ vi.mock('lucide-react', () => {
     Shield: stub('Shield'),
     ShieldOff: stub('ShieldOff'),
     Headphones: stub('Headphones'),
+    /* SettingsSection and DisclosureButton: the shared expand chevron
+     * (polish pass L3). */
+    ChevronRight: stub('ChevronRight'),
   };
 });
 

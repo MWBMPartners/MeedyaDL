@@ -36,6 +36,7 @@
  */
 
 import { Modal } from '@/components/common/Modal';
+import { Button } from '@/components/common/Button';
 import { Music, Video, Info } from 'lucide-react';
 
 import type { ScannedManifest } from '@/lib/tauri-commands';
@@ -129,45 +130,41 @@ export function MvGapFillModal({
         </p>
 
         <div className="flex gap-2 justify-end pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-md text-sm border border-border text-content-secondary hover:bg-surface-secondary"
-          >
+          <Button variant="ghost" size="sm" onClick={onClose}>
             Cancel
-          </button>
+          </Button>
           {/* Fix 5 (a11y audit): both accessible names now start with
               the exact words printed on the button, so a voice-control
               user saying what they see actually matches something --
               the previous names described the outcome instead and
               shared none of their opening words with the visible
               label. */}
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Music size={14} />}
             onClick={handleNo}
-            className="px-3 py-1.5 rounded-md text-sm border border-border flex items-center gap-1.5 hover:bg-surface-secondary"
             aria-label={
               mvCompanionEnabledInSettings
                 ? 'No — audio only for this re-download'
                 : 'No — audio only (inherits your disabled setting)'
             }
           >
-            <Music size={14} />
             No — audio only
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Video size={14} />}
             onClick={handleYes}
-            className="px-3 py-1.5 rounded-md text-sm bg-accent text-content-on-accent flex items-center gap-1.5 hover:bg-accent-hover"
             aria-label={
               mvCompanionEnabledInSettings
                 ? 'Yes — include videos (inherits your enabled setting)'
                 : 'Yes — include videos (for this re-download only)'
             }
           >
-            <Video size={14} />
             Yes — include videos
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

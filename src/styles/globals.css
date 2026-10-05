@@ -408,7 +408,7 @@
    * quietly borderless in every theme.
    */
   border: 1px solid var(--border);
-  border-radius: 0.5rem;
+  border-radius: var(--radius-lg); /* the theme's large corner, like every other card */
   overflow: hidden;
 }
 
@@ -416,27 +416,41 @@
   cursor: pointer;
   padding: 0.625rem 0.875rem;
   background: var(--surface-secondary);
-  list-style: none; /* Remove default marker */
   user-select: none;
 }
 
-/* Custom disclosure marker using CSS ::before pseudo-element */
-.prose details summary::before {
-  content: '\25B6'; /* Black right-pointing triangle */
+/*
+ * One chevron for every fold (polish pass L3). Every <details> in the app
+ * -- help pages, the "Details" under an error, the crash screen -- shows
+ * the same right-pointing chevron that turns to point down when open, the
+ * same as ExpandChevron (src/components/common/DisclosureButton.tsx) draws
+ * for Settings sections and other toggles. It used to be a "▶" text glyph
+ * in help pages and the browser's own "▸" everywhere else. The chevron is
+ * Lucide's chevron-right path, drawn as a mask so it takes the text colour.
+ */
+details > summary {
+  list-style: none; /* Remove default marker */
+}
+
+details > summary::-webkit-details-marker {
+  display: none; /* Remove WebKit default marker on Safari */
+}
+
+details > summary::before {
+  content: '';
   display: inline-block;
-  margin-right: 0.5rem;
-  font-size: 0.625rem;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.375rem;
+  vertical-align: -0.0625rem;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9 18 6-6-6-6'/%3E%3C/svg%3E") center / contain no-repeat;
   transition: transform 150ms ease;
-  vertical-align: middle;
 }
 
-.prose details[open] summary::before {
+details[open] > summary::before {
   transform: rotate(90deg);
-}
-
-/* Remove WebKit default marker on Safari */
-.prose details summary::-webkit-details-marker {
-  display: none;
 }
 
 /* Content area padding inside collapsed sections */

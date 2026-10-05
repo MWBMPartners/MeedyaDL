@@ -229,3 +229,14 @@ describe('things MeedyaDL could not check', () => {
     expect(screen.getByText(/3 things MeedyaDL could not check/i)).toBeInTheDocument();
   });
 });
+
+// Polish pass L1: every page header has a one-line subtitle. Updates had
+// none, so its divider sat about 20px higher than on every other page.
+describe('the page header', () => {
+  it('has a subtitle like every other page', () => {
+    setLastResult([]);
+    render(<UpdatesPage />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Updates' })).toBeInTheDocument();
+    expect(screen.getByText('New versions of MeedyaDL and of the tools it uses')).toBeInTheDocument();
+  });
+});

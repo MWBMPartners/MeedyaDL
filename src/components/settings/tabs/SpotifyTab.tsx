@@ -407,7 +407,7 @@ export function SpotifyTab() {
               </span>
             </div>
             {capStatus.at_cap && (
-              <div className="flex gap-2 rounded-lg border border-status-error/40 bg-status-error/5 p-2 text-xs text-status-error-text">
+              <div className="flex gap-2 rounded-platform-lg border border-status-error/40 bg-status-error/5 p-2 text-xs text-status-error-text">
                 <AlertCircle size={14} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
                 <span>
                   Daily cap reached — new Spotify downloads will be blocked

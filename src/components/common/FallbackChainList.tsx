@@ -127,7 +127,7 @@ export function FallbackChainList<T extends string>({
               <button
                 onClick={() => moveUp(index)}
                 disabled={index === 0}
-                className="p-1.5 rounded text-content-tertiary hover:text-content-primary disabled:opacity-30 transition-colors"
+                className="p-1.5 rounded-platform-sm text-content-tertiary hover:text-content-primary disabled:opacity-30 transition-colors"
                 aria-label={`Move ${labels[item]} up`}
               >
                 <ArrowUp size={14} />
@@ -135,7 +135,7 @@ export function FallbackChainList<T extends string>({
               <button
                 onClick={() => moveDown(index)}
                 disabled={index === items.length - 1}
-                className="p-1.5 rounded text-content-tertiary hover:text-content-primary disabled:opacity-30 transition-colors"
+                className="p-1.5 rounded-platform-sm text-content-tertiary hover:text-content-primary disabled:opacity-30 transition-colors"
                 aria-label={`Move ${labels[item]} down`}
               >
                 <ArrowDown size={14} />
@@ -144,7 +144,7 @@ export function FallbackChainList<T extends string>({
                 <button
                   onClick={() => removeAt(index)}
                   disabled={items.length <= 1}
-                  className="p-1.5 rounded text-content-tertiary hover:text-status-error disabled:opacity-30 transition-colors"
+                  className="p-1.5 rounded-platform-sm text-content-tertiary hover:text-status-error disabled:opacity-30 transition-colors"
                   aria-label={`Remove ${labels[item]} from fallback chain`}
                   title={
                     items.length <= 1
@@ -179,7 +179,7 @@ export function FallbackChainList<T extends string>({
                 <span className="flex-1 text-sm text-content-secondary">{labels[item]}</span>
                 <button
                   onClick={() => addItem(item)}
-                  className="p-1.5 rounded text-content-tertiary hover:text-content-primary transition-colors"
+                  className="p-1.5 rounded-platform-sm text-content-tertiary hover:text-content-primary transition-colors"
                   aria-label={`Add ${labels[item]} back to fallback chain`}
                   title={`Add ${labels[item]} to the bottom of the chain`}
                 >

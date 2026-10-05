@@ -39,6 +39,7 @@ import type { DiscoveredBundle } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { showError } from '@/lib/errorMessages';
+import { Button } from '@/components/common';
 
 /**
  * WelcomeStep -- Renders the welcome screen.
@@ -220,7 +221,7 @@ export function WelcomeStep() {
             {discoveredBundles.map((b) => (
               <div
                 key={b.path}
-                className="flex items-center justify-between gap-3 p-2 rounded border border-border bg-surface-primary text-xs"
+                className="flex items-center justify-between gap-3 p-2 rounded-platform-sm border border-border bg-surface-primary text-xs"
               >
                 <div className="min-w-0 flex-1">
                   <div className="font-medium truncate">{b.path}</div>
@@ -236,14 +237,15 @@ export function WelcomeStep() {
                     )}
                   </div>
                 </div>
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="flex-shrink-0"
+                  loading={isRestoringBundle}
                   onClick={() => handleRestoreBundle(b)}
-                  disabled={isRestoringBundle}
-                  className="px-3 py-1 rounded bg-accent text-content-on-accent hover:opacity-90 disabled:opacity-50 flex-shrink-0"
                 >
-                  {isRestoringBundle ? 'Restoring...' : 'Restore'}
-                </button>
+                  {isRestoringBundle ? 'Restoring…' : 'Restore'}
+                </Button>
               </div>
             ))}
           </div>

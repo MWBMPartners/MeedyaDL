@@ -145,7 +145,7 @@ export default function FirstRunUpdatePrompt() {
               />
             </div>
             <span className="text-xs text-content-tertiary tabular-nums">
-              {downloadProgress != null ? `${downloadProgress}%` : '...'}
+              {downloadProgress != null ? `${downloadProgress}%` : '…'}
             </span>
           </div>
         )}

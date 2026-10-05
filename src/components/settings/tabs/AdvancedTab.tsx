@@ -121,11 +121,13 @@ import {
   Toggle,
   Input,
   Button,
+  DisclosureButton,
   HelpButton,
   InlineError,
   SettingsSection,
   Modal,
   FilePickerButton,
+  TextButton,
 } from '@/components/common';
 
 // TypeScript union types for download and remux mode values.
@@ -645,7 +647,7 @@ export function AdvancedTab() {
           onChange={verboseActivityLog.set}
         />
         {verboseActivityLog.value && (
-          <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+          <div className="p-3 rounded-platform-lg bg-status-warning-bg border border-status-warning">
             <p className="text-xs font-semibold text-status-warning-text mb-1">
               Sensitive Data Warning
             </p>
@@ -890,7 +892,7 @@ export function AdvancedTab() {
                 onClick={handleTestConnection}
                 disabled={testState === 'testing' || !wrapperAccountUrl.value}
               >
-                {testState === 'testing' ? 'Testing...' : 'Test Connection'}
+                {testState === 'testing' ? 'Testing…' : 'Test Connection'}
               </Button>
               {/* Fix 13 (a11y audit): plain text after a button press,
                   with nothing announcing it to a screen reader. */}
@@ -936,7 +938,7 @@ export function AdvancedTab() {
             explain exactly what's happening instead.
           */}
           {drmBackendIsStale && (
-            <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+            <div className="p-3 rounded-platform-lg bg-status-warning-bg border border-status-warning">
               <p className="text-xs text-status-warning-text">
                 PlayReady is selected, but the installed GAMDL is older than the version that
                 understands it (3.9). Downloads are using the built-in Widevine unlocking instead
@@ -982,7 +984,7 @@ export function AdvancedTab() {
                 behaviour is visible rather than a silent surprise.
               */}
               {!prdPath.value && (
-                <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+                <div className="p-3 rounded-platform-lg bg-status-warning-bg border border-status-warning">
                   <p className="text-xs text-status-warning-text">
                     No PlayReady device file chosen yet. Downloads will keep using the built-in
                     Widevine unlocking until you choose one -- this will not stop a download from
@@ -1006,13 +1008,9 @@ export function AdvancedTab() {
           <p className="text-xs text-content-tertiary">
             Required for animated artwork, API metadata enrichment, and music video companion
             downloads. Get your credentials from an{' '}
-            <button
-              type="button"
-              className="text-accent hover:text-accent-hover underline transition-colors"
-              onClick={() => openExternal('https://developer.apple.com/account/resources/authkeys/list')}
-            >
+            <TextButton onClick={() => openExternal('https://developer.apple.com/account/resources/authkeys/list')}>
               Apple Developer account
-            </button>
+            </TextButton>
             .
           </p>
           <Input
@@ -1045,7 +1043,7 @@ export function AdvancedTab() {
                 setKeyInput(e.target.value);
                 setKeyStatus('idle');
               }}
-              placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+              placeholder="-----BEGIN PRIVATE KEY-----&#10;…&#10;-----END PRIVATE KEY-----"
               rows={4}
               className="w-full rounded-platform border border-border bg-surface-secondary px-3 py-2 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent resize-none"
             />
@@ -1056,7 +1054,7 @@ export function AdvancedTab() {
                 onClick={handleSaveKey}
                 disabled={!keyInput.trim() || keyStatus === 'saving'}
               >
-                {keyStatus === 'saving' ? 'Saving...' : 'Save to Keychain'}
+                {keyStatus === 'saving' ? 'Saving…' : 'Save to Keychain'}
               </Button>
               {/* Fix 13 (a11y audit): same as Test Connection above. */}
               {keyStatus === 'saved' && (
@@ -1085,7 +1083,7 @@ export function AdvancedTab() {
                 !keyStored
               }
             >
-              {validating ? 'Testing...' : 'Test Credentials'}
+              {validating ? 'Testing…' : 'Test Credentials'}
             </Button>
             {/* The check either succeeds (its result is the backend's own
                 success sentence) or throws; a failure is shown as a plain
@@ -1121,31 +1119,27 @@ export function AdvancedTab() {
                 <>
                   A built-in API key is included with this release. You can optionally override it
                   with your own key registered at{' '}
-                  <button
-                    type="button"
-                    className="text-accent hover:text-accent-hover underline transition-colors"
+                  <TextButton
                     onClick={(e) => {
                       e.preventDefault();
                       openExternal('https://acoustid.org/new-application');
                     }}
                   >
                     acoustid.org/new-application
-                  </button>
+                  </TextButton>
                   . Leave blank to use the built-in key.
                 </>
               ) : (
                 <>
                   Register a free application API key at{' '}
-                  <button
-                    type="button"
-                    className="text-accent hover:text-accent-hover underline transition-colors"
+                  <TextButton
                     onClick={(e) => {
                       e.preventDefault();
                       openExternal('https://acoustid.org/new-application');
                     }}
                   >
                     acoustid.org/new-application
-                  </button>
+                  </TextButton>
                   . Required for AcoustID lookups.
                 </>
               )
@@ -1168,16 +1162,14 @@ export function AdvancedTab() {
                 Needed for &quot;Look up where else each album is available&quot; in Settings &gt;
                 Metadata. Odesli closed free public access to song.link in 2026 and now grant keys
                 by application through their{' '}
-                <button
-                  type="button"
-                  className="text-accent hover:text-accent-hover underline transition-colors"
+                <TextButton
                   onClick={(e) => {
                     e.preventDefault();
                     openExternal('https://odesli.co/help');
                   }}
                 >
                   help pages
-                </button>
+                </TextButton>
                 . The key is kept in your settings file, left out of exported settings, and only
                 ever sent to song.link.
               </>
@@ -1192,21 +1184,16 @@ export function AdvancedTab() {
 
         {/* API Field Audit */}
         <div>
-          <button
-            type="button"
-            className="flex items-center gap-2 text-sm font-medium text-content-secondary mb-2"
+          {/* The shared disclosure button sets aria-expanded and draws the
+              same chevron as every other fold-out section (it used to be a
+              hand-drawn triangle character, hidden from screen readers). */}
+          <DisclosureButton
+            open={auditExpanded}
+            className="w-auto text-sm font-medium text-content-secondary mb-2"
             onClick={() => setAuditExpanded(!auditExpanded)}
-            // Fix 6 (a11y audit): says whether the section below is open.
-            aria-expanded={auditExpanded}
           >
-            {/* Fix 7 (a11y audit): the triangle character is a real
-                Unicode glyph, and a screen reader reads it out as
-                "black right-pointing triangle" (or similar) before
-                every heading -- aria-hidden removes that noise since
-                aria-expanded above already says the same thing. */}
-            <span className="text-sm text-content-tertiary" aria-hidden="true">{auditExpanded ? '▼' : '▶'}</span>
             API Field Audit
-          </button>
+          </DisclosureButton>
           <p className="text-xs text-content-tertiary leading-relaxed mb-4">
             Developer tool: fetch an album from the Apple Music API and compare its fields against the
             known tag definitions in tags.toml. Discovers new or unknown API fields.
@@ -1226,18 +1213,19 @@ export function AdvancedTab() {
                   // text that disappears once something is typed.
                   aria-label="Apple Music album URL to audit"
                   value={auditUrl}
-                  placeholder="https://music.apple.com/us/album/.../1234567890"
+                  placeholder="https://music.apple.com/us/album/…/1234567890"
                   onChange={(e) => setAuditUrl(e.target.value)}
                   className="flex-1"
                 />
-                <button
-                  type="button"
-                  className="px-4 py-2 text-sm font-medium rounded-md bg-accent text-content-on-accent hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-end"
+                <Button
+                  variant="primary"
+                  className="self-end"
                   onClick={handleAudit}
-                  disabled={auditLoading || !auditUrl.trim() || !hasMusicKitCredentials}
+                  loading={auditLoading}
+                  disabled={!auditUrl.trim() || !hasMusicKitCredentials}
                 >
-                  {auditLoading ? 'Auditing...' : 'Audit'}
-                </button>
+                  {auditLoading ? 'Auditing…' : 'Audit'}
+                </Button>
               </div>
               {!hasMusicKitCredentials && (
                 <p className="text-sm text-status-warning-text">
@@ -1260,13 +1248,13 @@ export function AdvancedTab() {
                     </span>
                   </div>
                   <div className="flex gap-4 flex-wrap text-sm">
-                    <span className="px-2 py-0.5 rounded bg-green-500/20 text-green-400">
+                    <span className="px-2 py-0.5 rounded-platform-sm bg-green-500/20 text-green-400">
                       {auditResult.known_fields.length} known
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">
+                    <span className="px-2 py-0.5 rounded-platform-sm bg-amber-500/20 text-amber-400">
                       {auditResult.unknown_fields.length} unknown
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-gray-500/20 text-gray-400">
+                    <span className="px-2 py-0.5 rounded-platform-sm bg-gray-500/20 text-gray-400">
                       {auditResult.missing_fields.length} missing
                     </span>
                   </div>
@@ -1275,7 +1263,7 @@ export function AdvancedTab() {
                       <h3 className="text-sm font-medium text-amber-400 mb-1">
                         Unknown Fields (not in tags.toml)
                       </h3>
-                      <div className="max-h-48 overflow-y-auto bg-surface-secondary rounded p-2 space-y-1">
+                      <div className="max-h-48 overflow-y-auto bg-surface-secondary rounded-platform-sm p-2 space-y-1">
                         {auditResult.unknown_fields.map((field) => (
                           <div
                             key={`${field.scope}-${field.json_path}`}
@@ -1287,7 +1275,7 @@ export function AdvancedTab() {
                             {field.sample_value && (
                               <span className="text-content-tertiary ml-1">
                                 = {field.sample_value.length > 60
-                                  ? `${field.sample_value.slice(0, 60)}...`
+                                  ? `${field.sample_value.slice(0, 60)}…`
                                   : field.sample_value}
                               </span>
                             )}
@@ -1405,7 +1393,7 @@ function NotificationDiagnosticsRow() {
     /* `border-border-default` was never a defined colour -- Tailwind's
        generated class for the `border.DEFAULT` token has no "-default"
        suffix, it is simply `border-border`. This box had no border. */
-    <div className="p-3 rounded-lg bg-surface-secondary border border-border">
+    <div className="p-3 rounded-platform-lg bg-surface-secondary border border-border">
       <p className="text-xs font-semibold text-content-primary mb-2">
         Native notification diagnostics (#834)
       </p>
@@ -1496,7 +1484,7 @@ function IntegrityScanSection() {
     /* `border-border-default` was never a defined colour -- Tailwind's
        generated class for the `border.DEFAULT` token has no "-default"
        suffix, it is simply `border-border`. This box had no border. */
-    <div className="p-3 rounded-lg bg-surface-secondary border border-border">
+    <div className="p-3 rounded-platform-lg bg-surface-secondary border border-border">
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-content-primary">
           Integrity Scan
@@ -1538,7 +1526,7 @@ function IntegrityScanSection() {
               <p className="text-xs font-semibold text-status-warning-text mb-1">
                 {report.issues.length} issue(s) found:
               </p>
-              <div className="max-h-48 overflow-y-auto border border-border rounded p-2 bg-surface-primary">
+              <div className="max-h-48 overflow-y-auto border border-border rounded-platform-sm p-2 bg-surface-primary">
                 {report.issues.map((issue, idx) => (
                   <div key={idx} className="text-xs font-mono text-content-primary py-0.5">
                     <span
@@ -1618,13 +1606,9 @@ function DevToolsSection() {
               </span>
               <span>Priority 2: Web session token</span>
               {webplayerStatus && (
-                <button
-                  type="button"
-                  onClick={handleClearWebplayerToken}
-                  className="ml-2 text-xs text-red-400 hover:text-red-300 underline"
-                >
+                <TextButton tone="danger" size="xs" className="ml-2" onClick={handleClearWebplayerToken}>
                   Clear
-                </button>
+                </TextButton>
               )}
             </div>
           </div>
@@ -1668,13 +1652,9 @@ function DevToolsSection() {
         </div>
 
         {/* Deactivate */}
-        <button
-          type="button"
-          onClick={handleDeactivate}
-          className="rounded border border-red-500 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
-        >
+        <Button variant="danger" size="xs" onClick={handleDeactivate}>
           Deactivate Developer Access
-        </button>
+        </Button>
       </div>
     </SettingsSection>
   );
@@ -2071,13 +2051,9 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
             <p className="text-xs text-content-tertiary mt-1">
               An app-specific password is strongly recommended over your main Apple ID
               password. Create one at{' '}
-              <button
-                type="button"
-                className="text-accent hover:text-accent-hover underline transition-colors"
-                onClick={() => openExternal('https://appleid.apple.com/account/manage')}
-              >
+              <TextButton onClick={() => openExternal('https://appleid.apple.com/account/manage')}>
                 appleid.apple.com
-              </button>{' '}
+              </TextButton>{' '}
               under Sign-In and Security &gt; App-Specific Passwords.
             </p>
           </div>

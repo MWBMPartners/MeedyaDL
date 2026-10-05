@@ -596,7 +596,7 @@ export function MainLayout({ children }: MainLayoutProps) {
            */}
           {isDragOver && (
             <div className="absolute inset-0 z-50 flex items-center justify-center bg-surface-primary/80 backdrop-blur-sm pointer-events-none">
-              <div className="flex flex-col items-center gap-3 p-8 border-2 border-dashed border-accent rounded-2xl">
+              <div className="flex flex-col items-center gap-3 p-8 border-2 border-dashed border-accent rounded-platform-lg">
                 {/*
                  * Arrow-down icon (SVG) -- visual indicator that content
                  * can be dropped here. Uses the accent colour for emphasis.

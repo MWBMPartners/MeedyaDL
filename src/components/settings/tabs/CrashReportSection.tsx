@@ -26,7 +26,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Trash2, AlertTriangle } from 'lucide-react';
 
-import { Button } from '@/components/common';
+import { Button, IconButton, TextButton } from '@/components/common';
 import { listCrashReports, deleteCrashReport, deleteAllCrashReports } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import { withErrorToast } from '@/lib/withErrorToast';
@@ -149,13 +149,9 @@ export function CrashReportSection() {
       <div className="flex items-center justify-between">
         <h3 className="text-xs font-medium text-content-secondary">Recent Error Reports</h3>
         {reports.length > 1 && (
-          <button
-            type="button"
-            onClick={handleDeleteAll}
-            className="text-[10px] text-content-tertiary hover:text-status-error-text transition-colors"
-          >
+          <TextButton size="xs" tone="danger" onClick={handleDeleteAll}>
             Clear All
-          </button>
+          </TextButton>
         )}
       </div>
 
@@ -183,7 +179,7 @@ export function CrashReportSection() {
 
                 {/* Source badge */}
                 <span
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap ${badge.className}`}
+                  className={`px-1.5 py-0.5 rounded-platform-sm text-2xs font-medium whitespace-nowrap ${badge.className}`}
                 >
                   {badge.label}
                 </span>
@@ -203,14 +199,7 @@ export function CrashReportSection() {
                   >
                     Report
                   </Button>
-                  <button
-                    onClick={() => handleDelete(report.id)}
-                    className="p-1.5 rounded-platform text-content-tertiary hover:text-status-error hover:bg-surface-tertiary transition-colors"
-                    aria-label="Delete crash report"
-                    title="Delete crash report"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <IconButton tone="danger" icon={<Trash2 size={14} />} label="Delete crash report" onClick={() => handleDelete(report.id)} />
                 </div>
               </div>
             );

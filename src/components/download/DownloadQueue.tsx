@@ -89,7 +89,7 @@ import {
 } from '@/lib/tauri-commands';
 
 /** Reusable UI components from the common library. */
-import { Button, FilterChip, MenuButton, Modal, getStatusLabel } from '@/components/common';
+import { Button, Checkbox, FilterChip, IconButton, Input, MenuButton, Modal, TextButton, getStatusLabel } from '@/components/common';
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
@@ -1255,31 +1255,21 @@ export function DownloadQueue() {
        */}
       {queueItems.length > 0 && (
         <div className="px-6 py-3 border-b border-border-light flex flex-col gap-2">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by artist, album, track, or URL..."
-              /* `bg-input-bg` / `border-input-border` were never defined
-               * colours -- the real tokens for a search field, matching
-               * every other text input in the app, are
-               * `bg-surface-elevated` / `border-border-light`. */
-              className="w-full pl-9 pr-8 py-2 text-sm rounded-platform bg-surface-elevated border border-border-light text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
-              aria-label="Search queue"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-content-tertiary hover:text-content-primary"
-                aria-label="Clear search"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
+          {/* The shared Input (polish pass M17, L2): the magnifying glass
+              was drawn behind a hand-made box and could not be seen. */}
+          <Input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by artist, album, track, or URL…"
+            aria-label="Search queue"
+            icon={<Search size={16} aria-hidden="true" />}
+            suffix={
+              searchQuery ? (
+                <IconButton size="sm" icon={<X size={14} />} label="Clear search" onClick={() => setSearchQuery('')} />
+              ) : undefined
+            }
+          />
           <div className="flex items-center gap-2 flex-wrap text-xs">
             <span className="text-content-tertiary">Filter:</span>
             {(['downloading', 'processing', 'queued', 'complete', 'error', 'cancelled'] as DownloadState[]).map(
@@ -1299,16 +1289,16 @@ export function DownloadQueue() {
               },
             )}
             {(statusFilters.size > 0 || searchQuery) && (
-              <button
-                type="button"
+              <TextButton
+                size="xs"
+                className="ml-1"
                 onClick={() => {
                   setStatusFilters(new Set());
                   setSearchQuery('');
                 }}
-                className="text-content-tertiary hover:text-content-primary underline ml-1"
               >
                 Reset
-              </button>
+              </TextButton>
             )}
             {filteredItems.length !== queueItems.length && (
               <span className="text-content-tertiary ml-auto">
@@ -1442,19 +1432,18 @@ export function DownloadQueue() {
           This action cannot be undone. Cancelled items can be retried
           individually from the queue.
         </p>
-        <label className="flex items-center gap-2 text-sm text-content-secondary mb-6 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={abortDontAskAgain}
-            onChange={(e) => setAbortDontAskAgain(e.target.checked)}
-            className="h-4 w-4 cursor-pointer"
-          />
-          <span>
-            Don&apos;t ask again — single-click abort from now on. You can
-            turn this question back on in Settings &gt; General &gt;
-            Preferences.
-          </span>
-        </label>
+        <Checkbox
+          className="mb-6"
+          checked={abortDontAskAgain}
+          onChange={setAbortDontAskAgain}
+          label={
+            <>
+              Don&apos;t ask again — single-click abort from now on. You can
+              turn this question back on in Settings &gt; General &gt;
+              Preferences.
+            </>
+          }
+        />
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setShowAbortConfirm(false)}>
             Cancel

@@ -47,4 +47,23 @@ describe('SettingsSection', () => {
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('Body')).not.toBeInTheDocument();
   });
+
+  // Polish pass L3: one expand style across the app. This used to be a "▶"
+  // character; it is now the shared chevron, beside the title only, turned
+  // to point down while the section is open.
+  it('uses the shared chevron, not a "▶" character, and turns it when open', () => {
+    const { container } = render(
+      <SettingsSection title="Output" description="Where downloads go.">
+        <p>Body</p>
+      </SettingsSection>
+    );
+    expect(container.textContent).not.toContain('▶');
+    const toggle = screen.getByRole('button', { name: 'Output' });
+    const chevron = toggle.querySelector('svg');
+    expect(chevron).not.toBeNull();
+    expect(chevron).toHaveAttribute('aria-hidden', 'true');
+    expect(chevron!.getAttribute('class')).toContain('rotate-90');
+    fireEvent.click(toggle);
+    expect(toggle.querySelector('svg')!.getAttribute('class')).not.toContain('rotate-90');
+  });
 });

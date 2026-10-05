@@ -301,7 +301,7 @@ export function ErrorMessageDisplay({
           onClick={handleOverflowClick}
           aria-label="More actions for this error message"
           title="More actions"
-          className="flex-shrink-0 p-0.5 rounded text-content-tertiary hover:text-content-primary opacity-60 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+          className="flex-shrink-0 p-0.5 rounded-platform-sm text-content-tertiary hover:text-content-primary opacity-60 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
         >
           <MoreVertical size={12} aria-hidden="true" />
         </button>

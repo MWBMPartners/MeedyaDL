@@ -70,14 +70,14 @@ export default function CrashReportOptInModal() {
         <div className="flex justify-end gap-3 pt-2">
           <button
             type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium text-content-secondary hover:text-content-primary transition-colors"
+            className="px-4 py-2 rounded-platform-lg text-sm font-medium text-content-secondary hover:text-content-primary transition-colors"
             onClick={handleDecline}
           >
             No thanks
           </button>
           <button
             type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity"
+            className="px-4 py-2 rounded-platform-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity"
             onClick={handleAccept}
           >
             Yes, send crash reports

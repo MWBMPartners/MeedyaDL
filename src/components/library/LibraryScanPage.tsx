@@ -40,7 +40,6 @@
 import { useState } from 'react';
 import {
   FolderOpen,
-  RefreshCw,
   AlertCircle,
   CheckCircle2,
   HelpCircle,
@@ -65,6 +64,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { MvGapFillModal } from './MvGapFillModal';
 import { LegacyFolderMergeSection } from './LegacyFolderMergeSection';
 import { PageHeader } from '@/components/layout';
+import { Button } from '@/components/common';
 import { FOLDER_SCAN_FAILED, isCancellation, showBackendError, showError } from '@/lib/errorMessages';
 
 /**
@@ -113,7 +113,7 @@ function DiffBadge({ diff }: { diff: LibraryScanDiff | undefined }) {
   }
   if (diff.kind === 'plan') {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning-text">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-platform-sm text-xs font-medium bg-status-warning/15 text-status-warning-text">
         <AlertCircle size={12} />
         {diff.missing_tracks} of {diff.total_tracks} missing
       </span>
@@ -123,7 +123,7 @@ function DiffBadge({ diff }: { diff: LibraryScanDiff | undefined }) {
     const codecLabels = diff.missing_codecs.map(displayCodecName).join(', ');
     return (
       <span
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning-text"
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-platform-sm text-xs font-medium bg-status-warning/15 text-status-warning-text"
         title={`Every track is present, but the manifest's companion-codec plan still expected: ${codecLabels}. Re-download will fill the codec gaps without re-downloading the primary files.`}
       >
         <Layers size={12} />
@@ -134,14 +134,14 @@ function DiffBadge({ diff }: { diff: LibraryScanDiff | undefined }) {
   }
   if (diff.kind === 'all_present') {
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-success/15 text-status-success-text">
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-platform-sm text-xs font-medium bg-status-success/15 text-status-success-text">
         <CheckCircle2 size={12} />
         All present
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs text-content-tertiary">
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-platform-sm text-xs text-content-tertiary">
       <HelpCircle size={12} />
       Cannot diff
     </span>
@@ -169,7 +169,7 @@ function FreshnessBadge({
   }
   return (
     <span
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-accent/15 text-accent ml-1"
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-platform-sm text-xs font-medium bg-accent/15 text-accent ml-1"
       title={`Apple Music reports a newer lastModifiedDate (${freshness.current_date}) than your manifest (${freshness.manifest_date}). The album may have new tracks, an Atmos mix, or Apple Digital Master certification.`}
     >
       <Sparkles size={12} />
@@ -201,7 +201,7 @@ function EnrichmentBadge({ report }: { report: EnrichmentGapReport | undefined }
   if (isComplete) {
     return (
       <span
-        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-success/15 text-status-success-text"
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-platform-sm text-xs font-medium bg-status-success/15 text-status-success-text"
         title={`All ${total} enrichment stages complete.`}
       >
         <CheckCircle2 size={12} />
@@ -228,7 +228,7 @@ function EnrichmentBadge({ report }: { report: EnrichmentGapReport | undefined }
     .join('\n\n');
   return (
     <span
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-status-warning/15 text-status-warning-text"
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-platform-sm text-xs font-medium bg-status-warning/15 text-status-warning-text"
       title={tooltip}
     >
       <AlertCircle size={12} />
@@ -441,35 +441,33 @@ export function LibraryScanPage() {
     <div className="flex flex-col h-full overflow-y-auto">
       {/* The shared page header, like every other screen. This page used to
           draw its own: a bigger title, different spacing, and its own <h1>. */}
-      <PageHeader
-        title="Library Scan"
-        subtitle="Point MeedyaDL at an existing music library to find downloads that are missing tracks, have a higher quality available, or have been updated by Apple Music since you last fetched them. Re-download just the gaps without losing anything you already have."
-      />
+      {/* A one-line subtitle like every other page (polish pass L1). The
+          full explanation used to be the subtitle; it ran to four lines at
+          the smallest window and pushed the header's divider down, so it
+          now opens the page body instead. */}
+      <PageHeader title="Library Scan" subtitle="Find gaps and updates in music MeedyaDL has already downloaded" />
       <div className="p-6">
 
+      <p className="mb-4 max-w-prose text-sm text-content-secondary">
+        Point MeedyaDL at an existing music library to find downloads that are missing tracks, have a higher
+        quality available, or have been updated by Apple Music since you last fetched them. Re-download just the
+        gaps without losing anything you already have.
+      </p>
+
       <div className="mb-6 flex items-center gap-3">
-        <button
-          type="button"
+        {/* The shared Button (polish pass M17); its spinner replaces the
+            icon while scanning. Fix 5 (a11y audit): the name starts with
+            the exact visible words ("Choose folder & scan") so a
+            voice-control command matches, with the extra detail after. */}
+        <Button
+          variant="primary"
+          icon={<FolderOpen size={16} />}
+          loading={scanning}
           onClick={handleScan}
-          disabled={scanning}
-          className="px-4 py-2 rounded-md bg-accent text-content-on-accent text-sm font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed hover:bg-accent-hover transition-colors"
-          // Fix 5 (a11y audit): starts with the exact visible words
-          // ("Choose folder & scan") so a voice-control command
-          // matches, with the extra detail after.
           aria-label="Choose folder & scan — opens a folder picker and scans it for manifest files"
         >
-          {scanning ? (
-            <>
-              <RefreshCw size={16} className="animate-spin" />
-              Scanning…
-            </>
-          ) : (
-            <>
-              <FolderOpen size={16} />
-              Choose folder & scan
-            </>
-          )}
-        </button>
+          {scanning ? 'Scanning…' : 'Choose folder & scan'}
+        </Button>
         {results && (
           <span className="text-sm text-content-secondary">
             {results.length} manifest(s) found
@@ -490,7 +488,7 @@ export function LibraryScanPage() {
           recognised.
         </div>
       ) : (
-        <div className="border border-border rounded-md overflow-hidden">
+        <div className="border border-border rounded-platform overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-surface-secondary text-content-secondary">
               <tr>
@@ -561,15 +559,15 @@ export function LibraryScanPage() {
                     {(diffs[m.manifest_path]?.kind === 'plan' ||
                       diffs[m.manifest_path]?.kind === 'partial_codecs' ||
                       freshness[m.manifest_path]?.kind === 'updated') && (
-                      <button
-                        type="button"
+                      <Button
+                        variant="primary"
+                        size="xs"
+                        icon={<Download size={12} />}
                         onClick={() => setPendingGapFill(m)}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-accent text-content-on-accent hover:bg-accent-hover"
                         aria-label={`Re-download ${m.album ?? 'this album'}`}
                       >
-                        <Download size={12} />
                         Re-download
-                      </button>
+                      </Button>
                     )}
                   </td>
                 </tr>

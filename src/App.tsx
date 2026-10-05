@@ -1433,7 +1433,7 @@ function App() {
   if (!isReady) {
     return (
       <div className="flex items-center justify-center h-screen bg-surface-primary">
-        <LoadingSpinner size="lg" label="Loading MeedyaDL..." />
+        <LoadingSpinner size="lg" label="Loading MeedyaDL…" />
       </div>
     );
   }
@@ -1543,7 +1543,7 @@ function App() {
         <form onSubmit={(e) => { e.preventDefault(); handleDevSubmit(); }}>
           <input
             type="password"
-            className="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            className="w-full rounded-platform-sm border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
             placeholder="Passphrase"
             // Fix 9 (a11y audit): placeholder text is not a label -- it
             // disappears the moment something is typed, and was never
@@ -1567,7 +1567,7 @@ function App() {
           <button
             type="submit"
             disabled={devPassphrase.trim().length === 0}
-            className="mt-3 w-full rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600"
+            className="mt-3 w-full rounded-platform-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600"
           >
             Activate
           </button>
