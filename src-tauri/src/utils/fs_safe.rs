@@ -740,78 +740,6 @@ pub fn is_hard_link_unsupported(error: &std::io::Error) -> bool {
     }
 }
 
-/// Whether the process with id `pid` is still running -- used to tell a
-/// temporary file abandoned by a process that has gone (safe to remove)
-/// from one a live process is still writing (never touched).
-///
-/// Errs towards "running": whenever the answer is not certain (no
-/// permission to ask, an id that cannot be a process id here, a system
-/// with no known way to ask) it says `true`, so a file is only ever
-/// removed when its process is known to be gone. One consequence, which
-/// is the safe one: a process id the system has since given to an
-/// unrelated program also reads as running, and that leftover simply
-/// stays until a later check.
-#[must_use]
-pub fn process_is_running(pid: u32) -> bool {
-    process_is_running_impl(pid)
-}
-
-#[cfg(any(target_os = "macos", target_os = "linux"))]
-fn process_is_running_impl(pid: u32) -> bool {
-    // 0 and anything above the largest process id would mean "my process
-    // group" or wrap negative ("every process") to `kill`: never asked.
-    let Ok(pid) = libc::pid_t::try_from(pid) else {
-        return true;
-    };
-    if pid <= 0 {
-        return true;
-    }
-    // SAFETY: signal 0 sends nothing; it only asks whether `pid` exists
-    // and could be signalled. No memory is passed.
-    if unsafe { libc::kill(pid, 0) } == 0 {
-        return true;
-    }
-    // ESRCH: no such process. Anything else (EPERM: it exists but belongs
-    // to someone else) counts as running.
-    std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
-}
-
-#[cfg(windows)]
-fn process_is_running_impl(pid: u32) -> bool {
-    use windows_sys::Win32::Foundation::{CloseHandle, GetLastError, ERROR_INVALID_PARAMETER};
-    use windows_sys::Win32::System::Threading::{
-        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-    /// What `GetExitCodeProcess` reports for a process that has not ended
-    /// (`STILL_ACTIVE`). A process that really exited with this number
-    /// reads as running -- the safe direction.
-    const STILL_ACTIVE: u32 = 259;
-    if pid == 0 {
-        return true;
-    }
-    // SAFETY: plain value arguments; the handle returned is closed below
-    // and never used after that.
-    let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
-    if handle.is_null() {
-        // ERROR_INVALID_PARAMETER: no process has this id. Anything else
-        // (access denied) means it exists.
-        // SAFETY: no arguments; reads this thread's last error.
-        return unsafe { GetLastError() } != ERROR_INVALID_PARAMETER;
-    }
-    let mut code: u32 = 0;
-    // SAFETY: `handle` is a valid process handle opened above; `code` is
-    // a writable u32 that outlives the call.
-    let asked = unsafe { GetExitCodeProcess(handle, &mut code) };
-    // SAFETY: `handle` was opened above and is closed exactly once.
-    unsafe { CloseHandle(handle) };
-    asked == 0 || code == STILL_ACTIVE
-}
-
-#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-fn process_is_running_impl(_pid: u32) -> bool {
-    true
-}
-
 /// Which file a name refers to, and how many names that file has: enough
 /// to tell that two names are the same file (hard links), and that a name
 /// is not the file's only one.
@@ -1378,24 +1306,7 @@ mod tests {
         }
     }
 
-    // ── process_is_running and file_identity (Codex's review of round 5,
-    // ── finding 4) ─────────────────────────────────────────────────────
-
-    #[test]
-    fn this_process_is_running_and_a_finished_one_is_not() {
-        assert!(process_is_running(std::process::id()));
-        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
-            .arg("--help")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .unwrap();
-        let pid = child.id();
-        child.wait().unwrap();
-        assert!(!process_is_running(pid), "{pid}");
-        // Ids that cannot be asked about safely count as running.
-        assert!(process_is_running(0));
-    }
+    // ── file_identity (Codex's review of round 5, finding 4) ───────────
 
     #[test]
     fn file_identity_sees_two_names_of_one_file() {

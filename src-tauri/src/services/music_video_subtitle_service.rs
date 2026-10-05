@@ -25,9 +25,9 @@
 //    new name or the name an older MeedyaDL gave it. ffmpeg writes to a
 //    short temporary file (`.meedyadl-partial-<pid>-<n>.srt`), which is
 //    put in place only if the real name is still free, never replacing
-//    anything (see `publish_with`). Temporary files an earlier, forcibly
-//    stopped run left in the folder are cleared first
-//    (`remove_abandoned_temporaries`).
+//    anything (see `publish_with`). Temporary files that another run, or
+//    an earlier forcibly stopped one, left in the folder are never removed:
+//    they are counted and reported (`report_leftover_temporaries`).
 // 4. Best-effort: failures are logged but never affect the success of
 //    the music video download itself.
 //
@@ -104,8 +104,9 @@ pub struct SubtitleExtraction {
     /// Plain sentences the person should see in the activity log: a
     /// subtitle that could not be saved because the drive refused every way
     /// of adding it without the risk of replacing a file (saying what they
-    /// can do), or a temporary file that could not be removed. Each is also
-    /// in the log file.
+    /// can do), a temporary file that could not be removed, or unfinished
+    /// temporary subtitle files found in the folder and left alone (saying
+    /// when they are safe to delete). Each is also in the log file.
     pub notices: Vec<String>,
 }
 
@@ -143,14 +144,13 @@ pub async fn extract_subtitles_to_sidecars(
     let facts: Vec<SubtitleStreamFacts> = streams.iter().map(|s| s.facts.clone()).collect();
     let planned = plan_subtitle_sidecar_names(stem, &facts)?;
 
-    // Before extracting anything here: clear temporary files an earlier
-    // run in this folder left behind (see the function). AFTER the names
-    // are planned, because a planning failure returns early above and
-    // would throw away this report, with any notice the clean-up put in it
-    // (stand-in review of round 6, finding 9). Planned first, a planning
-    // failure leaves the folder untouched.
+    // Before extracting anything here: report temporary files already in
+    // this folder, which this run did not make and so leaves alone (see the
+    // function). AFTER the names are planned, because a planning failure
+    // returns early above and would throw away this report, with the
+    // notice in it (stand-in review of round 6, finding 9).
     if let Some(folder) = video_path.parent() {
-        remove_abandoned_temporaries(folder, &mut report.notices);
+        report_leftover_temporaries(folder, &mut report.notices);
     }
 
     for (stream, plan) in streams.iter().zip(planned) {
@@ -332,152 +332,112 @@ fn legacy_sidecar_name(stem: &str, stream: &SubtitleStream) -> Option<String> {
 /// The start of every temporary subtitle name: `.meedyadl-partial-`.
 const TEMP_PREFIX: &str = ".meedyadl-partial-";
 
-/// The process id in `name` when `name` is EXACTLY one of this app's
-/// temporary subtitle names, `.meedyadl-partial-<pid>-<n>.<srt|vtt>` (both
-/// numbers plain digits), and `None` for anything else -- so nothing that
-/// is not ours is ever touched.
-fn temporary_name_owner(name: &str) -> Option<u32> {
-    let rest = name.strip_prefix(TEMP_PREFIX)?;
-    let (numbers, extension) = rest.rsplit_once('.')?;
+/// True when `name` has the shape of one of this app's temporary subtitle
+/// names: `.meedyadl-partial-`, then digits (a process id), `-`, then
+/// lower-case hexadecimal digits, then `.srt` or `.vtt`.
+///
+/// Used ONLY to count such files for [`report_leftover_temporaries`]. A
+/// name proves nothing about who made a file (anyone can create one with
+/// this shape), which is why nothing is ever deleted because of it.
+fn is_temporary_name(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix(TEMP_PREFIX) else {
+        return false;
+    };
+    let Some((middle, extension)) = rest.rsplit_once('.') else {
+        return false;
+    };
     if extension != "srt" && extension != "vtt" {
-        return None;
+        return false;
     }
-    let (pid, n) = numbers.split_once('-')?;
-    let digits = |text: &str| !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit());
-    if !digits(pid) || !digits(n) {
-        return None;
-    }
-    n.parse::<u32>().ok()?;
-    pid.parse().ok()
+    let Some((pid, part)) = middle.split_once('-') else {
+        return false;
+    };
+    !pid.is_empty()
+        && pid.bytes().all(|b| b.is_ascii_digit())
+        && !part.is_empty()
+        && part
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// How long a temporary subtitle file must have gone unchanged before it
-/// can count as abandoned (see [`remove_abandoned_temporaries`]). A live
-/// extraction finishes within seconds; an hour leaves a wide margin for a
-/// slow drive or a slow shared folder.
-const ABANDONED_AFTER: std::time::Duration = std::time::Duration::from_secs(60 * 60);
-
-/// True when the file at `path` was last changed at least `age` ago. False
-/// whenever that is not certain -- the time cannot be read, or lies in the
-/// future (another computer's clock ahead of this one's) -- so a file is
-/// only ever treated as old when it certainly is.
-fn unchanged_for_at_least(path: &Path, age: std::time::Duration) -> bool {
-    std::fs::symlink_metadata(path)
-        .and_then(|meta| meta.modified())
-        .ok()
-        .and_then(|changed| std::time::SystemTime::now().duration_since(changed).ok())
-        .is_some_and(|elapsed| elapsed >= age)
-}
-
-/// Removes temporary subtitle files that an earlier run left in `folder`
-/// (Codex's review of round 5, finding 4). Called before extracting for a
-/// video, for that video's folder.
+/// Counts the temporary subtitle files already in `folder` before this
+/// extraction makes any, and, if there are any, adds ONE notice for the
+/// activity log saying how many and where, and when they are safe to
+/// delete. It never deletes, renames or changes any of them.
 ///
-/// **Why there can be any.** A run removes its own temporary file on every
-/// path it controls. A FORCED stop -- the app killed, the computer losing
-/// power -- while ffmpeg is writing, or just after the subtitle was put in
-/// place by a hard link, leaves the temporary name behind (in the second
-/// case as a second name of the finished subtitle). Nothing can clean up
-/// at that moment; it is cleaned here, at the next extraction in the same
-/// folder (a second name at once; any other leftover once it has gone
-/// unchanged for an hour -- see below).
+/// **Why nothing is deleted any more** (Codex's review of rounds 6-7,
+/// findings 3 and 4). Earlier versions of this branch removed such a file
+/// when its process was not running on this computer and nobody had
+/// changed it for an hour, or, whatever its process and age, when it was a
+/// second name of a finished subtitle. The hour was added in round 7, to
+/// act on the stand-in review of round 6; this reverses that decision, and
+/// the clean-up with it. Neither a name nor a clock proves who owns a file,
+/// and each rule deleted things it should not have:
+///   - on a folder two computers share, the other computer's live
+///     extraction looks as though its process has ended, and with the
+///     server's clock behind this computer's, a file written a moment ago
+///     already looks an hour old;
+///   - an extraction suspended for over an hour (a sleeping laptop) looks
+///     abandoned although it will carry on;
+///   - an unrelated file that happens to have exactly this shape of name
+///     was deleted, though nothing showed MeedyaDL had made it;
+///   - the "second name" decision was made, and the file deleted a moment
+///     later, by name: in between, the run that owned it could remove it
+///     and start another extraction under the same name, which was then
+///     deleted instead (finding 2).
 ///
-/// **What is removed**, and only for names matching this app's exact
-/// pattern (`temporary_name_owner`), regular files only:
-///   - an ABANDONED file: its process (the id in its name) is not running
-///     on this computer, AND the file has not been changed for at least
-///     [`ABANDONED_AFTER`] (an hour);
-///   - a file that is a second hard link to an already-published subtitle
-///     in this folder, WHATEVER its process and age -- even a running
-///     process's, this app's own included: removing it loses nothing, the
-///     content stays under the subtitle's own name. (Also covers a process
-///     id the system has since given to another program.)
+/// A run therefore removes only the temporary file it made itself, on its
+/// own paths (see `remove_temporary`). A file left by a forced stop (the
+/// app killed, the power lost) stays until the person deletes it; this
+/// notice is how they learn it is there. It is counted, and reported,
+/// again at every extraction in that folder until it is gone.
 ///
-/// **Why the hour as well** (stand-in review of round 6, finding 6): the
-/// process check can only ask about processes on THIS computer, and the
-/// temporary name carries a process id but no computer name. On a folder
-/// two computers share, the other computer's live extraction therefore
-/// looks like one whose process has ended. Removing its file made that
-/// extraction's publish fail, so the subtitle was lost. A live extraction
-/// changes its file while ffmpeg writes it, and finishes within seconds,
-/// so a file nobody has changed for an hour is not being worked on.
-///
-/// **What is never removed**: a temporary file that is not a second name of
-/// a subtitle and either belongs to a process running on this computer --
-/// another extraction's work in progress, including this app's own -- or
-/// was changed less than an hour ago (or has a change time that cannot be
-/// read, or lies in the future). So a file left by a run of this app that
-/// was cancelled without the app stopping stays until the app has been
-/// restarted and extracts in that folder again.
-///
-/// A file that cannot be removed is reported (log and activity log), never
-/// ignored.
-fn remove_abandoned_temporaries(folder: &Path, notices: &mut Vec<String>) {
-    use crate::utils::fs_safe::{file_identity, process_is_running};
+/// The extractor still ignores these files when it looks for existing
+/// subtitles: it looks only for the exact names it planned, which never
+/// have this shape.
+fn report_leftover_temporaries(folder: &Path, notices: &mut Vec<String>) {
     let entries = match std::fs::read_dir(folder) {
         Ok(entries) => entries,
         Err(e) => {
             log::warn!(
-                "Could not look for leftover temporary subtitle files in {}: {e}",
+                "Could not look for unfinished temporary subtitle files in {}: {e}",
                 folder.display()
             );
             return;
         }
     };
-    let mut ours = Vec::new();
-    let mut subtitles = Vec::new();
-    for entry in entries.flatten() {
-        let Ok(kind) = entry.file_type() else {
-            continue;
-        };
-        if !kind.is_file() {
-            continue;
-        }
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
-            continue;
-        };
-        if let Some(pid) = temporary_name_owner(name) {
-            ours.push((entry.path(), pid));
-        } else if name.ends_with(".srt") || name.ends_with(".vtt") {
-            subtitles.push(entry.path());
-        }
-    }
-    if ours.is_empty() {
+    let found = entries
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+        .filter(|entry| entry.file_name().to_str().is_some_and(is_temporary_name))
+        .count();
+    if found == 0 {
         return;
     }
-
-    // The identities of the published subtitles, worked out only if some
-    // live process's temporary file has a second name.
-    let mut published: Option<Vec<(u64, u64)>> = None;
-    for (path, pid) in ours {
-        let abandoned = !process_is_running(pid) && unchanged_for_at_least(&path, ABANDONED_AFTER);
-        let second_name = !abandoned
-            && file_identity(&path).is_ok_and(|id| {
-                id.links > 1
-                    && published
-                        .get_or_insert_with(|| {
-                            subtitles
-                                .iter()
-                                .filter_map(|p| file_identity(p).ok())
-                                .map(|id| (id.device, id.index))
-                                .collect()
-                        })
-                        .contains(&(id.device, id.index))
-            });
-        if abandoned || second_name {
-            log::info!(
-                "Removing a leftover temporary subtitle file ({}): {}",
-                if abandoned {
-                    "its process is not running here and it has not been changed for an hour"
-                } else {
-                    "a second name of a finished subtitle"
-                },
-                path.display()
-            );
-            remove_temporary(&path, notices);
-        }
-    }
+    let (count, hidden, them, they_are) = if found == 1 {
+        (
+            "1 unfinished subtitle file".to_string(),
+            "a hidden file whose name starts",
+            "it",
+            "it is",
+        )
+    } else {
+        (
+            format!("{found} unfinished subtitle files"),
+            "hidden files whose names start",
+            "them",
+            "they are",
+        )
+    };
+    let notice = format!(
+        "Found {count} in {} ({hidden} with \"{TEMP_PREFIX}\"). MeedyaDL left {them} \
+         alone, because another download, on this computer or another one sharing the \
+         folder, may still be writing {them}. Once no copy of MeedyaDL is saving subtitles \
+         in that folder, {they_are} safe to delete.",
+        folder.display()
+    );
+    log::info!("{notice}");
+    notices.push(notice);
 }
 
 /// Claims a temporary sidecar name, exclusively, next to the real one,
@@ -1340,28 +1300,168 @@ mod tests {
         file.set_modified(when).unwrap();
     }
 
-    /// A time comfortably past the hour after which an untouched leftover
-    /// counts as abandoned (`ABANDONED_AFTER`).
+    /// A time two hours ago: older than the hour after which an earlier
+    /// version of this branch removed an untouched leftover.
     fn two_hours_ago() -> std::time::SystemTime {
         std::time::SystemTime::now() - std::time::Duration::from_secs(2 * 60 * 60)
     }
 
-    // ── Leftover temporary files (Codex's review of round 5, finding 4) ──
+    // ── Leftover temporary files are never deleted, only reported
+    // ── (Codex's review of rounds 6-7, findings 2 to 4) ─────────────────
 
-    /// A forced stop (the app killed, the computer losing power) between
-    /// creating the temporary file and removing it leaves the file behind;
-    /// the next extraction in that folder clears it.
+    /// Every kind of temporary-looking file an earlier version of this
+    /// branch deleted, each dated two hours back so the old hour rule would
+    /// have applied: another run of this app (this process's own id), a run
+    /// whose process has ended (on this computer, or one that is still
+    /// working on another computer sharing the folder), a second name of a
+    /// finished subtitle, and an unrelated file whose name happens to have
+    /// exactly this app's shape. All are left exactly as they were, and one
+    /// activity-log notice says how many there are, where, and when they
+    /// are safe to delete.
+    #[test]
+    fn leftover_temporary_files_are_left_alone_and_reported_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let ended = a_finished_process_id();
+        let published = dir.path().join("V.en.srt");
+        fs::write(&published, "1\nHello").unwrap();
+        let second_name = format!(".meedyadl-partial-{ended}-2.srt");
+        fs::hard_link(&published, dir.path().join(&second_name)).unwrap();
+        let files = [
+            (
+                format!(".meedyadl-partial-{}-0.srt", std::process::id()),
+                "another run of this app",
+            ),
+            (
+                format!(".meedyadl-partial-{ended}-0.srt"),
+                "a process not running here",
+            ),
+            (
+                ".meedyadl-partial-12345-0.srt".to_string(),
+                "not MeedyaDL's at all",
+            ),
+            (
+                format!(".meedyadl-partial-{ended}-0a1b2c3d4e5f6789.vtt"),
+                "a newer-shaped name",
+            ),
+        ];
+        for (name, text) in &files {
+            fs::write(dir.path().join(name), text).unwrap();
+            set_last_changed(&dir.path().join(name), two_hours_ago());
+        }
+        let before = folder_listing(dir.path());
+
+        let mut notices = Vec::new();
+        report_leftover_temporaries(dir.path(), &mut notices);
+
+        assert_eq!(folder_listing(dir.path()), before, "a leftover was removed");
+        for (name, text) in &files {
+            assert_eq!(fs::read_to_string(dir.path().join(name)).unwrap(), *text);
+        }
+        assert_eq!(fs::read_to_string(&published).unwrap(), "1\nHello");
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        let notice = &notices[0];
+        assert!(
+            notice.contains("Found 5 unfinished subtitle files in "),
+            "{notice}"
+        );
+        assert!(
+            notice.contains(&dir.path().display().to_string()),
+            "{notice}"
+        );
+        assert!(notice.contains("\".meedyadl-partial-\""), "{notice}");
+        assert!(notice.contains("left them alone"), "{notice}");
+        assert!(
+            notice.contains("Once no copy of MeedyaDL is saving subtitles in that folder, they are safe to delete."),
+            "{notice}"
+        );
+    }
+
+    #[test]
+    fn one_leftover_is_reported_in_the_singular() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(".meedyadl-partial-7-0.srt"), "half").unwrap();
+        let mut notices = Vec::new();
+        report_leftover_temporaries(dir.path(), &mut notices);
+        assert_eq!(notices.len(), 1, "{notices:?}");
+        assert!(
+            notices[0].contains("Found 1 unfinished subtitle file in "),
+            "{notices:?}"
+        );
+        assert!(notices[0].contains("it is safe to delete."), "{notices:?}");
+        assert!(dir.path().join(".meedyadl-partial-7-0.srt").exists());
+    }
+
+    /// Only files with exactly this app's temporary shape are counted, and
+    /// nothing at all is reported for a folder with none.
+    #[test]
+    fn only_the_exact_temporary_shape_is_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in [
+            ".meedyadl-partial-1-0.txt",
+            ".meedyadl-partial-1.srt",
+            ".meedyadl-partial-abc-0.srt",
+            ".meedyadl-partial-+1-0.srt",
+            ".meedyadl-partial-1-0.srt.bak",
+            "meedyadl-partial-1-0.srt",
+            ".V.meedyadl-partial-1-0.srt",
+            ".meedyadl-partial-1--0.srt",
+            ".meedyadl-partial-1-A0.srt",
+            "V.en.srt",
+        ] {
+            fs::write(dir.path().join(name), "keep").unwrap();
+        }
+        // A FOLDER with the exact shape is not a temporary file either.
+        fs::create_dir(dir.path().join(".meedyadl-partial-1-1.srt")).unwrap();
+        let mut notices = Vec::new();
+        report_leftover_temporaries(dir.path(), &mut notices);
+        assert!(notices.is_empty(), "{notices:?}");
+    }
+
+    #[test]
+    fn is_temporary_name_reads_only_the_exact_shape() {
+        for name in [
+            ".meedyadl-partial-123-0.srt",
+            ".meedyadl-partial-9-41.vtt",
+            ".meedyadl-partial-99999999999-0.srt",
+            ".meedyadl-partial-123-0a1b2c3d4e5f6789.srt",
+        ] {
+            assert!(is_temporary_name(name), "{name}");
+        }
+        for name in [
+            ".meedyadl-partial-123-0.ass",
+            ".meedyadl-partial-123.srt",
+            ".meedyadl-partial--0.srt",
+            ".meedyadl-partial-1-.srt",
+            ".meedyadl-partial-1-2-3.srt",
+            ".meedyadl-partial-1-ABC.srt",
+            "x.meedyadl-partial-1-0.srt",
+            // A subtitle planned for a video that is itself called like a
+            // temporary file: the language part keeps it out.
+            ".meedyadl-partial-1-a.en.srt",
+            ".meedyadl-partial-1-a.und.srt",
+        ] {
+            assert!(!is_temporary_name(name), "{name}");
+        }
+    }
+
+    /// The whole extraction with leftovers in the folder: it still writes
+    /// its subtitle (a leftover never counts as an existing subtitle),
+    /// leaves every leftover as it was, and reports them once.
     #[cfg(target_os = "macos")]
     #[tokio::test]
-    async fn the_next_extraction_in_a_folder_clears_a_leftover_from_a_process_that_has_gone() {
+    async fn an_extraction_writes_its_subtitle_and_leaves_leftovers_alone() {
         let dir = tempfile::tempdir().unwrap();
         let tools = tempfile::tempdir().unwrap();
         let video = dir.path().join("V.mp4");
         fs::write(&video, "").unwrap();
-        let dead = a_finished_process_id();
-        let leftover = format!(".meedyadl-partial-{dead}-0.srt");
-        fs::write(dir.path().join(&leftover), "half").unwrap();
-        set_last_changed(&dir.path().join(&leftover), two_hours_ago());
+        let leftovers = [
+            format!(".meedyadl-partial-{}-0.srt", a_finished_process_id()),
+            format!(".meedyadl-partial-{}-1.srt", std::process::id()),
+        ];
+        for name in &leftovers {
+            fs::write(dir.path().join(name), "half").unwrap();
+            set_last_changed(&dir.path().join(name), two_hours_ago());
+        }
 
         let ffprobe = fake_ffprobe(tools.path());
         let ffmpeg = fake_ffmpeg(tools.path(), "ffmpeg", "1\nHello", 0);
@@ -1369,177 +1469,23 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(report.written, 1);
-        assert!(report.notices.is_empty(), "{:?}", report.notices);
-        assert_eq!(folder_listing(dir.path()), ["V.en.srt", "V.mp4"]);
-    }
-
-    #[test]
-    fn a_leftover_whose_process_has_ended_is_removed() {
-        // ...once nobody has changed it for an hour (see the next test).
-        let dir = tempfile::tempdir().unwrap();
-        let dead = a_finished_process_id();
-        for name in [
-            format!(".meedyadl-partial-{dead}-0.srt"),
-            format!(".meedyadl-partial-{dead}-7.vtt"),
-        ] {
-            fs::write(dir.path().join(&name), "half").unwrap();
-            set_last_changed(&dir.path().join(&name), two_hours_ago());
-        }
-        fs::write(dir.path().join("V.en.srt"), "mine").unwrap();
-        let mut notices = Vec::new();
-        remove_abandoned_temporaries(dir.path(), &mut notices);
-        assert_eq!(folder_listing(dir.path()), ["V.en.srt"]);
         assert_eq!(
             fs::read_to_string(dir.path().join("V.en.srt")).unwrap(),
-            "mine"
+            "1\nHello"
         );
-        assert!(notices.is_empty(), "{notices:?}");
-    }
-
-    /// Stand-in review of round 6, finding 6: whether a process is running
-    /// can only be asked about THIS computer, and the temporary name has no
-    /// computer name in it. On a folder two computers share, the other
-    /// computer's live extraction looks like one whose process has ended,
-    /// so a leftover counts as abandoned only once nobody has changed it
-    /// for an hour. A time in the future (the other computer's clock ahead
-    /// of this one's) is never old enough.
-    #[test]
-    fn a_leftover_changed_within_the_hour_is_kept_even_if_its_process_is_not_running_here() {
-        let dir = tempfile::tempdir().unwrap();
-        let dead = a_finished_process_id();
-        let now = std::time::SystemTime::now();
-        let minutes = |m: u64| std::time::Duration::from_secs(m * 60);
-        let kept = [
-            (format!(".meedyadl-partial-{dead}-0.srt"), now),
-            (format!(".meedyadl-partial-{dead}-1.srt"), now - minutes(59)),
-            (format!(".meedyadl-partial-{dead}-2.srt"), now + minutes(60)),
-        ];
-        let removed = format!(".meedyadl-partial-{dead}-3.srt");
-        for (name, changed) in kept
-            .iter()
-            .chain([(removed.clone(), now - minutes(61))].iter())
-        {
-            fs::write(dir.path().join(name), "being written elsewhere").unwrap();
-            set_last_changed(&dir.path().join(name), *changed);
-        }
-        let mut notices = Vec::new();
-        remove_abandoned_temporaries(dir.path(), &mut notices);
-        let mut expected: Vec<String> = kept.iter().map(|(name, _)| name.clone()).collect();
+        let mut expected: Vec<String> = leftovers.to_vec();
+        expected.extend(["V.en.srt".to_string(), "V.mp4".to_string()]);
         expected.sort();
         assert_eq!(folder_listing(dir.path()), expected);
-        assert!(notices.is_empty(), "{notices:?}");
-    }
-
-    #[test]
-    fn a_running_processs_temporary_file_is_never_touched() {
-        // Another extraction's work in progress (here: this process's own),
-        // however long ago it was last changed: an old date must not make
-        // it look abandoned while its process is running.
-        let dir = tempfile::tempdir().unwrap();
-        let live = format!(".meedyadl-partial-{}-0.srt", std::process::id());
-        fs::write(dir.path().join(&live), "being written").unwrap();
-        set_last_changed(&dir.path().join(&live), two_hours_ago());
-        remove_abandoned_temporaries(dir.path(), &mut Vec::new());
-        assert_eq!(folder_listing(dir.path()), [live]);
-    }
-
-    #[test]
-    fn a_second_name_of_a_published_subtitle_is_removed_whatever_its_process() {
-        // Stopped just after the hard link put the subtitle in place and
-        // before the temporary name was removed. With a running process's
-        // id (this one), only the "second name" rule can remove it; with an
-        // ended process's id, changed just now, the hour rule does not
-        // apply either. Removed both times, whatever its process or age --
-        // and the subtitle must survive.
-        for pid in [std::process::id(), a_finished_process_id()] {
-            let dir = tempfile::tempdir().unwrap();
-            let published = dir.path().join("V.en.srt");
-            fs::write(&published, "1\nHello").unwrap();
-            let temp = dir.path().join(format!(".meedyadl-partial-{pid}-0.srt"));
-            fs::hard_link(&published, &temp).unwrap();
-            let mut notices = Vec::new();
-            remove_abandoned_temporaries(dir.path(), &mut notices);
-            assert_eq!(folder_listing(dir.path()), ["V.en.srt"], "{pid}");
-            assert_eq!(fs::read_to_string(&published).unwrap(), "1\nHello");
-            assert!(notices.is_empty(), "{notices:?}");
+        for name in &leftovers {
+            assert_eq!(fs::read_to_string(dir.path().join(name)).unwrap(), "half");
         }
-    }
-
-    #[test]
-    fn only_this_apps_exact_temporary_names_are_ever_removed() {
-        let dir = tempfile::tempdir().unwrap();
-        let dead = a_finished_process_id();
-        let not_ours = [
-            format!(".meedyadl-partial-{dead}-0.txt"),
-            format!(".meedyadl-partial-{dead}.srt"),
-            ".meedyadl-partial-abc-0.srt".to_string(),
-            format!(".meedyadl-partial-+{dead}-0.srt"),
-            format!(".meedyadl-partial-{dead}-0.srt.bak"),
-            format!("meedyadl-partial-{dead}-0.srt"),
-            format!(".V.meedyadl-partial-{dead}-0.srt"),
-            format!(".meedyadl-partial-{dead}--0.srt"),
-        ];
-        for name in &not_ours {
-            fs::write(dir.path().join(name), "keep").unwrap();
-            // Old, so only the name decides (not the hour rule).
-            set_last_changed(&dir.path().join(name), two_hours_ago());
-        }
-        // A FOLDER with our exact name is not a file of ours either.
-        fs::create_dir(dir.path().join(format!(".meedyadl-partial-{dead}-1.srt"))).unwrap();
-        remove_abandoned_temporaries(dir.path(), &mut Vec::new());
-        let mut expected: Vec<String> = not_ours.to_vec();
-        expected.push(format!(".meedyadl-partial-{dead}-1.srt"));
-        expected.sort();
-        assert_eq!(folder_listing(dir.path()), expected);
-    }
-
-    #[test]
-    fn temporary_name_owner_reads_only_the_exact_pattern() {
-        assert_eq!(
-            temporary_name_owner(".meedyadl-partial-123-0.srt"),
-            Some(123)
+        assert_eq!(report.notices.len(), 1, "{:?}", report.notices);
+        assert!(
+            report.notices[0].contains("Found 2 unfinished subtitle files"),
+            "{:?}",
+            report.notices
         );
-        assert_eq!(temporary_name_owner(".meedyadl-partial-9-41.vtt"), Some(9));
-        for name in [
-            ".meedyadl-partial-123-0.ass",
-            ".meedyadl-partial-123.srt",
-            ".meedyadl-partial--0.srt",
-            ".meedyadl-partial-1-.srt",
-            ".meedyadl-partial-1-2-3.srt",
-            ".meedyadl-partial-99999999999-0.srt",
-            "x.meedyadl-partial-1-0.srt",
-        ] {
-            assert_eq!(temporary_name_owner(name), None, "{name}");
-        }
-    }
-
-    /// A leftover that cannot be removed is reported -- in the activity log
-    /// (a notice) as well as the log file -- never silently ignored. Made
-    /// to fail by taking away permission to change the folder (Unix; not
-    /// meaningful when tests run as the superuser, who may change it
-    /// anyway, so the test checks that first).
-    #[cfg(unix)]
-    #[test]
-    fn a_leftover_that_cannot_be_removed_is_reported() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = tempfile::tempdir().unwrap();
-        let dead = a_finished_process_id();
-        let name = format!(".meedyadl-partial-{dead}-0.srt");
-        fs::write(dir.path().join(&name), "half").unwrap();
-        set_last_changed(&dir.path().join(&name), two_hours_ago());
-        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o555)).unwrap();
-        let blocked = fs::write(dir.path().join("probe"), "").is_err();
-        let mut notices = Vec::new();
-        remove_abandoned_temporaries(dir.path(), &mut notices);
-        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
-        if !blocked {
-            eprintln!("skipped: this user may change a read-only folder");
-            return;
-        }
-        assert!(dir.path().join(&name).exists());
-        assert_eq!(notices.len(), 1, "{notices:?}");
-        assert!(notices[0].contains(&name), "{notices:?}");
-        assert!(notices[0].contains("Could not remove"), "{notices:?}");
     }
 
     fn only_stream() -> SubtitleStream {

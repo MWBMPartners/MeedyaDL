@@ -153,12 +153,13 @@ did not change.
   part-way through its copy can leave a partly written subtitle under the
   real name, which later runs keep. If it fails, no subtitle, and an
   activity-log message saying what to do. A forced stop
-  can leave a temporary file; the next extraction in that folder removes it
-  if its process is not running on this computer AND it has not been
-  changed for an hour (the process check cannot see another computer that
-  shares the folder; the hour protects that computer's live extraction),
-  or, whatever its process and age, if it is only a second name of a
-  finished subtitle. Failed removals are reported. The fake ffmpeg
+  can leave a temporary file. No run deletes one it did not make: round 7's
+  clean-up (process not running here AND unchanged for an hour, or any
+  second name of a finished subtitle) was removed, because a name or a
+  clock proves nothing about who owns a file (Codex's review of rounds 6-7).
+  The next extraction in that folder writes one activity-log line saying
+  how many it found, where, and that they are safe to delete once no
+  MeedyaDL is saving subtitles there. Failed removals are reported. The fake ffmpeg
   in the tests obeys `-y`/`-n` (ffmpeg 9.0.1 given `-n` refuses an existing
   output yet exits 0, which published an empty file). Windows/Linux branches
   type-checked, only run on macOS (Codex's catch-up review and round 5).
