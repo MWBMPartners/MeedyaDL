@@ -1956,16 +1956,20 @@ mod tests {
     /// macOS only, and ignored by default. Run it with
     /// `MEEDYADL_SUBTITLE_DRIVE_TEST_DIR=<folder> cargo test --lib
     /// on_a_real_drive -- --ignored --nocapture`. It works in a new
-    /// sub-folder and deletes it afterwards.
+    /// sub-folder and deletes it afterwards. Without the variable it says
+    /// "skipped" and checks nothing, so the command given for the real
+    /// ffmpeg test above (which also runs this one) still works.
     #[cfg(target_os = "macos")]
     #[tokio::test]
     #[ignore] // Needs a folder on the drive to test, named by the variable.
     async fn on_a_real_drive_subtitles_are_saved_and_never_replace_a_file() {
-        let base = PathBuf::from(
-            std::env::var("MEEDYADL_SUBTITLE_DRIVE_TEST_DIR")
-                .expect("set MEEDYADL_SUBTITLE_DRIVE_TEST_DIR to a folder on the drive to test"),
-        )
-        .join(format!("meedyadl-drive-test-{}", std::process::id()));
+        let Ok(drive) = std::env::var("MEEDYADL_SUBTITLE_DRIVE_TEST_DIR") else {
+            eprintln!(
+                "skipped: set MEEDYADL_SUBTITLE_DRIVE_TEST_DIR to a folder on the drive to test"
+            );
+            return;
+        };
+        let base = PathBuf::from(drive).join(format!("meedyadl-drive-test-{}", std::process::id()));
         let fresh = |name: &str| {
             let dir = base.join(name);
             fs::create_dir_all(&dir).unwrap();
