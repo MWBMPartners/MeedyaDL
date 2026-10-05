@@ -151,8 +151,11 @@ did not change.
   real name, which later runs keep. If it fails, no subtitle, and an
   activity-log message saying what to do. A forced stop
   can leave a temporary file; the next extraction in that folder removes it
-  if its process has ended or it is a second name of a finished subtitle,
-  never a running process's. Failed removals are reported. The fake ffmpeg
+  if its process is not running on this computer AND it has not been
+  changed for an hour (the process check cannot see another computer that
+  shares the folder; the hour protects that computer's live extraction),
+  or, whatever its process and age, if it is only a second name of a
+  finished subtitle. Failed removals are reported. The fake ffmpeg
   in the tests obeys `-y`/`-n` (ffmpeg 9.0.1 given `-n` refuses an existing
   output yet exits 0, which published an empty file). Windows/Linux branches
   type-checked, only run on macOS (Codex's catch-up review and round 5).
