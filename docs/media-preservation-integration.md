@@ -105,3 +105,9 @@ Living web documentation is research observed on 2026-10-11, not a pinned implem
 ### Source-derived caption display modes
 
 Prefer preservation of the source's native caption display commands and their timeline, including Pop-on, Paint-on, Roll-up, clears, memory swaps, positioning and mode changes. Never assign a whole-track mode from a probe's “first event” label. Native remuxing preserves command semantics; conversion preserves them where a faithful target representation exists and reports any approximation. Text sources without equivalent commands require an explicit configurable authoring policy; do not claim a generated mode was retained from the source.
+
+### User caption presentation preferences
+
+MeedyaPlayer and other rendering applications should offer source presentation by default, plus persistent user appearance preferences (font/size, colours, opacity/background, edge treatment and placement) where format/backend capabilities allow. Provide a clear source/default reset, per-profile settings, readable previews, and disclosure of unsupported overrides. Keep native service selection/language separate from presentation preferences. Playback overrides do not rewrite stored caption commands or mux metadata.
+
+Preserve caption timing, mode changes and semantic layout when applying appearance preferences where possible. Forcing Pop-on/Paint-on/Roll-up or other temporal behaviour is a separate opt-in advanced transformation, with capability limits and warnings about altered presentation; it cannot be promised by every backend. Avoid obscuring important picture content or losing speaker/position distinctions without user awareness. Authoring/export edits in Converter/Subtitler remain explicit and show what is changed.
