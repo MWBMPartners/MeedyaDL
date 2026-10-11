@@ -79,3 +79,13 @@ For ATSC 1.0, PSIP event Content Advisory Descriptors reference rating dimension
 ELI5: preserve the programme's information card as well as its picture and sound. A television can read the card to show a guide or a rating; a muxer can lose the card even when the movie looks unchanged. A label painted into the picture is separate from machine-readable rating data.
 
 Illustrative uses: CC2/CC4 can carry additional or alternative caption services; their IDs do not mandate a language or special purpose. T1–T4 can provide general text information pages. XDS has practical uses for programme information and V-chip content advisories. These are format/use categories, not claims that any named broadcaster routinely populated every slot. Add verified real-world fixtures before claiming individual channel prevalence.
+
+### Dynamic aspect ratio and active-picture preservation
+
+Retain timed AFD (Active Format Description), bar data and applicable aspect/display signalling, including changes within a video stream. AFD is not a universal “IMAX switching” flag: it describes active-picture/display treatment; changing encoded geometry or sample/display aspect signalling, timed crop information and changing baked-in letterbox/pillarbox pixels are distinct mechanisms. Do not collapse a timeline into a single container-level aspect ratio or infer authorial intent from detected black bars.
+
+Remuxing must verify applicable native signalling survives; transcoding must inspect, carry or explicitly transform per-frame/per-sequence metadata with correct timing and geometry. Resize/crop operations may invalidate source AFD/bar coordinates: recompute under an explicit validated policy or disclose loss, never blindly copy stale values. Preserve actual picture pixels by default; automatic crop/zoom is opt-in. Verify transitions with representative frames and metadata before/at/after boundaries, including subtitle placement and stereoscopic geometry.
+
+Player should respect applicable signalling under a user-selectable fit/crop policy and avoid unwanted zoom; Library/Manager should inventory dynamic ranges/events rather than report one misleading value. Core/DB must store temporal geometry and provenance; Converter/Subtitler/DL must coordinate transformations. Backend/container support and authoring are individually verified, not implied by static metadata tags.
+
+Primary research: [ATSC A/53 Part 4:2009, video user-data AFD and bar-data syntax/semantics](https://www.atsc.org/wp-content/uploads/2021/04/A_53-Part-4-2009.pdf). This is a bounded reference, not a latest-edition or cross-codec support claim.
