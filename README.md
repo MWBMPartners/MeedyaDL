@@ -556,3 +556,6 @@ For the full implementation plan, project status, architecture decisions, and de
 <p align="center">
   Made with ❤️ by MeedyaSuite
 </p>
+## Media preservation planning
+
+See [the application media preservation requirements](docs/media-preservation-integration.md) for proposed responsibilities, native caption protection, timelines, metadata, track relationships and verification. These are development requirements, not claims of implemented support.
