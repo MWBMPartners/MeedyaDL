@@ -101,3 +101,7 @@ Primary research: [ATSC A/53 Part 4:2009, video user-data AFD and bar-data synta
 - [Aegisub ASS tags](https://aegisub.org/docs/latest/ass_tags/), [TTML2 animation](https://www.w3.org/TR/ttml2/#animation-vocabulary), [IMSC 1.2 supported features](https://www.w3.org/TR/ttml-imsc1.2/#supported-features-and-extensions), and [ETSI EN 300 743 V1.6.1 (2018-10)](https://www.etsi.org/deliver/etsi_EN/300700_300799/300743/01.06.01_60/en_300743v010601p.pdf): style/animation and DVB subtitle conversion research; target profile and renderer limits must be tested.
 
 Living web documentation is research observed on 2026-10-11, not a pinned implementation baseline. Exact source/version/status and conformance fixtures must be recorded when adopting a writer or parser. These links supplement the existing contract references and do not imply all features are implemented.
+
+### Source-derived caption display modes
+
+Prefer preservation of the source's native caption display commands and their timeline, including Pop-on, Paint-on, Roll-up, clears, memory swaps, positioning and mode changes. Never assign a whole-track mode from a probe's “first event” label. Native remuxing preserves command semantics; conversion preserves them where a faithful target representation exists and reports any approximation. Text sources without equivalent commands require an explicit configurable authoring policy; do not claim a generated mode was retained from the source.
