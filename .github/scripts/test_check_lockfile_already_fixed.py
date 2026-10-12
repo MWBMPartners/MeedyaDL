@@ -941,6 +941,172 @@ class ManifestsComparedAsData(HelperTestCase):
         )
         self.assertVerdict(NEEDS, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
 
+    # --- Cargo's feature graph, edition and resolver (catch-up review) -------
+
+    @staticmethod
+    def package_table(extra: str = "") -> str:
+        return '[package]\nname = "demo"\nversion = "1.0.0"\nedition = "2021"\n' + extra + "\n"
+
+    def test_a_feature_chain_on_the_channel_still_enables_it_codex_catch_up_review(self) -> None:
+        # Codex's case: both sides keep `legacy = ["foo/risky"]`, but only
+        # the channel turns `legacy` on by default. Cargo follows the chain
+        # default -> legacy -> foo/risky, so the channel still builds foo
+        # with `risky`. Per-package mentions alone cannot see that.
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n\n[features]\ndefault = []\nlegacy = ["foo/risky"]\n',
+            '[dependencies]\nfoo = { version = "1", features = [] }\n\n[features]\ndefault = []\nlegacy = ["foo/risky"]\n',
+            cargo_manifest('[dependencies]\nfoo = { version = "1", features = [] }\n\n[features]\ndefault = ["legacy"]\nlegacy = ["foo/risky"]\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+        self.assertIn("[features]", self.last_output)
+
+    def test_a_different_resolver_on_the_channel_needs_the_fix_issue_1312(self) -> None:
+        # The fix drops `risky` from the shipped dependency but keeps it for
+        # tests. With the old resolver ("1") Cargo merges the two, so the
+        # shipped crate is still built with `risky` on such a channel.
+        before = '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n\n[dev-dependencies]\nfoo = { version = "1", features = ["risky"] }\n'
+        after = '[dependencies]\nfoo = { version = "1", features = [] }\n\n[dev-dependencies]\nfoo = { version = "1", features = ["risky"] }\n'
+        old, new = self.fix(
+            {CARGO_MANIFEST: self.package_table() + before, CARGO_LOCK: LOCK_BEFORE},
+            {CARGO_MANIFEST: self.package_table() + after, CARGO_LOCK: LOCK_AFTER},
+        )
+        target = self.branch({CARGO_MANIFEST: self.package_table('resolver = "1"') + after, CARGO_LOCK: LOCK_AFTER})
+        self.assertVerdict(NEEDS, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
+        self.assertIn("resolver", self.last_output)
+
+    def test_a_different_edition_on_the_channel_needs_the_fix(self) -> None:
+        after = '[dependencies]\nfoo = { version = "1.2" }\n'
+        old, new = self.fix(
+            {CARGO_MANIFEST: self.package_table() + '[dependencies]\nfoo = { version = "1.1" }\n', CARGO_LOCK: LOCK_BEFORE},
+            {CARGO_MANIFEST: self.package_table() + after, CARGO_LOCK: LOCK_AFTER},
+        )
+        channel = self.package_table().replace('edition = "2021"', 'edition = "2018"') + after
+        target = self.branch({CARGO_MANIFEST: channel, CARGO_LOCK: LOCK_AFTER})
+        self.assertVerdict(NEEDS, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
+
+    def test_any_difference_in_the_features_table_needs_the_fix(self) -> None:
+        # Deliberately strict: an extra feature that has nothing to do with
+        # the fix still means "needs the fix". Working out which features
+        # can reach which dependency is exactly what this check does not try.
+        after = '[dependencies]\nfoo = { version = "1", features = [] }\n\n[features]\nstd = []\n'
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n\n[features]\nstd = []\n',
+            after,
+            cargo_manifest(after + 'extra = []\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_matching_features_edition_and_resolver_is_already_fixed(self) -> None:
+        after = '[dependencies]\nfoo = { version = "1", features = [] }\n\n[features]\ndefault = ["legacy"]\nlegacy = ["foo/std"]\n'
+        old, new = self.fix(
+            {CARGO_MANIFEST: self.package_table('resolver = "2"') + after.replace("features = []", 'features = ["risky"]'), CARGO_LOCK: LOCK_BEFORE},
+            {CARGO_MANIFEST: self.package_table('resolver = "2"') + after, CARGO_LOCK: LOCK_AFTER},
+        )
+        target = self.branch({CARGO_MANIFEST: self.package_table('resolver = "2"') + after, CARGO_LOCK: LOCK_AFTER})
+        self.assertVerdict(FIXED, old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
+
+    # --- Cargo's old underscore table names (issue #1312) -------------------
+
+    def test_old_dev_dependencies_spelling_on_the_channel_counts_issue_1312(self) -> None:
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n',
+            '[dependencies]\nfoo = { version = "1", features = [] }\n',
+            cargo_manifest('[dependencies]\nfoo = { version = "1", features = [] }\n\n[dev_dependencies]\nfoo = { version = "1", features = ["risky"] }\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_old_build_dependencies_spelling_in_a_platform_table_counts_issue_1312(self) -> None:
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = { version = "1", features = ["risky"] }\n',
+            '[dependencies]\nfoo = { version = "1", features = [] }\n',
+            cargo_manifest(
+                '[dependencies]\nfoo = { version = "1", features = [] }\n'
+                "\n[target.'cfg(windows)'.build_dependencies]\nfoo = { version = \"1\", features = [\"risky\"] }\n"
+            ),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_a_fix_in_an_old_spelling_table_is_compared_entry_by_entry(self) -> None:
+        # Before, a change in [build_dependencies] read as "something else
+        # changed" (always "needs the fix"); now it is compared like any
+        # other dependency table, so a channel that matches is fixed.
+        after = '[build_dependencies]\nfoo = { version = "1", features = [] }\n'
+        answer = self.cargo_case(
+            '[build_dependencies]\nfoo = { version = "1", features = ["risky"] }\n', after, cargo_manifest(after)
+        )
+        self.assertEqual(answer, FIXED, self.last_output)
+
+    # --- the remaining #1312 items: one test per way a package is named -----
+
+    def npm_case(self, before: dict, after: dict, channel: dict) -> str:
+        """A fix that changes package.json from `before` to `after` and moves
+        foo from 1.0.1 to 1.0.3, against a channel with that lockfile and
+        package.json `channel` (each given as its sections)."""
+        def manifest(sections: dict) -> str:
+            return json.dumps({"name": "demo", "version": "1.0.0", **sections}, indent=2) + "\n"
+
+        old, new = self.fix(
+            {NPM_MANIFEST: manifest(before), NPM_LOCK: npm_lock({"node_modules/foo": "1.0.1"})},
+            {NPM_MANIFEST: manifest(after), NPM_LOCK: npm_lock({"node_modules/foo": "1.0.3"})},
+        )
+        target = self.branch({NPM_MANIFEST: manifest(channel), NPM_LOCK: npm_lock({"node_modules/foo": "1.0.3"})})
+        return self.verdict(old, new, target, NPM_LOCK, CARGO_LOCK, options=MANIFEST_OPTIONS)
+
+    def test_npm_alias_as_an_override_value_counts_issue_1312(self) -> None:
+        # "bar": "npm:foo@1.0.1" replaces bar with the old foo.
+        answer = self.npm_case(
+            {"overrides": {"foo": "^1.0.1"}},
+            {"overrides": {"foo": "^1.0.3"}},
+            {"overrides": {"foo": "^1.0.3", "bar": "npm:foo@1.0.1"}},
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_npm_alias_in_a_dependency_section_counts(self) -> None:
+        answer = self.npm_case(
+            {"dependencies": {"foo": "^1.0.1"}},
+            {"dependencies": {"foo": "^1.0.3"}},
+            {"dependencies": {"foo": "^1.0.3"}, "devDependencies": {"old-foo": "npm:foo@1.0.1"}},
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_npm_dollar_reference_counts(self) -> None:
+        # "baz": "$foo" pins baz to whatever version of foo is depended on.
+        answer = self.npm_case(
+            {"dependencies": {"foo": "^1.0.1"}},
+            {"dependencies": {"foo": "^1.0.3"}},
+            {"dependencies": {"foo": "^1.0.3"}, "overrides": {"baz": "$foo"}},
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_npm_resolutions_name_the_packages_in_their_path(self) -> None:
+        answer = self.npm_case(
+            {"dependencies": {"foo": "^1.0.1"}},
+            {"dependencies": {"foo": "^1.0.3"}},
+            {"dependencies": {"foo": "^1.0.3"}, "resolutions": {"**/foo": "1.0.1"}},
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_cargo_replace_key_names_its_crate(self) -> None:
+        answer = self.cargo_case(
+            '[dependencies]\nfoo = "1.1"\n',
+            '[dependencies]\nfoo = "1.2"\n',
+            cargo_manifest('[dependencies]\nfoo = "1.2"\n\n[replace]\n"foo:1.1.0" = { git = "https://example.invalid/foo" }\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
+    def test_an_inheriting_entry_counts_for_the_crate_its_workspace_entry_renames(self) -> None:
+        # `alias = { workspace = true }` is whatever [workspace.dependencies]
+        # says `alias` is: here foo. Only that link ties the channel's extra
+        # test-only entry, with `risky` on, to foo.
+        workspace = '[workspace.dependencies]\nalias = { package = "foo", version = "1.2" }\n\n'
+        after = workspace + '[dependencies]\nfoo = "1.2"\n'
+        answer = self.cargo_case(
+            workspace + '[dependencies]\nfoo = "1.1"\n',
+            after,
+            cargo_manifest(after + '\n[dev-dependencies]\nalias = { workspace = true, features = ["risky"] }\n'),
+        )
+        self.assertEqual(answer, NEEDS, self.last_output)
+
     def test_npm_nested_override_must_match_exactly(self) -> None:
         # The fix pins `bar` inside `foo`'s override. The channel has that
         # pin under a different package's override, and not under `foo`.
