@@ -85,10 +85,12 @@ Security fixes that Dependabot merges to `main` have stopped reaching
   to carry both fixes to `alpha` and `beta`. Then `alpha` gets the same
   two files by a separate PR.
 
+- **(ci)** Stop Cargo feature chains, resolvers and old table names fooling the forward-port check (#1320)
 
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.10.8 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
