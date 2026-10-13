@@ -133,20 +133,31 @@ describe('GeneralTab -- Interface Language dropdown (independent review, round 4
         return [...tags];
       });
 
+      // Only complete languages are listed, plus an incomplete one that is
+      // somebody's saved choice (polish pass M10). English is the only
+      // complete language today, so French is saved here to give the list
+      // two languages whose order can be seen.
+      const savedBefore = useSettingsStore.getState().settings;
+      useSettingsStore.setState({ settings: { ...savedBefore, ui_language: 'fr' } });
+      onTestFinished(() => {
+        useSettingsStore.setState({ settings: savedBefore });
+      });
+
       render(<GeneralTab />);
 
       const select = screen.getByLabelText('Language') as HTMLSelectElement;
 
       // Fault 1: the rendered order follows the backend's (recognisable,
-      // reversed) answer -- ['fr', 'de', 'en'] after 'auto' -- not
-      // `LOCALES`' own fixed array order (['en', 'de', 'fr']). Waits for
-      // the reordered rows themselves, for up to REORDER_WAIT_MS (see there).
+      // reversed) answer -- ['fr', 'de', 'en'], of which 'fr' and 'en' are
+      // listed -- not `LOCALES`' own fixed array order (['en', 'de', 'fr']).
+      // Waits for the reordered rows themselves, for up to REORDER_WAIT_MS
+      // (see there).
       await waitFor(
         () => {
           const values = within(select)
             .getAllByRole('option')
             .map((option) => (option as HTMLOptionElement).value);
-          expect(values).toEqual(['auto', 'fr', 'de', 'en']);
+          expect(values).toEqual(['auto', 'fr', 'en']);
         },
         { timeout: REORDER_WAIT_MS }
       );
