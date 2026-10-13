@@ -449,7 +449,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 
 ## 🗺️ Roadmap
 
-### v1.x — Current (v1.10.8) <!-- x-release-please-version -->
+### v1.x — Current (v1.10.9) <!-- x-release-please-version -->
 
 - ✅ Tauri 2.0 + React 19 foundation with platform-adaptive UI
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry
@@ -556,3 +556,6 @@ For the full implementation plan, project status, architecture decisions, and de
 <p align="center">
   Made with ❤️ by MeedyaSuite
 </p>
+## Media preservation planning
+
+See [the application media preservation requirements](docs/media-preservation-integration.md) for proposed responsibilities, native caption protection, timelines, metadata, track relationships and verification. These are development requirements, not claims of implemented support.
