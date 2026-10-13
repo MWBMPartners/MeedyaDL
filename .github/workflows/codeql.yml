@@ -5,21 +5,25 @@
 # ==============================
 #
 # Runs GitHub CodeQL static analysis on push to main and on pull requests.
-# This file overrides the GitHub "Default setup" dynamic CodeQL configuration
-# to exclude Rust analysis, which hangs indefinitely due to the full Cargo
-# build required by CodeQL's Rust extractor (often exceeding 6+ hours).
-#
-# Rust code quality is already covered by:
-#   - `cargo clippy -- -D warnings` in ci.yml (runs in ~10 seconds)
-#   - `cargo test` in ci.yml (runs 639+ tests)
-#   - `cargo-deny` licence scanning in ci.yml
+# This file replaces GitHub's "Default setup" CodeQL configuration.
 #
 # Languages analysed:
 #   - actions: GitHub Actions workflow YAML files
 #   - javascript-typescript: React/TypeScript frontend code
+#   - rust: the Rust backend (src-tauri/)
 #
-# To re-enable Rust analysis in the future, add 'rust' back to the matrix
-# and consider setting a timeout-minutes limit (e.g., 120).
+# Rust history: Rust used to be left out because CodeQL then had to build
+# the whole Rust project to read it, and that build hung for 6+ hours.
+# CodeQL can now read Rust source without building it ("build-mode: none"),
+# which removes the cause, so Rust is back in. Leaving it out also left the
+# Rust results GitHub holds frozen at their last scan (20 March 2026), which
+# is what the "Code Scanning results may be out of date" warning on the
+# Security page was about. The job time limit below is a safety net in case
+# a Rust scan ever runs away again; if it does, the scan stops and fails
+# rather than holding a runner for hours.
+#
+# Rust is still also checked by `cargo clippy -- -D warnings`, `cargo test`
+# and `cargo-deny` in ci.yml; CodeQL adds security-focused checks on top.
 
 name: CodeQL
 
@@ -38,6 +42,9 @@ jobs:
   analyze:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
+    # Safety net for the Rust scan (see the header comment). The other two
+    # languages finish in a couple of minutes.
+    timeout-minutes: 60
     permissions:
       security-events: write
       contents: read
@@ -46,10 +53,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language:
-          - actions
-          - javascript-typescript
-        # Rust is intentionally excluded — see header comment.
+        include:
+          - language: actions
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+          # Read the Rust source without building it — see the header comment.
+          - language: rust
+            build-mode: none
 
     steps:
       - name: Checkout repository
@@ -59,6 +70,7 @@ jobs:
         uses: github/codeql-action/init@d4b3ca9fa7f69d38bfcd667bdc45bc373d16277e # v4
         with:
           languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
           queries: security-and-quality
 
       - name: Perform CodeQL Analysis
