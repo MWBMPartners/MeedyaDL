@@ -24,7 +24,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 | 2 | Beta's Rust update | #1331 | Merged at 09:20 by someone else | Left beta's builds broken — see row 5. |
 | 3 | Combine release-candidate's two updates | #1333 (replaced #1327, #1330) | Done (`61cb57c6`) | Same plugin bump. rc.40 built. |
 | 4 | Main: release 1.10.9 | #1313 (absorbed #1334, which replaced #1322, #1326, #1328) | Done (`8d7364e6`, tag `v1.10.9`) | Maintainer chose to fold the work INTO release-please's own PR (a merge commit on its branch) so tagging stayed automatic. Added `.github/release-notes/v1.10.9.md`. Release build succeeded; stable releases stay drafts until published by hand. |
-| 5 | Beta builds broken (beta.11, beta.12 failed on every platform) | #1337 | Done (`041a80e7`) — beta.13's build got past the point that failed before (ARMv7 finished green; the other five were still building at 11:25) | Cause: beta took #1329 (JavaScript) and #1331 (Rust) separately — file-access plugin 2.6 vs 2.7, which `tauri build` refuses. Beta's ci.yml has no version-sync check, so nothing caught it before the release build. |
+| 5 | Beta builds broken (beta.11, beta.12 failed on every platform) | #1337 | Done (`041a80e7`) — 1.9.4-beta.13 built on all six platforms and was published (Release run 38388572740, finished 11:30 UTC) | Cause: beta took #1329 (JavaScript) and #1331 (Rust) separately — file-access plugin 2.6 vs 2.7, which `tauri build` refuses. Beta's ci.yml has no version-sync check, so nothing caught it before the release build. |
 | 6 | CodeQL warning: Rust results stale since 20 Mar | #1338 (main), #1339 (alpha) | Done (`413937ea` main, `6d549158` alpha) | Rust put back into CodeQL with `build-mode: none` and a 60-minute job limit. First Rust scans: about 10–11 minutes, passed, results uploaded — so the "out of date" warning should clear. Any Rust findings now appear under Security > Code scanning and have not been reviewed yet. |
 | 7 | One work-in-progress branch | — | Done (this branch) | See below. |
 
@@ -56,9 +56,8 @@ The dependency/plugin/release-notes changes had a separate Claude review agent; 
 work-in-progress merge and the CodeQL change have not had an independent review yet. Run
 `codex review --base alpha` on `work-in-progress` at the next local session.
 
-**Running and how it is watched (13 Oct):** the 1.9.4-beta.13 release build (started 11:12 UTC)
-— a one-off check-in from this session looks at it at 11:42; it dies with the session, so if the
-session has ended, check the Release run for tag `v1.9.4-beta.13` directly.
+**Running and how it is watched (13 Oct):** nothing. The 1.9.4-beta.13 release build finished
+green on all six platforms at 11:30 UTC and the 11:42 check-in confirmed it.
 
 ## ★★★★ Previous — 2026-09-28: shared language policy (MWBM-MEDIA-LANG) across nine repositories
 
