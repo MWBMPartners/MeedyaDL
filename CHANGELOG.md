@@ -25,6 +25,7 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 Unblocks the 1.10.10 release PR (#1345), which the release-note gate holds until this file is on main. Refs #1340.
 
+- Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
 
