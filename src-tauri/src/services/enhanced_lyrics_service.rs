@@ -131,7 +131,11 @@ struct TtmlMetadata {
     title: Option<String>,
     /// Artist name from `<ttm:agent>` with `type="person"`
     artist: Option<String>,
-    /// Language code from `xml:lang` on `<tt>`
+    /// The language `xml:lang` on `<tt>` states, as a standard tag — or
+    /// `None` when it is missing, unreadable or `und` (not known). Read with
+    /// the shared policy's reader for values from files (#1250, LANG-002),
+    /// so an old three-letter code (`eng`) becomes `en`; see
+    /// `utils::language::known_file_language`.
     language: Option<String>,
     /// Songwriter names from `<iTunesMetadata>/<songwriters>`
     songwriters: Vec<String>,
@@ -449,10 +453,13 @@ fn detect_timing_mode(root: &roxmltree::Node) -> TimingMode {
 /// Extracts metadata from the TTML `<head>` section for the LRC header.
 fn extract_ttml_metadata(doc: &roxmltree::Document, root: &roxmltree::Node) -> TtmlMetadata {
     let mut metadata = TtmlMetadata {
-        // Language from xml:lang on <tt>
+        // Language from xml:lang on <tt>, read as a language value from a
+        // file (#1250). It used to be copied through raw — whatever case,
+        // three-letter code or non-language text the file held went
+        // straight into the LRC `[la:]` line.
         language: root
             .attribute(("http://www.w3.org/XML/1998/namespace", "lang"))
-            .map(|s| s.to_string()),
+            .and_then(crate::utils::language::known_file_language),
         ..Default::default()
     };
 
@@ -526,6 +533,11 @@ fn build_lrc_header(metadata: &TtmlMetadata) -> String {
     if let Some(ref artist) = metadata.artist {
         header.push_str(&format!("[ar:{artist}]\n"));
     }
+    // Only a known language is written (#1250). When the TTML states none,
+    // or one that cannot be read, or `und`, the line is left out — never
+    // filled in with `en` or any other guess (policy LANG-003). LRC has no
+    // "unknown" marker of its own; an absent `[la:]` line is how it says
+    // "not stated".
     if let Some(ref lang) = metadata.language {
         header.push_str(&format!("[la:{lang}]\n"));
     }
@@ -837,6 +849,49 @@ mod tests {
         let result = ttml_to_enhanced_lrc(ttml).unwrap();
         // Empty <p> should produce an empty timestamped line
         assert!(result.lrc_content.contains("[00:30.00]\n"));
+    }
+
+    /// Wraps one timed line in a TTML document whose `<tt>` carries
+    /// `lang_attribute` verbatim (or no `xml:lang` at all when empty).
+    fn ttml_with_lang(lang_attribute: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml" {lang_attribute}>
+  <body><div><p begin="00:01.000" end="00:02.000">Hello</p></div></body>
+</tt>"#
+        )
+    }
+
+    #[test]
+    fn la_line_carries_the_standard_tag() {
+        // #1250: a three-letter code or odd case is put into standard form.
+        for (attribute, expected) in [
+            (r#"xml:lang="en-US""#, "[la:en-US]"),
+            (r#"xml:lang="EN-us""#, "[la:en-US]"),
+            (r#"xml:lang="eng""#, "[la:en]"),
+            (r#"xml:lang="ja""#, "[la:ja]"),
+        ] {
+            let lrc = ttml_to_enhanced_lrc(&ttml_with_lang(attribute))
+                .unwrap()
+                .lrc_content;
+            assert!(lrc.contains(expected), "{attribute}: {lrc}");
+        }
+    }
+
+    #[test]
+    fn la_line_is_left_out_when_the_language_is_not_known() {
+        // Never an invented `en` (policy LANG-003).
+        for attribute in [
+            "",
+            r#"xml:lang="""#,
+            r#"xml:lang="und""#,
+            r#"xml:lang="English""#,
+        ] {
+            let lrc = ttml_to_enhanced_lrc(&ttml_with_lang(attribute))
+                .unwrap()
+                .lrc_content;
+            assert!(!lrc.contains("[la:"), "{attribute:?}: {lrc}");
+        }
     }
 
     #[test]

@@ -131,6 +131,13 @@ pub fn generate_lyricsfile_for_directory(
         // (album track-1 title is a sensible last resort).
         let title = derive_title_from_stem(&stem).unwrap_or_else(|| default_title.to_string());
 
+        // The `.lyrics` file's language comes entirely from the shared
+        // `meedya-lyrics` code: `from_ttml` copies the TTML's `xml:lang`
+        // into it as written. MeedyaDL deliberately does not rewrite it
+        // here (#1250): the fix to write the policy's standard tag belongs
+        // in MeedyaSuite-core, where every app using that code gets it, and
+        // is being made there. Once MeedyaDL takes that version, nothing
+        // here needs to change.
         let lyricsfile = match Lyricsfile::from_ttml(&ttml, title, default_artist) {
             Ok(lf) => lf,
             Err(e) => {

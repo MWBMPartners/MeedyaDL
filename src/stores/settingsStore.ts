@@ -83,7 +83,7 @@ import * as commands from '@/lib/tauri-commands';
 const DEFAULT_SETTINGS: AppSettings = {
   output_path: '', // Resolved to ~/Music (or platform equivalent) by backend
   temp_path: '', // Resolved to {OS temp}/MeedyaDL by backend
-  language: 'en-US', // Apple Music storefront language
+  language: 'en-US', // Metadata language, a BCP 47 language tag
   storefront: '', // Auto-detect from language region (e.g., en-GB → gb)
   overwrite: false, // Do not overwrite existing files by default
   ui_language: '', // Auto-detect UI language from OS locale
@@ -394,6 +394,34 @@ interface SettingsState {
    * saying so is recoverable, and half-resetting is not.
    */
   resetToDefaults: () => Promise<void>;
+
+  /**
+   * Metadata language values that are NOT in the offered list (an old
+   * `zh-CN`, or anything a settings file brought in) which the Metadata
+   * Language list has shown as the setting during this run of the app
+   * (#1249).
+   *
+   * Kept here rather than in the list's own component state so that such a
+   * value stays in the list after the person picks a different entry AND
+   * leaves the Settings tab and comes back: the component is unmounted on a
+   * tab switch, which threw its own state away, and the old value then
+   * vanished (independent review). Policy UI-050 says choosing an entry must
+   * not change the menu.
+   *
+   * Deliberately NOT part of `savedSettings` (whose other fields are not
+   * exact), never written to disk, and never cleared during a run -- it only
+   * grows. On the next launch it starts empty, and the list then shows
+   * whatever is saved.
+   */
+  seenMetadataLanguages: string[];
+
+  /**
+   * Record a metadata language value the list has shown. A no-op for an
+   * empty value or one already recorded, so it is safe to call on every
+   * render of the list. The caller decides which values are worth
+   * recording (only those not in the offered list).
+   */
+  noteMetadataLanguageSeen: (value: string) => void;
 }
 
 /**
@@ -443,6 +471,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   isLoading: false, // No load in progress at creation time
   isDirty: false, // No unsaved changes at creation time
   error: null, // No error at creation time
+  seenMetadataLanguages: [], // Nothing shown yet this run (#1249)
 
   // -------------------------------------------------------------------------
   // Actions
@@ -697,4 +726,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       isDirty: true,
     }));
   },
+
+  /**
+   * See the declaration in `SettingsState`. Returning the unchanged state
+   * when there is nothing to add means Zustand notifies nobody, so calling
+   * this after every render of the list costs nothing.
+   */
+  noteMetadataLanguageSeen: (value) =>
+    set((state) => {
+      if (value === '') return state;
+      // Case-insensitive: all a synchronous action can do without the
+      // backend (Codex's catch-up review of #1244, finding 2). The real
+      // check is the caller's, by standard form; this is a backstop so
+      // `"EN-us"` is not remembered beside an already-remembered `"en-us"`.
+      const already = state.seenMetadataLanguages.some(
+        (seen) => seen.toLowerCase() === value.toLowerCase()
+      );
+      return already ? state : { seenMetadataLanguages: [...state.seenMetadataLanguages, value] };
+    }),
 }));

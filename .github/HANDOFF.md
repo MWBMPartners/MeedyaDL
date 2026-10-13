@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-09-27 (about 19:30) — see ★★★★ LATEST below
-**Working branch:** `work/after-alpha-74` (from `alpha` after v1.13.0-alpha.74; #1222-#1226 committed on it, not yet in a PR). All three PRs of this effort are merged: #1227, #1228, #1229. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
+**Last updated:** 2026-10-05 (19:29) — see ★★★★ LATEST below
+**Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
 
-**Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.74** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 17:30 on 27 Sept.
+**Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,1485 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-27 (evening): batch — #1221 to #1226, then a combined check of #1215 to #1218
+## ★★★★ LATEST — 2026-09-28: shared language policy (MWBM-MEDIA-LANG) across nine repositories
+
+> **PICK UP HERE.** MeedyaDL branch `feature/bcp47-language-policy` (from alpha after alpha.75).
+> This effort spans nine repositories plus the dev-team plugin; MeedyaDL is only one of them.
+
+**State of the previous batch (#1221-#1226):** finished and shipped in **v1.13.0-alpha.75**
+(all six builds, 12 updater keys, notes lint clean). #1230 (watch workflows to main) merged
+27 Sept 21:00 and its first runs all succeeded. **Still queued from it:** #1241 — a second
+small `ci:` PR to main (preserve-release-pr-body stub, release.yml fetch fixes,
+apply-branch-rulesets, build-secret wiring incl. DEV_ACCESS_HASH, false comments, main's
+CLAUDE.md note, retire protected-cron-channels.json); close #1219 after it. Open follow-ups:
+#1220, #1232-#1242; #1215 and #1218 stay open.
+
+**What the maintainer asked (27 Sept, late):** one shared, enforceable "Media Language & BCP 47
+Policy" (Policy ID `MWBM-MEDIA-LANG`, version `1.0.0`, normative) across MeedyaDL,
+MeedyaConverter, MeedyaManager, MeedyaPlayer, MeedyaSuite-core, MeedyaSubtitler, NetPLAYERapp,
+iHymns and iLyricsDB, plus the dev-team plugin. The repositories — not any assistant's memory —
+must be the source of truth: normative document, agent-file pointers, machine-readable test
+cases, automated tests, CI enforcement. Existing code that conflicts must be FIXED, not just
+documented. The full brief is saved at
+`…/scratchpad/policy-spec-from-user.md` (session scratchpad; also in the session transcript).
+
+**Inspection done (all nine + plugin):** findings per repository in
+`…/scratchpad/lang-policy-findings.md`. No shared standards repository exists in either
+organisation. MeedyaSuite-core is public and already the home of shared data (iHymns copies
+its identifier_types.toml), so it holds the master copy.
+
+**Decisions (maintainer, 28 Sept, final):**
+1. Each repository gets its OWN branch `feature/bcp47-language-policy`, cut from that repo's
+   working/integration branch, pushed, merged into the working branch later — other sessions
+   own the working branches of MeedyaManager, MeedyaConverter (18 unsaved files overlap),
+   NetPLAYERapp, iLyricsDB and the plugin. No PRs until the maintainer says so.
+2. MeedyaManager and MeedyaDL may use the new first-party crate `meedya-lang` from core.
+3. MeedyaConverter's stream-numbering bug (whole-file position vs position within one type)
+   is fixed in this work, with its own commit, test and issue.
+4. Databases: the maintainer says iHymns alpha already uses full tags — true everywhere except
+   ONE link (`fk_Trans_Lang`: a whole-song translation must name a bare code; the schema's own
+   comment flags it). Plan: a small hand-run migration drops that one constraint so it matches
+   the rest; told the maintainer, they can still say no. iLyricsDB: code fixes now, its
+   table-identity change goes into an issue coordinated with iHymns (#1064).
+
+**Decided by me (told the maintainer):** master policy, changelog, test cases and data in core
+(`docs/standards/`, `tests/fixtures/`); consumers keep identical copies pinned to a core commit,
+with a hash check in their existing CI. Rust: new crate `crates/meedya-lang` (aim: no
+dependencies at all — a hand-written RFC 5646 parser shared in behaviour with the PHP and Swift
+versions through the test cases; avoids icu_locale_core's newer minimum Rust). PHP: one
+version kept in core, copied to iHymns / iLyricsDB / NetPLAYERapp. Swift: inside MeedyaConverter
+only for now. Interface language names come from each platform's own data. Codex (small
+allowance) reviews core + MeedyaConverter; the rest get a fresh Opus reviewer, labelled as such.
+Plugin change built on top of its in-flight `claude/ledger-file-clashes` branch.
+
+**Order:** core (policy, test cases, data, crate, PHP version) → MeedyaDL → MeedyaConverter →
+iHymns → iLyricsDB → NetPLAYERapp → MeedyaManager → MeedyaPlayer + MeedyaSubtitler (documents,
+test cases, agent pointers; no code exists) → dev-team plugin.
+
+**Where the work lives:** core in the scratch clone `…/scratchpad/lang/core` on
+`feature/bcp47-language-policy` (from `origin/feature/work-in-progress`). Never use the
+maintainer's local checkouts of the other repos — other sessions are active in them.
+
+**Core trap to remember:** core's CI has a doc test-count guard (`scripts/check-doc-test-counts.sh`)
+— adding a crate with tests means updating the documented counts, or CI fails. Core CI runs only
+on PRs to / pushes to main.
+
+**Progress (about 02:10, 28 Sept):**
+
+- Core foundation committed and pushed: **`f35a3e7`** on core's `feature/bcp47-language-policy`
+  (policy document, 169 test cases + schema, reference data + schema + generator, copy checker
+  `scripts/media-lang/check_copies.py`, agent pointers, core handoff §0.0). Core issue **#99**.
+  Its commit message wrongly says 184 cases — corrected on #99 (no force-push).
+- All 169 expected answers were cross-checked by a throwaway Python implementation
+  (`…/scratchpad/lang/oracle.py`, `run_oracle.py` → 194/194 incl. reversed-order runs). Not
+  committed anywhere; builders may read it as a reference, reviewers must not.
+- **Codex hit its usage limit** mid-review of `f35a3e7` (resets 02:31); it recorded no findings.
+  Stand-in: a fresh Opus reviewer that did not write the policy is reviewing it now; a Codex retry
+  is scheduled for 02:32 (background shell). The foundation is NOT fully reviewed until Codex runs.
+- Building now (scratch clones under `…/scratchpad/lang/`, nothing committed by builders):
+  Rust crate `crates/meedya-lang` (brief `brief-rust-crate.md`), PHP `bindings/php/media-language/`
+  (`brief-php.md`), dev-team plugin "repository instructions are authoritative" (`brief-plugin.md`).
+- Scratch clones made for every repo on `feature/bcp47-language-policy` — except MeedyaConverter,
+  whose branch is **`wip/bcp47-language-policy`**: its CI only runs on `wip/**` pushes, and XCTest
+  cannot run on this Mac (Command Line Tools only, no Xcode) — so CI is its test gate; the pure
+  policy code is also checked in a Linux Swift container.
+- Findings corrected: MeedyaManager writing `XXX` for an unknown ID3 language is NOT a conflict —
+  ID3v2.4 itself says to use `XXX`. MeedyaDL's `baseLanguageOf()` (i18n.ts) would merge zh-Hans
+  and zh-Hant if a Chinese interface translation were added — note only, no change now.
+- Out of scope, to raise as MeedyaDL issue: enrichment fetches album metadata from Apple without
+  `l=`, so tags can mix the storefront's default language with GAMDL's `--language` choice.
+
+**Progress (about 02:40, 28 Sept):**
+
+- **Stand-in review of `f35a3e7` done** (fresh Opus agent, not Codex — Codex hit its limit). No
+  wrong expected answer among the 169 cases, but real faults: the copy checker could pass wrongly
+  (master path into another repo via `../`; fork-only commit accepted — GitHub serves one under the
+  original repo's raw address, confirmed live; deleting a lock line unchecks a file; `--update`
+  writes outside the repo); 50 ISO 639-5-only codes wrongly in the ISO 639-2 data; ~20 ambiguities.
+- **All fixed in core `28b84e7`** (+ `d5addcf` removing two `__pycache__` files committed by
+  mistake — `.gitignore` now covers them): checker hardened with 18 offline tests (each hole
+  reproduced; a removed guard makes its test fail; live GitHub compare lookup checked — a fork
+  commit reads "diverged"); data rebuilt from Debian iso-codes' ISO 639-2 list (commit
+  90b9fe56) instead of SIL; policy text settled point by point; test cases **169 → 241** with two
+  new sections (`iso639_2_write`, `sidecar_name`); throwaway oracle 273/273.
+- **Running now (each with a watchdog):** Codex round r2 on `d5addcf` (starts 02:33, 90-min
+  timeout; brief `…/scratchpad/lang/codex-prompt-r2.txt`, output `codex-r2.out`); Rust builder
+  (told about the revision mid-build, `brief-revision-1.md`); PHP builder resumed for the revision
+  (was 169/169 on PHP 8.5 + 8.1 before it); MeedyaConverter Opus builder (`brief-converter.md`,
+  pinned to core `d5addcf…`, branch `wip/bcp47-language-policy`, commits locally, does not push);
+  a fresh Opus reviewer on the plugin commit.
+- **Plugin done and pushed:** dev-team-plugin `af39817` on `feature/bcp47-language-policy`, issue
+  MWBMPartners/dev-team-plugin#47 — "Repository instructions are authoritative" rule, v1.6.0,
+  148/148 bats. Not yet independently reviewed (reviewer running).
+- **Uncommitted in core's scratch clone:** `.github/workflows/ci.yml` gains a `language-policy`
+  job (schema check, checker tests, PHP 8.1 + 8.4 conformance) — commit it WITH the PHP binding.
+  actionlint's one remark is on the older `doc-counts` step (SC2086), not the new job.
+- **Codex allowance:** roughly one review per reset — spent on the core foundation. The plugin,
+  and later repos, get fresh Opus reviewers, labelled as stand-ins, until Codex is free.
+
+**Progress (about 03:10, 28 Sept):**
+
+- **Codex round r2 on `d5addcf`: no wrong expected answer among 241 cases; 11 findings, all acted
+  on in core `e1d3189`** (checker: lock path checked, new-file writes defeat hard links, git-based
+  stray-copy search; policy: stable canonical form, `und-GB` kept whole, private-use groups,
+  decorated und/mul/mis/zxx exact-only, list position never decides selection, sidecar extras;
+  cases 241 → **253**, plus a stability check → 322 checks, oracle agrees). Checker tests: 23;
+  undoing each fix makes its test fail. **Codex r3 (follow-up, `d5addcf..e1d3189` only) running.**
+- **PHP:** passed revision 1 (241/241 on PHP 8.5 and 8.1); now updating to revision 2
+  (`brief-revision-2.md`). Commit `bindings/php/` + the `language-policy` CI job together once it
+  passes 253.
+- **Plugin `af39817` review (fresh Opus stand-in): NOT ready** — "the repository wins" could
+  override the plugin's safety rules; untrusted PR/vendored instruction files would count; no
+  limits; nine briefing places missed; tests passed with the meaning reversed. Revision builder
+  running with the exact rule text I wrote (`brief-plugin-r2.md`): trusted sources only, safety
+  rules never overridable, nearest-file-wins layering, unattended runs mark BLOCKED, one identical
+  agent sentence, tests proven by mutation.
+- **Briefs written, waiting:** `brief-ihymns.md`, `brief-netplayer.md`, `brief-ilyricsdb.md`
+  (need the final core commit + PHP), `brief-player-subtitler.md` (needs the final core commit).
+  MeedyaDL and MeedyaManager briefs wait for the Rust crate's function names.
+- MeedyaConverter builder told to pin core `e1d3189`.
+
+**Progress (about 03:40, 28 Sept):**
+
+- **Master files SETTLED at core `4c4f373`** (full `4c4f3738ca6b620caa0103ca968d09bb2e8aa605`):
+  Codex r3 confirmed all policy fixes and the 12 new answers, found 3 checker faults (lock path via
+  `jump/../`, linked folders outside git, 0600 permissions from new-file writes) → fixed in
+  `4c4f373` (27 checker tests, each fix mutation-proven) → **Codex r4 clean**. Review history
+  posted on core #99. Pin `4c4f373` for repos that need only the six required files.
+- **PHP committed: core `dca5216`** (253/253, 322 checks, PHP 8.5 + 8.1) with the
+  `language-policy` CI job. **Codex reviewing the PHP now** (`codex-prompt-php.txt` →
+  `codex-php.out`). The three PHP sites (iHymns, NetPLAYERapp, iLyricsDB) start after it — pin the
+  commit that contains the reviewed PHP. My revision-2 note said the stability check adds "43"
+  checks; the right number is 35 (the PHP builder caught it).
+- **MeedyaConverter** told to pin `4c4f373`. **MeedyaPlayer + MeedyaSubtitler** builder running
+  (Sonnet, `brief-player-subtitler.md`, pinned `4c4f373`, commits locally only).
+- Still running: Rust crate builder (both revisions sent), plugin revision builder (Opus).
+
+**Progress (about 04:30, 28 Sept):**
+
+- **Codex reviewed the PHP (`dca5216`):** 253/253 passed, but 9 findings with its own inputs
+  (quadratic duplicate-variant check — 20,000 variants 7 s; `$` matching before a final newline;
+  role rank not by placing role; malformed menu entries reordered; `"1"`/`"01"` tie; duplicate ids;
+  runner passing empty/unknown sections; big sidecar numbers clamped; builder accepting 1/-1).
+  Five were policy ambiguities → **core `1d8c61a`** (260 cases; canon-49 caught the same `$` fault
+  in the throwaway oracle, now fixed; CI adds PHP 8.5). Codex r5 on it: one finding (builders
+  unbounded vs 9-digit readers) → **core `968d820`** (262 cases, oracle 335/335).
+- **Codex is out of allowance until 07:33.** The confirming round on `968d820` went to a fresh
+  Opus stand-in (running). **After 07:33: a Codex catch-up round** over everything reviewed only
+  by stand-ins or not at all: `1d8c61a..968d820`, the PHP fixes, the Rust crate, the plugin
+  revision, MeedyaConverter, Player/Subtitler.
+- **Current pin for every repo: core `968d820`** (all builders told). PHP builder is fixing the
+  nine findings (`brief-revision-3.md`); Rust and MeedyaConverter builders have revision 3.
+- My revision-2 note said "43" stability checks; correct is 35 (by revision 3, 36).
+
+**Progress (about 05:30, 28 Sept):**
+
+- **Current pin: core `f2e106a`** (268 cases; `"error": true` refusal cases added after the
+  stand-in review of `968d820` found refusals untestable — the PHP then wrote
+  `Film.en.1000000000.srt` and still passed). All builders told.
+- **Pushed (own branches, NOT yet reviewed — all go into the Codex catch-up after 07:33):**
+  MeedyaPlayer `ef4b886` (one commit: copies, first CI workflow, pointers, ADR 0012, comments on
+  #7 #12 #3); MeedyaSubtitler `58d8f1b` (5 commits: `docs/`, copies, first CI workflow, pointers,
+  comments on #6 #14 #8 #5); dev-team plugin `79a2c20` + `0c25209` (safety rework; new
+  `features.handoff-file` switch that writes no `.dev-team/HANDOFF.md` at all — this can close
+  MeedyaDL's own `.dev-team/config.yml` caveat 2 once released).
+- **Real name:** MeedyaPlayer's branch had 9 local commits; three extended handoff lines carried the
+  maintainer's first name. Fixed to `Salem874` and the branch folded into ONE commit BEFORE any push
+  (soft reset, nothing lost), so the name never reached GitHub from this work. PRE-EXISTING
+  occurrences in both repos (e.g. MeedyaPlayer `.claude/HANDOFF.md` lines 48 and 51, and other
+  notes) were already pushed long before this work; not touched — reported to the maintainer.
+- **TRAP:** every scratch clone's branch was cut with `checkout -B x origin/theirs`, so its upstream
+  pointed at the other session's working branch — a bare `git push` would have landed there.
+  Caught before any push; upstreams removed in converter/manager/netplayer/ilyricsdb/ihymns;
+  always push with `git push -u origin <ours>:<ours>`.
+
+**Progress (about 06:00, 28 Sept):**
+
+- **PHP fixed: core `904b056`** (268/268, 343 checks, PHP 8.1/8.4/8.5 and `php -n`; 50,000
+  variants 0.04 s; no extension needed). Not yet Codex-reviewed.
+- **Three PHP-site builders launched, pinned to `904b056`:** iHymns (Opus,
+  `feat/bcp47-language-policy`), NetPLAYERapp (Sonnet), iLyricsDB (Sonnet); all commit locally,
+  none pushes; watchdog `b2whptx14` on their transcripts.
+- **Wake-up set for 07:35** (`bj3k2ubfr`) to start the Codex catch-up: core `f2e106a..904b056`
+  (refusal cases + PHP fixes) and plugin `af39817..0c25209` first; then MeedyaPlayer,
+  MeedyaSubtitler, MeedyaConverter. Anything Codex cannot reach → fresh Opus stand-in, labelled.
+- Still running: Rust crate builder, MeedyaConverter builder.
+
+**Progress (about 03:40 by the clock, 28 Sept — the earlier "about" times above ran ahead):**
+
+- **Rust crate committed and pushed: core `995becb`** (full
+  `995becb7575aef6c7ea0e7a5f8bb6d77a3bb4ad6`) — `crates/meedya-lang`, 268/268 cases, 72 crate
+  tests, workspace 716 / 863 (default / all features) matching the documented counts, fmt and
+  clippy clean — checked by me, exit codes read directly. NOT yet independently reviewed (goes
+  into the Codex catch-up). No policy file changed between `904b056` and `995becb`, so copies stay
+  pinned at `904b056`.
+- **Three more builders started (each commits locally, none pushes; watchdog `bybupn84w`):**
+  - **MeedyaDL** (Opus, brief `…/scratchpad/lang/brief-meedyadl.md`) — works IN this checkout on
+    this branch. It must not touch `.github/HANDOFF.md`; commit handoff edits with
+    `git commit -- .github/HANDOFF.md` only, so its staged files are never swept in.
+    Crate pinned by `rev = 995becb…`; settings-language canonical form; `l=` from OS locale via
+    LANG-004; storefront from the tag's region subtag; settings dropdown labels from
+    `Intl.DisplayNames` with order from the crate via a new Tauri command; LRC `[la:]`;
+    music-video subtitle files renamed per TEXT-030 for NEW downloads only; copies + checker in
+    `ci.yml`; a consumer conformance test; issues for the `l=` mixing, embedded-subtitle atoms,
+    `a:0` assumptions, and re-pinning to core main.
+  - **MeedyaManager** (Sonnet, `brief-manager.md`) — language tag read via LANG-002, written per
+    format (TLAN three-letter terminology form; free-text fields the tag), an unchanged language
+    written back exactly as read (COMPAT-030), `tags.json5` MP4 key, copies + checker in
+    `ci-rust.yml`, sidecar reading as an issue only.
+  - **Core fixes** (Sonnet, `brief-core-fixes.md`, in the core scratch clone) — meedya-lyrics
+    `DEFAULT_LANGUAGE` `eng` → `XXX` plus an `id3_language` helper, Lyricsfile `xml:lang`
+    through the reader, wrong "ISO 639" doc wording, meedya-metadata writes `TLAN` in the
+    three-letter form.
+- **Decision (mine):** MeedyaDL's LYRIC sidecars stay `{song}.lrc` etc. — TEXT-030 covers files
+  named by language, and players look for that exact name; renaming would break them.
+
+**Progress (about 04:05, 28 Sept):**
+
+- **Stand-in reviews (fresh Opus agents, labelled as such — Codex out until 07:33):**
+  - MeedyaPlayer `ef4b886`: NOT clean — ADR 0012 narrows the profile wrongly, says accessibility
+    requests do not move tracks (UI-045 says they move to the front of their group), calls the
+    per-file saved track a breach (AUTO-010 allows saved choices), misquotes UI-050; workflow lacks
+    `GITHUB_TOKEN` (reproduced HTTP 403) and `permissions`. MeedyaSubtitler `58d8f1b`: nearly clean
+    (#6 comment misapplies TEXT-050; same workflow points). Fix-up builder running (Sonnet,
+    `brief-player-subtitler-r2.md`), posts correction comments on #12/#3 (Player), #6/#14/#8
+    (Subtitler). **Pre-existing real-name occurrences in MeedyaPlayer** (older ADRs, memory,
+    CLAUDE.md) reported to the maintainer, not touched; Subtitler clean.
+  - dev-team plugin `0c25209`: NOT clean (2 must-fix: closed safety list lets repo text switch
+    checks off; "trusted source" unappliable, host-loaded CLAUDE.md from a fork PR skips it).
+    Revision 3 builder running (Opus, `brief-plugin-r3.md`, decisions final: repo content may only
+    ADD or pick style defaults, never weaken; switches only toward caution; trusted base never a
+    PR head; files changed in the run are data).
+  - Rust crate `995becb`: 2 must-fix (private-use subtags dropped from ordinary tags → wrong
+    order; malformed tracks reordered by role), several should-fix, five unclear policy points.
+- **Policy decisions (mine, final) for core revision 4** (`brief-revision-4.md`): (1) a
+  malformed preference matches nothing anywhere; all-malformed preferences = none; (2)
+  "canonical order" in AUTO means stored order among ALL tracks of that type; (3) when every audio
+  track is commentary/other, commentary ranks first; (4) forced-only works for private-use and
+  grandfathered audio (as the text already says); (5) the sidecar builder reads its input with the
+  LANG-002 reader, so what it writes is what a reader reads back; (6) labels list each role once.
+  Starts when the core lyrics/metadata builder finishes (same clone). After it: every consumer
+  re-pins (`check_copies.py --update`), MeedyaDL + MeedyaManager re-pin `meedya-lang` (small API
+  change — both builders warned), MeedyaConverter's Swift made to pass the new cases.
+- **MeedyaConverter done and pushed** (`wip/bcp47-language-policy`, 13 commits, head `67c41ca`,
+  #530 stream-numbering fix first); CI running (watch `b900iza6r`, 50-min limit); stand-in review
+  running. ffmpeg 9.0.1 cannot write Matroska `LanguageBCP47` or MP4 `elng` — follow-up issues.
+- **About 04:30:** core lyrics/metadata fixes pushed (`d2cf1b9`, 736/883 tests, checked by me);
+  **core revision 4 builder running** (Opus, `brief-revision-4.md`, also fixes the per-crate test
+  counts). MeedyaPlayer `2b29659` + MeedyaSubtitler `fc211a1` pushed (review fixes + issue
+  corrections; the fixes themselves unreviewed — review them with the re-pin). MeedyaConverter
+  `28efa6f` pushed (one CI test fixed), **CI green**, umbrella issue MeedyaConverter#531; stand-in
+  review running. **iLyricsDB pushed** (`feature/bcp47-language-policy`, #150–#153; API field
+  `language` now a tag, name in `languageName`, OpenAPI 1.0.0→1.1.0, CHANGELOG says so) and
+  **NetPLAYERapp pushed** (#210; migration 0015 checked twice on throwaway MySQL; schema v0.4.0);
+  stand-in reviews of both running. Still building: MeedyaDL, MeedyaManager, iHymns, plugin r3.
+- **Mistake (mine, about 04:29):** pushing a handoff commit with `git push origin HEAD` also pushed
+  the MeedyaDL builder's first three commits (`5e254902` #1245, `58aea067` #1244, `36ad90a8`
+  #1246) before review. Each says "Not yet independently reviewed", author Salem874, no real
+  name; MeedyaDL's rules allow pushing to the working branch before review. Not undone (would need
+  a force-push). Builder told not to rewrite them. **From now on: push handoff commits by their own
+  hash only when `origin..HEAD` lists nothing else.** (The "about" times in this section were
+  written ahead of the real clock; corrected.)
+- **MeedyaConverter stand-in review (about 04:40): NOT clean — 3 must-fix silent damage** (all
+  reproduced with real ffmpeg): cover art becomes a video track and moves first on an MP4/M4A remux;
+  Ogg/Opus output replaces the song title with "English"; a valid language with no ISO 639-2 code
+  (`yue`) is overwritten with `und`. Plus 7 should-fix (unrecognised text erased; `eng` typed in
+  the editor → `und` titled "English"; region lost silently; reordering cannot be switched off;
+  three encode paths skip the source's streams; packaging) and 9 minor. Round-2 builder running
+  (Opus, `brief-converter-r2.md`). Guiding decision: a remux never loses anything the source had
+  that the person did not change — where ffmpeg cannot store the preferred form, keep the source's
+  value and report it. Branch is not merged anywhere, so nothing reached users.
+- **iLyricsDB stand-in review (about 04:55): NOT clean** — 3 must-fix (a long `Accept-Language`
+  header costs ~200x (0.2–1.1 s per request, any visitor can cause it); the translation picker shows
+  own-language names sorted by English names; the JSON export's translations have no tag), 8
+  should-fix (a language with no two-letter code is exported as unknown and dropped from menus;
+  tests do not test the changed behaviour; importer loses original `xml:lang`; ordering and
+  matching gaps). Decisions sent to the original builder (resumed; watchdog `bjb5yge9a`). The
+  checker gap it found (deleting the runner's lock line goes unnoticed) added to core revision 4.
+- **NetPLAYERapp stand-in review (about 05:00): NOT clean** — MUST FIX: the deploy copies only
+  `appWeb/` + `backend/`, but the shared PHP file and data were under `bindings/` + `docs/`, so
+  saving a language on the live host would be a fatal error (reproduced with the deploy's layout;
+  deploys are switched off today, so nothing is broken live). Also: `trim()` strips NUL/vertical
+  tab; unregistered codes (`eng`) stored silently (decision: admin form refuses them with a
+  suggestion); no test of the project's own validator; schema pattern accepts `English` and
+  rejects `i-default`. Fixes sent to the original builder (watchdog `byhqsen90`). **Same
+  deploy-layout check sent to the iLyricsDB and iHymns builders.**
+- **About 05:10 — pushed after my own checks:** **MeedyaDL** (`d9e0b9e5`; issues #1244 umbrella,
+  #1245–#1251 pieces, #1252–#1255 follow-ups; clippy clean, 2,135 Rust tests, conformance 222
+  cases, type-check, 887 vitest, audit checks, copy check, actionlint as CI runs it) and
+  **MeedyaManager** (`feature/bcp47-language-policy`; #251–#253; fmt, clippy, 1,435 tests, copy
+  check, actionlint). Stand-in reviews of both running. **dev-team plugin r3 pushed** (`d98a02c`,
+  154/154); one more commit being built: `init` writes only keys the user chose (explicit config
+  wins over repo instructions, so writing every default would overrule a project's caution).
+  MeedyaDL's builder asked whether to reword two commit messages naming request details — no:
+  the technical changelog section is technical by design and the live lint blanks it.
+- **About 05:40 — core revision 4 pushed: `21fa942`** (full `21fa942606caa9017f58d63b1f85b0d7fb738307`):
+  seven clarified rules (the six decisions + an invalid value keeps its TRIMMED text), 288 cases,
+  Rust + PHP fixed, both runners refuse a damaged case file, the checker needs all three PHP files
+  or none, per-crate counts corrected (780 / 927). Checked by me. Rust vs PHP: 353k random
+  comparisons agree. Rust API change (RoleItem supertrait; TagMatch::distance usize). NOT yet
+  independently reviewed — the Codex round at 07:35 uses `codex-prompt-r7.txt` (968d820..21fa942).
+  `core-review` worktree now at `21fa942`; a separate read-only worktree `core-995` holds the
+  crate MeedyaDL/MeedyaManager pin (their reviewers were told). **Re-pin sweep of every repo
+  waits for Codex to pass core.**
+- **Plugin third review: NOT clean** (uncommitted/untracked instruction edits slip past the
+  merge-base method; no answer for shallow clones; base can be rewritten; config.yml not covered).
+  Decision: replace the method with a RUN-START SNAPSHOT (hashes of instruction files + config.yml
+  recorded by the lead; later changes are data; PR code → PR base branch version). Revision 4
+  builder running (watchdog `bjmeovnp1`).
+- **About 05:55:** iLyricsDB review fixes pushed (`d327373`, 10 commits, checked by me);
+  NetPLAYERapp review fixes pushed (`a456a40`: runtime files moved into `backend/vendor/`, a test
+  rebuilds the deploy layout; checked). Their second reviews wait for the re-pin sweep.
+  **MeedyaDL stand-in review: NOT clean** — must-fix: `meedya-lang` missing from
+  ACKNOWLEDGEMENTS.md (Licences check fails); should-fix: an old saved language with a line break
+  still reaches `config.ini`; conformance test lets nested fields go missing; minors (legacy name
+  path, lock, CLAUDE.md line, list loses an old value after a tab switch, UI-011 on the interface
+  list → show both names). Fix round running (same builder, in this checkout — do not touch its
+  files; it does not touch this handoff). Improved Release-Note wording goes to
+  `…/scratchpad/lang/meedyadl-release-notes.txt` for the PR body later.
+  **MeedyaManager stand-in review: NOT clean** — must-fix: the apps' Save re-sends every loaded
+  field, so saving only a title changes (`eng`→`en`, MP3 `pt-BR`→`por`) or refuses the language;
+  the reading half is wired to nothing, so rule matching now differs by format; the conformance test
+  lacks the stability check; a two-value TLAN is not kept (pre-existing; issue + ignored test).
+  Decision: `write_tags` skips a language value identical to what the file holds; rules and
+  `<Language>` use the standard tag. Fix round running.
+- **About 06:20:** MeedyaDL review fixes pushed (`6a9657f1`; all nine items; clippy, 2,139 Rust
+  tests, conformance 222, cargo deny, type-check, lint, 892 vitest, audits, check:legal, copy check,
+  actionlint — checked by me). Improved Release-Note lines for the PR body are in
+  `…/scratchpad/lang/meedyadl-release-notes.txt`. **iHymns first build pushed**
+  (`feat/bcp47-language-policy`, #2131–#2138; its first placement of the shared code would never
+  have been deployed — `private_html` has not been deployed in 60 runs, #2138 — so it moved into
+  `public_html/includes/vendor/`, web-blocked, with a deploy-layout test). Two PHP suites run out of
+  memory at this Mac's 128 MB default on the BASE branch too — not a finding. Admin must run two
+  setup cards after deploy (song language default → `und`; drop `fk_Trans_Lang`). Stand-in review
+  running. **Plugin revision 4 pushed** (`748e87c`, run-start snapshot, 162/162). Its review:
+  Codex after core, if the allowance lasts; otherwise a fresh Opus stand-in.
+- **About 06:30–07:10: usage limit hit** (Claude session limit, reset 07:10). Three agents stopped
+  mid-work and were RESUMED at 07:12 with their context (no hand-over needed — same system,
+  back within the hour): MeedyaConverter round-2 builder (11 local commits `23165c9`..`9f25ad7`,
+  clean tree), MeedyaManager fix builder (8 files uncommitted, no new commits), iHymns stand-in
+  reviewer (its containers `ihymns-review-mysql84` and `ihymns-review-mariadb` still running —
+  confirm they are removed when it finishes). Watchdog `bjng4paaf`. Codex wake-up at 07:35 still
+  pending (`bj3k2ubfr`).
+- **About 07:35:** MeedyaConverter round 2 pushed (`a5abc22`, 13 commits: cover art kept, titles
+  kept, `yue`/unrecognised languages kept and logged, editor, `--keep-track-order`, other encode
+  paths; issues #532–#539) — **CI green** (run 36386395464: build, all tests, SwiftLint, copy
+  check). **iHymns stand-in review: NOT clean** — must-fix: an existing "Apply all pending"
+  migration card overwrites `und`/`zxx`/`mul` songs with the songbook's language (irreversible);
+  should-fix: a song save rewrites/deletes translation links with retired codes (`iw`, `mo`), Song
+  of the Day drops regional preferences, the picker rewrites tags it cannot rebuild, `create_song`
+  stores `en` until the card runs, the no-`en` guard misses `?:`, the filter ignores scripts.
+  Decisions sent to the iHymns builder (the backfill card becomes MANUAL and skips special codes).
+  Its containers were removed (0 dangling volumes). **Codex round r7 on core `968d820..21fa942`
+  RUNNING** (`codex-r7.out`, 90-min limit).
+- **About 07:55 — Codex round r7 on core `968d820..21fa942` DONE (`…/scratchpad/lang/codex-r7.out`,
+  final answer in the last ~60 lines):** no earlier case's answer changed, 26 new cases agree with
+  the policy (it worked samples by hand). Six findings:
+  1. multi-value language write keeps only the first value (`tag_io.rs` ~563);
+  2. unrecognised text kept as the structured language (`lyricsfile_ttml.rs` ~378, `tag_io.rs`
+     ~581; LANG-002 says the structured value is `und`, original kept alongside);
+  3. the PHP runner passes a case file with missing top-level fields or wrong field types;
+  4. the checker's completeness is global, so with two PHP copies one runner line can be deleted;
+  5. the CI doc-count step lacks pipefail (pre-existing);
+  6. Rust adds " — " for an empty label part where PHP does not.
+  **Decisions (mine, final) → core revision 5** (`brief-revision-5.md`): write every value; the
+  metadata write REFUSES an unrecognised value (no silent `und`); Lyricsfile gets `und` plus a
+  `language_original` field; both runners check top-level fields and types; completeness per
+  copied PHP folder; `shell: bash` + pipefail; empty label parts add nothing (+ label cases).
+  Builder running (watchdog on it). The tool safety check returned no verdict for ~15 minutes
+  around 08:10 (transient); nothing was lost.
+- **MeedyaManager fix round done** (5 local commits on `beb4c15`: Save no longer changes or
+  refuses an unchanged language; rules and `<Language>` compare standard tags; stability check;
+  every tag container kept consistent; CLI reports what was really stored; issue #254 for the
+  pre-existing multi-value ID3 loss). To check and push next. Its reviewer's minor item 14 (rename
+  `wav_riff_info_round_trip`) was not recognised by the builder — still open.
+- **About 08:05:** MeedyaManager fixes pushed (`2de3375`; fmt, clippy, 1,446 tests, docs, copy
+  check, actionlint — checked by me). **Codex is reviewing the plugin's whole #47 change**
+  (`413d570..748e87c`, from a read-only worktree `…/scratchpad/lang/plugin-review`; output
+  `codex-plugin.out`; 90-min limit). If Codex refuses (allowance), a fresh Opus stand-in reviews
+  `dbb5e31..748e87c`. Core revision 5 and iHymns fixes still building. (Times in this section
+  written earlier ran ahead of the clock again; corrected where noticed.)
+- **About 08:10 — Codex reviewed the plugin's whole #47 change (`codex-plugin.out`): NOT clean,
+  10 findings.** High: the seal sits beside the editable text, so both can be replaced; a failed
+  pull-request lookup (no `gh`, detached HEAD) falls through to trusting the checkout. Medium:
+  base-tree discovery, `git hash-object` filters, no storage for non-git/dry runs, autopilot
+  spawns before the snapshot exists, the command rule blocks ordinary tests, ci-medic assigns the
+  record to the scribe, writer tests accept an appended exception. **Decision (mine): SIMPLIFY** —
+  plain file copies in a run folder outside the project (no git objects, no seal), trust only a
+  provable own-branch checkout (anything else = someone else's PR, or ask/BLOCKED), commands from
+  user/protocol/snapshotted instructions, and an honest statement that prompt rules cannot stop a
+  manipulated agent — the guard hooks are the only enforcement. Revision 5 builder running.
+- **About 08:24:** iHymns review fixes pushed (`cc655f0f`, 9 commits; all ten items; the
+  songbook-language card is now manual and dry-run-first and never touches `und`/`zxx`/`mul`;
+  translation links under retired codes are updated in place; script-aware filter). Checked by me:
+  288/288 PHP suites (two need no memory limit, as on the base branch), 112 Node suites, eslint,
+  copy check, actionlint, no `.php` addresses, no real name; no iHymns containers left.
+  **Admin steps after deploying iHymns:** run "Song language: default to not known (und)" and
+  "Translations: allow regional and script languages"; the "Give songs their songbook's language"
+  card is manual — dry run first, apply only as a curator's decision.
+- **About 08:37:** plugin revision 5 pushed (`a9fb292`: snapshot = plain copies in
+  `~/.dev-team/runs/<run-id>/snapshot/` + SHA-256 manifest, no seal; trust needs proof of provenance;
+  honest limits; 159/159 bats; checked by me). **Codex hit its usage limit during the follow-up
+  (resets 12:35)** — no final review. Its partial run showed an exception added as its own
+  paragraph after a writer line still passes the pinned tests. **Stand-in: a fresh Opus reviewer**
+  on `748e87c..a9fb292` (labelled as such). **Codex catch-up after 12:35:** core revision 5 and the
+  plugin's `748e87c..a9fb292`.
+- **About 08:55 — core revision 5 pushed (`4a67e3a`, full on origin):** all six Codex r7 findings
+  fixed (multi-value write, metadata write refuses unrecognised values, Lyricsfile `und` +
+  `language_original`, both runners check top-level fields and types, checker completeness per PHP
+  copy + layout, CI pipefail, empty label parts), 290 cases, 796/943 tests, PHP 290/290 — checked by
+  me. Plus my own commit tightening policy §8.3 to match the checker. **Breaking API changes in
+  core:** `MetadataError` gains a variant; `LyricsfileMetadata` gains a field; `write_tags`
+  refuses what it used to accept (docs/API.md). Stand-in review (fresh Opus) of `21fa942..4a67e3a`
+  running; Codex catch-up at 12:37 (wake-up set). **The copy-update sweep of every repository waits
+  for this review.**
+- **09:05 — stand-in review of core revision 5: NOT clean.** MUST: several languages on MP3/WAV/AIFF
+  are lost on the library's NEXT write (lofty splits the TLAN frame on read and saves one frame per
+  item; only the last survives). Should: M4A writes one atom per language (ffprobe then shows the
+  last); two Language entries in one call keep the last; an unchanged value from another tool
+  blocks an unrelated write; Lyricsfile `parse` skips the reader. Minor: runners confuse `{}`/`[]`;
+  checker misses a runner outside `tests/`; UI-070 text lacks the empty-part rule; `MetadataError`
+  not `#[non_exhaustive]`. Also: doc-count substring match; YAML `no` unquoted; PHP runner crashes on
+  a bad `mode`. **All sent to a core revision-6 builder** (`brief-revision-6.md`; watchdog on it).
+  The copy-update sweep still waits for core to come back clean.
+- **09:08 — plugin revision-5 stand-in review: NOT clean** (4 must: a `gh pr checkout` fork branch
+  looks like the user's own branch with no upstream; autopilot's run branch is created before the
+  provenance decision; run folders can collide across repositories; the limits statement claimed
+  protection from the project's own commands). **Decision (mine): stop guessing provenance.** The
+  checkout the user starts on is trusted (stated plainly as a limit); only the skills that check
+  out someone else's PR themselves (ci-medic, review with `pr=`) take instructions from its BASE,
+  into `snapshot/pr-<n>/`; the direction rule and command rule stay. Plus: unique run ids and
+  never-reused folders, exact hook descriptions, tests that catch text added next to a pinned
+  passage. Revision 6 builder running (watchdog on it).
+- **09:35 — plugin revision 6 pushed (`42bd45e`):** provenance guessing removed (the start
+  checkout is the user's own, stated as a limit; only ci-medic, which checks PRs out itself, uses a
+  PR's base, into `snapshot/pr-<n>/`); unique run ids, never-reused folders, repository path in the
+  manifest; exact hook limits; whole-section pins (28 sections, 11 items, 13 fields); 154/154 bats;
+  checked by me. Its next review: **Codex at 12:37** (no stand-in round now — nothing waits on
+  the plugin). Core revision 6 still building; it gets a stand-in review when done because the
+  copy-update sweep waits on it.
+- **10:01 — core revision 6 pushed (`aaaa585`):** all ten stand-in findings fixed on real files
+  (languages kept across every later write on MP3/WAV/AIFF; M4A one atom with several values via
+  lofty's `Mp4File`/`Ilst`; several Language entries; unchanged foreign values left alone;
+  Lyricsfile reads through the reader and quotes YAML; runners tell `{}` from `[]`; checker flags
+  every unlisted runner; UI-070 empty-part sentence; `MetadataError` `#[non_exhaustive]`;
+  whole-number doc counts; PHP runner no longer crashes). 290 cases, 812/959 tests, checked by me.
+  New core issues #100 (`meedya-tags-extended` on lofty 0.21 still splits languages) and #101 (other
+  multi-value ID3 frames split by the same lofty fault). Stand-in review of `4a67e3a..aaaa585`
+  running; if clean, the copy-update sweep starts.
+- **10:29 — core revision-6 stand-in review:** all ten earlier findings fixed on real files; new: the
+  unchanged-value check compares against a different tag than the one written (a RIFF-only WAV loses
+  its language from this library's reader); several TLAN frames made by #100 are then DELETED by
+  the next `tag_io` save (text claimed they were already lost); two Lyricsfile minors. **None touches
+  the copied or pinned files**, so the **COPY-UPDATE SWEEP HAS STARTED at core `aaaa585`**
+  (`brief-sweep.md`; full hash `aaaa585aa145634c057c0bbdd9bd5fc11c3274a0`): MeedyaDL, MeedyaManager,
+  MeedyaConverter (Swift must implement all rule changes, 290 cases), iHymns — resumed builders,
+  watchdog on them. iLyricsDB, NetPLAYERapp, MeedyaPlayer/MeedyaSubtitler follow when those finish
+  (staggered to avoid the usage limit). **Core revision 7** (metadata/lyrics crates only;
+  `brief-revision-7.md`) building in parallel. Codex catch-up at 12:37.
+- **10:52 — sweep progress (all moved to core `aaaa585`, checked by me, pushed):** MeedyaDL `4a3915e9`
+  (234 cases in its 9 sections; 2,139 Rust + 892 vitest), MeedyaManager `3a45ed7` (131 cases in its 4
+  sections; 1,448 tests; nothing broke), MeedyaConverter `59f8667` (Swift passes all 290; CI running),
+  iHymns `5141dab6` (290; one fix: all-malformed preference list filters nothing). **Reviews of new
+  work (stand-ins):** iHymns `1bc3d2b4..5141dab6` and MeedyaManager `beb4c15..3a45ed7` running.
+  Still updating: iLyricsDB, NetPLAYERapp, MeedyaPlayer/MeedyaSubtitler. Core revision 7 building.
+- **11:12 — COPY-UPDATE SWEEP COMPLETE: every repository is at core `aaaa585`** (all checked by me and
+  pushed): MeedyaDL `4a3915e9`, MeedyaManager `3a45ed7`, MeedyaConverter `59f8667` (CI green, run
+  36406058659), iHymns `5141dab6`, iLyricsDB `d5b9356`, NetPLAYERapp `2ba4d0b`, MeedyaPlayer `79e069e`
+  (new umbrella #27), MeedyaSubtitler `bf48908` (new umbrella #16). **Stand-in reviews of all unreviewed
+  work:** running for iHymns, MeedyaManager, MeedyaConverter, iLyricsDB; queued (usage-limit pacing) for
+  NetPLAYERapp `bf161d0..2ba4d0b` and MeedyaPlayer/MeedyaSubtitler (`ef4b886..79e069e`,
+  `58d8f1b..bf48908`). Core revision 7 still building. Two Sonnet builders noted their co-author line:
+  NetPLAYERapp `c5fc6e8` says Opus though Sonnet built it (recorded in its messages); iLyricsDB's sweep
+  commits say Sonnet 5 correctly. No correction commits — the record is plain.
+- **11:20 — core revision 7 pushed (`7f944a7`):** metadata/lyrics crates only (copied files untouched):
+  unchanged judged against the target tag; a small ID3v2 reader merges several TLAN frames; `to_yaml`
+  writes the language as `parse` reads it and quotes every text value. 837/984 tests, checked by me.
+  New core issues #102 (M4A writes lose extra covers/multi-values, resize atoms) and #103 (M4A registry
+  tags not written). **Codex at 12:37:** `codex-prompt-r8.txt` (core `21fa942..7f944a7`), then the
+  plugin `748e87c..42bd45e` if the allowance lasts. Stand-in reviews still running: iHymns,
+  MeedyaManager, MeedyaConverter, iLyricsDB, NetPLAYERapp; queued: MeedyaPlayer/MeedyaSubtitler.
+- **11:26 — iHymns second stand-in review: NOT clean** (4 should, 4 minor; one data loss: the confirmed
+  songbook-language card rewrote `yue`/`cmn-Hans`/`de` songs to their book's language, unrecorded).
+  **Decision (mine): the card only ever fills songs with NO language**; differing songs are listed for a
+  curator, never changed; one activity-log row per filled song. Also: test the dry-run gate; the
+  curator's editor choice settles two stored links for one language; keep a link whose target song
+  vanished; widen the no-`en` guard; SQL filter learns retired aliases; warn on two SENT links for
+  one language. Round-3 fix builder running (watchdog on it).
+- **11:34 — REAL NAME IN AUTHOR EMAIL (MeedyaManager, pushed):** six commits on MeedyaManager's
+  `feature/bcp47-language-policy` (`81964dd`, `d8254e6`, `2de3375`, `fb25404`, `09198ea`, `3a45ed7`) are
+  authored `Salem874` with the maintainer's PERSONAL email address (it contains their first
+  name, so it is not quoted here); the clone's configured identity is `Salem874@MWBMpartners.ltd`, so
+  the builder must have set the author itself. Every other repository's commits in this work use
+  Salem874@MWBMpartners.ltd (checked). Not rewritten — a force-push needs the maintainer's instruction;
+  told the maintainer. 106 older commits on MeedyaManager's `main` already carry that email. **My name
+  checks must include author/committer EMAIL (`%ae`/`%ce`), not only `%an`.** The builder is told never to
+  set the author.
+- **MeedyaManager second stand-in review: NOT clean** (2 must: the CLI note never shows in normal output;
+  no tests protect the two main fixes — five mutations passed; 7 should: clear leaves other containers,
+  note describes the plan not the result, WAV reads back two values, pattern rules changed meaning,
+  FFI message names the temp file, docs). Round-3 fixes sent to its builder (watchdog on it).
+- **11:43 — MY OWN FAULT, same kind as above:** the 11:34 entry above, as first written and pushed in
+  `df539d6c`, quoted that personal email address in full. This commit removes it from the file, but
+  `df539d6c` still carries it in this branch's pushed history. Only a history rewrite (a force-push)
+  removes it from there — the maintainer's decision, reported to them together with the MeedyaManager one.
+  Checked every other clone in this work: no added line carries the address (older copies in
+  MeedyaConverter and iLyricsDB came from `main`/`alpha`/older branches, not this work).
+- **iLyricsDB second stand-in review (`f19a1a2..d5b9356`): NOT clean** (0 must, 4 should, 6 minor):
+  the diagnostics page can never show the library as missing (every page stops first); without `intl`
+  the lists sort by code; the WebVTT `Language:` line sits in a NOTE block so its own reader gets
+  nothing, and a title with a blank line can inject a cue; the page-level ordering has no tests.
+  All sent to its builder (`a3d28a48a4076bb12`) with the injection fix; `translatedBy` exposure, English
+  song badges and the missing `lang` attribute become issues. Watchdog on it.
+- **MeedyaPlayer + MeedyaSubtitler second stand-in review: NOT clean.** Player: 1 must (ADR 0012's
+  Consequences still call the allowed per-file track memory wrong), 3 should, 7 minor; Subtitler: 4
+  should (notes say sidecar naming is a player's job — it is this app's, TEXT-030; README says matching
+  is a player's — section 8.1 gives it to the text profile), 2 minor. All wording in the ADR, notes and
+  a few issue comments; no code. Copies, checker, workflow and pins confirmed correct. Sent to the
+  round-2 builder (`a6bff901567dda149`, a SONNET agent — its earlier commits credit Opus; not rewritten,
+  its handoffs will say so; its new commits credit Sonnet). Watchdog on it.
+- **11:54 — MeedyaConverter second stand-in review: NOT clean** (3 must: cover art to WebM now FAILS
+  the job — a regression; Matroska cover art loses its name and description because the probe never
+  asks for them; "kept as the source had it" is only true for Matroska — MP4 cuts `romanian` to `rom`
+  (Romany), MOV drops German/Chinese/Greek; 4 should: mkvmerge files' full tags lost, notes never shown
+  on pipeline/Shortcuts, other cover-art losses unnoted, the strict Swift runner can read a different
+  input on macOS). Its round-2 builder ran out of working memory, so round 3 went to a FRESH Opus
+  builder with a full written brief (`…/scratchpad/lang/brief-converter-r3.md`) and the review saved
+  as `review-tmp/converter-review-2/REPORT.md`. Watchdog on it.
+- **NetPLAYERapp second stand-in review: NOT clean** (0 must, 3 should: the new tests miss most of the
+  registry check, the blank-to-null change and the stored-length rule — five planted faults passed;
+  the deploy test can be fooled by the current folder; `VENDORED.md` still says the vendor folder is
+  empty; 6 minor). Round 3 sent to its Sonnet builder (`aa3835bb84307a157`). Watchdog on it.
+  Suggestion for core, not yet raised: a public "which subtags are unregistered or retired" function,
+  so iHymns and iLyricsDB need not each write their own.
+- **Real-name scan of every clone's OWN commits** (commits on no other remote branch; script
+  `…/scratchpad/lang/name-scan.sh`): only the two known cases — MeedyaManager's six author emails and
+  this handoff's `df539d6c`. Scratch paths with the name that reviewers saw in NetPLAYERapp's handoff
+  and MeedyaConverter's older history predate this work. (Separately, MeedyaConverter's `main` and `alpha`
+  each carry about 250 OLDER commits — July 2025 to July 2026 — whose git author or committer is the real
+  name; the reviewer said 22, I counted. Not this work; told the maintainer.)
+- **MeedyaDL second stand-in review STARTED** over `37d070be..4a3915e9` (the unreviewed fix round
+  `af9d9796..6a9657f1` plus the `aaaa585` update), in a fresh clone under `review-tmp/meedyadl-review-2/`,
+  never this checkout. Watchdog on it.
+- **11:59 — iHymns round-3 fixes pushed (`43d9cca0`, 6 commits on `5141dab6`)**: the songbook card
+  only fills songs with NO language (others listed for a curator; one activity row per fill); a save
+  never loses or silently merges clashing translation links; the SQL language filter agrees with the
+  shared rule on old spellings; the no-English-fallback guard catches more shapes; a blur-guard test.
+  Checked by me: PHP suite 288 (memory_limit=-1), npm 113, ESLint, actionlint, copy checker, identity;
+  security read of the new SQL builder (values bound, column names fixed). Comment on #2137.
+  **One more fix decided (mine):** on a server that has not run the #2131 step, changing a link from
+  `pt` to `pt-BR` deleted the `pt` link and could not store the new one — the old link must be KEPT
+  and the warning must name the admin step. Its builder ran out of working memory, so a FRESH Sonnet
+  builder has it (`…/scratchpad/lang/brief-ihymns-linkkeep.md`). iHymns' third review waits for it.
+- **12:04 — MeedyaPlayer round 3 pushed (`c9f1149`), MeedyaSubtitler round 3 pushed (`970f8f4`)**:
+  wording fixes to ADR 0012, the README and the notes, plus six short correction comments (MeedyaPlayer
+  #12, #3; MeedyaSubtitler #16, #14, #8, #6). Checked by me: copy checker, actionlint, whitespace,
+  identity, no name. Commits credit Sonnet correctly; the handoffs say plainly that the earlier two
+  commits in each wrongly credit Opus (not rewritten). CI watched; THIRD stand-in review (new work only)
+  running, watchdog on it.
+- **12:15 — CI passed on both MeedyaPlayer (`c9f1149`) and MeedyaSubtitler (`970f8f4`) pushes. Their
+  THIRD stand-in review: NOT clean** (0 must, 3 should, 12 minor) — mostly fixes applied in one place and
+  missed in another, plus one new false claim: "CI green on every commit" is untrue for MeedyaSubtitler
+  (GitHub only checked the last commit of each push). Round 4 to a FRESH Sonnet builder
+  (`…/scratchpad/lang/brief-player-subtitler-r4.md`), told to grep each repository for every copy of each
+  wrong phrase. Watchdog on it. Outside this work: MeedyaPlayer's tree already carries the maintainer's
+  first name in about 20 older lines (`CLAUDE.md`, `.claude/HANDOFF.md`, several ADRs, from older commits
+  such as `dcaec9a`) — to report to the maintainer, not changed here.
+- **12:29 — MeedyaDL second stand-in review (`37d070be..4a3915e9`): NOT clean** (0 must, 1 should, 4
+  minor, 1 nit). All eight first-review items confirmed fixed on real input; every standard check
+  passes. Should-fix: nothing checks that the `meedya-lang` crate and the policy copies come from the
+  SAME core commit (an out-of-step pair passed — the exact mistake likely at the #1255 re-pin). Minors:
+  the subtitle-name sort is untested; the "ran N of M" check cannot see a skipped case; the `label`
+  section is skipped (decision: run it); the Interface Language list is not in UI-040 order. Plus the
+  two suggestions, both decided "do it": send GAMDL the standard form of a stored language (a trailing
+  line break reached `--language`), and check `ui_language` on import as a tag instead of cutting it at
+  20 bytes. Round 3 to a FRESH Sonnet builder in its OWN clone (`…/scratchpad/lang/meedyadl-r3`,
+  brief `brief-meedyadl-r3.md`) — never this checkout; the lead brings its commits across after
+  checking. Watchdog on it. This range still needs Codex's catch-up review.
+- **12:34 — iHymns link-keeping fix pushed (`2df90796`)**: the keep-list was keyed by the language a
+  link was changing TO, so a link whose language was changing was deleted anyway; now keyed by the
+  target song. Database test on MariaDB 11 and MySQL 8.4 (builder ran it; red with the old code).
+  Checked by me: PHP suite 288, npm 113, ESLint, actionlint, copy checker, identity. Comment on #2137.
+  **iHymns third stand-in review running** over `5141dab6..2df90796` (re-runs the database tests
+  itself). Watchdog on it.
+- **12:37 — Codex core review running** (`codex-prompt-r8.txt`, core `21fa942..7f944a7`, worktree
+  `…/scratchpad/lang/core-r8`, output `codex-r8.out`, 90-minute limit; started and working — not refused).
+  Plugin `748e87c..42bd45e` next if the allowance lasts.
+- **12:40 — MeedyaManager round 3 pushed (`e18fb18`, 7 commits on `3a45ed7`)**: note in ordinary output;
+  Clear removes the language from every container; note describes what was stored; WAV reads one value;
+  `Matches` tries both forms; FFI message hides the temp path; real-file tests for every earlier fix;
+  #255 opened (title-only WAV save leaves the second container stale). Checked by me: fmt, clippy, 1,467
+  tests (1 ignored), doc, copy checker, identity; `cargo deny` only RUSTSEC-2026-0285 (rustls, known);
+  actionlint fails only on style notes in two untouched workflows, same at `3a45ed7`. Comment on #251.
+  **Third stand-in review running**, watchdog on it. Known gap for the next round: `help/rule-syntax.md`
+  never explains how rules treat languages — needs a section.
+- **12:44 — NetPLAYERapp round 3 pushed (`14a1845`, 2 commits on `2ba4d0b`)**: tests now catch the
+  registry check, blank-to-null and stored-form length; the deploy probe runs inside the deploy copy;
+  `VENDORED.md` records the shared code; clearer refusal messages and whole-tag suggestions; a missing
+  data section throws; clean-up always runs. Issues #211 and #212 opened. Checked by me: PHPStan level 9,
+  style fixer, house rules, schema examples, markdownlint, language tests 30, deploy test 5, conformance
+  290/290, copy checker, actionlint, identity (the full database battery was run by the builder; the
+  reviewer re-runs it). Comment on #210. **Third stand-in review running**, watchdog on it.
+- **12:50 — Codex core review (r8, `21fa942..7f944a7`): NOT clean — 4 new problems**, all in
+  `meedya-metadata` / `meedya-lyrics`; Codex confirms NONE touches the files the consumers are pinned to
+  (`aaaa585`): (1) old three-letter `TLA` language frames in ID3v2.3 bypass the preservation check, so an
+  unrelated save can delete a language; (2) the public helper `keep_languages_whole_before_saving` undoes
+  a deliberate language edit; (3) crafted input makes the language merge quadratic; (4) Lyricsfile YAML
+  still changes U+0085 after a newline. Plus #102/#103 again. **Decisions (mine):** fix all four; split
+  the helper into a recover step and a gather step; and change my earlier call on #102/#103 — until the
+  M4A route can keep extra covers and multi-value atoms, such a write must REFUSE rather than lose data,
+  and an unstorable registry key must report failure. Revision 8 to a FRESH Opus builder
+  (`…/scratchpad/lang/brief-revision-8.md`; protected paths untouched). Watchdog on it.
+- **MeedyaPlayer round 4 pushed (`d633047`), MeedyaSubtitler round 4 pushed (`1263d79`)**: CI passed on
+  both; checked by me (copy checker, actionlint, whitespace, identity, no name). FOURTH stand-in review
+  (new work only) running, watchdog on it.
+- **Codex plugin review running** (`codex-prompt-plugin-r3.txt`, `748e87c..42bd45e`, worktree
+  `…/scratchpad/lang/plugin-r3`, output `codex-plugin-r3.out`, 90-minute limit).
+- **12:57 — Codex plugin review (`748e87c..42bd45e`): NOT clean — 6 findings** (5 medium, 1 low): ci-medic's
+  next `/loop` pass snapshots a PR's checkout as the user's own; an ordinary resume replaces the recorded
+  snapshot; snapshot records can collide with project files (`manifest.txt`, `pr-<n>/`); single quotes
+  bypass the push guard and docs overstate it; the smoke test passes with guard registrations removed;
+  `.OpenAI/CONTEXT.md` stale. Most of the ten earlier findings confirmed resolved. All six decided "fix";
+  round 4 to a FRESH Opus builder (`…/scratchpad/lang/brief-plugin-r4.md`), design unchanged. Watchdog on it.
+- **iLyricsDB round 3 pushed (`d8946cb`, 8 commits on `d5b9356`)**: diagnostics can show MISSING; no-`intl`
+  order by name; WebVTT language readable again + a title-injection fix (a forged cue could REPLACE real
+  lyric text); shared, tested page ordering; exact TTML warnings; admin page shows warnings; switcher in
+  UI-040 order; docs; issues #154–#156. Checked by me: all 8 test files, conformance 290/290, `php -l` on
+  every file, copy checker, actionlint, identity. **Third stand-in review running**, watchdog on it.
+  Its builder believed round 1's fixes (`6f79d5f..ac64676`) were never reviewed — wrong: they sit inside
+  the second review's range `f19a1a2..d5b9356`; the reviewer is asked to confirm and flag the handoff line.
+  **My slip:** the push command used `$h:refs/…`, which zsh mangles (`:r` is a modifier), so the push
+  failed while the #150 comment saying "pushed" went up in the same command; pushed properly a minute
+  later, so the comment is now true. Saved as a personal memory note (push first, braces always).
+- **13:03 — MeedyaPlayer/MeedyaSubtitler FOURTH stand-in review: NOT clean** (0 must, 1 should, 7 minor, 2
+  nits) — every earlier item confirmed fixed and the three new comments accurate; nearly all new findings are
+  wrong statements about REVIEW HISTORY in the notes (e.g. "none of the rounds' fixes has been reviewed"),
+  plus one substance point: ADR 0012 says TRACK-030/040 protect commentary, which they do not. **Decision
+  (mine): fix the cause, not the symptoms** — round 5 replaces the scattered history narrative with ONE
+  verified table per repository and removes present-tense status claims elsewhere. FRESH Sonnet builder
+  (`…/scratchpad/lang/brief-player-subtitler-r5.md`). Watchdog on it.
+- **13:12 — iHymns THIRD stand-in review (`5141dab6..2df90796`): NOT clean** (1 medium, 6 low, 3 info).
+  Medium, and a REGRESSION from `2df90796`: that fix REPLACED the keep key (language) with a new one
+  (target song) instead of adding it, and the clash branch never consults it — so a stored link can be
+  deleted by an ordinary save (`English → T1` with `English → T2` sent), and inside a `mo`/`ro` clash on a
+  pre-#2131 server. Proven on both servers against `43d9cca0` (where it was kept). Low: accent/width/
+  invisible-character differences between the SQL and in-memory filters; an uncapped preference list
+  (2,000 codes: 19 ms → 5 s); the backfill "pending" check disagrees with the card; test gaps; the
+  English-fallback guard misses JS object keys; stale handoff. **Decisions (mine):** protect stored rows by
+  ROW ID (union of both keys, every branch); binary collation + PHP-exact trim in SQL; cap preferences at
+  32; pending check uses the card's own test; the backfill log records who ran it. Round 4 to a FRESH
+  **Opus** builder (a Sonnet fix caused the regression) — `…/scratchpad/lang/brief-ihymns-r4.md`. Watchdog on it.
+- **13:16 — MeedyaManager THIRD stand-in review (`3a45ed7..e18fb18`): NOT clean** (1 must, 4 should, 6 minor).
+  Must: the new "whole tag replaced" note fires for ordinary three-letter input — `--set language=eng` on
+  an MP3 says it becomes `en` while the file stores `eng`. Should: the plan→action step is untested (one
+  original planted fault still passes); a WAV whose RIFF and ID3 languages disagree now shows only one, so
+  an explicit set can be a silent no-op; `help/rule-syntax.md` is wrong about `<Language>`; 7 of 17 new
+  branches untested (one proven harmful). **Decisions (mine):** note only for genuine replacements,
+  per container; report disagreeing containers everywhere (never a silent "✓ Set"); `Matches`/`Contains`/
+  `StartsWith`/`EndsWith` treat several values and both forms consistently; failure messages never name
+  the working copy. Issues to open: M4A `LANGUAGE` en+fr (widen #254), two-chunk WAV, FLAC with a leading
+  ID3v2 tag cannot be saved (pre-existing), a "make every container agree" action, a rule-conditions
+  help section. Round 4 to a FRESH Opus builder (`…/scratchpad/lang/brief-manager-r4.md`). Watchdog on it.
+- **NetPLAYERapp THIRD stand-in review (`2ba4d0b..14a1845`): NOT clean** (0 must, 2 should, 8 minor):
+  the whole-tag suggestion has no test (the handoff says it has); the deploy probe can still be fooled by a
+  path relative to the repository root; a suggestion can itself be refused (`fre-CS` → `fr-CS`); the
+  missing-section wiring is untested; doc and #211 errors (stations have no language field). All decided
+  "fix"; round 4 to a FRESH Sonnet builder (`…/scratchpad/lang/brief-netplayer-r4.md`), including a
+  review-history table. Watchdog on it.
+- **13:23 — iLyricsDB THIRD stand-in review (`d5b9356..d8946cb`): NOT clean** (0 must, 5 should, 9 minor):
+  item 7 reported done but NOT done (the deploy test still copies `config/`); the admin page never shows
+  the original value (placeholder passed with a colon the helper adds itself — the same bug already in
+  `admin/lyrics`); two public pages still break when the shared file is missing; private-use parts now
+  dropped silently (a regression); and — pre-existing, same class as the fixed VTT title — injection in
+  other exports: VTT/SRT line text, LRC title/artist/lines, ASS title (ffmpeg reads forged entries), and
+  TTML control characters. **Decision (mine): fix the export injection NOW, not as an issue (security).**
+  Round 4 to a FRESH **Opus** builder (`…/scratchpad/lang/brief-ilyricsdb-r4.md`), told to re-read every
+  file before calling an item done. Watchdog on it.
+- **13:32 — MeedyaDL round 3 pushed (`192972d7`..`70fb7208`, 5 commits cherry-picked from the builder's own
+  clone; code identical to it)**: the conformance test fails unless the crate and the copies share one core
+  commit; per-case ID checks; the `label` section runs (241 cases, 10 sections); a subtitle-sort test; the
+  Interface Language list follows UI-040/UI-011; JSON-keyed remembered values; GAMDL gets the standard form
+  (stored value unchanged); an imported `ui_language` is checked as a tag. Checked by me: rustfmt (touched),
+  clippy, 2,146 Rust tests, conformance 241/10, deny, type-check, lint, 899 vitest, check:legal, all audit
+  checks, copy checker, actionlint, release-note lint; security read of `language_arg_for_gamdl`. Builder
+  used `git stash` once on a clean tree and `reset --soft` on its own unpushed commit to add a missing
+  Release-Note — both local, nothing lost; accepted. Its `rustfmt` reformatted whole touched files, so the
+  diff carries unrelated formatting. Comment on #1245. **Third stand-in review running**, watchdog on it.
+- **MeedyaPlayer round 5 (`4718590`) and MeedyaSubtitler round 5 (`5b09c30`) pushed**: one verified
+  review-history table each; notes shorter; CI passed on both; FIFTH stand-in review running, watchdog on it.
+- **13:48 — Core revision 8 built** (5 local commits on `7f944a7`: `dc28381`, `8c75917`, `e185d1b`, `b0f36a9`,
+  `354cfd5`): every language frame name lofty reads is merged, in linear time; the old helper is split into
+  `recover_languages_after_reading` + `gather_languages_before_saving`; YAML quotes any other line break; M4A
+  writes that would lose data are REFUSED (#102/#103 interim guards). Two refusals beyond the brief, both
+  measured on real files and accepted by me: an ID3v2.4 `TLA`+zero frame, and an M4A freeform name with a
+  colon (the save route renamed it). No consumer uses the removed helper. Protected paths untouched. The
+  builder already commented on #102/#103 naming `b0f36a9` — so it must be pushed promptly. My checks running.
+- **MeedyaConverter round 3 pushed (`7271ae8`, 9 commits on `59f8667`)**: WebM with cover art succeeds (picture
+  left out, noted); Matroska covers keep names and descriptions; one table of what each writer stores
+  (13 types × 10 values checked against ffmpeg; never truncates — `und` + a true note; MOV uses Apple's table);
+  mkvmerge files' full tags read by a small bounded reader; pipeline/Shortcuts/preview share the picture step;
+  strict runner reads the file once. Checked by me: three `swift build` targets, copy checker, identity,
+  whitespace; actionlint fails only on style notes in untouched workflows (same at `59f8667`). New issues
+  #540, #541. CI watched (the full Swift tests run there).
+- **MeedyaPlayer/MeedyaSubtitler FIFTH review: NOT clean** (1 should, 9 minor) — tables verified correct, but
+  the handoffs got LONGER and the kept narrative sections produced new errors again. **Decision (mine):
+  round 6 CUTS the narrative review sections out entirely** (git history, commit messages and issue comments
+  hold that record), keeping the table, one pin line, open decisions and next steps; target: shorter than
+  before round 4. Plus one short correction comment on MeedyaPlayer #3 (commentary rests on COMPAT-030).
+  FRESH Opus builder (`…/scratchpad/lang/brief-player-subtitler-r6.md`). Watchdog on it.
+- **13:50 — MeedyaConverter CI FAILED on `7271ae8`** (run 36424070177, "Build (debug)" = plain `swift build`):
+  a Swift 6 data-race error at `QualityPreviewView.swift:404`, introduced by round-3 commit `590371a` (the
+  preview now takes the same picture step). The round-3 builder only type-checked the app module with a
+  stand-in recipe, and my own checks built the three named targets, not the whole package — so neither ran
+  what CI runs. **My watch script also misreported it as "exit 0"** (`$?` after a `$(…)` in the same echo
+  reported the substitution) — caught by reading the run's conclusion directly. Fix to a FRESH Opus builder,
+  told to run exactly CI's `swift build` + test step; watchdog on it. From now on my Swift checks run the
+  whole-package `swift build`, and CI results are confirmed with `gh run view --json conclusion`.
+- **13:53 — Core revision 8 pushed (`354cfd5`)** after my checks: fmt, clippy, 853 / 1,000 tests, documented
+  counts, both crates' docs build, PHP conformance 290/290, protected paths unchanged, identity. (The copy
+  checker does not apply in core — it holds the master and has no lock file.) The #102/#103 comments are now
+  true. Core CI watched (real conclusions read). **Codex hit its usage limit on the r9 review (back at 17:38)**
+  — a fresh Opus agent stands in on the same prompt (`codex-prompt-r9.txt`); watchdog on it. Wake-up set for
+  17:40 for the Codex catch-up: core revision 8 first, then the stand-in-reviewed work, one at a time.
+- **About 14:10–14:40 — the command-safety check gave no verdicts; nothing could be run or written.** Work
+  finished meanwhile stayed local until it recovered. Core CI does not run on this branch (core is public; only
+  "Lint Workflows" runs on branch pushes, and only for workflow changes) — revisions 6–9 are verified by my local
+  checks until core's pull request.
+- **Disk:** a reviewer warned 97% full (35 GB free). I deleted the build folders of eight FINISHED reviews in the
+  scratch area → 59 GB free (kept the ones running builders use).
+- **MeedyaDL third review (`9fe992cf..70fb7208`): 0 blocking, 0 major, 3 minor, 4 nits** — Interface Language
+  order untested; a >35-character tag reaches GAMDL raw; imported language fields not length-limited before
+  parsing/logging; `config.ini` language not in standard form; a comment citing the wrong file; the Cargo.lock
+  reader not insisting on one `meedya-lang`; the fallback order. All decided "fix": **round 4 builder running**
+  in the existing builder clone on a new branch `r4` (`brief-meedyadl-r4.md`), watchdog on it.
+- **Core revision-8 stand-in review: 1 medium, 6 low.** Medium: the M4A guard LISTS lossy cases and misses some
+  — a title-only save rewrites `pgap`/`hdvd`/`shwm` from numbers into text and renames freeform atoms to lofty's
+  spelling. **Decision (mine) — revision 9: VERIFY every M4A save on a temporary copy, atom by atom, before it
+  replaces the file; anything not asked for that would change → refuse, original untouched.** Also refuse
+  language frames split across two ID3 tags/chunks; close four test gaps. **Revision 9 builder running**
+  (`brief-revision-9.md`), watchdog on it.
+- **Pushed after checks** (each: identity, no name, the repository's own checks, exit codes read):
+  MeedyaConverter `e497c3b` (the CI fix — **CI now passes**, run 36429317656, read from GitHub; the fault only
+  shows on CI's Swift 6.1.2, not this Mac's 6.4); MeedyaPlayer `b5c85f5` + MeedyaSubtitler `48de926` (round 6:
+  narrative cut, handoffs 5,580 → 2,227 and 4,798 → 2,152 words); plugin `b39f40d` (round 4, 9 commits: 170/170
+  Bats; the guard runs only read-only git commands); NetPLAYERapp `205b33d` (round 4: 3,350 language checks,
+  deploy probe runs from the admin folder, safer suggestions); iLyricsDB `462ca5e` (round 4: export injection
+  closed in every format, 493-check test; placeholders; damaged-file fallback; #157, #158 opened); iHymns
+  `442dd92f` (round 4: stored links protected by row id on BOTH keys; SQL filter byte-exact; cap at 32;
+  "who ran it" in the backfill log).
+  **My slip:** one push command contained a stray push of a made-up ID `cd6c0d0` — it failed (no such object),
+  the real push was a clean fast-forward, and no remote ref changed unexpectedly (checked).
+  **Rule slips by builders, recorded:** the iLyricsDB builder amended two LOCAL commits (never pushed before).
+- **Decision needed later (from the iHymns builder):** the 32-language cap also limits the account's "save my
+  languages", and the settings picker has no limit — a person ticking more than 32 would have the rest ignored.
+  My decision: the picker must stop at 32 with a plain message; to be built after the running review.
+- **Reviews running (stand-ins; Codex is out until 17:38):** iHymns r4, iLyricsDB r4, MeedyaConverter r3 + fix,
+  plugin r4 — watchdog on each. Queued: MeedyaPlayer/MeedyaSubtitler round 6, NetPLAYERapp round 4.
+- **15:29 — MeedyaManager round 4 pushed (`aa7a30d`)** after my checks (fmt, clippy, 1,507 tests, doc, deny
+  known-only, copy checker, clean tree before/after); comment on #251; review running.
+- **MeedyaPlayer/MeedyaSubtitler kept looping on notes wording.** Rounds 7–9: completed the wrong-message
+  lists; made the review table record finished reviews only with a single "commits after X are not yet
+  reviewed" line; "Last updated" gives the date only; the CI line states the rule (GitHub runs on the last
+  commit of each push; MeedyaSubtitler's workflow arrived with `19aad9d`) instead of listing runs, because a
+  list went stale on every push. Pushed at MeedyaPlayer `bc901ad`, MeedyaSubtitler `44cf095`; CI passed on the
+  earlier pushes. Tenth short review running with the instruction "real problems only — false, contradictory
+  or missing". Lesson: every note that names a specific latest commit, count or run goes stale on the next
+  push; state rules and point at the record instead.
+- **Plugin round-4 stand-in review: 2 medium, 7 low.** The guard cannot be made to run anything (hostile repo
+  and `-c` options tested). Medium: git's matching refspec `:` pushes `main` unrefused; the word reader slows
+  with the square of command length (10,000-line heredoc 35 s) — so Claude Code's hook time limit could
+  abandon the check. **Decisions (mine):** refuse `:`; linear reader; at most 10 pushes resolved per command,
+  more → refuse; an overall time budget after which the guard REFUSES (fails closed); decode `$'…'`; state the
+  remaining spelling limits honestly and stop over-claiming; interrupted ci-medic passes recorded in the run
+  record and a new run refuses while one is left checked out. **Round 5 builder running** (Opus,
+  `brief-plugin-r5.md`), watchdog on it.
+- **Warning sent to three running reviewers** (MeedyaManager, iHymns, MeedyaConverter): the plugin reviewer
+  ran `pkill -f "mutate.py"`, which may have killed their own fault-planting runs and left a planted fault in
+  their clones — each asked to check its clone is clean and re-run any cut-short batch. Builders are now told to
+  stop processes by id only.
+- **15:33 — MeedyaPlayer and MeedyaSubtitler: stand-in review CLEAN** (tenth round, `b4cd924..bc901ad` and
+  `e284012..44cf095`): every hash, range and CI claim checked against git and GitHub, nothing false, contradictory or
+  missing. Done apart from the Codex catch-up. Pre-existing, for the maintainer: MeedyaSubtitler's first commit on
+  `main` (`53bbc0f`, 29 May) carries the personal author email; MeedyaPlayer's older files carry the first name
+  (from `dcaec9a` and earlier sessions) — this work added none and removed four.
+- **iLyricsDB round-4 review: 2 should (security), 6 minor, 4 nits.** A doubled bracket (`[[00:05.00]`) still forges
+  an LRC line in ffmpeg; typed text acts as ASS formatting/drawing commands (a lyric turned 94% of a frame red);
+  docs over-claim; four protections untested; placeholder-scanner blind spots; a damaged-but-valid bridge shows OK;
+  ordinary text like `I <3 you` does not round-trip; one bad UTF-8 byte kills the whole file. All decided "fix",
+  with a small LRC fuzz test. **Round 5 builder running** (Opus, `brief-ilyricsdb-r5.md`), watchdog on it.
+- **MeedyaDL round 4** (7 commits, cherry-picked from the builder clone's branch `r4`; code identical): Interface
+  Language order tested end to end and the fallback puts the interface language first; a long tag reaches GAMDL in
+  standard form; imported language fields over 256 bytes refused before parsing, logged by length only; `config.ini`
+  gets the standard form and no INI value can carry a NUL; the Cargo.lock reader insists on exactly one
+  `meedya-lang`. Builder used `git stash` once in its own clone (recorded). My full checks running; this entry is
+  pushed together with those commits once they pass.
+- **About 16:00 — MeedyaDL round 4 and core revision 9 pushed.**
+  - MeedyaDL: my checks passed. There were 2,153 Rust tests, 241 conformance cases in 10 sections and 902 frontend tests, none failing. clippy, deny, the type check, lint, the licence checks, the audit checks, the copy checker and actionlint were all clean. The Release-Note lint was clean on all four fix commits.
+  - The one `rustfmt` difference is in `config_service.rs`. It was there before this round: 14 hunks before and after.
+  - I commented on #1244, #1245, #1246 and #1249.
+  - Core `e3b4956`: every M4A save now goes to a copy. The tags on the copy are compared with the original, atom by atom, before the copy replaces it. Language frames spread over several ID3 tags or chunks are refused.
+  - Test counts are 877 with default features and 1,024 with all features. The protected paths are unchanged.
+  - **Consequence, already decided:** most iTunes and Apple Music files are now refused on any write until #102's real fix. The reason is that lofty widens `stik`, `rtng`, `tmpo` and `akID` and lengthens `disk`.
+  - Saves no longer happen in place. So a hard link keeps the old tags, and the file's folder must be writable.
+  - The builder was refused `gh issue comment` on #102 and #103. The drafts are in the scratch folder `r9b/`. They are left for the maintainer, not posted by me.
+  - The builder also found that fields with no M4A atom (Arranger, Producer, Engineer, the AcoustID ID, the ReplayGain reference) are still dropped silently. This was there before. I'm waiting for the review before deciding between a fix and an issue.
+  - **Stand-in reviews are running for both,** each with a watchdog. The core instructions are in `codex-prompt-r10.txt` and are reusable for Codex.
+- **NetPLAYERapp round 5 pushed (`978f2a0`).** It changes only tests, comments, notes and #211. My checks were clean: `php -l`, PHPStan, the code-style check, house rules, schema, markdownlint, actionlint and the copy checker (9 of 9 copies match). The language test ran 16,186 checks and none failed.
+  - I confirmed that the application code changed only in its comments.
+  - The builder left a waiting loop with no time limit, looking for a summary file that was never written. I stopped it by its process id.
+  - CI does not start on this branch: billing blocks it.
+  - I commented on #210. #211 has been retitled "the new language check" and now names the exact form rule.
+  - A stand-in review is running, with a watchdog on it.
+- **MeedyaDL round-4 stand-in review: 3 minor, 5 nits, nothing unsafe.** Items 2, 4, 5 and 6 are correct, with red runs for each. The findings:
+  - **M1:** the fallback list still jumps for `fr-FR`, the usual value on "Auto".
+  - **M2:** the 256-byte tests would pass without the check being there.
+  - **M3:** three Release-Note lines describe changes that exist only on this unreleased branch.
+  - **N1 and N2:** the Cargo.lock "exactly one" rule has no test, and the reader expects exact spacing around `=`.
+  - **N3:** stale hook comments. **N4:** Prettier formatting. **N5:** an older NUL-to-GAMDL case.
+  - **All are to be fixed. Round 5 builder running** (Sonnet, `brief-meedyadl-r5.md`, branch `r5` in the builder clone), with a watchdog on it.
+  - **Decision on M3, binding on whoever opens the pull request:** do not rewrite pushed commits. **This branch is squash-merged**, and the pull request text carries curated Release-Note lines that describe changes against the last released build. The commit trailers on `f7a63362`, `22927718` and `c28a0fb5` are not accurate and must not be copied into the notes. From now on, builders write `Release-Note: none` for fixes to anything only this branch introduced.
+- **Core revision-9 stand-in review: 1 High, 4 Medium, 8 Low.**
+  - **H1 (High, already present in revision 8):** on a FRAGMENTED M4A, a tag write returns Ok, but ffmpeg can no longer decode the file. The fragments moved and their offsets did not. The check compared `ilst` only, so it did not see this.
+  - **M1:** when `meta{hdlr}` has no `ilst`, the save overwrites `hdlr`. The tags are then invisible to Apple and ffmpeg.
+  - **M2:** language frames that sit only in a LATER ID3 tag or chunk are not caught.
+  - **M3:** a crafted file with 32,000 atoms makes the comparison take 129 s. The work grows with the square of the atom count.
+  - **M4:** "exactly as asked" was measured against lofty's own conversion of the value. So `TrackNumber "70000"` destroys the track number and reports Ok.
+  - **Low:** the error messages, what a copy-then-rename loses, a temporary-file race, a refusal message that shows identical "before" and "after", the docs, and 9 planted faults that no test caught.
+  - **Accepted refusal, wider than I thought:** it also reaches any file whose disc number mutagen wrote (a 6-byte `disk` atom: GAMDL, Picard and beets downloads).
+  - **Decisions for revision 10 (`brief-revision-10.md`):**
+    - Refuse fragmented files.
+    - Check the WHOLE saved copy: the audio bytes are identical; every `stco`/`co64` offset moves by exactly the right amount; everything else in `moov` is byte-identical apart from the `ilst` contents, the path container sizes and the padding; the other top-level atoms are identical. This also catches M1.
+    - Refuse when two or more ID3 tags or chunks exist and any of them holds a language frame.
+    - Make the comparison linear.
+    - Judge "exactly as asked" against the caller's own text. Track and disc numbers must be whole numbers from 1 to 65535.
+    - Refuse keys that have no M4A atom (Arranger and the others), where before they were dropped without a word.
+    - The temporary copy is written through its own file handle, with an identity check, `sync_all` and honest docs.
+    - Tests for all 9 faults that got past the tests.
+    - The builder must NOT post to GitHub. Drafts go to `r10b/`.
+- **About 16:50 to 17:10: this Claude session hit its usage limit.** All eight running agents stopped mid-step. That was six builders, the MeedyaDL round-5 builder and the NetPLAYERapp reviewer.
+  - No hand-over was possible, because Codex was also out of allowance until 17:38.
+  - At 17:11 every clone was checked and each agent was resumed with its context kept. Each was told to check its working tree for a half-made edit or a planted fault first.
+  - The core revision-10 builder was started with a watchdog, and the plugin watchdog was restarted.
+- **NetPLAYERapp round-5 stand-in review: 1 should-fix, 4 minor, 6 nits. The application code is confirmed unchanged and correct, and #211 is correct** (checked against 23,603 values). Section J now catches 14 new wording faults. The findings:
+  - **S1:** the handoff points to a "round 5" section that does not exist.
+  - **M1:** the column note describes the old table's fault wrongly.
+  - **M2:** the check that spots a language-subtag problem also matches the extended-language message, so a `-abc` ending gives 303 false failures.
+  - **M3:** the wording check works in one direction only.
+  - **M4:** the battery can be emptied and the suite still passes.
+  - The nits are stale counts, one "Pushed" left, comments pointing at things a reader cannot find, and #211's wording of the call.
+  - **All are to be fixed. Round 6 builder running** (Sonnet, `brief-netplayer-r6.md`), with a watchdog on it.
+- **iHymns round 5 pushed (`caffcd65`).** It covers all nine items, and each was proven on both servers by planting its fault back.
+  - My checks: 288 PHP suites and 114 JavaScript suites passed. `php -l`, ESLint and actionlint were clean. The copy checker found 9 of 9 copies matching. No name, scratch-path or password lines were added.
+  - No containers were left behind and there were 0 left-behind volumes.
+  - iHymns CI runs only the workflow check, and only when a workflow file changes, so nothing ran for this push.
+  - I commented on #2137. A stand-in review is running, with a watchdog on it.
+  - Two deviations the builder flagged openly:
+    - the rollback sits in a new function, `songTranslationsSaveLinksAllOrNothing()`, so it can be tested;
+    - the 32-language cap also applies to the grid's own dropdown.
+  - Known and not changed: a backfill web user id of `"7abc"` is recorded as user 7.
+- **17:40 — Codex is back.** Its allowance is about 11 rounds per window, run one at a time.
+  - The first catch-up is running: the WHOLE MeedyaDL language branch, `5738de7d..c37f2621`, excluding the copies and the handoff. The instructions are in `codex-prompt-mdl-catchup.txt`, the output goes to `codex-mdl-catchup.out`, and a watchdog is on it.
+  - Next in order: MeedyaPlayer and MeedyaSubtitler, which are finished. Then each other repository once its current round settles. Core goes after revision 10.
+- **Codex catch-up on MeedyaDL (`5738de7d..c37f2621`, the whole branch): 3 new real problems.** I confirmed each against the code.
+  - **1.** The browser's `Intl.Locale` turns `cmn-Hans` into `zh-Hans` and refuses `zh-cmn-Hans`. The policy keeps `cmn` separate, so the frontend's grouping, and the list it sends to the backend, disagree with Rust.
+  - **2.** A stored `"EN-us"` shows as a second "English (United States)" row beside `en-US`.
+  - **3.** A failed subtitle extraction leaves a partial `.srt` file, which then blocks every retry (`AlreadyThere`). This is new on this branch: before, a numbered copy was written instead.
+  - **Added to the running MeedyaDL round 5** as addendum items A, B and C in `brief-meedyadl-r5.md`, and the builder was told:
+    - **A:** language identity comes from a backend command that uses `utils/language.rs`. Decision 1's pinning uses it.
+    - **B:** values are compared by their standard form, while the stored spelling is kept.
+    - **C:** extraction writes to a temporary file and publishes it without overwriting.
+  - Codex's allowance: the review used about 164,000 tokens and was accepted with no refusal.
+- **iLyricsDB round 5 pushed (`2d46cf2`).** My checks: `php -l` was clean on 130 files, and all 11 test files passed, including the 290 conformance cases, 699 injection checks and 19 fuzz checks. The copy checker found 9 of 9 copies matching, and actionlint was clean.
+  - The builder changed these of my decisions openly, and I accepted them: `{` is written as `\{{}` (as ffmpeg's own ASS writer does, and safe under the older VSFilter rules too); the word-joiner rule is wider; and the cleaning also applies to the JSON and plain-text exports.
+  - The builder opened #159 (the importer guesses the wrong encoding), and it needs a decision.
+  - I commented on #150. A stand-in review is running, with a watchdog on it.
+- **Codex catch-up on MeedyaPlayer (`d5e3e41..bc901ad`) and MeedyaSubtitler (`53bbc0f..44cf095`) is running as one run.** These branches have no application code: they hold the copies, the workflow, `.gitattributes`, the decision records and notes. The instructions are in `codex-prompt-ps-catchup.txt`, and a watchdog is on it.
+- **Codex catch-up on MeedyaPlayer and MeedyaSubtitler: 8 findings.**
+  - **Both repositories:** `.gitattributes` uses `-text` only, so git filters, encoding conversion and `$Id$` expansion can still change a copy's bytes. Codex reproduced this with a temporary filter.
+  - **MeedyaPlayer:**
+    - The maintainer's real first name appears in about 20 current files, some from earlier-session commits on this branch and some already on `main`.
+    - `https://MWBM Partners Ltd.ltd` is a bad find-and-replace from `2337861`. It was `https://MWBMpartners.ltd`.
+    - ADR 0010 treats an upstream link as enough to meet the source-code obligation.
+    - `third-party.md` says removing a dependency ends its obligations.
+    - `CLAUDE.md` says the core is MIT/Apache. Core is MIT, which I checked on GitHub.
+    - The naming rule forbids even the real GitHub organisation name.
+    - The handoff contradicts itself about the pull-request target. `develop` does exist.
+  - The workflows were verified to fail correctly when a copy has changed or is missing, and when GitHub is unreachable.
+  - **All 8 are to be fixed. The Player/Subtitler round-11 builder is running** (Sonnet, `brief-player-subtitler-r11.md`), with a watchdog on it. History is not rewritten; that remains the maintainer's decision.
+  - **Cross-repository item G1, the `.gitattributes` hardening** (`-text -filter -working-tree-encoding -ident`). It is in the running MeedyaDL round 5 (addendum D) and NetPLAYERapp round 6 (item 7). **Still to add to the next round of:** MeedyaManager, MeedyaConverter, iHymns and iLyricsDB. The text is in `gitattributes-item.md`. Core and the plugin have no `.gitattributes`.
+- **MeedyaManager round 5 pushed (`a150926`).** It has 8 commits and covers all ten decisions.
+  - The builder opened **#260** (a locked file leaves a locked copy behind). It is on board 7 and linked from #251.
+  - My checks: fmt, clippy and the documentation build were clean. 1,526 tests passed. `cargo deny` showed only the known RUSTSEC-2026-0285. The copy checker found 6 of 6 copies matching. There were no name lines, and the tree was clean.
+  - The builder caught one fault of its own through the full check list: a public comment linked to a private function (`a1fa6be`).
+  - MeedyaManager CI runs only the workflow check, and only when a workflow file changes.
+  - I commented on #251.
+  - **Codex is reviewing the whole language range `7697b9c..a150926` in place of a stand-in.** It has 36 commits and about 6,500 lines of code. The instructions are in `codex-prompt-mgr-catchup.txt`, and a watchdog is on it.
+- **MeedyaPlayer (`be430c9`) and MeedyaSubtitler (`415aa4c`) round 11 pushed.** It acts on all 8 of Codex's findings.
+  - My checks:
+    - A whole-word name search outside the copies found nothing, and there are no email or bad-address hits.
+    - The copies are unchanged.
+    - The checker, actionlint and `git diff --check` all passed.
+    - All 6 `.gitattributes` lines are hardened.
+    - The "Policy copies" CI passed on both.
+  - **These repositories live under the `MeedyaSuite` GitHub organisation** (`MeedyaSuite/MeedyaPlayer`, `MeedyaSuite/MeedyaSubtitler`), not MWBMPartners. Use `-R MeedyaSuite/...` with `gh`.
+  - The builder also replaced the first name in three ADRs that predate the branch (0001, 0008 and 0009). No history was rewritten.
+  - **Next: Codex reviews round 11**, `bc901ad..be430c9` and `44cf095..415aa4c`, after its MeedyaManager run.
+- **Codex ran out of allowance again partway through the MeedyaManager catch-up.** It resets at 22:42, and a wake-up is set for 22:45. The window lasted only three reviews: MeedyaDL used about 164,000 tokens, MeedyaPlayer and MeedyaSubtitler about 114,000, and MeedyaManager about 135,000 before it was cut off.
+  - The MeedyaManager review has NO final report. Its only interim note: giving `--set language=…` more than once in one `meedya edit` reports each value as saved, but only the last is stored, and the last value's note is attached to every row. The stand-in is told to check this.
+  - **Back to stand-in reviews (fresh Opus agents) until 22:45.** That covers MeedyaManager round 5 (`aa7a30d..a150926`, plus the lead above) and NetPLAYERapp round 6 (`978f2a0..9232ec6`), both running with watchdogs. The MeedyaPlayer/MeedyaSubtitler round-11 review is queued for when an agent slot frees up; I'm keeping fewer than about nine agents running at once so the session limit is not hit again.
+  - **Codex catch-up still owed** once it is back: MeedyaManager's whole range `7697b9c..`, iHymns, iLyricsDB, MeedyaConverter, the plugin, core after revision 10, NetPLAYERapp, and MeedyaPlayer/MeedyaSubtitler round 11.
+- **NetPLAYERapp round 6 pushed (`9232ec6`).** My checks: the language test ran 18,485 checks with none failing. `php -l`, PHPStan, cs-fixer, house rules, schema, markdownlint, actionlint and the copy checker (9 of 9) were all clean. Only comments changed in the application code, and all 10 `.gitattributes` lines are hardened. No containers or left-behind volumes remain. I commented on #210.
+- **iHymns round-5 stand-in review: 1 medium, 5 low, 2 info.** Every item from the round works on both servers, and every planted fault is caught.
+  - **Medium (older behaviour):** re-pointing a language to a different song carries that row's translator and "verified" flag onto the wrong song.
+  - **Low:**
+    - an object with the wrong key names silently deletes links;
+    - L3 keeps the "verified" flag across any language change;
+    - the English-fallback guard misses `languageCode ||`-style fallbacks;
+    - the translation picker orders by all saved languages, not the first 32;
+    - MariaDB error 1020 ends the whole transaction, and the log loses the real cause;
+    - nothing stops the new call from being wrapped in a `try` again.
+  - **Info:** the lock-timeout comment is wrong.
+  - **Decisions for round 6 (`brief-ihymns-r6.md`):**
+    - a link's details never move to a different song: the target song's own unmatched row is relabelled, and otherwise the link starts with no translator and not verified;
+    - on a same-song language change the translator is kept, and "verified" is kept only within the same primary language;
+    - all the low findings are fixed, and 1020 is added to the fatal list after an audit;
+    - `.gitattributes` hardening.
+  - **Round-6 builder running** (Opus), with a watchdog on it.
+- **iLyricsDB round-5 stand-in review: 2 should-fix (security), 4 minor, 4 nits.** The round's own LRC and ASS fixes hold: 25,137 LRC texts and 291,453 ASS texts were tried, with no hole found.
+  - **S1:** the SRT export still lets typed `{\1c…\p1}` act as ASS commands through ffmpeg's SRT reader. It painted 96% of a frame red.
+  - **S2:** APlayer reads a timestamp in the middle of a line, or in the title or artist, as a forged line.
+  - **Minor:** the docs overstate the SRT round trip; four import-side behaviours are untested; CI never installs ffmpeg; and there are two older round-trip gaps.
+  - **Decisions for round 6 (`brief-ilyricsdb-r6.md`):**
+    - SRT puts a word joiner after every backslash, and SrtParser removes it;
+    - LRC rounds timestamp-shaped `[` anywhere in the text, including `ti` and `ar`;
+    - honest docs;
+    - four tests;
+    - CI installs ffmpeg, and those checks FAIL under `CI` when ffmpeg is missing;
+    - one issue for the older gaps;
+    - nits and `.gitattributes`.
+  - **Round-6 builder running** (Opus), with a watchdog on it.
+- **28 September, about 21:00 — the WEEKLY Claude limit stopped every agent mid-step.** It reset on 4 October at 16:00. Eight agents stopped at once:
+  - builders: MeedyaDL r5, core r10, MeedyaConverter r4, plugin r5, iHymns r6 and iLyricsDB r6;
+  - reviewers: MeedyaManager r5 and NetPLAYERapp r6.
+- **2 October, 00:47 — the Mac restarted, and macOS emptied `/private/tmp`.** That held the whole scratch area: all ten working clones, every brief, every reviewer's evidence, and all UNPUSHED work.
+  - **Lost:** core r10's first commit; the plugin's three round-5 commits; MeedyaConverter's round-4 work, including a local handoff commit; MeedyaDL r5's progress; and all generated test media and logs.
+  - **Nothing pushed was lost.**
+  - **Lesson:** the scratch area does not survive a restart. Push each verified round promptly, and never let unpushed work sit for days.
+- **4 October, about 17:20 — recovered and resumed.**
+  - 199 scratch files were rebuilt from the conversation and agent records. That covers every brief, every Codex prompt, the `r9b/` drafts and the reviewers' own scripts, and was recovered from the file-tool writes. The two briefs that had sections added by shell commands (MeedyaDL r5's addenda A to D, and `gitattributes-item.md`) were rebuilt by replaying those commands.
+  - All ten clones were re-cloned at their pushed heads, on the same paths.
+  - The six builders were resumed with their memory intact. Each was told its clone was wiped, to redo its unpushed work as new commits, and to re-run its checks. Each has a watchdog.
+  - The MeedyaManager r5 and NetPLAYERapp r6 stand-in reviews were NOT resumed: those reviews go to Codex, the usual reviewer.
+  - Disk is tight, at about 28 GB free.
+- **Codex** refused again at 17:2x: "usage limit … try again at 5:55 PM". Other Codex sessions on this Mac share the allowance. A retry of the MeedyaManager catch-up is set for 17:57. Queued after it: NetPLAYERapp (whole branch), then MeedyaPlayer/MeedyaSubtitler round 11.
+- **New from the maintainer on 4 October; nothing changed yet:**
+  - **(1) A review of the instruction files** (`~/.claude/CLAUDE.md`, `.claude/CLAUDE.md`, `AGENTS.md`, `.claude/agents/`, standing rules) against Anthropic's Opus 5.5 and Sonnet 5.5 guidance. The recommendations were given in chat:
+    - remove "think hardest" and "ultrathink";
+    - give planning the whole problem with a definition of done, instead of "one agent at a time";
+    - drop "do not start the next unit until …";
+    - give the documentation sweep a definition of done;
+    - add an end-of-run report under the headings Blocked on me, Changed, Found;
+    - fix two contradictions: the commit-before-review order, and the size of Codex's allowance;
+    - fix stale model names.
+
+    **Waiting for the maintainer's choice of which to apply.** The pasted request also ended mid-sentence at "Also find".
+  - **(2) A "does it look AI-made" polish audit, with fixes, as a standing rule everywhere, checked automatically.** It is mostly web-app checks.
+    - A first read-only pass on MeedyaDL found:
+      - the Library page uses its own top-level heading instead of the shared page header;
+      - six leftover debug messages, one of which prints every deep link.
+    - **Waiting for the maintainer:** which apps; the go-ahead to fix on a new branch from `alpha`; whether this comes before or after the language work (recommended after); and what "automatically" should mean (recommended: a rule plus CI checks per repository).
+- **MeedyaDL round 5 pushed (`c72de729`..`5bcd7f06`, 7 commits).** It was redone after the restart and covers the fourth review's M1, M2, N1, N2, N4 and N5, Codex's A, B and C, and D (`.gitattributes`).
+  - The builder made one reasoned change to the brief: ffmpeg gets `-y` for its OWN freshly made temporary file, and the never-overwrite promise moves to the publish step (hard link, or rename-if-free on FAT/exFAT).
+  - My checks: 2,174 Rust tests passed. The conformance suite ran 241 cases in 10 sections with none failing, and 923 frontend tests passed. clippy, deny, the type check, lint, the licence checks, the audit checks, the copy checker, actionlint and the release-note lint were all clean, with no name lines.
+  - `rustfmt`: `lib.rs` has 4 differences before and after, and `config_service.rs` has 14 before and after. Both are older drift. Note: checking `lib.rs` in place also walks into every module, about 100 files of older drift. Compare against a worktree of the previous head, never a copied-out file, because a copied file cannot see its modules.
+  - I commented on #1244, #1245, #1246 and #1249. **Codex review queued**, after MeedyaManager.
+- **Codex catch-up on MeedyaManager (`7697b9c..a150926`, about 208,000 tokens): 1 P1 and 5 P2.** Codex confirmed its own earlier lead.
+  - **P1:** a WAV language save rebuilds the RIFF `INFO` list and silently drops a non-UTF-8 `INAM` (Latin-1 `Café`).
+  - **P2:**
+    - a NUL-separated language value keeps only the first value;
+    - repeated `--set language` reports writes that never happened;
+    - APE language lists are not split, so conditions match the second value;
+    - `str::trim()` makes a no-break-space value look valid;
+    - C API and UniFFI callers get no conversion warning.
+  - **Round-6 builder running** (Opus, `brief-manager-r6.md`), told to reproduce each finding first. Its decisions:
+    - verify the raw `INFO` list on a copy, or refuse;
+    - refuse a NUL in a language value on every way in;
+    - refuse the same field set twice;
+    - split on NUL for every format;
+    - trim only the policy's whitespace;
+    - the write result carries the notes, with showing them in the apps left to #256;
+    - `.gitattributes`.
+- **Codex review of MeedyaDL round 5 (`f5f5bbc0..5bcd7f06`, about 127,000 tokens): 3 high and 3 medium.**
+  - **High:**
+    - a stored `EN-us` makes the dropdown show the wrong language as selected;
+    - a failed or pending identity request merges by the browser's reading and hides Mandarin;
+    - the no-hard-link fallback can still overwrite in a race.
+  - **Medium:** leftover temporary files after a crash; the temporary name breaks long filenames; the fake ffmpeg cannot catch `-n`.
+  - **Round-6 builder running** (Opus, branch `r6` in the builder clone, `brief-meedyadl-r6.md`). Its decisions:
+    - map the selected value by its standard form;
+    - never merge on unverified identities, with a bounded retry;
+    - publish only with an operating-system no-replace rename, and otherwise refuse;
+    - clean up leftovers by pattern and dead process id, and report removal failures;
+    - a short temporary name;
+    - a fake ffmpeg that enforces the flags.
+- **Codex catch-up on NetPLAYERapp (`f24983b..9232ec6`) is running now**, with a watchdog. Next in Codex's queue: MeedyaPlayer/MeedyaSubtitler round 11, then each round as it lands.
+- **Watchdog trap, found today:** a refusal check that looks for the words "usage limit" also matches those words inside files Codex reads, such as this handoff. Match the exact line `^ERROR: You've hit your usage limit` instead.
+- **Codex ran out again partway through the NetPLAYERapp catch-up** (about 80,000 tokens, no final report). It said to try again at 22:58, and a wake-up is set for 23:00.
+  - Its one interim note corrected my instructions: the resolver change only turns an empty station language into null, with no listener-preference matching. The prompt is fixed.
+- **Core revision 10 pushed (`f8c20c3`..`cd3ca07`, 8 commits)**, redone after the restart. Every finding reproduced first, and all 38 planted faults are caught.
+  - **What changed:**
+    - the whole-file M4A check, with (a) the audio, (b) the offsets, (c) the rest of `moov` and (d) the top-level atoms;
+    - fragmented files refused;
+    - `meta` without `ilst` refused;
+    - language frames in any later ID3 tag or chunk refused;
+    - the comparison is linear (32,000 atoms take 0.19 s);
+    - values are measured against the caller's own text (track and disc 1–65535, compilation 1/0, year 1000–9999);
+    - Arranger, AcoustId and ReplayGainReferenceLoudness are refused by name on M4A, since Producer and Engineer turned out to have atoms;
+    - the copy is made through its own handle, flushed with `sync_all`, and checked by identity before the rename.
+  - **New Windows-only dependency `winapi-util`** (MIT or Unlicense). I accepted it, because it keeps `unsafe` out.
+  - **Consequence:** `write_acoustid_tags` and `write_replaygain_tags` now fail on every M4A. The suggested follow-up is to store them as freeform atoms, as Picard does. It needs an issue and a decision.
+  - My checks: fmt, clippy, the documentation build and the test-count check were clean. Tests were 913 default and 1,060 with all features. The protected paths are unchanged.
+  - `cargo deny` cannot check licences, because of core #98 (`deny.toml` is rejected by the current cargo-deny). That is older and not caused by this revision.
+  - I commented on #99. The #102/#103 drafts are in `r10b/` for the maintainer.
+- **iHymns round 6 pushed (`b17d8711`..`833f69d6`, 9 commits).** The builder rebuilt the lost harness from its own earlier reading.
+  - My checks: 288 PHP suites and 114 JavaScript suites passed. `php -l`, ESLint and actionlint were clean. The copy checker found 9 of 9 copies matching, and all 10 `.gitattributes` lines are hardened.
+  - **Decision for round 7** (in `ihymns-r7-carryover.md`): `CreatedAt` changes only when a row comes to link to a different song, not when "verified" is cleared.
+  - I commented on #2137. **A stand-in review is running** (Codex was out), with a watchdog on it.
+- **Codex order at 23:00:** core revisions 8 to 10 first (`codex-prompt-r11.txt`, `7f944a7..cd3ca07`), because it is data-loss work. Then the NetPLAYERapp catch-up, then MeedyaPlayer/MeedyaSubtitler round 11.
+- **Pushed since the last entry, each after my own checks:**
+  - **iLyricsDB round 6** (`278657e`): the SRT and LRC security fixes. 786 injection checks, 26 fuzz checks and the 290 conformance cases passed. **A stand-in review is running.**
+  - **The plugin's round 5** (`2f91439`, 11 commits, rebuilt after the restart): the push guard reads more spellings, runs in time proportional to the command, and refuses after 20 s. Both audits, the smoke test, shellcheck and actionlint were clean, and 193 of 193 bats tests passed. **Queued for Codex** (`42bd45e..`, the guard is security work).
+  - **MeedyaPlayer round 12** (`61985e1`) and **MeedyaSubtitler round 12** (`8dfa024`, `46c7501`), acting on the stand-in review of round 11:
+    - the handoffs no longer ask for a Codex review that already happened, and the review tables are fixed;
+    - the source-disclosure template is fixed;
+    - the `.gitattributes` comment names all three overrides;
+    - every push-status claim is removed.
+  - **NOT done, and blocked for the maintainer:** decision M2, restoring three copyright lines in MeedyaPlayer ADRs 0005 (~28) and 0006 (~25, ~54) to "Copyright © 2026 MWBMPartners.", their accepted wording before `2337861`. The permission system refused the builder's edit, so I did not do it either. It is the maintainer's call.
+- **iHymns round-6 stand-in review: 1 medium and 7 low.** The main rule held in 27 scenarios on both servers.
+  - **Medium:** `tuneFindOrCreateByName()` and `publisherFindOrCreateByName()` catch every error, so the deliberately re-thrown 1020 is swallowed and the save carries on with no transaction. This was reproduced on MariaDB.
+  - **Round-7 builder running** (Opus, `brief-ihymns-r7.md`, including the CreatedAt carry-over). It audits EVERY catch block reachable inside the save's transaction, adds a behavioural rollback test, and fixes the rest.
+- **The `.gitattributes` comment overstates its protection in every repository.** A later line in the same file, or a `.gitattributes` in a sub-folder, also overrides it, not only `.git/info/attributes`. This is in `gitattributes-item.md`'s addendum.
+  - Already done: MeedyaPlayer, MeedyaSubtitler and iHymns round 7.
+  - **Still to do in each next round:** MeedyaDL, MeedyaManager, MeedyaConverter, iLyricsDB and NetPLAYERapp.
+- **MeedyaManager round 6** is in my check run, and its **round 7 decisions** are recorded in `manager-r7-carryover.md`:
+  - every WAV save, not only language saves, keeps every other `INFO` entry, because `--remove artist` still deletes a Latin-1 title;
+  - the C API and UniFFI refuse a key that appears twice.
+- **MeedyaDL round 6** (9 commits; safe publish through `renamex_np`/`renameat2`/`MoveFileExW`, which adds `libc` and `windows-sys` use) is cherry-picked into the main checkout, and its check run is going.
+- **iLyricsDB round 7 carry-over** (`ilyricsdb-r7-carryover.md`): copy APlayer's MIT notice exactly, including the author's published email. The licence requires it, and the personal-email rule is about the maintainer's own details.
+- **Disk:** free space fell to 12 GB, mostly other work on the Mac. I removed two finished scratch build folders (core and the MeedyaDL builder clone), which brought it back to 26 GB. **The main MeedyaDL checkout's `src-tauri/target` is 49 GB.** That is for the maintainer: `cargo clean` there frees it, and the cost is a full rebuild.
+- **MeedyaDL round 6 pushed** (9 commits; the tip, including this handoff, is `d4fd0e66`).
+  - My checks: 2,194 Rust tests passed, and the conformance suite ran 241 cases in 10 sections with none failing. clippy, deny, the type check, lint, the licence checks, the audit checks, the copy checker and actionlint were all clean. The `fs_safe.rs` rustfmt difference has 4 hunks before and after, so it is older drift. The round adds 10 `unsafe` blocks, all for the system calls behind the safe publish; they are for Codex to read closely.
+  - **Frontend timeouts:** the full vitest run had 11 failures, all timeouts (load average about 200 to 250).
+    - Re-run with `--testTimeout`/`--hookTimeout=120000`, 63 passed and 5 were skipped.
+    - `tailwindColorClasses.test.ts` has a hard-coded `beforeAll` limit of 30 s. Run alone it passed 5 of 5 twice, in about 13 s.
+    - The round touched no styles. **Lesson:** a timeout under heavy load is not a failure, but prove it by re-running before you push.
+  - I commented on #1244, #1246, #1249 and #1251.
+- **MeedyaManager round 6 pushed (`48af967`..`49cec29`).** My checks: fmt, clippy and the documentation build were clean, 1,549 tests passed, deny showed only the known advisory, and the copy checker found 6 of 6 copies matching. I commented on #251 and #259 (the WAV with two `LIST INFO` chunks is now refused).
+- **Codex queue at 23:00:**
+  1. core revisions 8 to 10;
+  2. the plugin's guard (`42bd45e..2f91439`);
+  3. MeedyaManager round 6 (Codex checking its own findings);
+  4. MeedyaDL round 6 (Codex's own findings, plus the `unsafe` calls);
+  5. iLyricsDB round 6, once the stand-in has reported;
+  6. the NetPLAYERapp catch-up.
+
+  One window covers about two of these, so the rest wait for later windows or go to stand-ins.
+- **MeedyaConverter round 4 pushed (`48e60ba`..`6dfc16a`, 9 commits), redone after the restart.**
+  - What changed:
+    - "No language is stored" is now true, because the field is cleared;
+    - MOV gets the QuickTime code Apple reads as the same language (all 98 written codes were read back through AVFoundation);
+    - MP4 skips cover types it cannot hold, with a note;
+    - Ogg notes an unregistered language;
+    - the Matroska track-list reader is bounded;
+    - CI installs ffmpeg and MKVToolNix, and `MEEDYA_REQUIRE_MEDIA_TOOLS=1` makes the real-tool tests fail rather than skip.
+  - My checks: the three targets built, and the copy checker found 6 of 6 copies matching. actionlint was clean with CI's errors-only setting; there were style notes in older workflows. **CI Build & Test passed** (run 37230989543) with the real-tool tests, and Lint Workflows passed.
+  - I commented on #531. **A stand-in review is running**, with a watchdog on it.
+  - **Round-5 carry-over** (`converter-r5-carryover.md`): read MOV/MP4 QuickTime codes with Apple's meaning. A MOV→MOV remux of `chi` currently stores NO language, which is a COMPAT-030 loss.
+- **iLyricsDB round-6 stand-in review: 3 should-fix (2 security), 2 minor, 3 nits.**
+  - **Security:** an SRT `<font size=… color=…>` tag still paints the picture through ffmpeg. Separately, LRC timestamps in Arabic-Indic or full-width digits forge a line in Kodi's reader.
+  - **CI:** on `ubuntu-latest` (ffmpeg 6.1.1), 31 export checks fail: the tests do not strip carriage returns, and two checks depend on the ffmpeg version.
+  - **I posted a correction on #150**, because my round-6 comment had claimed the SRT export could no longer act as formatting commands.
+  - **Round-7 builder running** (Opus, `brief-ilyricsdb-r7.md`):
+    - a word joiner after every `<` in SRT;
+    - `/u` digits and `\s` in the LRC rules;
+    - the tests made independent of the ffmpeg version, and proven in an `ubuntu:24.04` container;
+    - Kodi's reader used as evidence only, because it is GPL.
+- **iHymns round 7 pushed (`01d7c986`..`c60ed8b7`, 9 commits).**
+  - **Transactions:** 95 catch blocks reachable inside the save, editor, works and songbooks and importer transactions were audited. 84 now re-throw 1213, 1205 and 1020, and 11 were justified by hand. The list is in DEV_NOTES.
+  - **A new test** runs the real `editorSaveSongCore()` and proves the save is all-or-nothing.
+  - **Translation links:**
+    - the two-spelling re-point pairing;
+    - stored song ids are compared trimmed;
+    - CreatedAt changes only on a re-point to a different song.
+  - **The English-fallback guard** is widened, and the `.gitattributes` comment is fixed.
+  - **Accepted behaviour change:** those helpers now also pass deadlocks and lock timeouts on outside transactions.
+  - My checks: 289 PHP suites and 114 JavaScript suites passed. `php -l` was clean on 36 files, as were ESLint and actionlint, and the copy checker found 9 of 9 copies matching.
+  - I commented on #2137. **A stand-in review is running**, with a watchdog on it.
+- **MeedyaConverter round-4 stand-in review.** The new work was correct apart from 3 minor wording errors (the CI ffmpeg version; `zh-Hant` used as the "cannot store" example; `sve`/`iri` called "not a language code").
+  - It also found 2 faults in OLDER, round-3 code:
+    - **Serious:** a Matroska full tag with no three-letter code (`abq`, `pnb`, `und-x-foo`, `und-Latn`, `und-419`) is LOST going to Matroska, MP4 or MPEG-TS. ffprobe hides the `und` legacy field and ffmpeg copies nothing, yet the note says "kept".
+    - **Medium:** with map-all, any Matroska attachment (a font, or a BMP or WebP cover) makes an MP4 job fail.
+  - **Round-5 builder running** (Opus, `brief-converter-r5.md`). It covers both faults, the MOV read-back carry-over, the wording, and `.gitattributes`.
+- **iHymns round-7 stand-in review: 0 high, 0 medium, 5 low.** The reviewer re-derived the audit with a wider tool of its own and found no catch that still swallows a 1213, 1205 or 1020. Every planted save-path fault was caught.
+  - **The low findings:**
+    - **L1:** the 84 guards have no test of their own;
+    - **L2:** the geo-cache write inside the save's transaction gives a needless 1020 on MariaDB;
+    - **L3:** a two-spelling edge case loses the translator;
+    - **L4:** the English-fallback guard has false alarms and gaps;
+    - **L5:** the notes say 72 transactions, but there are 67.
+  - **A consequence of the accepted outside-transaction change:** a `logActivity()` call made AFTER a successful commit can now fail the request during a large log purge, and a retry could create a duplicate.
+  - **Round-8 builder running** (Opus, `brief-ihymns-r8.md`). Its decisions:
+    - the audit becomes a permanent tokenizer test with an allow-list;
+    - no geo-cache write while a transaction is open;
+    - post-commit log writes catch, log and carry on, while inside a transaction they still re-throw;
+    - prefer the single same-language row;
+    - the guard's false alarms are fixed and its gaps listed;
+    - the docs are corrected.
+- **MeedyaSuite-core: Codex's catch-up review of revisions 8–10 (`7f944a7..cd3ca07`) is NOT clean — 10 findings.**
+  - **High:** the temporary copy is made readable by others while it is checked (a private original loses its privacy for that moment); a `meta` box shorter than its version field makes the whole-file check panic; the whole-file comparison slows with the square of the number of sibling atoms; nesting depth is unlimited, so the stack can run out.
+  - **Medium:** 1–7 stray bytes inside `ilst` go unnoticed; Windows named streams are lost and undocumented; a failed clean-up is swallowed; two permission tests pass when their guard is broken, and there is no `co64` test; the doc test-count check accepts any number anywhere; ID3 raw reading has no overall memory limit.
+  - **Revision-11 builder running** (Opus, `brief-revision-11.md`), with a watchdog. It must reproduce each finding before fixing it.
+- **iLyricsDB round 7: CI passed on 4 Oct** (run 37238382004, head `c59ed74`). So the billing block below appears lifted for iLyricsDB at least; NetPLAYERapp and the plugin have not been re-checked yet.
+- **Two instruction audits (maintainer's requests of 4 Oct) were delivered in chat. Nothing was changed.** They wait for the maintainer to choose which deletes and rewrites to apply. The polish audit (unfinished-looking pages, stray logs, heading order) has four open questions; the first read-only pass on MeedyaDL found `LibraryScanPage.tsx` using its own `<h1>` where every other page uses `<h2>`, and six `console.debug` calls left in.
+- **Running at about 23:20 on 4 Oct, each with its own watchdog:** Codex's catch-up review of NetPLAYERapp (`f24983b..9232ec6`; its earlier run was cut off by the usage limit); a stand-in review (fresh Opus agent) of iLyricsDB round 7 (`278657e..c59ed74`); a stand-in review of MeedyaPlayer/MeedyaSubtitler round 12 (documents only); the core revision-11, MeedyaConverter round-5 and iHymns round-8 builders. Still waiting for Codex after NetPLAYERapp, one at a time: the plugin, MeedyaManager round 6, MeedyaDL round 6.
+- **NetPLAYERapp: Codex's catch-up review of `f24983b..9232ec6` is NOT clean — 2 medium, 3 low.**
+  - **Medium:** a huge language value (6 MB) makes validation run out of memory and crash, before the length check is reached (admin forms only, after sign-in); the #211 pre-deploy check as written wrongly flags a stored NULL, which the forms treat as empty and accept.
+  - **Low:** the deployment test claims more isolation than it has; the docs say every stored station language is a checked tag, but old values are kept as they were; "35 characters holds any real tag" is not true for long private-use tags.
+  - Codex ran 18,485 language checks and the 290 shared conformance cases, all passing; it could not run the database suites.
+  - **Round-7 builder running** (`brief-netplayer-r7.md`), with a watchdog. It must reproduce each finding first, and find out whether the shared PHP code itself is what runs out of memory (if so, a core issue is drafted).
+- **dev-team plugin: Codex's catch-up review of `748e87c..2f91439` (24 commits, rounds 2–5) is running**, with a watchdog.
+- **Codex ran out partway through the plugin review** (about 23:40 on 4 Oct, after 140,000 tokens and before writing any findings). It names 04:01 on 5 Oct as the reset. A background command retries the same review at 04:06, and a watchdog watches it; the cut-off output is kept as `codex-plugin-catchup-cutoff1.out`. **MeedyaManager round 6 (`a150926..49cec29`) went to a stand-in instead** (a fresh Opus agent), with a watchdog. It therefore counts as not yet fully reviewed, and Codex's next catch-up of MeedyaManager must cover it. MeedyaDL round 6 waits for the machine to be less loaded before it gets its own stand-in.
+- **MeedyaPlayer/MeedyaSubtitler: the twelfth review (stand-in, fresh Opus) of `be430c9..61985e1` / `415aa4c..46c7501` is NOT clean — 1 high, 2 medium, 5 low, 7 nits.** All checks pass; CI is green on both heads.
+  - **High:** the three MeedyaPlayer copyright lines (ADR 0005 and 0006) were not restored. This is the item the permission system refused; it waits on the maintainer and must not be retried another way.
+  - **Medium:** both handoffs leave out the eleventh review; ADR 0010 (an append-only, accepted decision) was edited in place.
+  - Older commits carry the maintainer's personal email as author (MeedyaPlayer `097131e`, `d5e3e41`, `4a8ba62`, `2337861`, `5a91b32`; MeedyaSubtitler `53bbc0f`). This is part of the existing history-rewrite decision.
+  - **Round-12 fixes builder running** (Sonnet, `brief-player-subtitler-r13.md`), with a watchdog.
+- **The shared `.gitattributes` wording was wrong in three places**, and a correction is appended to `gitattributes-item.md`:
+  - any later matching line wins, not only a broader one;
+  - only a `.gitattributes` in the copy's own folder or above it wins;
+  - `.git/info/attributes` wins because git always puts it first.
+  The running NetPLAYERapp, MeedyaConverter and iHymns builders were told. The carry-overs for iLyricsDB round 8, MeedyaManager round 7 and MeedyaDL round 7 include it.
+- **MeedyaPlayer `9fbf42a` / MeedyaSubtitler `fa7cd79` pushed: the round-12 fixes, which act on the twelfth review.**
+  - Verified: copy checker, `git diff --check`, identity, copies unchanged.
+  - ADR 0010's body is back to its accepted text (at `4a8ba62`), with a dated clarification section.
+  - The builder also listed other accepted ADRs edited in place: 0001, 0008, 0009 and 0011 (the real name replaced by "the maintainer"), and 0006. Those edits are left as they are; the name removals are required by the no-real-name rule.
+  - CI is being watched, and a stand-in review of just these two commits (the thirteenth) is running with a watchdog. The copyright lines still wait on the maintainer.
+- **NetPLAYERapp round 7 pushed (`9232ec6..6bd61ed`, 7 commits), acting on Codex's catch-up review.**
+  - I re-ran the checks myself: language tests 18,496 passed; deployment test 6 passed; conformance 290/290; copy checker 9 copies match; `php -l` clean; policy copies unchanged.
+  - Any raw language value over 256 bytes is now refused before parsing.
+  - The memory use is inside the shared PHP policy code, so that is now **MeedyaSuite-core#104** (opened today). It needs a new policy release; NetPLAYERapp has its own guard meanwhile.
+  - #211's body is corrected (a stored NULL is turned into empty text first, as the forms do), and #210 has a comment.
+  - CI is being watched, and a stand-in review of round 7 (fresh Opus, Codex being out) is running with a watchdog.
+- **MeedyaPlayer/MeedyaSubtitler: the thirteenth review (stand-in) of `9fbf42a` / `fa7cd79` is NOT clean — 0 high, 1 medium, 7 low, 12 nits.** These are all small documentation precision points; CI is green on both.
+  - The medium: the eleventh review's count is shared across both repositories, but its table rows do not say so.
+  - Lead's decisions:
+    - correct the new ADR 0010 clarification in place, since it is not accepted text;
+    - record in `docs/decisions/README.md` that replacing the real name with "the maintainer" is the one change made to accepted ADR text;
+    - commits carry `Refs #27` / `Refs #16` again.
+  - **Round-13 fixes builder running** (Sonnet, `brief-player-subtitler-r14.md`), with a watchdog.
+- **MeedyaPlayer `5a83142` / MeedyaSubtitler `8817667` pushed** (the round-13 fixes, acting on the thirteenth review). CI is green on both. The fourteenth review (stand-in) is running, with a watchdog.
+- **iLyricsDB: the seventh review (stand-in) of round 7 (`278657e..c59ed74`) is NOT clean — 1 high, 2 medium, 4 low, 4 nits.** The SRT fix held against 15 new shapes in three readers.
+  - **Medium:** digits newer than the server's PCRE knows still forge LRC lines; a typed `[offset:…]` moves every line in Kodi.
+  - **Round-8 builder running** (Opus, `brief-ilyricsdb-r8.md`), with a watchdog.
+- **DECISION FOR THE MAINTAINER — personal details in tracked files:** `.claude/settings.local.json` is tracked in git in four repositories, each added in a "track recovered configuration" commit:
+  - MeedyaDL: 47 lines with `/Users/<real name>` paths;
+  - MeedyaConverter: 10 such lines;
+  - iHymns: 32 such lines;
+  - iLyricsDB: 31 such lines, plus the personal email in a scraper command with `--password test`.
+  Recommended: untrack each file and add it to `.gitignore`; the local copy stays. Removing it from history is part of the history-rewrite decision. Nothing has been changed meanwhile, because tracking it looked deliberate.
+- **NetPLAYERapp: the stand-in review of round 7 (`9232ec6..6bd61ed`) is NOT clean — 2 medium, 10 low, 11 nits.**
+  - The 6 MB crash fix works (peak memory 14 MB).
+  - **Medium:** the second size guard is not really tested; the new test code fails PHP-CS-Fixer, which would fail CI.
+  - **NetPLAYERapp's GitHub CI does not run on this branch** (only on release branches and pull requests), so local checks are the only gate until the pull request.
+  - **Round-8 builder running** (Sonnet, `brief-netplayer-r8.md`), with a watchdog. It must run every check CI would run.
+- **MeedyaPlayer/MeedyaSubtitler: the fourteenth review (stand-in) of `5a83142` / `8817667` is NOT clean — 0 high, 1 medium, 2 low, 13 nits.** All of them are about wording; CI is green.
+  - **Lead's decision:** the corrected LGPL source-disclosure wording becomes a PROPOSED decision record (ADR 0013, amending 0010), instead of a "clarification" bolted onto accepted ADR 0010. Accepting it is the maintainer's call.
+  - **How this loop will stop:** a round that finds only nits (pure wording, nothing untrue or unsafe) counts as clean. Its nits are fixed in the next commit without another review round. This follows the "stop when a round finds no real problems" rule; the last few rounds' findings came mostly from each round's own new sentences.
+  - **Round-14 fixes builder running** (Sonnet, `brief-player-subtitler-r15.md`), with a watchdog.
+- **MeedyaPlayer `c67ccc1` / MeedyaSubtitler `c2e4ef9` pushed (the round-14 fixes).**
+  - ADR 0013 "LGPL source disclosure needs more than a link to upstream" is now **Proposed** and amends 0010. ADR 0010 differs from its accepted text only in its Status line (checked with git).
+  - The fifteenth review (stand-in) is running, with a watchdog. Its brief defines "nit" as pure wording that is neither untrue nor unsafe.
+- **MeedyaManager: the stand-in review of round 6 (`a150926..49cec29`, 11 commits) is NOT clean — 3 medium, 8 low, 7 nits.** All six of Codex's findings were fixed and held up on real files.
+  - **Medium:**
+    - a WAV with two INFO lists still half-changes a Test Mode copy while the command says "refused";
+    - `--dry-run` predicts success where the real run refuses;
+    - `--set` and `--remove` of the same field still means the last one wins.
+  - The test suite passes (1,549 passed). The review restored the build folder's `meedya` binary after its planted-fault runs.
+  - **Round-7 builder running** (Opus, `brief-manager-r7.md`, with the carry-overs), with a watchdog.
+- **MeedyaPlayer/MeedyaSubtitler: the fifteenth review is NOT clean — 0 high, 0 medium, 7 low, 8 nits.** Most come from ADR 0013 being only Proposed while some files already apply its stricter rule; the licence check has done so since 2026-09-28. The round-15 fixes builder is running (`brief-player-subtitler-r16.md`), with a watchdog.
+- **MeedyaDL round 6 (`5bcd7f06..c1999825`, 9 commits): stand-in review running** (fresh Opus agent, Codex being out), with a watchdog. It reuses the maintainer checkout's Rust build folder as a build cache only.
+- **MeedyaPlayer `c88a006` / MeedyaSubtitler `29e1ce5` pushed** (the round-15 fixes). The sixteenth review (stand-in) is running, with a watchdog.
+- **NetPLAYERapp round 8 pushed (`6bd61ed..fcac576`, 6 commits).**
+  - I re-ran the checks myself: language tests 18,531 passed; deployment test 6 passed; PHP-CS-Fixer 0 of 215 files to fix; `php -l` clean. The builder also ran PHPStan, house rules, schema, markdownlint and the whole 30-suite battery, all clean.
+  - One 256-byte limit now guards every public way into the shared parser, and the value is trimmed before it is measured.
+  - #210 has a comment (including a correction of the round-7 comment) and #212 has a note.
+  - A stand-in review of round 8 is running, with a watchdog.
+- **MeedyaPlayer/MeedyaSubtitler: the sixteenth review was NOT clean, but only small: 0 high, 0 medium, 3 low, 5 nits.** The fixes are pushed as `461dcdf` / `0fc0a5b`, and the seventeenth review (stand-in) is running, with a watchdog.
+- **MeedyaSuite-core revision 11 pushed (`cd3ca07..0e43b14`, 12 commits), acting on Codex's 10 findings.** All 10 were reproduced first, except Windows named streams (no Windows machine).
+  - My own re-run: `cargo fmt`, `clippy -D warnings`, tests 931 passed (1,078 with all features), the doc-count check and its new self-test; `check-doc-test-counts.sh 1 4` now fails as it should.
+  - Filed **core #105** (Windows named streams) and commented on #99.
+  - **Review: waiting for Codex, not a stand-in.** These are Codex's own findings, and its limit resets at about 04:00, three hours away. With the machine this loaded, a stand-in review followed by Codex would mean doing the review twice. A chained script (`codex-chain-0406.sh`) runs Codex on core straight after the 04:06 plugin review; a watchdog watches it. Until Codex has reviewed it, the round counts as not reviewed.
+- **MeedyaPlayer `7a71a15` / MeedyaSubtitler `4c382aa` pushed** (the round-17 fixes, handoffs only); the eighteenth review is running.
+- **MeedyaDL: the stand-in review of round 6 (`5bcd7f06..c1999825`) is NOT clean — 1 medium, 8 low, 1 nit.** All six of Codex's round-5 findings held when attacked. Every check passed: 2,180 Rust tests, 933 vitest tests, 241 conformance cases, all 12 audit checks.
+  - **Medium:** on a Mac exFAT drive no music-video subtitle can be saved any more. Both of the new no-replace steps are "not supported" there, while 1.10.8 did save them. The reviewer proved this with disk images.
+  - **Lead's decision:** add a third step that also never replaces a file: create the real name exclusively, copy, flush, and delete it on any failure. Its stated limit: a forced stop mid-copy can leave a partial subtitle.
+  - **Round-7 builder running** (Opus, `brief-meedyadl-r7.md`, branch `r7` in the builder clone), with a watchdog. It uses this checkout's `src-tauri/target` as a build cache only, and must rebuild it from clean code at the end.
+- **MeedyaPlayer/MeedyaSubtitler: the eighteenth review found 0 high, 0 medium, 3 low, 2 nits** — one broken sentence, a stale date and an unrecorded message claim. The lead fixed them directly with exact replacements (`bf4c355` / `48b3287`, pushed), and the nineteenth review (stand-in) is running with a watchdog. The trend is 7 low, then 3, 4 and 3, so the loop is close to done.
+- **NetPLAYERapp: the stand-in review of round 8 (`6bd61ed..fcac576`) is NOT clean — 0 high, 0 medium, 12 low, 3 nits.** All three size guards, the real-controller test and the deployment test held when attacked. The whole battery passed under PHP 8.4 with MySQL 8.0, the versions CI uses.
+  - Most findings are sentences that said slightly more than the code does. The posted #210 round-8 comment repeats three of them, so round 9's comment corrects them.
+  - **Round-9 builder running** (Sonnet, `brief-netplayer-r9.md`), with a watchdog.
+- **iHymns round 8 pushed (`c60ed8b7..e9cf5fea`, 7 commits).**
+  - The builder ran the full PHP suite: 291/291 on MariaDB 11.8 and on MySQL 8.4. I re-ran the 114 JavaScript suites, `php -l` and the copy checker (9 match).
+  - The catch audit is now a permanent test.
+  - The geo cache is never written inside a transaction (a new `dbTransactionIsOpen()` check).
+  - `logActivity()` carries on after a deadlock or timeout when no transaction is open.
+  - #2137 has a comment. A stand-in review of round 8 is running, with a watchdog; the round-9 carry-over is in `ihymns-r9-carryover.md`.
+- **MeedyaPlayer/MeedyaSubtitler: the nineteenth review found 0 high, 0 medium, 2 low, 2 nits.** The lead fixed them directly (`3351294` / `222842e`, pushed); the twentieth review is running.
+- **MeedyaPlayer/MeedyaSubtitler: the stand-in review loop is DONE.** The twentieth review was clean (0 high, 0 medium, 0 low, 1 nit). The recording commits are `cb1141b` / `5e6b560`, pushed: they reword the nit and add the table row without another review, per the nits-only rule.
+  - **Still owed:** a Codex catch-up review of everything after `bc901ad` / `44cf095` (rounds 10 to 19, all reviewed by stand-ins only), when Codex has allowance. The copyright lines and ADR 0013 still wait on the maintainer.
+  - The twentieth review also flagged the older commits carrying the maintainer's personal email (MeedyaPlayer `097131e`, `d5e3e41`, `4a8ba62`, `2337861`, `5a91b32`; MeedyaSubtitler `53bbc0f`). They are already on `main`/`develop`, so this belongs to the history-rewrite decision.
+- **iHymns CI, like NetPLAYERapp's, does not run on the feature branch.** Only "Lint Workflows" runs, and only when a workflow file changes; no run started for `e9cf5fea`. The full CI runs on pull requests and channel branches, so local checks are the only gate until the pull request is opened.
+- **NetPLAYERapp round 9 pushed (`fcac576..c43b4a3`, 4 commits).**
+  - My re-run: language tests 18,537, deployment test 6, PHP-CS-Fixer clean. The builder ran the whole battery under PHP 8.4 and 8.5.
+  - The standard form's length is judged before the registry check, and the probe now runs under `open_basedir`.
+  - #210 has a comment that corrects three overstatements in the round-8 comment.
+  - A stand-in review of round 9 is running, with a watchdog.
+- **iHymns: the eighth review (stand-in) of round 8 (`c60ed8b7..e9cf5fea`) is NOT clean — 0 high, 0 medium, 11 low.** Nothing breaks a song save, and both databases pass 291/291.
+  - Two findings change behaviour:
+    - the geo-cache write still fails an admin geolocate request after a deadlock outside a transaction, and its activity row is lost;
+    - the "is a transaction open?" probe changes the next transaction when the session default is read-only.
+  - **Round-9 builder running** (Opus, `brief-ihymns-r9.md`), with a watchdog.
+- **NetPLAYERapp: the stand-in review of round 9 is NOT clean — 0 high, 0 medium, 8 low, 4 nits.** Every round-9 fix held. The remaining findings:
+  - two test gaps: the second length message, and nothing checks that `open_basedir` is actually on;
+  - stale comments in the deployment test;
+  - small handoff inaccuracies.
+  The posted round-9 #210 comment slightly overstates item 4, and round 10's comment corrects it. **Round-10 builder running** (Sonnet, `brief-netplayer-r10.md`), with a watchdog.
+- **MeedyaManager round 7 built (13 commits on `49cec29`, local).** All 12 decisions were done, and the builder reported 1,566 tests passing. I am re-running fmt, clippy, the tests, the docs and the copy checker myself before pushing; a watchdog is on that run.
+- **DECISION FOR THE MAINTAINER — the real name is in tracked files in six repositories.** The MeedyaManager builder found one, and a sweep found the rest. All of it predates the language-policy work. I checked each branch's own commits: the earliest is 2026-08-27, and the latest is MeedyaSuite-core `9dc58c2` (2026-09-23).
+  - MeedyaSuite-core: 1 file (handoff `cd "/Users/<name>/…"` lines).
+  - MeedyaConverter: 1 file (a plan).
+  - MeedyaManager: 2 files (the handoff's scratch path, `settings.json`).
+  - iHymns: 10 files, including three code comments that give the maintainer's full name as an example user label, two ProPresenter test fixtures with a `file:///Users/<name>/…` path, and `tools/sync-claude-session.sh`.
+  - NetPLAYERapp: 4 files.
+  - dev-team plugin: 5 plan files.
+  - MeedyaDL itself, MeedyaPlayer, MeedyaSubtitler and iLyricsDB: none, apart from the `settings.local.json` files already raised.
+  - **Recommended:** one clean-up commit per repository replacing the name and paths with "the maintainer", `~` or Salem874. The test fixtures need care, because the tests compare them. History stays for the history-rewrite decision. Nothing has been changed yet.
+- **MeedyaManager round 7 pushed (`49cec29..e4db8f8`, 13 commits).**
+  - My re-run: fmt and clippy clean, 1,566 tests passed with 1 ignored (#254), docs build clean, copy checker clean.
+  - Filed MeedyaManager #261 (a zero character in other fields) and #262 (`--json` log lines), commented on #256 and #251, and filed **core #106** (the copy checker's line-ending advice).
+  - A stand-in review of round 7 is running, with a watchdog.
+- **NetPLAYERapp round 10 pushed (`c43b4a3..ca00419`, 4 commits).**
+  - My re-run: language tests 18,538, deployment test 6, PHP-CS-Fixer clean.
+  - The probe now refuses to run unless `open_basedir` is really set (exit 6), and the second length message is tested.
+  - #210 has a comment that corrects the round-9 comment's item 4.
+  - A stand-in review of round 10 is running, with a watchdog.
+- **iLyricsDB round 8 pushed (`c59ed74..f6c9ccd`, 9 commits).**
+  - Fixed: digits newer than the server's PCRE are now treated as possible digits (`[\d\p{Cn}]`), and a typed `[offset:` is rounded.
+  - I re-ran `php -l`, injection 1,338/1,338, fuzz 28/28 and the copy checker. The builder also ran everything in `ubuntu:24.04`, `php:8.4-cli` and `php:8.5-cli`.
+  - Filed **iLyricsDB #161** (the `[offset:]` direction, and the doubled offset on export) and commented on #150. The round-9 carry-over is in `ilyricsdb-r9-carryover.md`.
+  - A stand-in review of round 8 is running, with a watchdog.
+- **About 02:40 on 5 Oct, the account's session limit stopped six agents mid-work.** It has since reset. Four were resumed with their own watchdogs: the MeedyaConverter round-5, MeedyaDL round-7 and iHymns round-9 builders, and the MeedyaManager round-7 and iLyricsDB round-8 stand-in reviews.
+  - **The NetPLAYERapp round-10 review was dropped, not resumed.** The machine-wide rules were narrowed on 5 Oct: a review round now covers only changes that could do real harm, and round 10 is tests and comments only.
+  - The maintainer's three queued requests ran first:
+    - two instruction reviews, delivered in chat, nothing changed;
+    - the polish audit of MeedyaDL, a read-only Opus auditor, with a watchdog.
+- **MeedyaDL round 7 pushed (`7d9806b4..e40fc0a7`, 10 commits, cherry-picked from the builder clone's `r7`; the code is identical).**
+  - It restores music-video subtitles on Mac exFAT drives with a third, never-replacing step, and has a real `Release-Note:`. It also fixes the clean-up age rule, the label clashes and the retry of a too-large call.
+  - My re-run: clippy clean, `cargo test` 2,199 passed, type-check clean, copy checker clean.
+  - vitest gave 937 of 938 in the full run under a load average of about 300. The one failure, `GeneralTab.test.tsx` "orders the Interface Language rows…", passed 3 of 3 alone. It waits with the default timeout, and that is recorded in `meedyadl-r7-carryover.md` item 2.
+  - Filed **#1267** (the Interface Language dropdown with `de-AT`).
+  - **Review:** the change can lose files, so it needs a round. Codex runs on rounds 6–7 straight after the core review, through the chained script `codex-chain-mdl7.sh`, with a watchdog.
+- **MeedyaConverter round 5 pushed (`6dfc16a..bbf2cd8`); CI green.** #531 has a comment. A stand-in review is running with a watchdog.
+- **MeedyaManager: the stand-in review of round 7 is NOT clean — 1 medium, 9 low, 3 nits.** Every round-6 fix held on real files, and 1,566 tests pass.
+  - **Medium (older than round 7):** setting or clearing a non-language field on a WAV reports success, but the RIFF INFO list keeps the old value. The new round-7 test asserts that wrong answer.
+  - **Round-8 builder running** (Opus, `brief-manager-r8.md`), with a watchdog.
+- **iLyricsDB: the eighth review (stand-in) of round 8 is NOT clean — 1 medium (security), 4 low, 3 nits, plus 1 older low.** Both fixes hold with Kodi's default settings.
+  - **Medium:** Kodi's own "Remove Chinese/Korean text from lyrics" setting (off by default) reopens both the forged-timestamp route and the offset route.
+  - `\p{Cn}` also rounds brackets around newer emoji.
+  - **Lead's decisions for round 9:** judge brackets as Kodi would read them with that setting on; replace `\p{Cn}` with an explicit list of the Unicode 17 digits, plus a test that warns when the server's PCRE knows more; make the `[` rule linear even with the JIT off.
+  - Round-9 builder running (Opus, `brief-ilyricsdb-r9.md`), with a watchdog.
+- **MeedyaConverter: the stand-in review of round 5 is NOT clean — 1 medium, 8 low, 4 nits.** All 20 planted faults were caught, and the new MOV/MP4 reader survived 72,000 hostile inputs.
+  - **Medium:** a damaged full language tag now overrides a valid old field, under a note that says "kept".
+  - Two older faults were filed: **#542** ("map all streams" with ASS subtitles fails the whole job) and **#543** (copying H.264 into AVI fails).
+  - **Round-6 builder running** (Opus, `brief-converter-r6.md`), with a watchdog.
+- **iHymns round 9 pushed (`e9cf5fea..17e3eaa3`, 7 commits).**
+  - The geo cache and the token slide write only outside a transaction and never fail the request.
+  - The "is a transaction open?" probe keeps the session's own settings.
+  - "Could not tell" now counts as open, and is tested.
+  - The audit reaches further.
+  - The builder ran the full PHP suite: 291/291 on MariaDB and on MySQL 8.4. I re-ran `npm test` (114), `php -l` and the copy checker.
+  - Filed **#2145** (the unused songbooks list) and **#2146** (the /manage token slide), and commented on #2137.
+  - A stand-in review of round 9 is running, with a watchdog.
+- **dev-team plugin: Codex's catch-up review of `748e87c..2f91439` (rounds 2–5) is NOT clean — 7 medium, 1 low.**
+  - Medium findings in the push guard:
+    - a `$'main\0…'` spelling;
+    - a remote set as a mirror;
+    - a deadline that does not cover reading the input;
+    - a child process that ignores the stop signal can hold the answer.
+  - Other medium findings:
+    - a ci-medic loop can silently take a fresh snapshot after the conversation is compacted;
+    - the long-input tests do not prove the parser reaches the end;
+    - the notes misstate the review history.
+  - Low: separate commands combine into a false refusal.
+  - Codex's earlier ten findings are all resolved except the notes.
+  - **Round-6 builder running** (Opus, `brief-plugin-r6.md`), with a watchdog. Codex then moved straight on to core revision 11 (the chained script), and MeedyaDL rounds 6–7 follow it.
+- **MeedyaDL polish audit done (read-only, alpha at `0e515cb3`).** 8 high, 21 medium, 20 low, 5 nits; full report and 127 screenshots in the scratch folder `polish/` (`audit-report.md`).
+  - **High:**
+    - a raw programming error toast on every launch (translation set-up order);
+    - "Welcome to GAMDL";
+    - a developer crash screen;
+    - an unusable URL box and an off-screen Abort button at the minimum window size;
+    - Spotify offered to everyone and then refused;
+    - rclone and "direct-to-cloud" advertised with no code behind them;
+    - channel versions that disagree.
+  - **Work:** one effort branch, `feature/polish-pass`, cut from alpha and kept separate from the language branch.
+    - **Part A done and pushed: `feature/polish-pass` at `211ab4ca`** (14 commits plus a whitespace fix, cut from alpha `0e515cb3`, not reviewed yet). Re-checked here: 2,101 Rust tests, 906 frontend tests, type-check, lint, build, every audit check with `--strict`, and the polish check's self-test 24/24. The new pre-push hook ran on the push. Issues #1270–#1295 are on board 6, each with its commit. **Owed: a Codex review before any PR** (it adds a window-title permission and changes the Spotify refusal wording).
+    - **Part B done and pushed: `feature/polish-pass` at `6478de12`** (11 commits; issues #1296–#1307, found items #1308–#1311, all on board 6).
+      - Results: start-up script 1,456 kB → 267 kB; `dist/` 13.6 MB → 1.8 MB; every ratchet (hand-made controls, pixel fonts, corners, raw-error toasts, "...") down to 0.
+      - German and French are offered only when complete; finishing them is #1302.
+      - Re-checked here: 964 frontend and 2,101 Rust tests, type-check, lint, clippy, every audit check with `--strict`, a build with no size warning, and the pre-push hook.
+      - **Owed: a Codex review of the whole polish branch (`0e515cb3..6478de12`) before any PR.** It is large, so after the #1275 and MeedyaDL round-9 reviews.
+    - Part B follows: layout at small windows, error messages, bundle size and consistency.
+  - **Waiting on the maintainer:** H8 (the RC and beta branches carry versions older than stable), M18 (the GitHub repository's description, topics, homepage and social preview), M19 (the wiki: stale, and it publishes the developer-access key sequence), M21 (the releases page: a draft duplicate and inconsistent pre-release flags), L18 (the OnlyFans engine entry ships in every installer).
+- **MeedyaSuite-core: Codex's review of revision 11 (`cd3ca07..0e43b14`) is NOT clean — 2 high, 1 medium, 3 low.**
+  - **High:**
+    - On macOS a folder's inherited ACL, or a different group, can still expose the "private" temporary copy.
+    - Zero-length `TLAN` frames bypass the memory budget.
+  - **Medium:** a copy renamed mid-save is not reported.
+  - **Low:**
+    - the count checker passes when a document is missing;
+    - the privacy tests pass under `umask 077` with the fix removed;
+    - the performance test does not count the real work.
+  - The brief for **revision 12** is written (`brief-revision-12.md`). It waits for a free helper slot: the concurrent-helper limit is 6, and 6 are running. Launch it as soon as one finishes.
+  - Codex has now moved on to MeedyaDL rounds 6–7 (the chained script), with a watchdog.
+- **Codex ran out partway through MeedyaDL rounds 6–7** at about 04:28 on 5 Oct, before it gave any findings. It names 09:06 as the reset. A background command retries at 09:08, with a watchdog; the cut-off output is kept as `codex-mdl-r7-cutoff1.out`.
+  - No stand-in meanwhile, and that is deliberate. Round 6 already had a stand-in review. All six helper slots are busy, and core revision 12 is first in line for the next free one. Until Codex reviews it, MeedyaDL round 7 counts as not reviewed.
+- **iHymns: the ninth review (stand-in) of round 9 is NOT clean — 0 high, 0 medium, 8 low.** Every code fix held on MariaDB 11.8 and MySQL 8.4, with 291/291 on both. The findings are gaps in what the checks can see, new misses in the English check, and notes made untrue.
+  - The round-10 brief is written (`brief-ihymns-r10.md`) and waits for a free helper slot (the limit is 6).
+  - **Round 10 changes only checks, tests, notes and one log line, so under the narrowed rule it needs no review round of its own.** After it, iHymns waits only for a Codex catch-up.
+- **Core revision 12 is now building** (Opus, `brief-revision-12.md`), with a watchdog. It took the slot the iHymns review freed.
+- **The maintainer's decision, 5 Oct about 08:00: finish the half-built rounds, then hand each repository over to its own handoff.**
+  - **New stop rule:** a review loop stops when a review finds no high or medium problems. Low findings, wording points and older faults a reviewer finds become issues, not new rounds.
+  - **Why it was taking so long** (told to the maintainer): the old stop rule was "no findings at all", applied to reviewers told to report everything; each fix added new text to review; older faults were folded into the rounds; and session limits cut builders off mid-round.
+  - **Handed over — no longer run from here; each repository's own handoff is the record:**
+    - **iHymns** — `.claude/sessions/2026-09-23-HANDOFF.md`, `743e38c2`. The ninth review found 0 high and 0 medium, so it is finished; its 8 low findings are #2147–#2151. Owed: a Codex review of the whole branch.
+    - **iLyricsDB** — its handoff at `0f54a1e` (round 9 pushed; every host check passes again here). Owed: a review of round 9.
+    - **MeedyaManager** — `.claude/HANDOFF.md`, `8c2fbd0` (round 8 pushed; 1,583 tests pass again here). Filed #263 (`year` is never written to MP3, M4A or WAV). Owed: a review of round 8.
+    - **NetPLAYERapp** — `.claude/HANDOFF.md`, `a409c67` (the maintainer agreed at about 08:30). Finished: the round-9 stand-in review found 0 high, 0 medium. Owed: Codex review of rounds 7–10 (after `9232ec6`). CI is still blocked by billing.
+    - **MeedyaPlayer** `75c7329` and **MeedyaSubtitler** `dd1f66a` — each `.claude/HANDOFF.md`. Finished: the twentieth review was clean. Owed: Codex review after `bc901ad` / `44cf095`.
+    - **dev-team plugin** — round 6 pushed (`afa1f5d`, 9 commits; 199/199 bats tests, smoke test, both audits, ShellCheck and actionlint pass again here). Its notes carry the next steps. The builder corrected decision 8: Codex DID review `748e87c..42bd45e`; the notes now record the true history. Filed **#48** (`conventions.md` says both guards fail open). Owed: a review of round 6.
+    - **MeedyaSuite-core** — `.claude/HANDOFF.md`, `447616f`. Revision 12 pushed (`2569f02`): fmt, clippy, 945 and 1,092 tests, and the count check pass here. `cargo doc` with warnings as errors fails on two older links (filed **#108**). Filed **#107** (FAT/exFAT saves on macOS) and **#109** (keep `exacl`? maintainer's call), and posted the #99 note. Owed: a review of revision 12.
+    - **MeedyaConverter** — `.claude/HANDOFF.md` on `wip/bcp47-language-policy`, `a0ce903`. Round 6 pushed (11 commits); CI "Build & Test" passed. Filed **#544** (only the newest 64 job notes are kept). Owed: a review of round 6.
+  - **All eight other repositories are now handed over.** Only MeedyaDL's own work continues here.
+- **Dependency pull requests, asked for by the maintainer at about 08:15 on 5 Oct.**
+  - #1259–#1262 all failed one check, "Tauri npm/Rust version sync". The npm and Rust halves of one Tauri plugin update (updater 2.11 → 2.12) were in separate PRs, so neither could pass alone.
+  - **Combined, unchanged** (Dependabot's commits cherry-picked onto today's bases, no conflicts):
+    - **#1272** → `main`, replacing #1259 and #1261;
+    - **#1273** → `release-candidate`, replacing #1260 and #1262. The maintainer wrote "still targeting main" for this pair; I read that as a slip, since "still" means keeping the base.
+  - Local checks passed on both: version sync, `npm ci`, type-check, lint, vitest (489 and 305), `cargo metadata --locked`.
+  - The four originals are closed with pointers, and Dependabot deleted their branches. A PR cannot be deleted on GitHub.
+  - **Maintainer's instruction:** fix any failing check; merge each once green; then watch the post-merge runs and the packaging and deployment they start, fixing issues, until the deployments finish. A merge to `release-candidate` cuts `1.0.0-rc.39` and builds every platform.
+  - **Watched by** `scratchpad/deps/watch-pr.sh` (one background loop per PR, two-hour deadline). The working copies are git worktrees at `scratchpad/deps/main` and `scratchpad/deps/rc`; remove them when done.
+  - **#1273's first run failed "Security audit"**: `release-candidate` had high advisories in `brace-expansion` 5.0.9 and `undici` 7.29.0. `main` fixed both on 1 Oct (#1264, #1266), but they never reached the channels. Fixed in #1273 by the same two override floors (`13936483`; same integrity hashes as `main`).
+  - **#1272 merged 08:33** as `3c976727`. All 8 post-merge runs passed (CI, CodeQL, forward-port, channel audit, Release Please, Changelog, security policy).
+  - **#1273 merged 08:45** as `d2bbd76e`. Its version bump tagged **`v1.0.0-rc.39`**; the CI on the bump commit passed. The release build (run 37279577149) passed on all six platforms, and the release is published as a pre-release with 20 files.
+  - **rc.39's updater manifest has only 6 entries, the same as rc.38 and stable 1.10.8.** All Linux `.deb`/`.rpm` entries are missing, and ARMv7 has no signature files. This is older than today's work: the #1166 fix is on `alpha` only. **#1166 reopened** with the evidence. It reaches `main` and `release-candidate` via the promotion (#1040) or a separate port; the maintainer decides which.
+  - **Why the fixes never reached the channels:** `main`'s `forward-port-security.yml` still needs the author to be exactly `dependabot[bot]`, but the API says `app/dependabot`. The fix (#1165) was on `alpha` only. The maintainer said to fix it (about 08:30).
+    - **#1275** (`ci/forward-port-security-to-main`, `e39024f1`) copies `alpha`'s two files unchanged.
+    - Tested locally against real merges: #1264 and #1266 forward-port; #1152 (a routine update) and #1230 do not.
+    - **Codex's focused review (09:19): NOT clean — 3 high, 2 medium**, all already in `alpha`'s version (output `scratchpad/deps/codex-fp.out`).
+      - The helper can wrongly say "already fixed": it checks one copy of a package only, ignores packages the fix added, and skips manifest changes it never checked.
+      - A mere mention of a Dependabot PR qualifies for forwarding, and so do release-please PRs.
+      - Round 1 of fixes pushed (`914810f3`, `d40d78e3`, `9a558b45`; 33 + 16 new tests in `.github/scripts/`, run from `ci.yml`).
+      - **Codex round 2 (10:15): 5 high, 1 medium.** Findings 1, 2 and 5 are fixed. The manifest check still matches a setting under the wrong dependency. Five of the six findings are in the "body names a superseded Dependabot PR" path.
+      - **Lead's decision:** remove that path. It cannot be inferred soundly: every tightening rejected real fixes, every loosening forwarded unrelated ones. Forward only Dependabot-authored, `security`-labelled or hand-run PRs. The "not forwarded" comment says how to forward. The weekly channel audit is the backstop. Manifests are compared as parsed data.
+      - Round 2 pushed (`94bd906e`, `ad508f12`). Re-checked here: 40 + 17 tests, actionlint, and the real-data runs.
+      - **Codex round 3 was cut off by its usage limit (resets 14:07).** Before stopping, it was probing workspace inheritance in `Cargo.toml`, and whether a comment can silence the notice.
+      - The lead confirmed the second: anyone could post the hidden marker and stop the "not forwarded" notice. The same builder is fixing it (round 3), with a watchdog.
+      - Round 3 pushed (`adfe62fe`): outsiders' comments, issue titles, branch names and PR titles can no longer switch the workflow off. 27 + 40 tests.
+      - **Codex round 4 (14:12) on `9a558b45..adfe62fe`: 1 high.** Workspace inheritance in `Cargo.toml` could still give a false "already fixed". Everything else was clean.
+      - Round 4 pushed (`bc4cadce`): an inherited (`workspace = true`) entry needs the workspace table compared too, otherwise `NEEDS_PORT`. 44 + 27 tests.
+      - **Codex is out until 19:08** (refused at 14:19). A fresh Opus stand-in is reviewing `bc4cadce`, named as a stand-in.
+        - If it is clean, #1275 merges. This commit only turns some "already fixed" answers into "needs the fix", the safe direction.
+        - The change counts as **not fully reviewed** until Codex re-reviews `bc4cadce` after 19:08 (owed).
+      - **Stand-in review of `bc4cadce`: NOT clean — 1 high, 1 medium (older).**
+        - The mirror inheritance case: the fix changes the workspace entry, and the channel's own entry re-adds the feature.
+        - Another table on the channel (target-specific, or `[features] default = ["foo/risky"]`) can re-enable it.
+        - **Lead's decision (round 5):** for each touched package, collect every place each manifest mentions it (all dependency tables, `[features]`, `patch`, `replace`; every npm section, `overrides` at any depth), and require the two collections to be identical. Otherwise `NEEDS_PORT`. The same builder is on it, with a watchdog.
+      - Round 5 pushed (`51d49b21`; 52 + 27 tests, CI green). **Stand-in review of `51d49b21`: CLEAN** (no high or medium). Its 4 low findings are **#1312**.
+      - **#1275 MERGED to `main` at 14:57 as `8566b813`.** Post-merge runs watched.
+      - **Codex catch-up owed after 19:08 on `bc4cadce`, `51d49b21`** (only stand-in-reviewed); said in the PR description.
+      - **14:57: the workflow was run by hand for #1266 and #1264** (runs 37320891100, 37320896405), watched. Each should open a PR on `alpha` and on `beta`, and skip `release-candidate`, which already has both. **Then combine the two PRs per branch into one**, merge, and watch the alpha/beta releases.
+      - **The manual runs worked.**
+        - `alpha`: they opened #1315 and #1317.
+        - `beta`: they opened #1316. The brace-expansion fix conflicted there, because `beta` had no such override, so the workflow opened #1314.
+        - `release-candidate`: skipped, as already fixed.
+      - **Combined into one PR per branch**; the originals are closed and their branches deleted:
+        - **#1319 → `beta`**, with the brace-expansion floor added by hand: MERGED `9203c44b`; #1314 closed; `v1.9.4-beta.10` build watched.
+        - **#1318 → `alpha`**: MERGED `03d8e1ea`.
+      - **Deployments finished, all six platforms each:**
+        - `v1.13.0-alpha.78`: 22 files, 12 manifest entries, all signed;
+        - `v1.9.4-beta.10`: 20 files, 6 manifest entries (the #1166 gap; noted there).
+        - CI passed on both version-bump commits. The merge commits' own CI runs were "cancelled" only because the bump commit replaced them, which is normal.
+      - **All four channels now carry the undici and brace-expansion fixes.**
+      - The worktrees `deps/main`, `deps/rc`, `deps/sec-alpha` and `deps/sec-beta` are removed; `deps/fp` is kept for the Codex catch-up.
+      - `alpha` also needs the new workflow files (a separate PR). `alpha`'s copy never runs, so it only matters for keeping the two identical; low priority.
+      - `alpha` then needs the same files by a separate PR.
+    - After merge: run the workflow by hand for #1264 and #1266 to carry both fixes to `alpha` and `beta` (#1265 lists them).
+    - #1275 is `fix(ci)`, so release-please will propose 1.10.9 for `main`; nothing ships until that release PR is merged.
+- **Codex reviewed MeedyaDL rounds 6–7 at 09:08 on 5 Oct: NOT clean — 2 high, 3 medium.** All five are ways the subtitle code can delete or lose a file (full answer: `scratchpad/lang/codex-mdl-r7.out`, last message):
+  - **High:** a failed copy can delete somebody else's replacement file; cleanup can delete a newly reused temporary name.
+  - **Medium:** the one-hour rule still deletes live work on shared folders; a matching name is treated as proof of ownership; the Windows no-replace rename loses long-path support.
+  - **Lead's decision for round 8:** no run deletes a temporary file it did not create in that run. This **reverses round 7's decision 5** (the hour rule), because neither a name nor a clock proves ownership. Leftovers are reported in the activity log, not removed. Temporary names get a random part, and every removal first checks the file is still the one created.
+  - **Round 8 pushed: `2ed3a313`..`97df531c`** (7 commits, cherry-picked from the builder clone's `r8`; the code is identical).
+    - Leftovers from other runs are reported, never removed. Temporary names carry 64 random bits.
+    - A removal compares the open handle with the file at the name at that moment (FAT and exFAT renumber files, so a number recorded at creation would not work).
+    - Windows long paths are converted as Rust's `get_long_path` does.
+    - Lyrics pairing and the lyrics count skip temporary files.
+    - Re-checked here: clippy, 2,217 Rust tests, type-check, lint, copies, and all release notes.
+    - vitest 932/938 under a load of about 230. The 1 failure (HelpViewer German page) plus a hook timeout pass 15/15 alone; recorded in **#1298** with the other found items.
+    - **Codex reviewed round 8 (14:14): NOT clean — 1 high, 1 medium.**
+      - High: a replacement made between the identity check and the removal is still deleted.
+      - Medium: a Windows drive-relative path (`D:Music`) resolves to the wrong folder; the long-path tests do not prove the real call uses the conversion.
+      - **Lead's decision:** never remove a name directly. Rename it to a private quarantine name, check that, then delete; else put it back, or leave it and report. On Windows, delete by handle. Make relative paths absolute with `std::path::absolute`.
+      - **Round 9 pushed: `9165d5cd`..`4bcb52fa`** (3 commits). It never deletes a name directly: a file is moved to a private name, checked there, then deleted (or put back, or left and reported). Windows deletes by handle. Where the safe rename is refused (Mac exFAT), it renames onto an exclusive placeholder, so exFAT leaves nothing behind. Windows relative paths go through `std::path::absolute`. Re-checked here: clippy, 2,231 Rust tests, 938 vitest, copies, release notes. Posted on #1255.
+      - **Release-note caveat:** `9e914b6e` still carries an out-of-date `Release-Note:` (it says exFAT leaves files behind; `4bcb52fa`'s replaces it). **The language branch's PR must be squash-merged with a correct PR-body note.**
+- **Codex catch-up results (19:10–19:13):**
+  - **#1275 (`bc4cadce`, `51d49b21`): 1 high.** A Cargo feature chain (`default = ["legacy"]`, `legacy = ["foo/risky"]`) can still give a false "already fixed".
+    - **Decision:** when the fix changes `Cargo.toml`, also require the whole `[features]` table, `edition` and `resolver` to match; treat underscore table names as dependency tables.
+    - **#1320 opened** (`ci/forward-port-feature-graph`, 3 commits; also closes #1312). 66 + 27 tests; the real data now gives ALREADY_FIXED on all three channels.
+  - **MeedyaDL round 9: 2 high.**
+    - (a) The exFAT placeholder put-back can overwrite a subtitle saved in that instant. **Fix:** never put back on such drives; keep the file under its private name and report.
+    - (b) A program watching the folder could swap the random `.discard` or placeholder file between check and delete. **Judged NOT a real problem:** a program that can write to that folder can delete the subtitles directly, and no ordinary program can know the random name. Record it as a design limit.
+    - **Round 10 pushed: `a69c7218`, `0503fbd5`.** No put-back on drives without the no-replace rename (exFAT); the watched-folder limit is documented. Re-checked here: clippy, 2,231 Rust tests, 938 vitest, copies, notes. Posted on #1255.
+  - **Polish branch: Codex ran out partway** (resets 21:28). So far: the title permission covers only the main window, and the error displays still use the redaction commands.
+  - **Queue from 21:29, one at a time** (`scratchpad/catchup/`):
+    1. #1320 (`out4-fpf.out`);
+    2. the polish branch (`out3-polish-r2.out`);
+    3. MeedyaDL round 10 (`out5-mdl10.out`).
+    Watchdog on the first. If Codex refuses, the rest wait for the next reset.
+- **Trap found:** `pgrep -f "codex exec"` also matches the ChatGPT app's permanent `codex exec-server` process, so a "wait until no Codex is running" loop never ends. The #1275 review chain had stalled on it; it was started directly at about 09:15.
+- **BLOCKER FOR THE MAINTAINER — GitHub billing:** CI jobs in PRIVATE MWBMPartners repositories
+  (iLyricsDB, NetPLAYERapp, dev-team-plugin) are refused before they start: "recent account
+  payments have failed or your spending limit needs to be increased" (iLyricsDB run 36373836077,
+  NetPLAYERapp run 36373865581 — job with zero steps). NetPLAYERapp's last successful run was
+  18 Aug. Public repos (MeedyaDL, core, MeedyaConverter, MeedyaManager, iHymns) are unaffected.
+  Until the maintainer fixes billing, those three are checked on this Mac only.
+- **Every consumer's copy check needs `GITHUB_TOKEN`** (all running builders told), and every
+  lock pins a commit only on core's feature branch: **merge core's branch with a merge commit, not
+  a squash**, or every consumer must run `--update` afterwards.
+
+**MeedyaDL's own share (to build after core):** settings.language cut at 20 bytes
+(`commands/settings.rs`); `locale_query_suffix` turns en_US into enUS (`apple_music_api.rs`);
+storefront guessed by splitting text (`login_window_service.rs`, `config_service.rs`);
+lyrics writers drop the language (WebVTT/ASS/rich SRT) and LRC copies it raw; music-video
+subtitle files named with three-letter codes, roles ignored, language unsanitised in the file
+name (`music_video_subtitle_service.rs`); metadata-language dropdown has 12 English-only labels
+with region standing in for script (`GeneralTab.tsx`). Details in the findings file.
+
+---
+
+## Previous — 2026-09-27 (evening): batch — #1221 to #1226, then a combined check of #1215 to #1218
 
 > **PICK UP HERE.** Working branch `work/after-alpha-74` (from alpha after alpha.74).
 

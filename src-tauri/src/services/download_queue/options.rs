@@ -136,7 +136,11 @@ pub(crate) fn plan_drm_backend_for_now(settings: &AppSettings) -> DrmPlan {
 /// Extracted as a pure function so it can be exercised by unit tests
 /// without a full settings/queue setup.
 #[must_use]
-pub(crate) fn apply_padding_to_template(template: &str, track_width: usize, disc_width: usize) -> String {
+pub(crate) fn apply_padding_to_template(
+    template: &str,
+    track_width: usize,
+    disc_width: usize,
+) -> String {
     // Regex-free implementation: walk the string, find literal `{track}`
     // and `{disc}` substrings (no format spec after the name), replace
     // in-place. Robust against tokens that appear multiple times in one
@@ -186,7 +190,15 @@ pub(crate) fn merge_options(
     options.cover_format = Some(settings.cover_format.clone());
     options.cover_size = Some(settings.cover_size);
     options.overwrite = Some(settings.overwrite);
-    options.language = Some(settings.language.clone());
+    // Sent in its standard form (independent review, round 3 of #1244):
+    // the stored setting is only ever put into standard form on save and
+    // import, so a value written before that existed -- or edited by hand
+    // -- could still carry a stray newline or leading space straight onto
+    // GAMDL's command line. See `language_arg_for_gamdl`'s own comment for
+    // why the STORED value is never touched, only what is sent here.
+    options.language = Some(crate::utils::language::language_arg_for_gamdl(
+        &settings.language,
+    ));
     // Every template field is passed through
     // `config_service::resolve_meedyadl_template_vars` BEFORE assignment
     // so MeedyaDL-introduced placeholders (currently `{platform}`, #829)
@@ -200,10 +212,11 @@ pub(crate) fn merge_options(
         &settings.album_folder_template,
         service,
     ));
-    options.compilation_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
-        &settings.compilation_folder_template,
-        service,
-    ));
+    options.compilation_folder_template =
+        Some(super::config_service::resolve_meedyadl_template_vars(
+            &settings.compilation_folder_template,
+            service,
+        ));
     options.no_album_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
         &settings.no_album_folder_template,
         service,
@@ -624,4 +637,3 @@ pub(crate) fn needs_primary_suffix(
         }
     }
 }
-

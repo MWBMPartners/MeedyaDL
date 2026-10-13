@@ -73,6 +73,7 @@ import type {
   DetectedBrowser,
   DownloadRequest,
   ExternalGamdlInfo,
+  LanguageIdentity,
   PlatformInfo,
   PythonVenvHealthDto,
   QueueStatus,
@@ -795,6 +796,60 @@ export function getDefaultSettings(): Promise<AppSettings> {
  */
 export function saveSettings(settings: AppSettings): Promise<void> {
   return invoke<void>('save_settings', { settings });
+}
+
+/**
+ * Orders the entries of a language list the way a person should see them
+ * (#1249): their preferred languages first, then the rest alphabetically
+ * by name in the interface language (shared language policy UI-020 to
+ * UI-040, docs/standards/media-language-bcp47-policy.md).
+ *
+ * Rust handler: `order_languages_for_display()` in
+ * `src-tauri/src/commands/language.rs`, which runs the shared
+ * `meedya-lang` ordering -- so the rules exist once, in the code the
+ * policy's test cases check, not again in JavaScript.
+ *
+ * Called by: `useMetadataLanguageOptions` (Settings > General). If this
+ * rejects, the caller shows the list alphabetically instead.
+ *
+ * @param tags - The entries, as stored. Returned exactly as given, only reordered.
+ * @param preferences - The person's languages, highest priority first.
+ * @param alphabeticalPrimaryOrder - Primary language codes in alphabetical
+ *   order of their names in the interface language (worked out with
+ *   `Intl.Collator`, which only the platform can do correctly).
+ * @returns Promise resolving to `tags` in display order
+ */
+export function orderLanguagesForDisplay(
+  tags: readonly string[],
+  preferences: readonly string[],
+  alphabeticalPrimaryOrder: readonly string[]
+): Promise<string[]> {
+  return invoke<string[]>('order_languages_for_display', {
+    tags,
+    preferences,
+    alphabeticalPrimaryOrder,
+  });
+}
+
+/**
+ * For each tag, its standard form and the identity to group it by (Codex's
+ * catch-up review of #1244, finding 1).
+ *
+ * Rust handler: `language_identities()` in `src-tauri/src/commands/language.rs`,
+ * which reads tags with the same shared code `order_languages_for_display`
+ * groups by. `Intl.Locale` disagrees with the policy for some real tags
+ * (`cmn-Hans`, `zh-cmn-Hans`), so it is never used for identity.
+ *
+ * Called only by `useLanguageIdentities`.
+ *
+ * Rejects only for a call over the backend's size limits, with a message
+ * that begins "Too large to identify:", which the hook does not retry.
+ *
+ * @param tags - The values to identify.
+ * @returns One identity per tag, in the same order.
+ */
+export function languageIdentities(tags: readonly string[]): Promise<LanguageIdentity[]> {
+  return invoke<LanguageIdentity[]>('language_identities', { tags });
 }
 
 /**

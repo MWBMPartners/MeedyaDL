@@ -107,6 +107,42 @@ tauri-build = { version = "2", features = [] }
 #   4. Run the full test suite — upstream may have changed APIs.
 meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = "0a4654ff4db30d27fc0e29699f342a93ebc86d94", features = ["full"] }
 
+# meedya-lang -- The shared implementation of the Media Language & BCP 47
+# Policy (MWBM-MEDIA-LANG 1.0.0): reading, putting into standard form,
+# ordering, matching and naming language tags (#1244, #1245). MeedyaDL
+# carries exact copies of the policy, its reference data and its test cases
+# (docs/standards/, tests/fixtures/), and src-tauri/tests/
+# media_language_conformance.rs proves this pinned version of the crate
+# gives the answers those test cases expect. Pure logic: no I/O, no network,
+# and nothing it depends on beyond serde / serde_json, which MeedyaDL
+# already has.
+#
+# @see https://github.com/MWBMPartners/MeedyaSuite-core/tree/feature/bcp47-language-policy/crates/meedya-lang
+#
+# **Pinned to a commit on core's `feature/bcp47-language-policy` branch**
+# (rev = …), because that is the only place the crate exists until core
+# merges the work into `main`. Same reason as meedya-core above for pinning
+# by `rev` rather than `branch`: a feature branch is deleted after merging,
+# and a branch pin would then break every fresh clone with "failed to
+# resolve git reference". Re-pin to the merge commit on core `main` once it
+# lands — tracked in #1255.
+#
+# Pin history: `995becb7` (first use, 28 Sept 2026); `aaaa585a` (the reviewed
+# revision 6 of the crate and policy, same day — its item traits share a
+# `RoleItem` parent, `LanguageTag` equality compares tag and kind only, the
+# sidecar builder reads its language with the three-letter reader, and a
+# malformed value matches nothing). The policy copies in docs/standards/ and
+# tests/fixtures/ are pinned to the same commit.
+#
+# **Bumping this commit:** replace the `rev`, run `cargo update -p
+# meedya-lang` (only that package), then the conformance test and the whole
+# backend suite. If core's policy files changed at the new commit, take
+# them in the same change with
+# `python3 scripts/media-lang/check_copies.py --update <commit>` — the crate
+# and the copies of the test cases must move together, or the conformance
+# test is checking the crate against the wrong answers.
+meedya-lang = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = "aaaa585aa145634c057c0bbdd9bd5fc11c3274a0" }
+
 # ---- Tauri Framework & Plugins ----
 # These provide the core application framework and platform-specific capabilities.
 # Each plugin must also be registered in the Tauri app builder (main.rs) and may
@@ -454,7 +490,8 @@ pbkdf2 = { version = "0.12", features = ["hmac"] }
 # rand -- Cryptographically secure random number generator. Used to
 # produce salt (32 bytes) + GCM nonce (12 bytes) on every encrypt.
 # `OsRng` reads from the OS entropy pool — no userspace state to
-# leak.
+# leak. Also gives the random part of temporary subtitle file names
+# (64 bits from `OsRng`), so a name is never handed out twice.
 rand = "0.8"
 
 # ---- Platform Directories ----
@@ -667,5 +704,29 @@ tempfile = "3"
 # `open_downloaded_file` in `commands/history.rs` for why that matters.
 # Already compiled as part of the dependency tree; naming it here just
 # makes it callable directly.
+#
+# Also used on macOS for `renamex_np(…, RENAME_EXCL)`: putting a finished
+# subtitle in place only if nothing is already there, as one step the
+# system does without a gap (`utils::fs_safe::rename_no_replace`; Codex's
+# review of round 5, finding 3).
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+
+# Linux: the same crate as above, for the Linux form of that step,
+# `renameat2(…, RENAME_NOREPLACE)`. Already in the dependency tree.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+# Windows: the Windows form of that step, `MoveFileExW` WITHOUT
+# `MOVEFILE_REPLACE_EXISTING` (Rust's own rename passes that flag, so it
+# replaces). The same crate and version are already in the dependency tree
+# through Tauri; this only names the parts used. File information (in
+# `Win32_Storage_FileSystem`) tells which file a name, or an open handle,
+# refers to (`utils::fs_safe::file_identity`, `handle_identity`), so a
+# temporary subtitle file is deleted only while it is still the one
+# MeedyaDL made (Codex's review of rounds 6-7, finding 2). `Win32_System_Threading` (asking
+# whether a process is still running) was dropped with the clean-up of
+# other runs' temporary files that used it (Codex's review of rounds 6-7,
+# findings 3 and 4).
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

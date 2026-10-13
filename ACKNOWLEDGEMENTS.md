@@ -69,16 +69,17 @@ exact number.
 | fs2 | 0.4 | MIT/Apache-2.0 | Filesystem free-space + advisory locking (disk-space preflight) |
 | jsonwebtoken | 10.3 | MIT | MusicKit JWT generation |
 | keyring | 3.6 | MIT/Apache-2.0 | OS keychain access |
-| libc | 0.2 | MIT/Apache-2.0 | macOS only: reads the flag Finder sets on an alias, so the app can refuse to open one (already part of the dependency tree; listed because the app now calls it directly) |
+| libc | 0.2 | MIT/Apache-2.0 | macOS and Linux only: reads the flag Finder sets on an alias, so the app can refuse to open one (macOS); puts a finished subtitle in place only if nothing is already there, and checks whether a process is still running, when tidying up after a stopped run (macOS and Linux). Already part of the dependency tree; listed because the app calls it directly |
 | lofty | 0.22 | MIT/Apache-2.0 | Audio metadata reading/writing (FLAC, MP3, OGG) |
 | log | 0.4 | MIT/Apache-2.0 | Logging facade |
 | lzma-rs | 0.3 | MIT | Pure-Rust XZ decompression (.tar.xz tool archives) |
 | meedya-core | (git, rev-pinned) | MIT | Shared platform primitives (metadata + codecs + fingerprint + lyrics + providers + tags + library-import + db, full feature set) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
+| meedya-lang | (git, rev-pinned) | MIT | Shared implementation of the Media Language & BCP 47 Policy, from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
 | meedya-fingerprint | (git, branch=main) | MIT | Shared audio-fingerprint primitives (Chromaprint + ebur128) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core). Its optional `chromaprint` feature pulls in `rusty-chromaprint` (MIT) and `symphonia` (MPL-2.0 — the one licence anywhere in this dependency tree that isn't MIT/Apache-2.0/BSD/ISC/Unlicense) as transitive dependencies; neither is a direct MeedyaDL dependency, so neither gets its own row here. |
 | meedya-lyrics | (git, branch=main) | MIT | Shared lyrics primitives (TTML parser + classifier + Lyricsfile YAML + LRC offset round-trip) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
 | mp4ameta | 0.13 | MIT/Apache-2.0 | M4A metadata reading/writing |
 | pbkdf2 | 0.12 | MIT/Apache-2.0 | Password-based key derivation (Profile Bundle export passphrase) |
-| rand | 0.8 | MIT/Apache-2.0 | Random number generation (salt + nonce derivation, retry jitter) |
+| rand | 0.8 | MIT/Apache-2.0 | Random number generation (salt + nonce derivation, retry jitter, temporary file names that never repeat) |
 | regex | 1.12 | MIT/Apache-2.0 | Regular expression parsing |
 | reqwest | 0.12 | MIT/Apache-2.0 | HTTP client |
 | rookie | 0.5 | MIT | Browser cookie extraction |
@@ -100,6 +101,7 @@ exact number.
 | tracing-subscriber | 0.3 | MIT | `tracing` event collector and formatter (stderr + file) |
 | url | 2.5 | MIT/Apache-2.0 | URL parsing |
 | uuid | 1.23 | MIT/Apache-2.0 | UUID generation |
+| windows-sys | 0.61 | MIT/Apache-2.0 | Windows only: puts a finished subtitle in place only if nothing is already there, and tells which file a name refers to (so a temporary subtitle file is deleted only while it is still the one MeedyaDL made). Already part of the dependency tree; listed because the app calls it directly |
 | zip | 2.4 | MIT | ZIP archive extraction |
 
 ### Tauri Plugins

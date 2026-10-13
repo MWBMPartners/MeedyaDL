@@ -1265,6 +1265,9 @@ pub fn run() {
             commands::gamdl::fetch_syllable_lyrics,
             // Word-level lyrics connectivity test (#934)
             commands::lyrics::test_lyrics_connection,
+            // Language-list ordering by the shared language policy (#1249)
+            commands::language::order_languages_for_display,
+            commands::language::language_identities,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,
@@ -1736,6 +1739,12 @@ pub fn run() {
                 // Log concise settings summary at startup for diagnostics
                 if let Ok(s) = services::config_service::load_settings_at_startup(&startup_handle) {
                     emit_startup_settings_summary(&startup_handle, &s);
+                    // Once per launch: a metadata language that is not a
+                    // language tag is reported, never changed (#1246).
+                    commands::settings::report_metadata_language_on_startup(
+                        &startup_handle,
+                        &s.language,
+                    );
                 }
 
                 // Log component versions to the Activity Log for diagnostics.

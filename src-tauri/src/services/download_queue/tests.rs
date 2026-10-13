@@ -3602,6 +3602,24 @@
     // find_album_directory / find_deepest_audio_dir tests (#460)
     // ============================================================
 
+    /// A temporary subtitle file (`.meedyadl-partial-…`) is not a track's
+    /// lyrics: counting it could make the lyrics fallback believe every
+    /// track already has lyrics and stop early (round 8 follow-up, acting on
+    /// Codex's review of rounds 6-7; round 8 leaves other runs' leftovers in
+    /// place, so one can sit in an album folder indefinitely).
+    #[test]
+    fn a_temporary_subtitle_file_never_counts_as_a_tracks_lyrics() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("01 Song.ttml"), b"lyrics").unwrap();
+        std::fs::write(
+            dir.path()
+                .join(".meedyadl-partial-123-0a1b2c3d4e5f6789.srt"),
+            b"half written",
+        )
+        .unwrap();
+        assert_eq!(count_lyrics_files(dir.path()), 1);
+    }
+
     #[test]
     fn has_direct_audio_files_detects_m4a() {
         let dir = tempfile::tempdir().unwrap();

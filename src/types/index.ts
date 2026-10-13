@@ -492,7 +492,7 @@ export interface GamdlOptions {
    * See https://github.com/glomatico/wrapper-v2 for the daemon spec.
    */
   wrapper_url?: string;
-  /** Language/locale for metadata (e.g., "en-US", "ja-JP") */
+  /** Metadata language as a BCP 47 language tag (e.g., "en-US", "zh-Hant-TW") */
   language?: string;
   /** Comma-separated list of metadata tags to exclude from output */
   exclude_tags?: string;
@@ -576,7 +576,11 @@ export interface AppSettings {
   output_path: string;
   /** Temp directory for intermediate files (empty = OS default) */
   temp_path: string;
-  /** Language/locale code for metadata (e.g., "en-US") */
+  /**
+   * Metadata language as a BCP 47 language tag (e.g., "en-US", "zh-Hant-TW").
+   * The backend stores it in its standard form when it is saved or imported
+   * (#1246); a value from an older version that is not a tag is kept as it is.
+   */
   language: string;
   /** Apple Music storefront code (e.g., "gb", "us"). Empty = auto-detect from language */
   storefront: string;
@@ -1490,6 +1494,26 @@ export interface CookieCheckResult {
   ready: boolean;
   /** Human-readable explanation when ready is false */
   message: string | null;
+}
+
+// ============================================================
+// Language identity (Codex's catch-up review of #1244)
+// ============================================================
+
+/**
+ * One tag's standard form and grouping identity, as the shared language
+ * policy defines them (not as `Intl.Locale` guesses them).
+ *
+ * Mirrors: Rust struct `LanguageIdentity` in `src-tauri/src/commands/language.rs`.
+ * Returned by `language_identities`; fetched only through `useLanguageIdentities`.
+ */
+export interface LanguageIdentity {
+  /** The value exactly as asked about. */
+  raw: string;
+  /** Its standard form (`raw` itself when it is not a tag). */
+  standard: string;
+  /** The identity to group it by (its primary language, for a real tag). */
+  primary: string;
 }
 
 // ============================================================

@@ -18,7 +18,9 @@
  *
  *   - **Metadata Language** -- Preferred language for track and album
  *     metadata returned by the Apple Music API. Maps to
- *     `settings.language` (ISO locale code, e.g., `"en-US"`).
+ *     `settings.language` (a BCP 47 language tag, e.g. `"en-US"`). The
+ *     entries are named in the interface language and ordered by the
+ *     shared language policy -- see `useMetadataLanguageOptions` (#1249).
  *
  *   - **Overwrite Existing Files** -- Whether to re-download and replace
  *     files that already exist in the output directory. Maps to
@@ -64,6 +66,14 @@ import { useUpdateStore } from '@/stores/updateStore';
 
 // UI store for toast notifications (used by settings export/import).
 import { useUiStore } from '@/stores/uiStore';
+
+// Names and order for the Metadata Language list (#1249).
+import { useMetadataLanguageOptions } from '@/hooks/useMetadataLanguageOptions';
+// Order for the Interface Language list (policy UI-040, independent
+// review round 3 of #1244).
+import { useInterfaceLanguageOptions } from '@/hooks/useInterfaceLanguageOptions';
+// Two-name labels for the Interface Language list (policy UI-011).
+import { interfaceLanguageLabel } from '@/lib/languageOptions';
 
 // IPC command wrappers for settings export/import.
 import {
@@ -122,28 +132,59 @@ const THEME_OPTIONS = [
  *
  * - 'auto': Detect from OS locale (default). Internally stored as `""`
  *           in `settings.ui_language`. i18next's LanguageDetector resolves it.
- * - Every other row comes straight from `LOCALES` in `src/lib/i18n.ts`, so
- *   this dropdown can never fall out of step with the languages the app
- *   actually ships translation files for. To add a new language: create
- *   the locale JSON file and add one entry to `LOCALES` — nothing here
- *   needs to change.
+ *           Always the first row -- it is not a language, so the ordering
+ *           rule just below does not apply to it.
+ * - Every other row comes from `LOCALES` in `src/lib/i18n.ts`, in the order
+ *   `order` gives their codes -- see `useInterfaceLanguageOptions`
+ *   (src/hooks/), which the caller asks for that order with. Until the
+ *   independent review's round 3, this just followed `LOCALES`' own array
+ *   order ("English, Deutsch, Français", always, whatever language the
+ *   interface was actually showing) instead of policy UI-040's rule: the
+ *   interface language first, then everything else alphabetical by name IN
+ *   the interface language -- the same rule the Metadata Language list
+ *   already follows. To add a new language: create the locale JSON file
+ *   and add one entry to `LOCALES` — nothing here needs to change.
+ *
+ * Each row reads "name in the interface language — the language's own
+ * name", e.g. "German — Deutsch" (policy UI-011: the language's own name
+ * must not be the only label; see `interfaceLanguageLabel` in
+ * src/lib/languageOptions.ts). Until the independent review of the
+ * language-policy work (#1244) the rows showed only the language's own
+ * name, which a person who does not read it cannot recognise.
  *
  * For a language nobody has checked yet (`machineAssisted: true` in
- * `LOCALES`), the row's own name is followed by a short qualifier written
- * in that same language -- e.g. "Deutsch (automatische Übersetzung)" --
- * so a German or French reader sees the caveat before they even pick it,
- * not after. The qualifier text lives in `LOCALES.machineAssistedLabel`,
- * not here, so this file never has to carry its own copy of it.
+ * `LOCALES`), the language's own name is followed by a short qualifier
+ * written in that same language -- e.g. "German — Deutsch (automatische
+ * Übersetzung)" -- so a German or French reader sees the caveat before
+ * they even pick it, not after. The qualifier text lives in
+ * `LOCALES.machineAssistedLabel`, not here, so this file never has to
+ * carry its own copy of it.
+ *
+ * Built per render because the first name depends on the language the
+ * interface is showing right now.
  */
-const UI_LANGUAGE_OPTIONS = [
-  { value: 'auto', label: 'Auto (System)' },
-  ...LOCALES.map((locale) => ({
-    value: locale.code,
-    label: locale.machineAssisted
-      ? `${locale.nativeName} (${locale.machineAssistedLabel})`
-      : locale.nativeName,
-  })),
-];
+function uiLanguageOptions(interfaceLanguage: string, order: readonly string[], autoLabel: string) {
+  return [
+    { value: 'auto', label: autoLabel },
+    ...order.map((code) => {
+      const locale = LOCALES.find((l) => l.code === code);
+      // Every code `order` can contain comes from `AVAILABLE_LOCALES`,
+      // which is `LOCALES.map(l => l.code)` -- so this is always found.
+      // The fallback below only exists so a malformed order can never
+      // crash the Settings screen.
+      if (!locale) return { value: code, label: code };
+      return {
+        value: locale.code,
+        label: interfaceLanguageLabel(
+          locale.code,
+          locale.nativeName,
+          interfaceLanguage,
+          locale.machineAssisted ? locale.machineAssistedLabel : ''
+        ),
+      };
+    }),
+  ];
+}
 
 /**
  * Update check interval options. Value is in hours.
@@ -244,20 +285,15 @@ const COLOUR_VISION_OPTIONS = [
   { value: 'tritanopia', label: 'Tritanopia (Blue-Yellow)' },
 ];
 
-const LANGUAGE_OPTIONS = [
-  { value: 'en-US', label: 'English (US)' },
-  { value: 'en-GB', label: 'English (UK)' },
-  { value: 'ja-JP', label: 'Japanese' },
-  { value: 'ko-KR', label: 'Korean' },
-  { value: 'zh-CN', label: 'Chinese (Simplified)' },
-  { value: 'zh-TW', label: 'Chinese (Traditional)' },
-  { value: 'de-DE', label: 'German' },
-  { value: 'fr-FR', label: 'French' },
-  { value: 'es-ES', label: 'Spanish' },
-  { value: 'pt-BR', label: 'Portuguese (Brazil)' },
-  { value: 'it-IT', label: 'Italian' },
-  { value: 'ru-RU', label: 'Russian' },
-];
+// The Metadata Language list used to be a hand-typed LANGUAGE_OPTIONS
+// array here: English-only names in no particular order, with `zh-CN` /
+// `zh-TW` labelled "Simplified" / "Traditional" (a country standing in for
+// a writing system). It was replaced under #1249 by
+// `useMetadataLanguageOptions` (src/hooks/), which names each entry in the
+// interface language from the platform's own data and orders the list by
+// the shared language policy. The offered tags now live in
+// `METADATA_LANGUAGE_TAGS` (src/lib/languageOptions.ts). Do not bring a
+// hand-typed list of names back: policy UI-010 forbids it.
 
 /**
  * GeneralTab -- Renders the General settings tab.
@@ -304,6 +340,16 @@ export function GeneralTab() {
   const colourBlindMode = useSettingsField('colour_blind_mode');
   const uiLanguage = useSettingsField('ui_language');
   const language = useSettingsField('language');
+  // Named in the language the interface is showing right now, and ordered
+  // with the person's own languages first (#1249). `selectedValue` is the
+  // row that shows the saved language: a saved `EN-us` is shown on the one
+  // `en-US` row (handing the dropdown `EN-us` matched no row, so it showed
+  // its first row instead). Display only; the saved value is untouched.
+  const metadataLanguage = useMetadataLanguageOptions(language.value, i18n.language);
+  // The Interface Language list's own order (policy UI-040, independent
+  // review round 3 of #1244) -- the interface language first, then
+  // everything else alphabetical by name in the interface language.
+  const interfaceLanguageOrder = useInterfaceLanguageOptions(i18n.language);
   const storefront = useSettingsField('storefront');
   const storefrontFallback = useSettingsField('storefront_fallback_on_failure');
   const overwrite = useSettingsField('overwrite');
@@ -690,7 +736,11 @@ export function GeneralTab() {
           <Select
             label="Language"
             description="The language MeedyaDL is shown in. Changes straight away."
-            options={UI_LANGUAGE_OPTIONS}
+            options={uiLanguageOptions(
+              i18n.language,
+              interfaceLanguageOrder,
+              t('settings.general.languageAuto')
+            )}
             value={uiLanguage.value || 'auto'}
             onChange={(e) => {
               const val = e.target.value;
@@ -724,8 +774,8 @@ export function GeneralTab() {
         <Select
           label="Metadata Language"
           description="Language preference for track and album metadata"
-          options={LANGUAGE_OPTIONS}
-          value={language.value}
+          options={metadataLanguage.options}
+          value={metadataLanguage.selectedValue}
           onChange={(e) => language.set(e.target.value)}
         />
 

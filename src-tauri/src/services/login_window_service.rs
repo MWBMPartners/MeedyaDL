@@ -403,8 +403,9 @@ fn build_storefront_url() -> String {
 /// Detects the user's Apple Music storefront code from the system locale.
 ///
 /// Uses the `sys-locale` crate to read the OS-configured locale (e.g.,
-/// `en-GB`, `de-DE`, `fr-FR`, `ja-JP`), then extracts the country code
-/// portion and converts it to lowercase for use in Apple Music URLs.
+/// `en-GB`, `de-DE`, `fr-FR`, `ja-JP`), then takes the country (region)
+/// part of the parsed tag and converts it to lowercase for use in Apple
+/// Music URLs. See [`storefront_from_system_locale`] for the rules.
 ///
 /// ## Locale Format Examples
 ///
@@ -416,10 +417,12 @@ fn build_storefront_url() -> String {
 /// | ja-JP         | jp          | <https://music.apple.com/jp/browse>      |
 /// | fr-FR         | fr          | <https://music.apple.com/fr/browse>      |
 /// | pt-BR         | br          | <https://music.apple.com/br/browse>      |
+/// | zh-Hant-TW    | tw          | <https://music.apple.com/tw/browse>      |
 ///
 /// # Returns
 /// * `Some(String)` - Lowercase 2-letter country code (e.g., "gb", "de").
 /// * `None` - If locale detection fails or the locale has no country component.
+///   Every caller then uses its own documented fallback (usually `us`).
 pub fn detect_storefront() -> Option<String> {
     // sys-locale::get_locale() returns the primary system locale as a string.
     // The format varies by OS but typically follows BCP 47 (e.g., "en-US")
@@ -428,24 +431,31 @@ pub fn detect_storefront() -> Option<String> {
 
     log::debug!("System locale detected: {locale}");
 
-    // Split on common locale separators: hyphen (BCP 47: "en-US"),
-    // underscore (POSIX: "en_US"), or period (strip encoding suffix like ".UTF-8").
-    // We want the second component, which is the country/region code.
-    let country = locale
-        .split(['-', '_'])
-        .nth(1)?
-        // Strip any encoding suffix (e.g., "US.UTF-8" → "US")
-        .split('.')
-        .next()?;
-
-    // Apple Music storefronts require exactly 2-letter country codes.
-    // Filter out invalid results (e.g., locale strings with no country part).
-    if country.len() == 2 && country.chars().all(|c| c.is_ascii_alphabetic()) {
-        Some(country.to_lowercase())
-    } else {
+    let storefront = storefront_from_system_locale(&locale);
+    if storefront.is_none() {
         log::debug!("Locale '{locale}' did not yield a valid 2-letter country code");
-        None
     }
+    storefront
+}
+
+/// The storefront a system locale points at: the two-letter country
+/// (region) part of the parsed language tag, lower-cased (#1248, shared
+/// language policy LANG-001 and LANG-004). Split out from
+/// [`detect_storefront`] so it can be tested without depending on the
+/// test machine's own locale.
+///
+/// The locale is read as a language tag, or — on Linux, where it is a
+/// POSIX name such as `en_US.UTF-8` — converted to one first.
+///
+/// This used to split the text on `-` and `_` and take the second piece.
+/// For `zh-Hant-TW` that piece is `Hant` (a writing system, not a
+/// country), so it was rejected and a person in Taiwan fell back to the US
+/// storefront; `es-419` was rejected the same way, and `sr_RS@latin` would
+/// have worked only by accident. `None` now means only what it says: the
+/// locale names no two-letter country (no region, a multi-country area
+/// such as `419`, or not a locale at all).
+pub(crate) fn storefront_from_system_locale(locale: &str) -> Option<String> {
+    crate::utils::language::storefront_from_language(locale)
 }
 
 /// Checks whether authentication cookies exist in the login webview.
@@ -1031,6 +1041,22 @@ mod tests {
     #[test]
     fn detect_storefront_does_not_panic() {
         let _ = detect_storefront();
+    }
+
+    /// #1248: the storefront is the country part of the parsed locale.
+    /// The old split-on-hyphens code gave `None` (so the US storefront)
+    /// for `zh-Hant-TW` and `es-419`.
+    #[test]
+    fn storefront_from_system_locale_reads_the_region_of_the_tag() {
+        let sf = |l: &str| storefront_from_system_locale(l);
+        assert_eq!(sf("en-GB").as_deref(), Some("gb"));
+        assert_eq!(sf("zh-Hant-TW").as_deref(), Some("tw"));
+        assert_eq!(sf("en_US.UTF-8").as_deref(), Some("us"));
+        assert_eq!(sf("sr_RS@latin").as_deref(), Some("rs"));
+        // No two-letter country: the caller's fallback applies.
+        assert_eq!(sf("es-419"), None);
+        assert_eq!(sf("en"), None);
+        assert_eq!(sf("C"), None);
     }
 
     /// Verifies that build_storefront_url returns a valid URL.

@@ -853,7 +853,13 @@ pub struct GamdlOptions {
     pub wrapper_url: Option<String>,
 
     // --- Metadata ---
-    /// Language for metadata (ISO 639-1 code, e.g., "en-US")
+    /// Language for metadata, as a BCP 47 language tag (e.g. "en-US",
+    /// "zh-Hant-TW"). Passed to GAMDL as `--language`. (This used to say
+    /// "ISO 639-1 code", which was wrong: ISO 639-1 is only the two-letter
+    /// language part, such as "en"; "en-US" is a BCP 47 tag.) The value is
+    /// the `language` setting, put into standard form when it is saved or
+    /// imported — see `commands::settings::settle_metadata_language_on_save`
+    /// and docs/standards/media-language-bcp47-policy.md.
     pub language: Option<String>,
     /// Comma-separated list of tags to exclude from embedding
     pub exclude_tags: Option<String>,
