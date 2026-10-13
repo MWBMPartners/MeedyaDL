@@ -152,12 +152,52 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.event.pull_request.head.ref, 'release-please--')
     steps:
-      # Default checkout on a pull_request event resolves to the PR's
-      # merge ref (base + head merged) -- so a tier-1 file merged to main
-      # via a separate PR shows up here even though release-please's own
-      # branch never touches .github/release-notes/.
+      # Check out the BASE branch by name (main, as it is when this job
+      # runs), not the PR's merge ref. The notes file is normally merged
+      # to main by a separate PR, so main is where it is usually found.
+      # The next step covers the other way it can arrive: committed on the
+      # release PR's own branch (as for 1.10.9).
+      #
+      # The default checkout (the PR's merge ref) went stale on #1345:
+      # GitHub built that trial merge before the notes landed on main and
+      # did not rebuild it afterwards, and a re-run reuses the same trial
+      # merge, so the check kept reporting the file missing while it was
+      # on main. A branch name is resolved at run time, so a re-run now
+      # always sees the current main. It also means this job runs none of
+      # the PR's own code.
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # If the release PR itself adds or changes the notes file, that copy
+      # is the one that will be released, so check it instead of main's.
+      # "Changes" means it differs from where the PR branched off main; a
+      # copy the branch merely inherited from an older main is ignored,
+      # so main's newer copy is checked.
+      - name: Use the release PR's own notes file if it adds or changes one
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          VER=$(printf '%s' "$PR_TITLE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+          [ -n "$VER" ] || exit 0   # the next step reports an unparseable title
+          NOTES_FILE=".github/release-notes/v${VER}.md"
+
+          git fetch --no-tags --quiet origin "$HEAD_SHA"
+          BRANCH_POINT=$(git merge-base HEAD "$HEAD_SHA")
+
+          if git cat-file -e "${HEAD_SHA}:${NOTES_FILE}" 2>/dev/null \
+             && ! git diff --quiet "$BRANCH_POINT" "$HEAD_SHA" -- "$NOTES_FILE"; then
+            mkdir -p "$(dirname "$NOTES_FILE")"
+            git show "${HEAD_SHA}:${NOTES_FILE}" > "$NOTES_FILE"
+            echo "The release PR adds or changes ${NOTES_FILE}; checking its copy."
+          else
+            echo "Checking ${NOTES_FILE} as it is on the base branch now."
+          fi
 
       - name: Require a populated tier-1 notes file for this version
         env:
