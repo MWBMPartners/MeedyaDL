@@ -1291,17 +1291,20 @@ fn emit_gamdl_support_status(app: &AppHandle, gamdl_version: Option<&str>) {
     let maximum_tested = effective_maximum_tested(platform_id);
     let status = classify_for_platform(gamdl_version, platform_id);
 
+    // The range ends, named once so every message below refers to its values
+    // the same way: by name inside the text. Mixing that with `name = value`
+    // arguments in one message made CodeQL report `installed` as unused (code
+    // scanning alert #31), although it is used.
+    let min = &window.minimum;
+    let max = &maximum_tested;
+
     let line = match &status {
-        VersionSupport::NotInstalled => format!(
-            "GAMDL support: not installed (supported range {min}–{max})",
-            min = window.minimum,
-            max = maximum_tested,
-        ),
+        VersionSupport::NotInstalled => {
+            format!("GAMDL support: not installed (supported range {min}–{max})")
+        }
         VersionSupport::Supported { installed } => format!(
             "GAMDL support: {installed} is inside the validated range \
              {min}–{max}",
-            min = window.minimum,
-            max = maximum_tested,
         ),
         VersionSupport::Unsupported { installed, minimum } => format!(
             "GAMDL support: {installed} is below the supported floor \
