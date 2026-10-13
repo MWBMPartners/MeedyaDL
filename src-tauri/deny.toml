@@ -112,6 +112,9 @@ ignore = [
     # own. The real fix is for `meedya-lyrics` to move to a maintained YAML
     # library (the advisory suggests `serde-saphyr`); remove this entry when
     # that lands and the lockfile no longer contains unsafe-libyaml.
+    # Tracked in #1335. Like `paste`, this sits outside carve-out (a) as
+    # written above (that one names Tauri only); #1335 also covers widening
+    # that wording to "a dependency MeedyaDL cannot replace on its own".
     "RUSTSEC-2024-0449", # unsafe-libyaml — unmaintained (via serde_yaml -> meedya-lyrics)
 
     # glib — VariantStrIter unsoundness in Iterator / DoubleEndedIterator
