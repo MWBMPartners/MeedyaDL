@@ -6,6 +6,73 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.10.9 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🔄 CI/CD
+
+- **(codeql)** Scan the Rust backend again, without building it (#1338)
+
+## Summary
+
+  Clears the CodeQL warning on the Security page ("Code Scanning results
+  may be out of date" for `language:rust`, last scanned 20 March 2026) by
+  putting the Rust backend back into the CodeQL scan.
+
+  Rust was taken out in March because CodeQL then had to build the whole
+  Rust project to read it, and that build hung for 6+ hours. CodeQL can
+  now read Rust source **without building it** (`build-mode: none`), which
+  removes that cause. Leaving Rust out had also frozen GitHub's Rust
+  results at their last scan, which is what the warning was about. The
+  upload uses the same category (`/language:rust`) as those old results,
+  so the first run replaces them.
+
+  ## Scope of changes
+
+  - `.github/workflows/codeql.yml`:
+    - Rust is added to the scan in "no build" mode.
+  - Each language's build mode is now stated. The other two were already
+  using no build by default, so they are unchanged.
+  - A 60-minute job limit is added as a safety net: if a Rust scan ever
+  runs away again, it stops and fails rather than holding a runner for
+  hours.
+    - The header comment is rewritten to explain all of this.
+
+  ## Test plan
+
+  - [x] `actionlint` passes on the workflow.
+  - [x] The job matrix reads as three entries (actions,
+  javascript-typescript, rust).
+  - [ ] The Rust scan on this pull request finishes inside the time limit.
+  - [ ] Any new Rust findings are reviewed before merging.
+
+  ## Security review
+
+  ### CI / supply chain
+
+  No new actions; the pinned `github/codeql-action` and `actions/checkout`
+  versions are unchanged. Permissions are unchanged.
+
+  Not independently reviewed yet: the Codex command-line tool is not
+  installed in this session.
+
+  ## Documentation
+
+  The workflow's header comment now explains why Rust was out and why it
+  is back.
+
+  ## Related issues
+
+  A matching change for `alpha`'s copy of the workflow follows separately
+  (it already scans the channel branches too).
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
+## [1.10.9] - 2026-10-13
+
 ### 🐛 Bug Fixes
 
 - **(ci)** Let security fixes on main reach the other channels again (#1165) (#1275)
@@ -98,7 +165,6 @@ Security fixes that Dependabot merges to `main` have stopped reaching
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.10.9 [skip ci]
 
 ### 🔄 CI/CD
 
