@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
 **Last updated:** 2026-10-13 — see ★★★★ LATEST below
-**Working branch:** `work-in-progress` (from `alpha` at v1.13.0-alpha.79). It combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
+**Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.9** · `alpha` **1.13.0-alpha.79** · `beta` **1.9.4-beta.12** · `release-candidate` **1.0.0-rc.40** — read from each branch's `package.json` on 13 Oct.
+**Channel versions:** `main` **1.10.9** · `alpha` **1.13.0-alpha.82** · `beta` **1.9.4-beta.14** · `release-candidate` **1.0.0-rc.41** — read from each branch's `package.json` on 13 Oct, after the security fixes merged.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,43 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-10-13: dependency PRs combined and merged on every channel, 1.10.9 released, one work-in-progress branch
+## ★★★★ LATEST — 2026-10-13 (afternoon): security alerts fixed on every channel; `work-in-progress` is the working branch
+
+> **PICK UP HERE, on `work-in-progress`.** That is the branch for the next round of
+> development (the maintainer's instruction, 13 Oct). It will likely change once it is merged.
+> No pull request is open for it, and none should be until the maintainer says so.
+>
+> It was cut from alpha at alpha.79, so it does NOT yet contain the security fix below,
+> which landed on alpha afterwards (alpha is now alpha.82). Bring alpha in (a merge, never
+> a rebase) at the start of the next round.
+
+| # | Task | Issue / PR | Status | Notes |
+|---|---|---|---|---|
+| 1 | Dependabot #61: `fast-uri`, and `postcss-selector-parser` under the Tailwind typography plugin | #1340 | Done | `fast-uri` 3.1.8. An npm `overrides` entry moves the typography plugin from its pinned 6.0.10 to 7.1.6. Built stylesheets byte-for-byte identical on main. `npm audit` 0 on all four branches. |
+| 2 | Code scanning #29 (High): developer-access passphrase checked with one fast SHA-256 hash | #1340 | Done | Now PBKDF2-SHA256, 600,000 rounds, random salt, against a record made by `node scripts/make-dev-access-hash.mjs`. Old SHA-256 values are refused; rounds must be 100,000–10,000,000. The "Developer Access" section of `credentials.rs` is now identical on all four branches. That brought the #1162 fix to main, beta and release-candidate, whose shipped builds could be unlocked with an EMPTY passphrase (their release workflows never pass the secret). It also brought the #940 rate limit to beta and release-candidate. |
+| 3 | Code scanning #30: test cookie without the secure flag | #1340 | Done | The app never creates cookies. The test now reads cookies from cookie text (`Cookie::parse`) and covers both "no flag" and "flag off". |
+| 4 | Code scanning #31: unused variable (false alarm) | #1340 | Done | Mixed `{name}` and `name = value` in one message confused CodeQL; `min`/`max` are now locals. |
+| 5 | Merge everywhere | #1341 main `24cb36d3`, #1342 alpha `bb08f0a0`, #1343 beta `a86bf7f0`, #1344 rc `4678610a` | Done | All CI green, CodeQL green. Issue #1340 closed. |
+
+**How it was verified:** CodeQL CLI 2.27.2 (the release CI uses) run locally on untouched main reproduced all three alerts at the lines GitHub showed. The same three checks on the fixed main found nothing. Clippy and the affected tests passed on all four branches. CodeQL on the PRs then raised two "hard-coded salt" alerts in the new tests; those tests now write records out as text, and CodeQL went green.
+
+**Review:** Codex is not installed in cloud sessions, so this is not Codex-reviewed. Round 1 (a fresh Opus agent) found one real problem: release-candidate's `Cargo.lock` was missing `pbkdf2`. It also found three minor ones. All were fixed. Round 2 (another fresh agent) found nothing real. **Run `codex review` over these four merges at the next local session.**
+
+**Maintainer actions still open:**
+1. **Regenerate the `DEV_ACCESS_HASH` secret before the next alpha build.** Run `node scripts/make-dev-access-hash.mjs` in a terminal and paste the whole line it prints into the secret. Until then, developer access cannot be unlocked on new alpha builds; existing activations keep working. This **supersedes** the older instruction further down this file to make the value with `printf '%s' … | shasum -a 256`: that form is now refused.
+2. Main, beta and release-candidate do not pass `DEV_ACCESS_HASH` to their release builds. After this change, developer access cannot be unlocked on those channels at all until alpha's release workflow is promoted to them. That is deliberate (#1162).
+3. Add issue #1340 to project 6 (not reachable from cloud sessions).
+4. Still open from the morning: delete the four old branches, publish the v1.10.9 draft, and run the Codex review of `work-in-progress`.
+
+**Lessons worth keeping:**
+- This cloud container's disk allowance is about 40 GB. Four Rust builds across two toolchains, plus a CodeQL database, filled it twice and lost command output. Build with `CARGO_INCREMENTAL=0` into one shared target folder, and delete it before running CodeQL.
+- `pkill -f <pattern>` / `pgrep -f` also matches the shell running the command, and killed it three times. Use `ps … | grep "[x]yz"` and kill by process number.
+
+**Running:** nothing. The four `fix/security-alerts-*` branches are merged and can be deleted.
+
+---
+
+## ★★★★ Previous — 2026-10-13: dependency PRs combined and merged on every channel, 1.10.9 released, one work-in-progress branch
 
 > **PICK UP HERE.** Branch `work-in-progress` (from alpha at alpha.79). No pull request is
 > open for it, and none should be until the maintainer says so.
