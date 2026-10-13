@@ -152,12 +152,78 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.event.pull_request.head.ref, 'release-please--')
     steps:
-      # Default checkout on a pull_request event resolves to the PR's
-      # merge ref (base + head merged) -- so a tier-1 file merged to main
-      # via a separate PR shows up here even though release-please's own
-      # branch never touches .github/release-notes/.
+      # Check out the BASE branch by name (main, as it is when this job
+      # runs), not the PR's merge ref. The next step then builds a FRESH
+      # merge of that main with the PR and takes the notes file from it.
+      #
+      # The default checkout (the PR's merge ref) went stale on #1345:
+      # GitHub built that trial merge before the notes landed on main and
+      # did not rebuild it afterwards, and a re-run reuses the same trial
+      # merge, so the check kept reporting the file missing while it was
+      # on main. A branch name is resolved at run time, so a re-run now
+      # always sees the current main. It also means this job runs none of
+      # the PR's own code.
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Build the merge of today's main and the PR in memory (no files are
+      # touched) and put the notes file exactly as it would be after
+      # merging into the working tree, for the next step to check. This
+      # covers every way the notes can arrive or go: merged to main by a
+      # separate PR, committed on the release branch itself (as for
+      # 1.10.9), changed on both, or deleted on the release branch (then
+      # the file is removed here, so the next step fails).
+      #
+      # The PR head is fetched without credentials, which works because
+      # this repository is public. If it ever goes private, this fetch
+      # fails and the check turns red rather than passing.
+      - name: Take the notes file from a fresh merge of main and the PR
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          VER=$(printf '%s' "$PR_TITLE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+          [ -n "$VER" ] || exit 0   # the next step reports an unparseable title
+          NOTES_FILE=".github/release-notes/v${VER}.md"
+
+          git fetch --no-tags --quiet origin "$HEAD_SHA"
+
+          # Exit status 0 is a clean merge; 1 means some file conflicts
+          # (the merged tree is still written). Anything else is a real
+          # git error and must turn the check red, never fall through to
+          # checking main's copy as if it were the merged result.
+          rc=0
+          MERGE_OUT=$(git merge-tree --write-tree --name-only HEAD "$HEAD_SHA") || rc=$?
+          if [ "$rc" -ne 0 ] && [ "$rc" -ne 1 ]; then
+            echo "::error::Could not build a merge of the base branch and the release PR (git exit status ${rc}). Re-run this check; if it fails again, the release PR's branch needs looking at."
+            exit 1
+          fi
+          MERGED_TREE=${MERGE_OUT%%$'\n'*}
+          if ! [[ "$MERGED_TREE" =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]]; then
+            echo "::error::git did not report a merged tree (got '${MERGED_TREE}'). Re-run this check."
+            exit 1
+          fi
+          # Conflicted paths are listed on the lines after the tree ID.
+          # Matched against a here-string, not a pipe, so an early exit
+          # by grep cannot be mistaken for "no conflict".
+          if [ "$rc" -eq 1 ] && grep -qxF "$NOTES_FILE" <<<"${MERGE_OUT#*$'\n'}"; then
+            echo "::error::${NOTES_FILE} was changed on both main and the release PR in ways that conflict. Settle it on one side, then re-run this check."
+            exit 1
+          fi
+
+          if git cat-file -e "${MERGED_TREE}:${NOTES_FILE}" 2>/dev/null; then
+            mkdir -p "$(dirname "$NOTES_FILE")"
+            git show "${MERGED_TREE}:${NOTES_FILE}" > "$NOTES_FILE"
+            echo "Checking ${NOTES_FILE} as it will be after merging into today's main."
+          else
+            rm -f "$NOTES_FILE"
+            echo "${NOTES_FILE} will not exist after merging into today's main."
+          fi
 
       - name: Require a populated tier-1 notes file for this version
         env:

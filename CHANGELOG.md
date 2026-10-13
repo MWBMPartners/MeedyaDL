@@ -20,6 +20,11 @@ This changelog is automatically generated from [conventional commits](https://ww
 - **(security)** Update supported versions to 1.10.9 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(release-notes)** Plain-English notes for 1.10.10 (#1346)
+
+Unblocks the 1.10.10 release PR (#1345), which the release-note gate holds until this file is on main. Refs #1340.
+
 
 ### 🔄 CI/CD
 
