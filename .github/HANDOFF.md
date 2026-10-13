@@ -33,17 +33,21 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 **Review:** Codex is not installed in cloud sessions, so this is not Codex-reviewed. Round 1 (a fresh Opus agent) found one real problem: release-candidate's `Cargo.lock` was missing `pbkdf2`. It also found three minor ones. All were fixed. Round 2 (another fresh agent) found nothing real. **Run `codex review` over these four merges at the next local session.**
 
-**Maintainer actions still open:**
-1. **Regenerate the `DEV_ACCESS_HASH` secret before the next alpha build.** Run `node scripts/make-dev-access-hash.mjs` in a terminal and paste the whole line it prints into the secret. Until then, developer access cannot be unlocked on new alpha builds; existing activations keep working. This **supersedes** the older instruction further down this file to make the value with `printf '%s' … | shasum -a 256`: that form is now refused.
-2. Main, beta and release-candidate do not pass `DEV_ACCESS_HASH` to their release builds. After this change, developer access cannot be unlocked on those channels at all until alpha's release workflow is promoted to them. That is deliberate (#1162).
-3. Add issue #1340 to project 6 (not reachable from cloud sessions).
-4. Still open from the morning: delete the four old branches, publish the v1.10.9 draft, and run the Codex review of `work-in-progress`.
+**Maintainer actions (updated 13 Oct, late afternoon):**
+1. **`DEV_ACCESS_HASH` — DONE.** Created as a new REPOSITORY secret (it had never existed before, so no alpha build since #1162 could be unlocked at all). Made with `node scripts/make-dev-access-hash.mjs` on the maintainer's Pi. Only alpha's `release.yml` reads it, so the NEXT alpha build is the first that can be unlocked; check it then (key sequence + passphrase). If it fails, the likeliest cause is a partly pasted line: re-run the script and replace the secret. This supersedes the older instruction further down this file to make the value with `printf '%s' … | shasum -a 256`: that form is now refused.
+2. Main, beta and release-candidate do not read `DEV_ACCESS_HASH`. Developer access cannot be unlocked on those channels until alpha's release workflow is promoted to them. Deliberate (#1162).
+3. Issue #1340 is in project 6 (added by the maintainer).
+4. **Release 1.10.10 (#1345):** the plain-English notes are on main (#1346, `372b77e5`). Release-please did not refresh #1345 for a docs-only change, and this session cannot re-run checks (HTTP 403), so the maintainer must click "Re-run job" on its failed "Tier-1 release-notes file present" check, then merge when ready. It ships the security fixes to stable users, whose builds can still be unlocked with an EMPTY passphrase until then.
+5. No stale branches left: only main, alpha, beta, release-candidate, work-in-progress and release-please's branch remain.
+6. Still open from the morning: publish the v1.10.9 draft, and run the Codex review of `work-in-progress` and of #1341–#1344.
+
+**Since then on `work-in-progress`:** alpha merged in (`3b94fc55`, no conflicts; type-check, 1036 frontend tests and clippy clean; the Rust test run was still going when this was written) and `7b6cb9e7`, which makes the script's "Passphrase:" prompt visible (readline was clearing it, so the terminal looked frozen). That fix is NOT yet on main/beta/release-candidate; it reaches them when this branch goes to alpha and alpha is promoted.
 
 **Lessons worth keeping:**
 - This cloud container's disk allowance is about 40 GB. Four Rust builds across two toolchains, plus a CodeQL database, filled it twice and lost command output. Build with `CARGO_INCREMENTAL=0` into one shared target folder, and delete it before running CodeQL.
 - `pkill -f <pattern>` / `pgrep -f` also matches the shell running the command, and killed it three times. Use `ps … | grep "[x]yz"` and kill by process number.
 
-**Running:** nothing. The four `fix/security-alerts-*` branches are merged and can be deleted.
+**Running:** nothing.
 
 ---
 
