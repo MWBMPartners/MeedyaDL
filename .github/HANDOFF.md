@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-05 (19:29) — see ★★★★ LATEST below
-**Working branch:** `feature/bcp47-language-policy` (from `alpha` after v1.13.0-alpha.75). The #1221-#1226 batch is finished and shipped in alpha.75; its branch `work/after-alpha-74` is spent. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — every commit ID and all 317 tags changed; commit IDs quoted in older sections below are the OLD ones.
+**Last updated:** 2026-10-13 — see ★★★★ LATEST below
+**Working branch:** `work-in-progress` (from `alpha` at v1.13.0-alpha.79). It combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.8** · `alpha` **1.13.0-alpha.75** · `beta` **1.9.4-beta.7** · `release-candidate` **1.0.0-rc.38** — read from each branch's `package.json` at about 00:30 on 28 Sept.
+**Channel versions:** `main` **1.10.9** · `alpha` **1.13.0-alpha.79** · `beta` **1.9.4-beta.12** · `release-candidate` **1.0.0-rc.40** — read from each branch's `package.json` on 13 Oct.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,52 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-09-28: shared language policy (MWBM-MEDIA-LANG) across nine repositories
+## ★★★★ LATEST — 2026-10-13: dependency PRs combined and merged on every channel, 1.10.9 released, one work-in-progress branch
+
+> **PICK UP HERE.** Branch `work-in-progress` (from alpha at alpha.79). No pull request is
+> open for it, and none should be until the maintainer says so.
+
+**What happened on 13 Oct (one session, cloud):**
+
+| # | Task | PR | Status | Notes |
+|---|---|---|---|---|
+| 1 | Combine alpha's two Dependabot updates | #1332 (replaced #1324, #1325) | Done (`f0a339ee`) | Also: `RUSTSEC-2024-0449` (unsafe-libyaml, unmaintained, via `serde_yaml` → `meedya-lyrics`) accepted in `src-tauri/deny.toml`; the file-access plugin bumped to 2.7 to match its Rust half. Follow-up: #1335. |
+| 2 | Beta's Rust update | #1331 | Merged at 09:20 by someone else | Left beta's builds broken — see row 5. |
+| 3 | Combine release-candidate's two updates | #1333 (replaced #1327, #1330) | Done (`61cb57c6`) | Same plugin bump. rc.40 built. |
+| 4 | Main: release 1.10.9 | #1313 (absorbed #1334, which replaced #1322, #1326, #1328) | Done (`8d7364e6`, tag `v1.10.9`) | Maintainer chose to fold the work INTO release-please's own PR (a merge commit on its branch) so tagging stayed automatic. Added `.github/release-notes/v1.10.9.md`. Release build succeeded; stable releases stay drafts until published by hand. |
+| 5 | Beta builds broken (beta.11, beta.12 failed on every platform) | #1337 | In review (CI) | Cause: beta took #1329 (JavaScript) and #1331 (Rust) separately — file-access plugin 2.6 vs 2.7, which `tauri build` refuses. Beta's ci.yml has no version-sync check, so nothing caught it before the release build. |
+| 6 | CodeQL warning: Rust results stale since 20 Mar | #1338 (main) | In review (CI) | Rust put back into CodeQL with `build-mode: none` and a 60-minute job limit. Alpha's copy of `codeql.yml` (which also scans the channel branches) needs the same change — **not opened yet**, held until #1338's Rust scan proves it works. |
+| 7 | One work-in-progress branch | — | Done (this branch) | See below. |
+
+**How `work-in-progress` was made.** An audit on 13 Oct, by file contents not commit titles,
+found neither old branch merged anywhere: none of the 57 files `feature/bcp47-language-policy`
+changed, nor the 257 `feature/polish-pass` changed, matched alpha, main, beta or
+release-candidate, and neither ever had a PR. So: `alpha` → merge bcp47 (clean) → merge
+polish-pass. Two files conflicted, both the Settings > General language list:
+- **Kept from bcp47:** the row wording ("German — Deutsch") and the backend's ordering.
+- **Kept from polish-pass:** which languages are listed (complete ones, plus an incomplete one
+  that is somebody's saved/current choice, marked "incomplete translation" in its own language).
+- `GeneralTab.tsx` keeps its own `uiLanguageOptions` (now taking a `chosen` list) rather than
+  using polish-pass's copy in `src/lib/i18n.ts`, which stays (it has its own tests). Two
+  bcp47 tests now save French as the choice so French is listed.
+- Checked: type-check, lint, all 1,036 Vitest tests, all 13 `tools/audit-checks` in `--strict`.
+  Rust tests (`cargo test --locked`): still running when this was written — see the next handoff update.
+
+**Old branches:** `feature/bcp47-language-policy` and `feature/polish-pass` are fully contained
+in `work-in-progress` and can be deleted. This cloud session's git proxy refuses branch
+deletes (HTTP 403), so the maintainer deletes them, plus `chore/main-consolidated` and
+`docs/media-preservation-integration` left from earlier.
+
+**Not reviewed by Codex:** the `codex` command-line tool is not installed in cloud sessions.
+The dependency/plugin/release-notes changes had a separate Claude review agent; the
+work-in-progress merge and the CodeQL change have not had an independent review yet. Run
+`codex review --base alpha` on `work-in-progress` at the next local session.
+
+**Running and how it is watched (13 Oct):** #1337 and #1338 CI — this session is subscribed to
+both PRs, so a result wakes it; this dies with the session, so if it has ended, look at the
+two PRs directly.
+
+## ★★★★ Previous — 2026-09-28: shared language policy (MWBM-MEDIA-LANG) across nine repositories
 
 > **PICK UP HERE.** MeedyaDL branch `feature/bcp47-language-policy` (from alpha after alpha.75).
 > This effort spans nine repositories plus the dev-team plugin; MeedyaDL is only one of them.
