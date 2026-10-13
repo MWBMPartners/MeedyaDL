@@ -97,6 +97,8 @@ Security fixes that Dependabot merges to `main` have stopped reaching
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.10.9 [skip ci]
 
 ### 🔄 CI/CD
 
