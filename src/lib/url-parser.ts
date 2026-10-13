@@ -471,21 +471,41 @@ export function parseMediaUrl(url: string): ParsedMediaUrl {
 }
 
 /**
- * Services the download form can actually submit today (#983).
- * Must stay in lockstep with the backend SUPPORTED_HOSTS allowlist
- * (src-tauri/src/commands/gamdl.rs): Apple Music family + open.spotify.com only.
+ * Whether the developer-only preview services are switched on for this
+ * person. Today that is Spotify alone, and it follows the hidden developer
+ * access switch (`dev_access_enabled`).
+ *
+ * Every helper below takes this explicitly and treats "not given" as OFF,
+ * because the safe answer is the one ordinary users must get: before
+ * October 2026 Spotify was accepted for everyone -- the Download page
+ * invited Spotify links, the form accepted them, and only the final check
+ * refused them, pointing at a settings section ordinary users cannot see.
  */
-export const SUBMITTABLE_SERVICES: readonly MediaServiceId[] = ['apple-music', 'spotify'];
+export interface SubmissionOptions {
+  /** True when developer access is on, which is what unlocks Spotify. */
+  spotify?: boolean;
+}
+
+/**
+ * Services the download form can submit, given who is using it (#983).
+ * Must stay in lockstep with the backend SUPPORTED_HOSTS allowlist
+ * (src-tauri/src/commands/gamdl.rs): the Apple Music family always, and
+ * open.spotify.com only for developer access -- the backend refuses it
+ * otherwise, so offering it here would only lead to a refusal later.
+ */
+export function submittableServices(options: SubmissionOptions = {}): readonly MediaServiceId[] {
+  return options.spotify ? ['apple-music', 'spotify'] : ['apple-music'];
+}
 
 /**
  * Service-aware URL parser restricted to services the pipeline accepts
  * end-to-end (#983). Same shape as parseMediaUrl, but URLs from
- * recognised-but-not-yet-submittable services (YouTube, BBC iPlayer) are
- * returned with isValid:false.
+ * recognised-but-not-yet-submittable services (YouTube, BBC iPlayer, and
+ * Spotify unless `options.spotify`) are returned with isValid:false.
  */
-export function parseSubmittableUrl(url: string): ParsedMediaUrl {
+export function parseSubmittableUrl(url: string, options: SubmissionOptions = {}): ParsedMediaUrl {
   const parsed = parseMediaUrl(url);
-  if (parsed.isValid && parsed.service && !SUBMITTABLE_SERVICES.includes(parsed.service)) {
+  if (parsed.isValid && parsed.service && !submittableServices(options).includes(parsed.service)) {
     return { ...parsed, isValid: false };
   }
   return parsed;
@@ -520,14 +540,23 @@ export type SubmissionCheck =
  * apart from a link to nowhere.
  *
  * @param url -- One line as the user typed or pasted it.
+ * @param options -- Whether developer-only services (Spotify) are on.
  * @returns Which of the three cases it falls into.
  */
-export function classifyForSubmission(url: string): SubmissionCheck {
+export function classifyForSubmission(url: string, options: SubmissionOptions = {}): SubmissionCheck {
   const trimmed = url.trim();
   const parsed = parseMediaUrl(trimmed);
 
-  if (parsed.isValid && parsed.service && SUBMITTABLE_SERVICES.includes(parsed.service)) {
+  if (parsed.isValid && parsed.service && submittableServices(options).includes(parsed.service)) {
     return { kind: 'supported', url: parsed.url, service: parsed.service };
+  }
+
+  // A service MeedyaDL CAN download from, but a link it cannot read (an
+  // Apple Music address that is not a song, album, playlist, music video or
+  // artist page). Calling that "a service we cannot download from yet"
+  // would say "cannot download from Apple Music yet" -- plainly untrue.
+  if (parsed.service && submittableServices(options).includes(parsed.service)) {
+    return { kind: 'unrecognised', url: trimmed };
   }
 
   // A service we know the name of, even when the link itself did not parse
@@ -547,16 +576,28 @@ export function classifyForSubmission(url: string): SubmissionCheck {
  *
  * Deliberately does not use the word "invalid" for a service we recognise.
  *
+ * A Spotify link pasted by someone without developer access is answered
+ * exactly like a YouTube link: a recognised service MeedyaDL cannot
+ * download from yet. It never mentions a hidden switch or how to turn it
+ * on -- an earlier message told everyone to "unlock" Spotify in a section
+ * of Settings only developers can see.
+ *
  * @param check -- The result of {@link classifyForSubmission}.
+ * @param options -- Whether developer-only services (Spotify) are on.
  * @returns Plain-English text, or `null` when the line is fine.
  */
-export function explainSubmissionCheck(check: SubmissionCheck): string | null {
+export function explainSubmissionCheck(
+  check: SubmissionCheck,
+  options: SubmissionOptions = {}
+): string | null {
   switch (check.kind) {
     case 'supported':
       return null;
     case 'not-yet-supported':
       return `MeedyaDL cannot download from ${MEDIA_SERVICE_LABELS[check.service]} yet. The link itself is fine — support for that service is planned.`;
     case 'unrecognised':
-      return 'That does not look like a link MeedyaDL recognises. It supports Apple Music links, and Spotify links where they have been enabled.';
+      return options.spotify
+        ? 'That does not look like a link MeedyaDL can download. It supports Apple Music links to songs, albums, playlists, music videos and artist pages, and Spotify links.'
+        : 'That does not look like a link MeedyaDL can download. It supports Apple Music links to songs, albums, playlists, music videos and artist pages.';
   }
 }

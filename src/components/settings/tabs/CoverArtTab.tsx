@@ -63,7 +63,7 @@ import { useUiStore } from '@/stores/uiStore';
 
 // Shared form components: Select for format dropdown, Toggle for the save switch,
 // Input for the size number field.
-import { Select, Toggle, Input, SettingsSection } from '@/components/common';
+import { Select, Toggle, Input, SettingsSection, TextButton } from '@/components/common';
 
 // TypeScript union types for cover settings.
 import type { CoverFormat, CoverArtName, AnimatedArtworkResolution } from '@/types';
@@ -301,13 +301,9 @@ export function CoverArtTab() {
             <p className="text-xs text-content-secondary">
               Requires MusicKit credentials (Apple Developer account). Configure them in
               Settings &gt; Advanced &gt; API Credentials. See the{' '}
-              <button
-                type="button"
-                className="text-accent underline cursor-pointer hover:opacity-80"
-                onClick={() => navigateToHelp('animated-artwork')}
-              >
+              <TextButton onClick={() => navigateToHelp('animated-artwork')}>
                 Animated Artwork help page
-              </button>{' '}
+              </TextButton>{' '}
               for setup instructions.
             </p>
           )}

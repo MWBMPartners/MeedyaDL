@@ -73,8 +73,6 @@ import {
   AlertTriangle, // Warning/error indicator
   CheckCircle, // Success indicator
   XCircle, // Failure indicator
-  ChevronDown, // Expanded state arrow
-  ChevronRight, // Collapsed state arrow
   Copy, // Copy-to-clipboard button icon
   Clock, // Expiry warning icon
   Globe, // Domain indicator icon
@@ -96,7 +94,8 @@ import { useSettingsField } from '@/hooks/useSettingsField';
 import * as commands from '@/lib/tauri-commands';
 
 // Shared UI components used in the form controls and action buttons.
-import { FilePickerButton, Button, Tooltip, SettingsSection } from '@/components/common';
+import { FilePickerButton, Button, DisclosureButton, InlineError, Select, Tooltip, SettingsSection } from '@/components/common';
+import { COOKIES_IMPORT_FAILED, explainError } from '@/lib/errorMessages';
 
 // TypeScript types for cookie data.
 import type { CookieValidation, DetectedBrowser, CookieImportResult } from '@/types';
@@ -121,7 +120,7 @@ const BROWSER_INSTRUCTIONS = [
       'Install the "Get cookies.txt LOCALLY" extension from the Chrome Web Store.',
       'Navigate to https://music.apple.com and sign in with your Apple ID.',
       'Click the extension icon in the toolbar.',
-      'Click "Export" to download the cookies as a Netscape-format .txt file.',
+      'Click "Export" to save the cookies as a .txt file.',
       'Save the file somewhere you can find it (e.g., your Downloads folder).',
       'Use the "Browse" button below to select the exported file.',
     ],
@@ -143,7 +142,7 @@ const BROWSER_INSTRUCTIONS = [
       'Install the "Get cookies.txt LOCALLY" extension from the Edge Add-ons store.',
       'Navigate to https://music.apple.com and sign in with your Apple ID.',
       'Click the extension icon in the toolbar.',
-      'Click "Export" to download the cookies in Netscape format.',
+      'Click "Export" to save the cookies as a .txt file.',
       'Save the file to a location you can easily browse to.',
       'Use the "Browse" button below to select the exported file.',
     ],
@@ -154,7 +153,7 @@ const BROWSER_INSTRUCTIONS = [
       'Safari does not have a direct cookie export extension.',
       'Use a third-party tool like "Cookie Exporter" or export via developer tools.',
       'Alternatively, open music.apple.com in Chrome or Firefox to export cookies.',
-      'Ensure the exported file is in Netscape/Mozilla cookie format.',
+      'If the tool asks for a format, choose "Netscape" (the cookies.txt format).',
       'Use the "Browse" button below to select the exported file.',
     ],
   },
@@ -343,34 +342,26 @@ function BrowserInstructions() {
   return (
     <div className="rounded-platform border border-border-light bg-surface-elevated overflow-hidden">
       {/* Outer collapsible header */}
-      <button
-        type="button"
+      {/* The app's one expand control (polish pass L3); it used to swap
+          between two chevron icons. */}
+      <DisclosureButton
+        open={isOpen}
         onClick={() => setIsOpen((prev) => !prev)}
-        className="
-          w-full flex items-center gap-3 px-4 py-3
-          text-sm font-medium text-content-primary
-          hover:bg-surface-secondary transition-colors
-          cursor-pointer
-        "
-        aria-expanded={isOpen ? "true" : "false"}
+        className="px-4 py-3 text-sm font-medium text-content-primary hover:bg-surface-secondary"
       >
-        {/* Chevron rotates to indicate open/closed state */}
-        {isOpen ? (
-          <ChevronDown size={16} className="text-content-tertiary flex-shrink-0" />
-        ) : (
-          <ChevronRight size={16} className="text-content-tertiary flex-shrink-0" />
-        )}
-        <Info size={16} className="text-accent flex-shrink-0" />
-        <span>How to Export Cookies</span>
-      </button>
+        <span className="inline-flex items-center gap-2">
+          <Info size={16} className="text-accent flex-shrink-0" />
+          How to Export Cookies
+        </span>
+      </DisclosureButton>
 
       {/* Expandable instruction content */}
       {isOpen && (
         <div className="border-t border-border-light px-4 pb-4 pt-2 space-y-2">
           {/* Introductory paragraph */}
           <p className="text-xs text-content-secondary mb-3">
-            Select your browser below for step-by-step instructions on how to export your Apple
-            Music cookies in Netscape format.
+            Select your browser below for step-by-step instructions on how to save your Apple Music
+            cookies to a cookies.txt file.
           </p>
 
           {/* One accordion panel per browser */}
@@ -380,25 +371,16 @@ function BrowserInstructions() {
               className="rounded-platform border border-border-light overflow-hidden"
             >
               {/* Browser header button */}
-              <button
-                type="button"
+              <DisclosureButton
+                open={expandedBrowser === browser}
                 onClick={() => toggleBrowser(browser)}
-                className="
-                  w-full flex items-center gap-2 px-3 py-2
-                  text-xs font-medium text-content-primary
-                  hover:bg-surface-secondary transition-colors
-                  cursor-pointer
-                "
-                aria-expanded={expandedBrowser === browser ? "true" : "false"}
+                className="px-3 py-2 text-xs font-medium text-content-primary hover:bg-surface-secondary"
               >
-                {expandedBrowser === browser ? (
-                  <ChevronDown size={14} className="text-content-tertiary flex-shrink-0" />
-                ) : (
-                  <ChevronRight size={14} className="text-content-tertiary flex-shrink-0" />
-                )}
-                <Globe size={14} className="text-accent flex-shrink-0" />
-                <span>{browser}</span>
-              </button>
+                <span className="inline-flex items-center gap-2">
+                  <Globe size={14} className="text-accent flex-shrink-0" />
+                  {browser}
+                </span>
+              </DisclosureButton>
 
               {/* Numbered step list (shown only when this browser is expanded) */}
               {expandedBrowser === browser && (
@@ -943,15 +925,19 @@ export function CookiesTab() {
         <div className="flex items-start gap-3">
           <Shield size={18} className="text-accent flex-shrink-0 mt-0.5" />
           <div className="text-sm text-content-secondary space-y-2">
+            {/* Polish pass L8: this box used to open with "You need a
+                Netscape-format cookies file", ahead of the one-click Sign in
+                below it. It now says the simple way first, and the
+                cookies-file route comes last on the page, for the people
+                who want it. */}
             <p>
-              GAMDL requires Apple Music cookies for authentication. You need a Netscape-format
-              cookies file exported from your browser.
+              MeedyaDL needs to sign in to Apple Music to download with your subscription. The
+              quickest way is <span className="font-medium text-content-primary">Sign in with Apple Music</span>,
+              just below.
             </p>
             <p>
-              Use a browser extension like{' '}
-              <span className="font-medium text-content-primary">cookies.txt</span> to export
-              cookies from <span className="font-medium text-content-primary">music.apple.com</span>{' '}
-              after logging in.
+              You can also import the sign-in from a browser where you are already signed in, or,
+              further down, use a cookies file you exported yourself.
             </p>
           </div>
         </div>
@@ -965,7 +951,7 @@ export function CookiesTab() {
       <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
         <div className="flex items-center gap-2.5 mb-2">
           <LogIn size={16} className="text-accent flex-shrink-0" />
-          <h4 className="text-xs font-medium text-content-primary">Sign in with Apple Music</h4>
+          <h3 className="text-xs font-medium text-content-primary">Sign in with Apple Music</h3>
         </div>
 
         {!isLoginWindowOpen ? (
@@ -993,7 +979,7 @@ export function CookiesTab() {
           <div className="space-y-2">
             <div className="flex items-center gap-2">
               <Loader2 size={14} className="animate-spin text-accent" />
-              <span className="text-xs font-medium text-content-primary">Signing in...</span>
+              <span className="text-xs font-medium text-content-primary">Signing in…</span>
             </div>
             <p className="text-xs text-content-tertiary">
               Sign in with your Apple ID in the browser window, then return here.
@@ -1028,34 +1014,29 @@ export function CookiesTab() {
         <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
           <div className="flex items-center gap-2.5 mb-2">
             <Globe size={16} className="text-accent flex-shrink-0" />
-            <h4 className="text-xs font-medium text-content-primary">Import from Browser</h4>
+            <h3 className="text-xs font-medium text-content-primary">Import from Browser</h3>
           </div>
 
           {/* Browser selector and import button */}
           <div className="flex items-center gap-2">
-            <select
-              aria-label="Select browser for cookie import"
-              className="
-                flex-1 px-3 py-1.5 text-sm rounded-platform
-                border border-border-light bg-surface-primary
-                text-content-primary
-                focus:outline-none focus:ring-2 focus:ring-accent/50
-              "
-              value={selectedBrowser}
-              onChange={(e) => {
-                setSelectedBrowser(e.target.value);
-                setImportResult(null);
-                setImportError(null);
-              }}
-              disabled={isImporting}
-            >
-              {browsers.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                  {b.requires_fda ? ' (requires Full Disk Access)' : ''}
-                </option>
-              ))}
-            </select>
+            {/* The shared Select (polish pass M17), in a flex-1 box so it
+                takes the room beside the Import button. */}
+            <div className="flex-1">
+              <Select
+                aria-label="Select browser for cookie import"
+                options={browsers.map((b) => ({
+                  value: b.id,
+                  label: b.requires_fda ? `${b.name} (requires Full Disk Access)` : b.name,
+                }))}
+                value={selectedBrowser}
+                onChange={(e) => {
+                  setSelectedBrowser(e.target.value);
+                  setImportResult(null);
+                  setImportError(null);
+                }}
+                disabled={isImporting}
+              />
+            </div>
             <Button
               variant="secondary"
               size="sm"
@@ -1138,7 +1119,7 @@ export function CookiesTab() {
             <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-xs">
               <div className="flex items-center gap-1.5">
                 <XCircle size={14} className="text-status-error flex-shrink-0" />
-                <p className="text-status-error-text">{importError}</p>
+                <InlineError {...explainError(COOKIES_IMPORT_FAILED, importError)} />
               </div>
             </div>
           )}
@@ -1149,7 +1130,7 @@ export function CookiesTab() {
       {isDetecting && (
         <div className="flex items-center gap-2 py-2 text-xs text-content-tertiary">
           <Loader2 size={14} className="animate-spin" />
-          Detecting browsers...
+          Detecting browsers…
         </div>
       )}
 
@@ -1158,6 +1139,9 @@ export function CookiesTab() {
           Collapsible accordion with per-browser step-by-step guides
           for exporting cookies in Netscape format.
           ============================================================ */}
+      {/* The cookies-file route, last: for people who prefer to export the
+          file themselves (polish pass L8). */}
+      <h3 className="text-xs font-medium text-content-primary pt-2">Or use a cookies file</h3>
       <BrowserInstructions />
 
       {/* ============================================================
@@ -1167,7 +1151,7 @@ export function CookiesTab() {
           ============================================================ */}
       <FilePickerButton
         label="Cookies File"
-        description="Path to the Netscape-format cookies.txt file"
+        description="The cookies.txt file you exported from your browser"
         value={cookiesPath.value}
         onChange={handleFileChange}
         placeholder="No cookies file selected"

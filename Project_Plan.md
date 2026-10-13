@@ -150,7 +150,7 @@ There is no "Paths" tab — the output folder lives on the General tab, and tool
 10. ✅ **Spotify** - Session/sign-in and the M9 anti-ban safeguards (hidden behind the developer-only preview switch for regular users)
 11. ✅ **Advanced** - Wrapper, WVD, download/remux modes, API credentials, crash reporting, diagnostics
 
-Two more tab components exist in the codebase (`BBCiPlayerTab.tsx`, `YouTubeTab.tsx`) but are not wired into the tab list yet — they'll join once M8/M10 ship.
+The BBC iPlayer and YouTube placeholder tabs (`BBCiPlayerTab.tsx`, `YouTubeTab.tsx`) were deleted in October 2026: they were never in the tab list and only said "Coming Soon". Each service gets a real tab when it ships (M8/M10).
 
 #### 3.4 First-Run Setup Wizard
 

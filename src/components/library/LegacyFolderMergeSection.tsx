@@ -27,6 +27,7 @@ import {
   type MergePreview,
   type MergeReport,
 } from '@/lib/tauri-commands';
+import { FOLDER_SCAN_FAILED, isCancellation, showError } from '@/lib/errorMessages';
 
 /**
  * Standalone section embedded on `LibraryScanPage`. Owns its own
@@ -63,7 +64,7 @@ export function LegacyFolderMergeSection() {
       setPairs(found);
       if (found.length === 0) {
         addToast(
-          'No legacy sibling-folder pairs found. Your library is already in the post-#528 layout.',
+          'No split album folders found. Your library is already tidy.',
           'success'
         );
       } else {
@@ -73,9 +74,8 @@ export function LegacyFolderMergeSection() {
         );
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.toLowerCase().includes('cancel')) {
-        addToast(`Scan failed: ${msg}`, 'error');
+      if (!isCancellation(err)) {
+        showError(FOLDER_SCAN_FAILED, err);
       }
     } finally {
       setScanning(false);
@@ -89,8 +89,7 @@ export function LegacyFolderMergeSection() {
       const preview = await previewLegacyFolderMerge(pair);
       setActivePreview(preview);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      addToast(`Preview failed: ${msg}`, 'error');
+      showError('MeedyaDL could not work out what merging those two folders would do. Nothing was moved; scan the folder again, then try again.', err);
     } finally {
       setPreviewing(false);
     }
@@ -113,13 +112,24 @@ export function LegacyFolderMergeSection() {
           ) ?? null
       );
       setActivePreview(null);
-      addToast(
-        `Merged "${report.pair.album_basename}" — ${report.audio_moved} audio + ${report.sidecars_moved} sidecars moved${report.warnings.length > 0 ? ` (${report.warnings.length} warning${report.warnings.length === 1 ? '' : 's'})` : ''}`,
-        report.warnings.length > 0 ? 'warning' : 'success'
-      );
+      // Plain words for what moved ("sidecars" meant the lyrics and
+      // subtitle files kept beside each track). The merge's own warnings
+      // (files it could not move) are folded under "Details".
+      const moved = `moved ${report.audio_moved} music file${report.audio_moved === 1 ? '' : 's'} and ${report.sidecars_moved} lyrics or subtitle file${report.sidecars_moved === 1 ? '' : 's'}`;
+      if (report.warnings.length > 0) {
+        addToast(
+          `Merged "${report.pair.album_basename}": ${moved}, but ${report.warnings.length} thing${report.warnings.length === 1 ? '' : 's'} could not be moved. Check the album folder; the details list them.`,
+          'warning',
+          undefined,
+          undefined,
+          undefined,
+          report.warnings.join('\n'),
+        );
+      } else {
+        addToast(`Merged "${report.pair.album_basename}": ${moved}.`, 'success');
+      }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      addToast(`Merge failed: ${msg}`, 'error');
+      showError('MeedyaDL could not finish merging those two folders. Scan the folder again to see what is left to merge; the details say what stopped it.', err);
     } finally {
       setExecuting(false);
     }
@@ -129,16 +139,17 @@ export function LegacyFolderMergeSection() {
     <section className="mt-8 pt-6 border-t border-border-light">
       <header className="mb-3">
         <h2 className="text-lg font-semibold text-content-primary">
-          Legacy folder cleanup
+          Legacy Folder Cleanup
         </h2>
         <p className="text-sm text-content-secondary max-w-3xl mt-1">
-          Albums downloaded before v1.4.4 with companion codecs enabled
-          (e.g. Atmos primary + ALAC companion) and the{' '}
+          Some albums downloaded by older versions of MeedyaDL, with
+          companion codecs on (for example Dolby Atmos plus a lossless
+          copy) and the{' '}
           <code className="font-mono text-xs">[Explicit]</code> /{' '}
-          <code className="font-mono text-xs">[Clean]</code> filename
-          suffix produced two sibling folders on disk. v1.4.4 prevents
-          this for new downloads; this tool merges any pairs left over
-          from older downloads into the single post-#528 layout.
+          <code className="font-mono text-xs">[Clean]</code> label in their
+          names, ended up split across two folders side by side. New
+          downloads are no longer split; this tool merges any pairs left
+          over from those older downloads into one folder.
         </p>
       </header>
 
@@ -159,7 +170,7 @@ export function LegacyFolderMergeSection() {
       </div>
 
       {pairs !== null && pairs.length > 0 && (
-        <div className="border border-border-light rounded-md overflow-hidden">
+        <div className="border border-border-light rounded-platform overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-surface-secondary text-content-secondary text-xs uppercase tracking-wider">
               <tr>
@@ -243,7 +254,7 @@ export function LegacyFolderMergeSection() {
             </ul>
 
             {activePreview.potential_collisions.length > 0 && (
-              <div className="rounded-md border border-status-warning/30 bg-status-warning/10 p-3 text-status-warning-text text-xs">
+              <div className="rounded-platform border border-status-warning/30 bg-status-warning/10 p-3 text-status-warning-text text-xs">
                 <div className="flex items-center gap-2 font-medium mb-1">
                   <FileWarning size={14} />
                   Potential filename collisions
@@ -297,7 +308,7 @@ export function LegacyFolderMergeSection() {
           surface non-fatal warnings inline so the user has a visible
           paper trail of anything that didn't go perfectly. */}
       {lastReport && lastReport.warnings.length > 0 && (
-        <div className="mt-4 rounded-md border border-status-warning/30 bg-status-warning/10 p-3 text-status-warning-text text-xs">
+        <div className="mt-4 rounded-platform border border-status-warning/30 bg-status-warning/10 p-3 text-status-warning-text text-xs">
           <div className="flex items-center gap-2 font-medium mb-2">
             <AlertTriangle size={14} />
             Merge of "{lastReport.pair.album_basename}" completed with warnings

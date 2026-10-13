@@ -66,7 +66,6 @@
  *
  * ## Sub-components (file-private)
  *
- * - `isMacPlatform()` -- Detects macOS for modifier key display.
  * - `escapeRegExp()` -- Escapes regex special characters in search queries.
  * - `HighlightedLabel` -- Renders a label with search matches highlighted.
  *
@@ -101,6 +100,9 @@ import { useTranslation } from 'react-i18next';
  * @see https://github.com/remarkjs/react-markdown
  */
 import ReactMarkdown from 'react-markdown';
+import { IconButton, Input, NavListItem, TextButton } from '@/components/common';
+/** Renumbers each help page's headings to fit under the Help screen's title. */
+import { remarkFitHeadings } from '@/lib/markdownHeadings';
 
 /**
  * remark-gfm -- Remark plugin that adds support for GitHub Flavored
@@ -167,22 +169,6 @@ import {
 import { LOCALES, baseLanguageOf } from '@/lib/i18n';
 
 /**
- * Detects whether the user is on macOS so we can display the correct
- * modifier key hint (Cmd on macOS, Ctrl on everything else).
- * Uses navigator.platform with a fallback to navigator.userAgent for
- * broader browser compatibility.
- */
-function isMacPlatform(): boolean {
-  if (typeof navigator !== 'undefined') {
-    return (
-      navigator.platform?.toUpperCase().includes('MAC') ||
-      navigator.userAgent?.toUpperCase().includes('MAC')
-    );
-  }
-  return false;
-}
-
-/**
  * Escapes special regex characters in a user-supplied string so it can
  * be safely used inside a RegExp constructor without unintended pattern matching.
  * For example, a search query containing "C++" would be escaped to "C\\+\\+"
@@ -234,7 +220,7 @@ function HighlightedLabel({ label, query }: { label: string; query: string }) {
          */
         const isMatch = part.toLowerCase() === query.trim().toLowerCase();
         return isMatch ? (
-          <mark key={index} className="bg-yellow-300/40 text-inherit rounded-sm px-0.5">
+          <mark key={index} className="bg-yellow-300/40 text-inherit rounded-platform-sm px-0.5">
             {part}
           </mark>
         ) : (
@@ -298,9 +284,9 @@ export function HelpViewer() {
   }, [i18n.language]);
 
   /** App version fetched from tauri.conf.json, used in the About topic */
-  const [appVersion, setAppVersion] = useState('...');
+  const [appVersion, setAppVersion] = useState('…');
   /** Component version table (markdown) for the About > Component Library section */
-  const [componentVersions, setComponentVersions] = useState('*Loading...*');
+  const [componentVersions, setComponentVersions] = useState('*Loading…*');
   /**
    * Verbatim content of `ACKNOWLEDGEMENTS.md` (#802). Embedded into the
    * binary via `include_str!()` and surfaced through the legal IPC. Fed
@@ -380,14 +366,6 @@ export function HelpViewer() {
       clearHelpActiveTopic();
     }
   }, [helpActiveTopic, clearHelpActiveTopic]);
-
-  /**
-   * Determine the platform-appropriate modifier key label once.
-   * On macOS we show the Cmd symbol; on other platforms we show "Ctrl".
-   * This is memoized because isMacPlatform() accesses navigator, and
-   * we only need to evaluate it once per component mount.
-   */
-  const modifierKey = useMemo(() => (isMacPlatform() ? '⌘' : 'Ctrl'), []);
 
   /**
    * Narrows the page list down to whatever the person typed in the
@@ -547,92 +525,30 @@ export function HelpViewer() {
            * it remains visible as the user scrolls through topics.
            * -------------------------------------------------------------- */}
           <div className="sticky top-0 bg-surface-primary z-10 p-2 pb-1 border-b border-border-light">
-            {/* Search input wrapper: contains the icon, input, keyboard
-                hint, and clear button in a single horizontal row */}
-            <div className="relative flex items-center">
-              {/* Search icon on the left side of the input */}
-              <Search
-                size={14}
-                className="absolute left-2.5 text-content-tertiary pointer-events-none"
-                aria-hidden="true"
-              />
-
-              {/* The search text input. Padded on the left to make room
-                  for the search icon, and on the right for the keyboard
-                  shortcut hint and clear button. */}
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={handleSearchChange}
-                placeholder={t('help.searchPlaceholder')}
-                aria-label={t('help.searchAriaLabel')}
-                className="
-                  w-full pl-8 pr-16 py-1.5
-                  text-xs rounded-platform
-                  bg-surface-secondary
-                  border border-border-light
-                  text-content-primary
-                  placeholder:text-content-tertiary
-                  focus:outline-none focus:ring-1 focus:ring-accent
-                  transition-colors
-                "
-              />
-
-              {/* Right-side controls positioned absolutely within the input.
-                  Shows the keyboard shortcut hint when idle, or the clear
-                  button when a search query is entered. */}
-              <div className="absolute right-2 flex items-center gap-1">
-                {isSearchActive ? (
-                  /* Clear search button: visible only when there is text
-                     in the search input. Resets the query on click. */
-                  <button
-                    onClick={handleClearSearch}
-                    className="
-                      p-0.5 rounded
-                      text-content-tertiary
-                      hover:text-content-primary
-                      hover:bg-surface-tertiary
-                      transition-colors
-                    "
-                    aria-label={t('help.clearSearch')}
-                    title={t('help.clearSearch')}
-                  >
-                    <X size={12} />
-                  </button>
-                ) : (
-                  /* Keyboard shortcut hint: shown when the input is empty.
-                     Displays Cmd+K on macOS or Ctrl+K on other platforms.
-                     This is a visual placeholder for future keyboard
-                     shortcut support (the actual shortcut handler is not
-                     yet implemented). The "Cmd"/"Ctrl" part of `modifierKey`
-                     is a key name, never translated -- it's passed into the
-                     translated sentence as `{{key}}` rather than baked into
-                     the English string, so a translator only ever touches
-                     the surrounding words. */
-                  <kbd
-                    className="
-                      hidden sm:inline-flex items-center gap-0.5
-                      px-1 py-0.5 rounded
-                      text-[10px] leading-none
-                      font-mono
-                      text-content-tertiary
-                      bg-surface-tertiary
-                      border border-border-light
-                    "
-                    title={t('help.searchShortcutHint', { key: modifierKey })}
-                    aria-label={t('help.searchShortcutAriaLabel', { key: modifierKey })}
-                  >
-                    {modifierKey}+K
-                  </kbd>
-                )}
-              </div>
-            </div>
+            {/* The shared Input (polish pass M17), with the clear button as
+                its suffix. A "⌘+K" / "Ctrl+K" badge used to sit here when
+                the box was empty, labelled "to focus search (coming
+                soon)"; no such shortcut existed (Cmd/Ctrl+K opens the
+                Activity page), so it was removed rather than wired up. */}
+            <Input
+              type="text"
+              value={searchQuery}
+              onChange={handleSearchChange}
+              placeholder={t('help.searchPlaceholder')}
+              aria-label={t('help.searchAriaLabel')}
+              icon={<Search size={14} aria-hidden="true" />}
+              suffix={
+                isSearchActive ? (
+                  <IconButton size="sm" icon={<X size={12} />} label={t('help.clearSearch')} onClick={handleClearSearch} />
+                ) : undefined
+              }
+            />
 
             {/* Result count: displayed below the search input when the user
                 has entered a search query. Shows the number of matching
                 topics to give immediate feedback on the search scope. */}
             {isSearchActive && (
-              <div className="mt-1 px-1 text-[10px] text-content-tertiary">
+              <div className="mt-1 px-1 text-2xs text-content-tertiary">
                 {t('help.resultCount', { count: filteredTopics.length })}
               </div>
             )}
@@ -648,31 +564,20 @@ export function HelpViewer() {
           <div className="p-2 space-y-0.5 flex-1">
             {filteredTopics.length > 0 ? (
               filteredTopics.map(({ id, label, icon: Icon }) => (
-                <button
+                // The shared NavListItem (polish pass M17), the same entry
+                // the sidebar and the Settings tabs use. `aria-current`
+                // (Fix 6, a11y audit) names the open topic; the label is
+                // highlighted where it matches the search.
+                <NavListItem
                   key={id}
+                  active={activeTopic === id}
                   onClick={() => handleTopicSelect(id)}
-                  // Fix 6 (a11y audit): names which topic is currently open.
-                  aria-current={activeTopic === id ? 'page' : undefined}
-                  className={`
-                    w-full flex items-center gap-2.5 px-3 py-2
-                    rounded-platform text-sm transition-colors
-                    ${
-                      activeTopic === id
-                        ? 'bg-accent-light text-accent font-medium'
-                        : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary'
-                    }
-                  `}
+                  icon={<Icon size={16} className="flex-shrink-0" />}
                 >
-                  {/* Topic icon: fixed size to maintain alignment across
-                      all sidebar entries regardless of label length */}
-                  <Icon size={16} className="flex-shrink-0" />
-
-                  {/* Topic label: rendered with search match highlighting
-                      when a query is active, or as plain text otherwise */}
-                  <span className="truncate">
+                  <span className="block truncate">
                     <HighlightedLabel label={label} query={searchQuery} />
                   </span>
-                </button>
+                </NavListItem>
               ))
             ) : (
               /* Empty state: shown when the search query matches no topics.
@@ -681,16 +586,9 @@ export function HelpViewer() {
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <Search size={24} className="text-content-tertiary mb-2 opacity-50" />
                 <p className="text-xs text-content-tertiary">{t('help.noResults')}</p>
-                <button
-                  onClick={handleClearSearch}
-                  className="
-                    mt-2 text-xs text-accent
-                    hover:text-accent-hover
-                    transition-colors
-                  "
-                >
+                <TextButton size="xs" className="mt-2" onClick={handleClearSearch}>
                   {t('help.clearSearch')}
-                </button>
+                </TextButton>
               </div>
             )}
           </div>
@@ -736,7 +634,10 @@ export function HelpViewer() {
 
           <div className="prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
+              // Each help page starts with "# Title"; under the Help
+              // screen's own <h1> that becomes an <h2>, and so on down,
+              // with no level skipped (see lib/markdownHeadings.ts).
+              remarkPlugins={[remarkGfm, [remarkFitHeadings, { top: 2 }]]}
               rehypePlugins={[rehypeRaw, [rehypeSanitize, helpSanitizeSchema]]}
               components={{
                 // Custom link handler. Help pages carry three different

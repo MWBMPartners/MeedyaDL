@@ -3,15 +3,15 @@
 /**
  * @file Main application layout component.
  *
- * Assembles the full app shell: sidebar navigation, custom title bar
- * (Windows/Linux), main content area with page routing, and status bar.
+ * Assembles the full app shell: sidebar navigation, main content area with
+ * page routing, and status bar. The window's title bar is the operating
+ * system's own on every platform (`decorations: true`), so there is no
+ * custom title bar here.
  * The content area renders the appropriate page based on the UI store's
  * `currentPage` value.
  *
  * Visual structure (top to bottom, left to right):
- * ┌──────────────────────────────────────────────────┐
- * │               TitleBar (Win/Linux)               │
- * ├──────────┬───────────────────────────────────────┤
+ * ┌──────────┬───────────────────────────────────────┐
  * │          │    UpdateBanner (pinned, non-scroll)   │
  * │          ├───────────────────────────────────────┤
  * │ Sidebar  │          <main> (scrollable)          │
@@ -36,7 +36,6 @@
  *
  * Related components:
  *  - {@link Sidebar}        -- left navigation panel (from ./Sidebar)
- *  - {@link TitleBar}       -- custom window chrome (from ./TitleBar)
  *  - {@link StatusBar}      -- download-count footer (from ./StatusBar)
  *  - {@link ToastContainer} -- toast notification overlay (from @/components/common)
  */
@@ -60,7 +59,6 @@ import { useTranslation } from 'react-i18next';
 /** Sibling layout components assembled into the shell. */
 import { GlobalProgressBar } from './GlobalProgressBar';
 import { Sidebar } from './Sidebar';
-import { TitleBar } from './TitleBar';
 import { StatusBar } from './StatusBar';
 
 /** Toast notification overlay rendered outside the normal document flow. */
@@ -74,6 +72,7 @@ import { parseAppleMusicUrl } from '@/lib/url-parser';
 /** Zustand stores for UI navigation and download URL input. */
 import { useUiStore } from '@/stores/uiStore';
 import { useDownloadStore } from '@/stores/downloadStore';
+import { NOT_A_RECORD } from '@/lib/errorMessages';
 
 /**
  * Ceiling on how many links a single dropped `.meedyadl` file can hand to
@@ -191,10 +190,11 @@ interface MainLayoutProps {
 /**
  * Root layout shell for the entire application window.
  *
- * Renders six distinct regions:
- *  1. **TitleBar** -- Custom window chrome (minimize / maximize / close)
- *     rendered only on Windows & Linux; macOS uses the native traffic-light
- *     buttons via `titleBarStyle: 'overlay'` in `tauri.conf.json`.
+ * Renders five distinct regions (the window's title bar is the operating
+ * system's own, so it is not one of them):
+ *  1. (removed) A `TitleBar` placeholder that rendered nothing used to sit
+ *     here, with comments describing an overlay title bar the app never
+ *     used; it was deleted in October 2026.
  *  2. **Sidebar** -- Left-hand navigation panel that links to each
  *     application page. Collapsible to icon-only mode.
  *  3. **UpdateBanner** -- Dismissible notification banner shown when app
@@ -210,7 +210,7 @@ interface MainLayoutProps {
  *
  * Layout mechanics (Tailwind CSS):
  *  - Outer `div`: `flex flex-col h-screen` -- fills the entire Tauri
- *    webview and stacks TitleBar, body, and ToastContainer vertically.
+ *    webview and stacks the body and ToastContainer vertically.
  *  - Body row: `flex flex-1 overflow-hidden` -- Sidebar and content sit
  *    side-by-side; `overflow-hidden` prevents the body from scrolling so
  *    only the inner `<main>` scrolls.
@@ -370,17 +370,17 @@ export function MainLayout({ children }: MainLayoutProps) {
             try {
               parsed = JSON.parse(reader.result as string);
             } catch {
-              addToast('Invalid .meedyadl manifest file', 'error');
+              addToast(NOT_A_RECORD, 'error');
               return;
             }
 
             const urls = extractManifestUrls(parsed);
             if (urls === null) {
-              addToast('Invalid .meedyadl manifest file', 'error');
+              addToast(NOT_A_RECORD, 'error');
               return;
             }
             if (urls.length === 0) {
-              addToast('Manifest contains no download sources', 'error');
+              addToast('That download record has no links in it, so there is nothing to download. Drop a different one.', 'error');
               return;
             }
 
@@ -394,7 +394,7 @@ export function MainLayout({ children }: MainLayoutProps) {
 
             if (wasTruncated) {
               addToast(
-                `Manifest had ${urls.length} URLs — only imported the first ${MAX_DROPPED_MANIFEST_URLS}`,
+                `That download record has ${urls.length} links; only the first ${MAX_DROPPED_MANIFEST_URLS} were added, the most one drop can add.`,
                 'warning'
               );
             } else {
@@ -434,7 +434,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         setUrlInput(url);
         addToast('Apple Music URL dropped successfully', 'success');
       } else {
-        addToast('Not a valid Apple Music URL', 'error');
+        addToast('That is not an Apple Music link. Drag a link from music.apple.com, or paste it into the box on the Download page.', 'error');
       }
     },
     [setPage, setUrlInput, addToast],
@@ -482,14 +482,6 @@ export function MainLayout({ children }: MainLayoutProps) {
         {t('common.skipToMainContent')}
       </a>
 
-      {/*
-       * Custom title bar for Windows/Linux (hidden on macOS).
-       * On macOS the native title bar is used because `titleBarStyle`
-       * is set to "overlay" in tauri.conf.json, which renders the
-       * traffic-light buttons on top of the webview content.
-       * @see TitleBar component in ./TitleBar.tsx
-       */}
-      <TitleBar />
 
       {/*
        * Main body row: sidebar (fixed width) + content column (flex-1).
@@ -604,7 +596,7 @@ export function MainLayout({ children }: MainLayoutProps) {
            */}
           {isDragOver && (
             <div className="absolute inset-0 z-50 flex items-center justify-center bg-surface-primary/80 backdrop-blur-sm pointer-events-none">
-              <div className="flex flex-col items-center gap-3 p-8 border-2 border-dashed border-accent rounded-2xl">
+              <div className="flex flex-col items-center gap-3 p-8 border-2 border-dashed border-accent rounded-platform-lg">
                 {/*
                  * Arrow-down icon (SVG) -- visual indicator that content
                  * can be dropped here. Uses the accent colour for emphasis.

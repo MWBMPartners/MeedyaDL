@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Copyright (c) 2024-2026 MeedyaSuite
+# Licensed under the MIT License. See LICENSE file in the project root.
+#
+# tools/hooks/pre-push
+# ====================
+#
+# Runs before every `git push` and refuses the push if a check fails.
+# Installed per clone by tools/install-hooks.sh -- git never copies hooks
+# from one clone to another, so every new clone has to run that once.
+#
+# What it runs, all with --strict (a finding means the push is refused):
+#   - tools/audit-checks/check_polish.py -- the "nothing may look
+#     unfinished" rules a script can see (see that file for the list);
+#   - the existing audit checks that take under about three seconds.
+# The three slower audit checks (check_comment_paths.py,
+# check_concurrency_claims.py, check_settings_reach_backend.py, 5-18 s
+# each) are left to the pull-request workflow, which runs every check.
+#
+# What it cannot do: look at screens. Sizes, overlaps and how pages
+# actually look are checked in a real browser before each release. It also
+# checks the files as they are in your working folder -- normally exactly
+# what you are pushing, but a change you have not committed counts too.
+#
+# This file names the checks it runs; it quotes none of the patterns they
+# hunt for, but it is listed in check_polish.py's EXEMPT_FILES all the same.
+#
+# To push without it in an emergency: `git push --no-verify` -- and say so
+# in the pull request.
+
+set -u
+top=$(git rev-parse --show-toplevel) || exit 1
+cd "$top" || exit 1
+
+checks=(
+  check_polish.py
+  check_build_secrets.py
+  check_codec_registry.py
+  check_help_topics.py
+  check_i18n.py
+  check_ipc_commands.py
+  check_settings_defaults.py
+  check_tauri_version_sync.py
+  check_updater_manifest_keys.py
+  check_user_agent.py
+)
+
+failed=()
+for check in "${checks[@]}"; do
+  # The exit code is read straight from the check (never through a pipe,
+  # which would report the exit code of the last command in the pipe).
+  if ! output=$(python3 "tools/audit-checks/$check" --strict 2>&1); then
+    printf '%s\n' "$output"
+    failed+=("$check")
+  fi
+done
+
+if [ "${#failed[@]}" -gt 0 ]; then
+  echo
+  echo "pre-push: push refused -- these checks found problems: ${failed[*]}"
+  echo "Fix them (each check prints what it found, above), then push again."
+  exit 1
+fi
+echo "pre-push: ${#checks[@]} checks passed."

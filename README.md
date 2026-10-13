@@ -83,7 +83,7 @@
 - **Graceful shutdown** — background tasks (enrichment, companion downloads, lyrics) stop cleanly on window close or tray quit instead of being abruptly terminated
 - **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, `cargo-deny` licence scanning in CI (org-level source allowlist for `MWBMPartners` and `MeedyaSuite` GitHub orgs — see `src-tauri/deny.toml`). The app also has the code needed to check a downloaded tool against a saved checksum, but that check is not turned on for any download yet ([#987](https://github.com/MWBMPartners/MeedyaDL/issues/987))
 - **Accessibility** — ARIA labels on interactive elements, `aria-live` regions for dynamic content updates, `prefers-reduced-motion` support, skip navigation, high-contrast mode, colour-blind themes (deuteranopia, protanopia, tritanopia)
-- **Translations** — the app runs in English, German, or French, chosen automatically from your OS language or manually in Settings > General. German and French are complete, machine-made translations (the language picker and an in-app note both say so); help pages can also be translated, one Markdown file per page under `help/<language>/`, and a page with no translation yet falls back to the English original with a note explaining why
+- **Translations** — the app runs in English. German and French translations are under way but cover only part of the app, so they are not offered yet; a language is offered (and chosen automatically from your OS language) only once its translation covers every screen. Someone who chose German or French earlier keeps it, marked in Settings > General as an incomplete translation; help pages can also be translated, one Markdown file per page under `help/<language>/`, and a page with no translation yet falls back to the English original with a note explaining why
 - **Pre-release version handling** — on an unfinished build (anything before 1.0, or any alpha, beta or release-candidate build such as `1.13.0-alpha.71`), verbose activity logging stays on across restarts for easier debugging, and a notice is shown the first time each new unfinished build is launched
 - **Component version info** — Help > About screen displays a Component Library table with installed versions of all tools (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo) via the `get_component_versions` IPC command
 - **Collapsible Help > About sections** — Credits, License, Links, Open Source Acknowledgements, and Component Library are wrapped in `<details>`/`<summary>` elements for clean, scannable layout
@@ -115,12 +115,11 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
 | --- | --- | --- | --- | --- |
 | **[Python](https://www.python.org/)** | Portable runtime that hosts GAMDL. Bundled with MeedyaDL — users never install this manually. | 3.10+ | 3.12.x | `src-tauri/src/services/python_manager.rs` (`PYTHON_VERSION`) |
 | **[GAMDL](https://github.com/glomatico/gamdl)** | Apple Music download engine. Installed via `pip` into the bundled Python. GAMDL **v3 only** — v3.0–v3.5.x use [wrapper-v1](https://github.com/WorldObservationLog/wrapper), v3.6+ use [wrapper-v2](https://github.com/glomatico/wrapper-v2) (both supported; the Settings UI adapts). | **3.0 – 3.9.1**, except 3.9 | 3.9.1 (Windows on ARM: 3.8.5) | `src-tauri/tool-versions.toml` → `[gamdl]` |
-| **FFmpeg** | Audio codec conversion and video remuxing. Still used by MeedyaDL's own pipeline (ReplayGain / BPM analysis) regardless of GAMDL version. Also used by N_m3u8DL-RE on GAMDL 3.7+ via `--ffmpeg-path`. | 5.0+ | 7.x | `src-tauri/tool-versions.toml` → `[ffmpeg]` |
+| **FFmpeg** | Audio codec conversion and video remuxing. Still used by MeedyaDL's own pipeline (ReplayGain loudness analysis) regardless of GAMDL version. Also used by N_m3u8DL-RE on GAMDL 3.7+ via `--ffmpeg-path`. | 5.0+ | 7.x | `src-tauri/tool-versions.toml` → `[ffmpeg]` |
 | **mp4decrypt** ([Bento4](https://github.com/axiomatic-systems/Bento4)) | Decrypts Widevine-protected streams. Required by GAMDL 3.0 – 3.5.x; **unused** by GAMDL 3.6+ (native decryption) but still shipped while older releases are in the support window. | 1.6.0+ | 1.6.0+ | `src-tauri/tool-versions.toml` → `[mp4decrypt]` |
 | **[N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE)** | Alternative HLS/DASH downloader used by some codec paths. Depends on FFmpeg at HLS-stream time. | 0.4.0+ | 0.5.x | `src-tauri/tool-versions.toml` → `[nm3u8dlre]` |
 | **MP4Box** ([GPAC](https://github.com/gpac/gpac)) | Alternative MP4 muxer. **Unused** by GAMDL 3.6+ (native muxing); still shipped for older releases. | 2.0+ | 2.4+ | `src-tauri/tool-versions.toml` → `[mp4box]` |
 | **[MediaInfo](https://github.com/MediaArea/MediaInfo)** | Audio/video metadata inspection used by the enrichment pipeline. | 22.0+ | 24.x | `src-tauri/tool-versions.toml` → `[mediainfo]` |
-| **[rclone](https://rclone.org/)** | OPTIONAL — direct-to-cloud upload (Settings → Cloud Destinations). Subprocess-invoked; bundled like FFmpeg / N_m3u8DL-RE. Only installed on-demand when the user enables a cloud destination. | 1.60.0+ | 1.66+ | `src-tauri/tool-versions.toml` → `[rclone]` |
 | **[votify](https://github.com/glomatico/votify)** | The program that would download from Spotify. In development and hidden behind a developer-only preview, so it does nothing in an ordinary build. Run as a separate program, the same way GAMDL is. | 1.9.0 – 1.9.9 | 1.9.9 | `src-tauri/tool-versions.toml` → `[votify]` |
 
 ### How the support window is enforced
@@ -299,7 +298,7 @@ MeedyaDL is built with a modern, performance-first tech stack:
 
 ### Release channels
 
-MeedyaDL publishes across four channels, ordered from least to most stable. You pick one in **Settings > General > Updates** and the in-app updater stays on that channel — it will never auto-downgrade you to a less-stable build, even if a more recent one exists. The discovery filter uses `>=`, so being on (e.g.) Beta will *also* surface RC and Stable releases — but never anything below Beta.
+MeedyaDL publishes across four channels, ordered from least to most stable. You pick one in **Settings > General > Preferences > Update Channel** and the in-app updater stays on that channel — it will never auto-downgrade you to a less-stable build, even if a more recent one exists. The discovery filter uses `>=`, so being on (e.g.) Beta will *also* surface RC and Stable releases — but never anything below Beta.
 
 | Channel | Cadence | Trigger | Suffix | Audience |
 | ------- | ------- | ------- | ------ | -------- |
@@ -308,7 +307,7 @@ MeedyaDL publishes across four channels, ordered from least to most stable. You 
 | **RC** | Ad-hoc | push to `release-candidate` branch | `-rc.N` (monotonic) | Release candidates |
 | **Stable** | Per-version | release-please-action merge or `version-bump.yml` | *no suffix* | Production (recommended) |
 
-Moving to a less-stable channel is an explicit action (Settings > General > Updates). Moving back up is equally explicit. Within a channel, auto-updates behave exactly as before.
+Moving to a less-stable channel is an explicit action (Settings > General > Preferences > Update Channel). Moving back up is equally explicit. Within a channel, auto-updates behave exactly as before.
 
 Only **Alpha** is hidden from the channel selector by default — it only appears once developer access is unlocked. Beta, RC, and Stable are always visible to all users. (MeedyaDL used to also publish daily/weekly/monthly test builds; those were retired in favour of the Alpha channel, which already covers the same "latest work-in-progress" need with far less noise.)
 
@@ -478,7 +477,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Full Apple Music download workflow with queue, fallback quality, and retry
 - ✅ Automatic dependency management with first-run setup wizard
 - ✅ CI/CD pipeline with release-please, a four-tier channel ladder (Alpha → Beta → RC → Stable), automated tag-and-release per channel, and bundled dependencies
-- ✅ Settings UI with 11 configuration tabs (General, Codec & Resolution, Codec Fallback Order, Tools, Cookies, Lyrics, Cover Art, Metadata, Templates, Spotify, Advanced)
+- ✅ Settings UI with 10 configuration tabs (General, Codec & Resolution, Codec Fallback Order, Tools, Cookies, Lyrics, Cover Art, Metadata, Templates, Advanced); a Spotify tab appears only in the developer-only preview
 - ✅ Cookie import (browser auto-detect, built-in login, manual import)
 - ✅ Auto-update checker with in-app download and install (on a pre-release build, the Updates page also links to the latest stable release; a one-click in-app rollback is not built yet — see Stable rollback below)
 - ✅ System tray integration
@@ -493,7 +492,7 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ Queue persistence, crash recovery, and export/import
 - ✅ Updates page with rendered release notes
 - ✅ In-app help viewer with 20 topics and search
-- ✅ i18n (i18next, OS language detection, complete English/German/French translations, translatable help pages)
+- ✅ i18n (i18next, OS language detection, translatable help pages); German and French are partly translated and not offered until they cover every screen
 - ✅ Smart re-download detection — checks download history and Apple Music `lastModifiedDate` to detect album changes
 - ✅ **Library Scan page** — point MeedyaDL at an existing on-disk music library, find every album it has previously downloaded (via `manifest.meedyadl` files), surface the artist/album/track-count/codec inventory in a sortable table. Foundation for re-download gap-fill (#717 follow-ups for the smart-retry diff + music-video gap-fill prompts)
 - ✅ Per-track activity log separators with codec and auth info
@@ -503,12 +502,12 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 - ✅ macOS in-app updater fix — corrected updater artifact filename in release workflow so `darwin-aarch64` platform is included in `latest.json`
 - ✅ Clipboard detection queues directly — clicking "Download" on the clipboard toast adds to queue in one click (no more pre-filling the URL input)
 - ✅ Native OS notifications for clipboard detection — sent when the window is not focused so URLs are never missed
-- ✅ Activity Log auto-scroll checkbox — replaces Pause/Resume button with a visible checkbox that auto-unchecks when user scrolls up
-- ✅ Album context in progress bar — shows "DOWNLOADING... Artist — Album — Track" with early metadata fetch; activity log track separators include artist/album context
+- ✅ Activity Log auto-scroll switch — replaces the Pause/Resume button with a visible switch that turns itself off when you scroll up
+- ✅ Album context in progress bar — shows "Downloading: Artist — Album — Track" with early metadata fetch; activity log track separators include artist/album context
 - ✅ Notification style control — 3-way setting (`in_app_only` / `native_and_in_app` / `native_only`) for fine-grained notification delivery in Settings > General
 - ✅ Download history — persistent history with search, status icons, codec badges (max 1000 entries)
 - ✅ Companion lyrics fix — all 4 lyrics conversion formats (LRC, SRT, VTT, ASS) now generated for every companion tier, not just the primary download
-- ✅ Persistent on-disk activity log ([#541](https://github.com/MWBMPartners/MeedyaDL/issues/541)) — every Activity Log event is mirrored to a daily-rotating `activity-YYYY-MM-DD.log` file via a buffered background writer (no hot-path disk I/O, no memory leak). Complete forensic record for bug hunting, unaffected by the 10K in-memory cap or the Verbose filter. **Export Disk** and **Reveal** buttons in the Activity Log toolbar; optional custom log path in Settings > Advanced > Diagnostics. 7-day retention.
+- ✅ Persistent on-disk activity log ([#541](https://github.com/MWBMPartners/MeedyaDL/issues/541)) — every Activity Log event is mirrored to a daily-rotating `activity-YYYY-MM-DD.log` file via a buffered background writer (no hot-path disk I/O, no memory leak). Complete forensic record for bug hunting, unaffected by the 10K in-memory cap or the Verbose filter. **Export the full log** and **Open the logs folder** in the Activity Log's **More** menu; optional custom log path in Settings > Advanced > Diagnostics. 7-day retention.
 
 ### v2.x — Multi-Service Expansion
 
@@ -526,7 +525,7 @@ Each milestone adds a new media service with its own CLI subprocess engine, URL 
 
 - 🔮 **Smart Download** ([#110](https://github.com/MWBMPartners/MeedyaDL/issues/110)) — cross-platform quality optimisation (search all services for the same content, download the best quality)
 - 🔮 **YouTube Music** ([#103](https://github.com/MWBMPartners/MeedyaDL/issues/103)) via [gytmdl](https://github.com/glomatico/gytmdl) for music-specific features beyond yt-dlp
-- 🔮 **More languages** ([#111](https://github.com/MWBMPartners/MeedyaDL/issues/111)) — German and French are already complete; this tracks adding further languages beyond those two
+- 🔮 **More languages** ([#111](https://github.com/MWBMPartners/MeedyaDL/issues/111)) — German and French are partly translated and not offered yet; this tracks finishing them and adding further languages
 - 🔮 **Enhanced MusicKit Integration** ([#108](https://github.com/MWBMPartners/MeedyaDL/issues/108)) — server-side token generation to remove Apple Developer credential requirement
 - 🔮 **Stable rollback** ([#267](https://github.com/MWBMPartners/MeedyaDL/issues/267)) — option to roll back from pre-release to latest stable version
 

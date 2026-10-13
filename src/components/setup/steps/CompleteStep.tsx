@@ -75,7 +75,7 @@ export function CompleteStep() {
   return (
     <div className="text-center space-y-6">
       {/* Success icon */}
-      <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-status-success">
+      <div className="inline-flex items-center justify-center w-20 h-20 rounded-platform-lg bg-status-success">
         {/* Same fix as Button.tsx's danger variant and the other
             success/warning/accent-filled buttons: `text-white` bypassed
             the theme's tokens for text sitting on a status fill, which
@@ -90,7 +90,7 @@ export function CompleteStep() {
 
       {/* Heading */}
       <div>
-        <h2 className="text-2xl font-bold text-content-primary">Setup Complete!</h2>
+        <h1 className="text-2xl font-bold text-content-primary">Setup Complete!</h1>
         <p className="text-base text-content-secondary mt-2">
           Everything is ready. You can now start downloading music.
         </p>
@@ -98,7 +98,7 @@ export function CompleteStep() {
 
       {/* Installation summary */}
       <div className="text-left max-w-md mx-auto p-4 rounded-platform-lg border border-border-light bg-surface-elevated">
-        <h3 className="text-sm font-semibold text-content-primary mb-3">Installation Summary</h3>
+        <h2 className="text-sm font-semibold text-content-primary mb-3">Installation Summary</h2>
         <div className="space-y-2 text-sm">
           {/* Python */}
           {python?.installed && (
@@ -127,7 +127,7 @@ export function CompleteStep() {
       </div>
 
       <p className="text-xs text-content-tertiary">
-        Click "Get Started" below to begin using GAMDL
+        Choose Get Started below to begin using MeedyaDL
       </p>
     </div>
   );

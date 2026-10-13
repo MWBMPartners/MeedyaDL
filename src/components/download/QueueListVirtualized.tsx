@@ -62,7 +62,7 @@ function QueueColumnHeader({ hasSelection }: { hasSelection: boolean }) {
   return (
     <div
       role="row"
-      className="sticky top-0 z-10 flex items-center gap-3 border-b border-border-light bg-surface-secondary px-4 py-2 text-[10px] font-medium uppercase tracking-wide text-content-tertiary"
+      className="sticky top-0 z-10 flex items-center gap-3 border-b border-border-light bg-surface-secondary px-4 py-2 text-2xs font-medium uppercase tracking-wide text-content-tertiary"
     >
       {/* Optional bulk-select column spacer — w-4 matches the
        * checkbox + accent-accent footprint in QueueItem.tsx so the
@@ -75,12 +75,15 @@ function QueueColumnHeader({ hasSelection }: { hasSelection: boolean }) {
       <div className="w-12 h-12 flex-shrink-0" aria-hidden="true" />
 
       {/* Tier 2 — Platform label (hidden below md, matching the
-       * row's `hidden md:flex` platform icon column). */}
+       * row's `hidden md:flex` platform icon column). It used to read
+       * "Svc" (shown as "SVC") in a column only 20px wide; the whole
+       * word needs about 50px, so both this header and the row's icon
+       * cell are now `w-14` (56px), with the icon centred under it. */}
       <div
         role="columnheader"
-        className="hidden md:flex flex-shrink-0 w-5 justify-center"
+        className="hidden md:flex flex-shrink-0 w-14 justify-center"
       >
-        <span aria-hidden="true">Svc</span>
+        Service
       </div>
 
       {/* Tier 1 — primary identifier column header. The row's
@@ -91,9 +94,10 @@ function QueueColumnHeader({ hasSelection }: { hasSelection: boolean }) {
         Artist — Album — Track
       </div>
 
-      {/* Tier 3 — Speed / ETA (≥ lg). */}
+      {/* Tier 3 — Speed / time left (≥ lg). Says "Time Left" rather
+       * than "ETA", matching the "… left" the cell shows. */}
       <div role="columnheader" className="hidden lg:flex flex-shrink-0">
-        Speed / ETA
+        Speed / Time Left
       </div>
 
       {/* Tier 4 — Codec / quality (≥ xl). */}
@@ -258,9 +262,11 @@ export function QueueListVirtualized({
       ref={scrollRef}
       // `scroll-padding-top: 44px` keeps the focused button visible
       // when Tab focus enters a row whose top edge is under the
-      // sticky column header (44px = header's py-2 + text-[10px]
+      // sticky column header (44px = header's py-2 + its small-print
       // line-height + border-b — verified during the #911 sticky
-      // header build).
+      // header build). Note from the October 2026 polish pass: the
+      // header now measures about 65px, because its album-art spacer
+      // is 48px tall; this padding was not changed here.
       className="flex-1 overflow-y-auto [scroll-padding-top:44px]"
       role="list"
       aria-label="Download queue items"

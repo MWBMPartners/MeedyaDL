@@ -48,7 +48,8 @@ import { useDependencyStore } from '@/stores/dependencyStore';
 import { useSetupStore } from '@/stores/setupStore';
 
 // Shared UI components.
-import { Button, LoadingSpinner } from '@/components/common';
+import { Button, InlineError, LoadingSpinner } from '@/components/common';
+import { explainError } from '@/lib/errorMessages';
 
 // Read-only detection of a `gamdl` installed outside MeedyaDL's managed venv.
 import { detectExternalGamdl } from '@/lib/tauri-commands';
@@ -71,7 +72,7 @@ export function GamdlStep() {
   const isInstalling = useDependencyStore((s) => s.isInstalling);
   /** Triggers the backend check for GAMDL */
   const checkGamdl = useDependencyStore((s) => s.checkGamdl);
-  /** Triggers installation of all bundled pip engines (GAMDL + votify + ...) */
+  /** Triggers installation of the bundled pip engines (GAMDL; votify with developer access) */
   const installBundledEngines = useDependencyStore((s) => s.installBundledEngines);
   /** Error message from the most recent operation */
   const error = useDependencyStore((s) => s.error);
@@ -136,17 +137,19 @@ export function GamdlStep() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-content-primary">Download Engines</h2>
+        <h1 className="text-xl font-semibold text-content-primary">Download Engine</h1>
+        {/* Used to name votify and Spotify to everyone; both are a
+            developer-only preview, installed only with developer access. */}
         <p className="text-sm text-content-secondary mt-1">
-          Installing core download engines (GAMDL, votify) into the portable Python environment.
-          These power Apple Music and Spotify downloads.
+          MeedyaDL downloads from Apple Music with GAMDL, a free download engine. It is installed
+          into MeedyaDL&apos;s own Python.
         </p>
       </div>
 
       {/* Status display */}
       <div className="p-4 rounded-platform-lg border border-border-light bg-surface-elevated">
         {isChecking ? (
-          <LoadingSpinner size="sm" label="Checking GAMDL status..." />
+          <LoadingSpinner size="sm" label="Checking GAMDL status…" />
         ) : gamdl?.installed ? (
           /* GAMDL is installed */
           <div className="flex items-center gap-3">
@@ -162,8 +165,8 @@ export function GamdlStep() {
             <div>
               <p className="text-sm font-medium text-content-primary">GAMDL Not Found</p>
               <p className="text-xs text-content-secondary mt-1">
-                Click below to install GAMDL from PyPI. This uses the portable Python installed in
-                the previous step.
+                Install GAMDL, the download engine MeedyaDL uses for Apple Music. It goes into
+                the Python set up in the previous step.
               </p>
             </div>
 
@@ -173,7 +176,7 @@ export function GamdlStep() {
               loading={isInstalling}
               onClick={handleInstall}
             >
-              {isInstalling ? 'Installing GAMDL...' : 'Install GAMDL'}
+              {isInstalling ? 'Installing GAMDL…' : 'Install GAMDL'}
             </Button>
           </div>
         )}
@@ -195,10 +198,17 @@ export function GamdlStep() {
       )}
 
       {/* Error display */}
+      {/* The installer's own report is folded under "Details" (it used to
+          be the whole message); the backend's words are kept when they are
+          already a plain sentence. */}
       {error && (
-        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error-text">
-          {error}
-        </div>
+        <InlineError
+          look="box"
+          {...explainError(
+            'MeedyaDL could not install GAMDL, the tool it downloads with. Check your internet connection, then try again.',
+            error
+          )}
+        />
       )}
     </div>
   );

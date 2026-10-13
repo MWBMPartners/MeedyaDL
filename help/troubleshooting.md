@@ -14,6 +14,8 @@ This guide covers common errors you may encounter while using MeedyaDL, along wi
 
 MeedyaDL classifies errors into the following categories: **auth**, **network**, **codec**, **not_found**, **rate_limit**, **tool**, and **unknown**. When an error occurs, the application identifies which category it belongs to and displays an appropriate message with guidance. If MeedyaDL is not working as expected, start by identifying your problem in the common errors section below, then consult the log files for more detailed diagnostic information if needed.
 
+Every error message says what went wrong and what to do next. The technical text behind it — what the download tool or your computer actually reported — is folded away under **Details** below the message (on a failed download in the Queue or History, under the short summary). Open **Details** when you report a problem: that text is what helps track it down.
+
 ---
 
 ## Common Errors and Solutions
@@ -40,7 +42,7 @@ The cookie file that MeedyaDL is configured to use does not exist at the expecte
 
 MeedyaDL checks your internet connection before every download. If you are offline when you click "Add to Queue", the download is still added to the queue but **will not start processing** until connectivity returns. A yellow warning toast appears: **"Download queued — will start when internet is available."**
 
-Once you are back online, adding another download or clicking "Start Queue" on the Queue page will trigger the queue to process all waiting items. Cookies are not checked when offline since the check would fail anyway.
+Once you are back online, adding another download or clicking **Start** on the Queue page will trigger the queue to process all waiting items. Cookies are not checked when offline since the check would fail anyway.
 
 **Note:** Downloads that ultimately fail due to network issues do **not** generate error reports, since the root cause is connectivity rather than an application bug.
 
@@ -76,7 +78,7 @@ If you are behind a corporate firewall or use a proxy, MeedyaDL needs to be able
 
 #### "Requested quality not available"
 
-Not all content on Apple Music is available in every codec. Some tracks or videos may only be available in specific codecs. Video resolution is not part of this error -- it's a ceiling, so Apple Music always returns the best quality it has at or below what you asked for, never a failure.
+Not all content on Apple Music is available in every codec. Some tracks or videos may only be available in specific codecs. Video resolution is not part of this error — it's a ceiling, so Apple Music always returns the best quality it has at or below what you asked for, never a failure.
 
 - **Cause:** The specific audio or video codec you requested is not available for this particular content on Apple Music.
 - **Solution:** Turn on the **Enable Fallback Chain** switch in **Settings > Codec & Resolution** so that MeedyaDL automatically selects the next best available codec when your preferred choice is unavailable. Alternatively, manually select a different codec before downloading. See [Fallback Quality](fallback-quality.md) for configuration details and [Quality Settings](quality-settings.md) for an overview of available formats.
@@ -90,7 +92,7 @@ Not all content on Apple Music is available in every codec. Some tracks or video
 
 If you paste a URL from a country other than your Apple Music account region (e.g. a `/us/` link while your account is `gb`), and the album either isn't published in the URL's catalog or your account can't license it from that storefront, MeedyaDL will see an `AMP API Status code: 404 Resource Not Found` error.
 
-- **Default behaviour (v0.52+):** MeedyaDL automatically retries the download once using your account region (Settings > General > Storefront). You will see an activity-log line such as `Storefront 'us' returned no catalog entry — retrying with your account region 'gb'…`. If the album exists in your region, the retry succeeds and the file lands without further action.
+- **Default behaviour:** MeedyaDL automatically retries the download once using your account region (Settings > General > Storefront). You will see an activity-log line such as `Storefront 'us' returned no catalog entry — retrying with your account region 'gb'…`. If the album exists in your region, the retry succeeds and the file lands without further action.
 - **If both storefronts fail:** the activity log shows `Album not available in 'us' or 'gb'` and the item moves to the failed bucket. The album may genuinely be region-locked or removed from the catalog.
 - **To disable the auto-retry:** uncheck **Settings > General > Auto-retry with your region when a URL's storefront fails**. Strict URL-storefront behaviour is restored.
 - **Why the auto-retry is one-shot only:** to prevent two URLs whose albums are mutually unavailable from ping-ponging forever. A manual click on the **Retry** button refreshes the budget, so you can ask for the rewrite again.
@@ -118,7 +120,7 @@ Apple Music enforces a per-account limit on **license (DRM-key) requests**. It's
 
 #### The first playlist track fails with "Save Playlist" enabled
 
-- **Cause:** A known bug in GAMDL's playlist-file writer (upstream [gamdl#322](https://github.com/glomatico/gamdl/issues/322)) can make the **first** track of a playlist fail while the rest download normally, when the **Save Playlist** option is enabled.
+- **Cause:** A known bug in GAMDL's playlist-file writer (reported to GAMDL's developers in [their issue 322](https://github.com/glomatico/gamdl/issues/322)) can make the **first** track of a playlist fail while the rest download normally, when the **Save Playlist** option is enabled.
 - **Solution:** Retry the failed first track on its own, or download the album it belongs to. If you don't need the `.m3u8` playlist sidecar, turning **Save Playlist** off also avoids the bug. This is a GAMDL-side issue — MeedyaDL will pick up the fix automatically once it lands upstream and is admitted to the support window.
 
 ---
@@ -132,7 +134,7 @@ MeedyaDL relies on external tools such as **FFmpeg** and **mp4decrypt** to proce
 - **Cause:** A required dependency (FFmpeg, mp4decrypt, or another tool) is not installed, is not on the system PATH, or has become corrupted.
 - **Solution:** Go to **Settings > Advanced > Setup** and press **Re-run Setup Wizard** to re-download and install all required dependencies automatically. This will verify and repair the dependency installation without affecting your other settings.
 
-> **Already have these tools?** MeedyaDL now recognises tools you installed yourself with a package manager — Homebrew, MacPorts, apt, dnf, pipx, Scoop or snap — and reuses them in place instead of downloading a duplicate copy. The setup wizard shows a **Homebrew** / **System** badge next to a reused tool. MeedyaDL does not check a reused copy for updates or try to update it -- that stays with the package manager that installed it (for example `brew upgrade ffmpeg`), so the two never fight over it. If a tool you installed via Homebrew still shows as missing, make sure it's a recent enough version (see the version requirements) and re-open the setup wizard.
+> **Already have these tools?** MeedyaDL now recognises tools you installed yourself with a package manager — Homebrew, MacPorts, apt, dnf, pipx, Scoop or snap — and reuses them in place instead of downloading a duplicate copy. The setup wizard shows a **Homebrew** / **System** badge next to a reused tool. MeedyaDL does not check a reused copy for updates or try to update it — that stays with the package manager that installed it (for example `brew upgrade ffmpeg`), so the two never fight over it. If a tool you installed via Homebrew still shows as missing, make sure it's a recent enough version (see the version requirements) and re-open the setup wizard.
 
 #### Python stopped working after upgrading or changing your system Python
 
@@ -270,7 +272,7 @@ While the SSH session stays open, the three ports on the Mac/PC tunnel through t
 
 #### Bulk retry: "Retry All Failed"
 
-The header on both **Queue** and **History** pages shows a **Retry All Failed (N)** button when at least one failed item exists. A confirmation modal lists the count before re-queueing. On the History page, duplicate URLs are deduplicated automatically (12 failed entries for the same URL → 1 re-enqueue).
+When at least one failed item exists, the **History** page shows a **Retry All Failed (N)** button in its header, and the **Queue** page offers **Retry all failed (N)** in its **More** menu. A confirmation modal lists the count before re-queueing. On the History page, duplicate URLs are deduplicated automatically (12 failed entries for the same URL → 1 re-enqueue).
 
 #### Smart retry: only the failed tracks re-run
 
@@ -343,7 +345,7 @@ MeedyaDL requires certain system libraries that may not be installed by default 
 
 The application crashes immediately on startup, and macOS shows a dialog asking whether to "reopen windows".
 
-- **Cause:** A corrupt or incompatible `queue.json` file in the app data directory can trigger a panic during the queue restoration step at startup. This was fixed in v0.5.3, where the queue recovery code was updated to not depend on the Tokio async runtime being available during early app initialisation.
+- **Cause:** A corrupt or incompatible `queue.json` file in the app data directory used to make the app stop while restoring the queue at startup. Current versions no longer do this.
 - **Solution:** Update to the latest version of MeedyaDL. If you cannot update immediately, delete the `queue.json` file from your app data directory to allow the application to start:
 
   | Platform | Path |
@@ -365,8 +367,8 @@ Downloads fail with a permission error related to the temp or working directory.
 
 If the app freezes during downloads or shows "Output directory timed out" errors when using cloud storage mounts:
 
-- **Cause:** The output directory points to an unresponsive cloud mount (CloudMounter on macOS, rclone/SSHFS on Linux). File operations on disconnected or slow FUSE mounts can block for minutes. Prior to v0.6.2, this could freeze the entire UI.
-- **Solution (v0.6.2+):** MeedyaDL now uses `spawn_blocking` with timeouts for all file I/O operations during the enrichment pipeline, preventing UI freezes. The output path writability check has a 5-second timeout. If your cloud mount is unresponsive:
+- **Cause:** The output directory points to an unresponsive cloud mount (CloudMounter on macOS, rclone/SSHFS on Linux). File operations on disconnected or slow FUSE mounts can block for minutes.
+- **Solution:** MeedyaDL does its file work in the background with time limits, so a stuck mount does not freeze the window, and it checks that the output folder can be written to (waiting at most 5 seconds) before a download starts. If your cloud mount is unresponsive:
   1. Check that the cloud mount is connected and responsive
   2. Consider using a local output directory and moving files to cloud storage after download
   3. If the mount is permanently disconnected, change the output directory in **Settings > General > Output**
@@ -442,7 +444,7 @@ Only some tracks in an album were downloaded, with the rest showing "Requested f
 
 The download appears to complete (GAMDL exits successfully) but MeedyaDL reports "no output files" or marks the item as failed.
 
-- **Cause:** In earlier versions, MeedyaDL's output detection could miss files when GAMDL used certain naming patterns or when the output directory contained unexpected characters. This was a known issue in versions prior to v0.10.
+- **Cause:** In earlier versions, MeedyaDL's output detection could miss files when GAMDL used certain naming patterns or when the output directory contained unexpected characters.
 - **Solution:** Update to the latest version of MeedyaDL. This issue has been fixed in recent releases with improved output file detection logic. If you are already on the latest version and still see this error, check that your output directory path does not contain special characters, and verify the directory is writable.
 
 #### Activity Log Shows Authentication Method
@@ -454,11 +456,11 @@ When a download starts, the Activity Log now displays which authentication metho
 
 #### Activity Log Auto-Scroll
 
-The Activity Log auto-scrolls to the bottom by default. An **Auto-scroll** checkbox in the toolbar shows the current state:
+The Activity Log auto-scrolls to the bottom by default. An **Auto-scroll** switch at the top of the page shows the current state:
 
-- **Checked (default):** The log scrolls to the bottom as new entries arrive.
-- **Scrolling up:** The checkbox automatically unchecks, freezing the view so you can read earlier entries without losing your place.
-- **Re-checking:** Jumps back to the bottom and resumes auto-scrolling.
+- **On (default):** The log scrolls to the bottom as new entries arrive.
+- **Scrolling up:** The switch turns itself off, freezing the view so you can read earlier entries without losing your place.
+- **Turning it back on:** Jumps back to the bottom and resumes auto-scrolling.
 
 The Activity Log retains up to **10,000 entries** per session. When the limit is reached, the oldest entries are trimmed. Trimmed entries are not lost — they are persisted to the on-disk activity log (see below) so post-hoc forensic analysis remains possible.
 
@@ -466,19 +468,19 @@ The Activity Log retains up to **10,000 entries** per session. When the limit is
 
 ### Activity Log Export
 
-The Activity Log toolbar offers **three** actions for preserving log data, each suited to a different scenario:
+The **More** menu at the top of the Activity Log page offers **three** actions for preserving log data, each suited to a different scenario:
 
-| Button | What it exports | When to use it |
+| Menu item | What it exports | When to use it |
 | --- | --- | --- |
-| **Export** | The entries currently visible in the Activity Log panel — respects any active search or category filter. | Quick share of a specific slice of the log. Matches what you see on screen. |
-| **Export Disk** | The persistent on-disk activity log — the complete, untrimmed record of the last three days. | Bug reports and post-hoc forensic analysis. Captures events that were trimmed from the 10,000-line in-memory view and every verbose line regardless of filter state. |
-| **Reveal** | Opens the logs folder in Finder / Explorer / your file manager. | Attaching raw log files to a GitHub issue, archiving them manually, or pointing a support channel at them. |
+| **Export the lines shown** | The entries currently visible in the Activity Log panel — respects any active search or category filter. | Quick share of a specific slice of the log. Matches what you see on screen. |
+| **Export the full log (last 3 days)** | The persistent on-disk activity log — the complete, untrimmed record of the last three days. | Bug reports and post-hoc forensic analysis. Captures events that were trimmed from the 10,000-line in-memory view and every verbose line regardless of filter state. |
+| **Open the logs folder** | Opens the logs folder in Finder / Explorer / your file manager. | Attaching raw log files to a GitHub issue, archiving them manually, or pointing a support channel at them. |
 
 #### How to Export the Visible Activity Log
 
 1. Open the **Activity** page from the sidebar (or press Cmd/Ctrl + K).
 2. (Optional) Narrow the view with the search box or the System / Download / Verbose category toggles.
-3. Click the **Export** button in the Activity Log header.
+3. Open the **More** menu at the top of the Activity Log page and choose **Export the lines shown**.
 4. Choose a save location in the native file dialog — the default filename includes a timestamp (e.g., `MeedyaDL-activity-log_2026-04-22_14h05m.log`).
 5. The exported `.log` file is plain-text with one entry per line, each prefixed with a timestamp. System events are marked with `[System]` and download events include the download ID.
 
@@ -492,9 +494,9 @@ MeedyaDL writes every activity log event to a daily-rotating file on disk (`acti
 - Every verbose event, even when the Verbose filter in the UI is off.
 - Events written before the Activity Log panel was ever opened in that session.
 
-To export it, click **Export Disk** in the Activity Log toolbar. MeedyaDL concatenates the last three daily log files, prepends a header line with each file's date, and opens a native save dialog. A success toast shows how many KB were written.
+To export it, open the **More** menu at the top of the Activity Log page and choose **Export the full log (last 3 days)**. MeedyaDL concatenates the last three daily log files, prepends a header line with each file's date, and opens a native save dialog. A success toast shows how many KB were written.
 
-You can also browse the log files directly by clicking **Reveal** — this opens the logs folder in your OS file manager. Files are named `activity-YYYY-MM-DD.log`; you can attach them directly to bug reports.
+You can also browse the log files directly with **Open the logs folder** in the same menu — this opens the logs folder in your OS file manager. Files are named `activity-YYYY-MM-DD.log`; you can attach them directly to bug reports.
 
 > **Retention:** On-disk activity logs are kept for **7 days** before being pruned automatically, matching the retention window for the tracing log. A heavy download session typically writes under 5 MB per day.
 
@@ -604,11 +606,11 @@ Crash reports are named `crash-YYYYMMDD-HHMMSS.json` and are automatically clean
 
 You can optionally help improve MeedyaDL by enabling anonymous crash reporting. When enabled, crash data (error message, stack trace, app version, OS) is sent to our error tracking service. No personal data, download history, or account information is ever included. This feature is off by default and only turns on if you say yes.
 
-MeedyaDL asks you once, in a **Help Improve MeedyaDL** window: **Yes, send crash reports** or **No thanks**. Closing that window counts as No thanks. Your answer is remembered, so you are not asked again -- unless MeedyaDL could not save it, in which case it tells you and asks again next time you open the app. You can change your mind at any time with the **Send Anonymous Crash Reports** switch in **Settings > Advanced > Error Reporting**; the change takes effect after you restart MeedyaDL.
+MeedyaDL asks you once, in a **Help Improve MeedyaDL** window: **Yes, send crash reports** or **No thanks**. Closing that window counts as No thanks. Your answer is remembered, so you are not asked again — unless MeedyaDL could not save it, in which case it tells you and asks again next time you open the app. You can change your mind at any time with the **Send Anonymous Crash Reports** switch in **Settings > Advanced > Error Reporting**; the change takes effect after you restart MeedyaDL.
 
 ### Reporting a Crash via GitHub Issues
 
-You can report crashes directly to the developer from within MeedyaDL. This opens a pre-filled GitHub Issue in your browser -- no API tokens or server accounts needed, just a GitHub account.
+You can report crashes directly to the developer from within MeedyaDL. This opens a pre-filled GitHub Issue in your browser — no API tokens or server accounts needed, just a GitHub account.
 
 1. Go to **Settings > Advanced > Error Reporting**.
 2. Recent crash reports are listed below the crash reporting switch. Each entry shows the date, time, and error summary.
@@ -639,11 +641,11 @@ If you encounter a problem that is not covered in this guide, or if the suggeste
 
 ## Related Topics
 
-- [Cookie Management](cookie-management.md) -- Resolving authentication and cookie issues
-- [Quality Settings](quality-settings.md) -- Understanding quality and format options
-- [Fallback Quality](fallback-quality.md) -- Configuring quality fallback behavior
-- [FAQ](faq.md) -- Frequently asked questions
-- [Getting Started](getting-started.md) -- Initial setup and configuration
+- [Cookie Management](cookie-management.md) — Resolving authentication and cookie issues
+- [Quality Settings](quality-settings.md) — Understanding quality and format options
+- [Fallback Quality](fallback-quality.md) — Configuring quality fallback behavior
+- [FAQ](faq.md) — Frequently asked questions
+- [Getting Started](getting-started.md) — Initial setup and configuration
 
 ---
 

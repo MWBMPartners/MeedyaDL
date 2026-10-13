@@ -27,6 +27,7 @@ import {
   requestPermission,
   sendNotification,
 } from '@tauri-apps/plugin-notification';
+import { showBackendError } from '@/lib/errorMessages';
 
 /** Polling interval in milliseconds (2 seconds) */
 const POLL_INTERVAL_MS = 2000;
@@ -136,10 +137,7 @@ export function useClipboardMonitor(isReady: boolean): void {
                 );
               })
               .catch((err) => {
-                useUiStore.getState().addToast(
-                  err instanceof Error ? err.message : String(err),
-                  'error',
-                );
+                showBackendError('MeedyaDL could not add the copied link to the queue. Paste it on the Download page instead.', err);
               });
           };
 

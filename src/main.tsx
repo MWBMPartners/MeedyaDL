@@ -53,11 +53,23 @@ import { invoke } from '@tauri-apps/api/core';
 import App from './App';
 
 /**
+ * Sets up the translation system with the bundled English, synchronously.
+ * Called below, before the first render -- see the comment there.
+ */
+import { setUpI18n } from './lib/i18n';
+
+/**
  * Scrubs a personal folder path (and any address query string) out of a
  * crash report before it is sent — see the file header on this module
  * for why that is necessary here specifically.
  */
 import { scrubCrashReportEvent } from './lib/crashReportRedaction';
+
+/**
+ * The friendly screen shown in place of the app when a component fails to
+ * draw -- see the error boundary below.
+ */
+import { CrashScreen } from './components/layout/CrashScreen';
 
 /**
  * Global CSS styles imported as a side-effect module.
@@ -105,9 +117,10 @@ import './styles/globals.css';
           // string, wherever in the report either happens to appear.
           beforeSend: (event) => scrubCrashReportEvent(event),
         });
-      } else {
-        console.debug('[Sentry] No DSN configured — error reporting disabled');
       }
+      // No address configured (local and fork builds): crash reporting
+      // simply stays off. A console.debug line used to say so; nothing
+      // needs to, since there is nothing anyone can do about it here.
     }
   } catch {
     // Settings not available yet (first run, or backend not ready) -- skip Sentry init
@@ -119,24 +132,28 @@ import './styles/globals.css';
  * Called by the global error handlers and ErrorBoundary to ensure frontend
  * errors are saved alongside Rust panics for unified diagnostics.
  *
- * This is a fire-and-forget call -- errors during persistence are logged
- * to the console but do not propagate.
+ * Never throws. Resolves to the saved report's id, or `null` when it could
+ * not be saved -- the crash screen uses the id to offer "Report this
+ * problem", and simply leaves that button out when there is none.
  */
 function persistFrontendError(
   source: string,
   message: string,
   stack?: string | null,
   componentStack?: string | null
-) {
-  invoke('log_frontend_error', {
+): Promise<string | null> {
+  return invoke<string>('log_frontend_error', {
     source,
     message,
     stack: stack ?? null,
     componentStack: componentStack ?? null,
     url: window.location.href,
-  }).catch(() => {
-    // IPC not available yet (app still booting) -- console.error is enough
-  });
+  })
+    .then((id) => (typeof id === 'string' && id ? id : null))
+    .catch(() => {
+      // IPC not available yet (app still booting) -- console.error is enough
+      return null;
+    });
 }
 
 /**
@@ -149,20 +166,29 @@ declare const __APP_VERSION__: string;
  * Error boundary component to catch and display React render errors visually.
  * Without this, a crash in any component would unmount the entire React tree
  * and leave the user with a blank/black screen and no indication of what went
- * wrong. This boundary catches the error, logs it to the console, and renders
- * a styled error overlay with the message, name, stack trace, and component
- * stack so the user (or developer) can diagnose the issue.
+ * wrong. This boundary catches the error, saves it as an error report, and
+ * shows `CrashScreen`: a plain explanation, a Reload button, a Report button
+ * (once the report is saved), and the technical details folded away.
+ *
+ * It used to show a developer dump -- "React Error Caught", the raw error,
+ * its name and two stack traces on hard-coded colours, with nothing to
+ * click -- which left people no way out but quitting the app.
  *
  * Wrapped around `<App />` in the render call below.
  * @see {@link https://react.dev/reference/react/Component#catching-rendering-errors-with-an-error-boundary}
  */
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
-  { hasError: boolean; error: Error | null; errorInfo: React.ErrorInfo | null }
+  {
+    hasError: boolean;
+    error: Error | null;
+    errorInfo: React.ErrorInfo | null;
+    reportId: string | null;
+  }
 > {
   constructor(props: { children: React.ReactNode }) {
     super(props);
-    this.state = { hasError: false, error: null, errorInfo: null };
+    this.state = { hasError: false, error: null, errorInfo: null, reportId: null };
   }
 
   static getDerivedStateFromError(error: Error) {
@@ -173,46 +199,24 @@ class ErrorBoundary extends React.Component<
     this.setState({ errorInfo });
     console.error('ErrorBoundary caught:', error, errorInfo);
 
-    // Persist to the Rust crash report system for diagnostics
-    persistFrontendError('frontend_error', error.message, error.stack, errorInfo.componentStack);
+    // Persist to the Rust crash report system for diagnostics; the saved
+    // report's id lets the crash screen offer "Report this problem".
+    void persistFrontendError(
+      'frontend_error',
+      error.message,
+      error.stack,
+      errorInfo.componentStack
+    ).then((reportId) => this.setState({ reportId }));
   }
 
   render() {
     if (this.state.hasError) {
       return (
-        <div
-          style={{
-            padding: '24px',
-            fontFamily: 'monospace',
-            fontSize: '13px',
-            color: '#ff6b6b',
-            backgroundColor: '#1a1a2e',
-            height: '100vh',
-            overflow: 'auto',
-          }}
-        >
-          <h1 style={{ fontSize: '18px', marginBottom: '16px', color: '#fff' }}>
-            React Error Caught
-          </h1>
-          <div style={{ marginBottom: '16px' }}>
-            <strong style={{ color: '#ffd93d' }}>Error:</strong> {this.state.error?.message}
-          </div>
-          <div style={{ marginBottom: '16px' }}>
-            <strong style={{ color: '#ffd93d' }}>Name:</strong> {this.state.error?.name}
-          </div>
-          <div style={{ marginBottom: '16px', whiteSpace: 'pre-wrap', fontSize: '11px' }}>
-            <strong style={{ color: '#ffd93d' }}>Stack:</strong>
-            {'\n'}
-            {this.state.error?.stack}
-          </div>
-          {this.state.errorInfo && (
-            <div style={{ whiteSpace: 'pre-wrap', fontSize: '11px' }}>
-              <strong style={{ color: '#ffd93d' }}>Component Stack:</strong>
-              {'\n'}
-              {this.state.errorInfo.componentStack}
-            </div>
-          )}
-        </div>
+        <CrashScreen
+          error={this.state.error}
+          componentStack={this.state.errorInfo?.componentStack ?? null}
+          reportId={this.state.reportId}
+        />
       );
     }
     return this.props.children;
@@ -245,6 +249,15 @@ class ErrorBoundary extends React.Component<
  * React's render cycle (setTimeout, requestAnimationFrame, inline handlers, etc.).
  * Returns `true` to suppress the default browser error logging (we log ourselves).
  */
+/**
+ * What the two global handlers below tell the person. Both catch faults in
+ * MeedyaDL's own code that nothing else caught, so there is no specific
+ * cause to name; what helps is knowing it was not their doing, what to do
+ * if something stops working, and where to report it.
+ */
+const UNEXPECTED_ERROR_MESSAGE =
+  'Something went wrong inside MeedyaDL. If anything stops working, restart MeedyaDL; if it keeps happening, report it from Settings > Advanced > Error Reporting.';
+
 window.onerror = (message, source, lineno, colno, error) => {
   const errorMessage = error?.message || String(message);
   console.error('Global error:', errorMessage, { source, lineno, colno, error });
@@ -253,9 +266,12 @@ window.onerror = (message, source, lineno, colno, error) => {
   persistFrontendError('frontend_error', errorMessage, error?.stack);
 
   // Surface the error to the user via toast (dynamic import to avoid circular deps)
-  import('./stores/uiStore')
-    .then(({ useUiStore }) => {
-      useUiStore.getState().addToast(`Unexpected error: ${errorMessage}`, 'error', 8000);
+  // Polish pass (M8): the message says what happened and what to do; the
+  // error's own text is folded under "Details". It used to be the whole
+  // message ("Unexpected error: Cannot read properties of undefined ...").
+  import('./lib/errorMessages')
+    .then(({ showError }) => {
+      showError(UNEXPECTED_ERROR_MESSAGE, errorMessage);
     })
     .catch(() => {
       // Store not available yet (app still booting) -- console.error above is enough
@@ -277,9 +293,11 @@ window.addEventListener('unhandledrejection', (event) => {
   persistFrontendError('unhandled_rejection', errorMessage, stack);
 
   // Surface the error to the user via toast (dynamic import to avoid circular deps)
-  import('./stores/uiStore')
-    .then(({ useUiStore }) => {
-      useUiStore.getState().addToast(`Async error: ${errorMessage}`, 'error', 8000);
+  // Same message as the handler above ("Async error: ..." used to be the
+  // whole message); the error's own text is under "Details".
+  import('./lib/errorMessages')
+    .then(({ showError }) => {
+      showError(UNEXPECTED_ERROR_MESSAGE, errorMessage);
     })
     .catch(() => {
       // Store not available yet (app still booting) -- console.error above is enough
@@ -323,6 +341,18 @@ if (!rootElement) {
  * @see {@link https://react.dev/reference/react-dom/client/createRoot} - createRoot API
  * @see {@link https://react.dev/reference/react/StrictMode#fixing-bugs-found-by-double-rendering-in-development} - StrictMode double-rendering
  */
+/**
+ * Translation first, then the first render.
+ *
+ * The first render looks words up straight away (the window title, the
+ * skip link, any start-up message). When i18next was only set up later,
+ * from an effect inside App, those words came out as raw keys
+ * ("nav.download — MeedyaDL") and a language change that ran too early made
+ * i18next throw an internal error that was shown to the person on every
+ * launch. English is bundled into the app, so this costs nothing to do now.
+ */
+setUpI18n();
+
 ReactDOM.createRoot(rootElement).render(
   <React.StrictMode>
     <ErrorBoundary>

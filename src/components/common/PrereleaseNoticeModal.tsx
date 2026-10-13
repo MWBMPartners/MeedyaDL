@@ -32,8 +32,8 @@
  * @see {@link @/components/common/Modal.tsx}   -- Underlying modal component
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { getVersion } from '@tauri-apps/api/app';
+import { useCallback } from 'react';
+import { useAppVersion } from '../../hooks/useAppVersion';
 import { useUiStore } from '../../stores/uiStore';
 import { useUpdateStore, APP_COMPONENT_NAME } from '../../stores/updateStore';
 import type { ComponentUpdate } from '../../types';
@@ -48,7 +48,8 @@ import { Modal } from './Modal';
  */
 export default function PrereleaseNoticeModal() {
   // ── State ──────────────────────────────────────────────────────────
-  const [appVersion, setAppVersion] = useState<string>('');
+  /** Never "unknown": see useAppVersion. */
+  const appVersion = useAppVersion();
   const showPrereleaseNotice = useUiStore((s) => s.showPrereleaseNotice);
   const setShowPrereleaseNotice = useUiStore((s) => s.setShowPrereleaseNotice);
 
@@ -62,10 +63,6 @@ export default function PrereleaseNoticeModal() {
 
   // ── Effects ────────────────────────────────────────────────────────
 
-  // Fetch the current app version for display
-  useEffect(() => {
-    getVersion().then(setAppVersion).catch(() => setAppVersion('unknown'));
-  }, []);
 
   // ── Handlers ───────────────────────────────────────────────────────
 
@@ -93,7 +90,7 @@ export default function PrereleaseNoticeModal() {
         {/* Version badge */}
         <div className="flex items-center gap-2">
           <span className="inline-flex items-center rounded-full bg-status-warning-bg px-3 py-1 text-xs font-semibold text-status-warning-text border border-status-warning">
-            v{appVersion} — Pre-Release
+            {appVersion ? `v${appVersion} — ` : ''}Pre-Release
           </span>
         </div>
 
@@ -127,7 +124,7 @@ export default function PrereleaseNoticeModal() {
 
         {/* Stable release offer (only if available) */}
         {latestUpdate && (
-          <div className="p-3 rounded-lg bg-status-success-bg border border-status-success">
+          <div className="p-3 rounded-platform-lg bg-status-success-bg border border-status-success">
             <p className="text-xs font-semibold text-status-success-text mb-1">
               Stable Release Available
             </p>
@@ -138,33 +135,17 @@ export default function PrereleaseNoticeModal() {
           </div>
         )}
 
-        {/* What's New section — shows key changes in this version */}
-        <div className="p-3 rounded-lg bg-surface-secondary border border-border">
-          <p className="text-xs font-semibold text-content-primary mb-2">
-            What&apos;s New in v{appVersion}
-          </p>
-          <p className="text-xs text-content-tertiary">
-            View the full release notes on the{' '}
-            <button
-              type="button"
-              className="text-accent-hover hover:underline"
-              onClick={() => {
-                setShowPrereleaseNotice(false);
-                useUiStore.getState().setPage('updates');
-              }}
-            >
-              Updates page
-            </button>
-            .
-          </p>
-        </div>
+        {/* A "What's New in v…" box used to sit here. It held no news, only a
+            pointer to the Updates page -- which shows release notes for an
+            available update, not for the version being run -- so it was
+            removed rather than left as an empty promise. */}
 
         {/* Action buttons */}
         <div className="flex justify-end gap-3 pt-2">
           {latestUpdate && (
             <button
               type="button"
-              className="px-4 py-2 rounded-lg text-sm font-medium bg-status-success text-content-on-status-success hover:opacity-90 transition-opacity"
+              className="px-4 py-2 rounded-platform-lg text-sm font-medium bg-status-success text-content-on-status-success hover:opacity-90 transition-opacity"
               onClick={handleInstallStable}
             >
               Install Stable Release
@@ -178,7 +159,7 @@ export default function PrereleaseNoticeModal() {
              * white/near-white dialog background: invisible in light
              * mode. `bg-accent` is the real token for "the button that
              * confirms/accepts". */
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity"
+            className="px-4 py-2 rounded-platform-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity"
             onClick={handleDismiss}
           >
             I Understand

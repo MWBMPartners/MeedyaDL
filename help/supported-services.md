@@ -37,7 +37,7 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 
 ## Coming Soon
 
-### Spotify (Milestone M9 — v2.1.0)
+### Spotify
 
 | Feature | Planned |
 |---------|---------|
@@ -51,9 +51,9 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 **Engine:** [votify](https://github.com/glomatico/votify)
 **Authentication:** Browser cookies (Netscape format), the same way Apple Music works
 **Note:** Spotify does not offer lossless audio — maximum quality is Ogg Vorbis 320kbps.
-**URL acceptance:** MeedyaDL's download form already accepts `open.spotify.com` links today — pasting one queues it and routes it through Spotify's own eligibility checks (developer access, consent, and a daily cap) rather than rejecting it as unsupported. Full Spotify feature parity with Apple Music remains Milestone M9.
+**Today:** pasting an `open.spotify.com` link shows that MeedyaDL cannot download from Spotify yet, and the link is not added to the queue.
 
-### YouTube (Milestone M10 — v2.2.0)
+### YouTube
 
 | Feature | Planned |
 |---------|---------|
@@ -67,7 +67,7 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 **Authentication:** Optional (cookies for age-restricted/member content)
 **Note:** Also covers YouTube Music. Audio extraction available.
 
-### BBC iPlayer (Milestone M8 — v2.0.0)
+### BBC iPlayer
 
 | Feature | Planned |
 |---------|---------|
@@ -94,7 +94,7 @@ MeedyaDL automatically detects which service a URL belongs to when you paste it 
 | YouTube Music | `music.youtube.com` |
 | BBC iPlayer | `bbc.co.uk/iplayer` |
 
-If you paste a URL for a service that isn't yet available, MeedyaDL will show a "support coming soon" message.
+If you paste a link to a service that isn't available yet, the download form says that MeedyaDL cannot download from that service yet (the link itself is fine) and does not add it to the queue. When you paste several links at once, the form counts how many it cannot download yet and queues the rest.
 
 ---
 

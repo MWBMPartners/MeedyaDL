@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/nicedouble/tauri-schema/v2/schema.json",
+  "$schema": "https://schema.tauri.app/config/2",
   "productName": "MeedyaDL",
   "version": "1.13.0-alpha.79",
   "identifier": "com.meedyasuite.meedyadl",
@@ -66,6 +66,8 @@
     ],
     "createUpdaterArtifacts": true,
     "copyright": "Copyright (c) 2024-2026 MeedyaSuite",
+    "publisher": "MeedyaSuite",
+    "homepage": "https://github.com/MWBMPartners/MeedyaDL",
     "category": "Utility",
     "shortDescription": "A multiplatform media downloader",
     "longDescription": "MeedyaDL is a multiplatform media downloader with support for quality selection, download queue management, lyrics embedding, and cover art handling.",

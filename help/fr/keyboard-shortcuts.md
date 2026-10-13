@@ -13,9 +13,9 @@ MeedyaDL prend en charge des raccourcis clavier pour naviguer rapidement et effe
 | Raccourci | Action |
 |----------|--------|
 | **Cmd/Ctrl + D** | Ouvre la page Download et place le curseur dans le champ d'URL |
-| **Cmd/Ctrl + Q** | Ouvre la page Queue |
+| **Cmd/Ctrl + J** | Ouvre la page Queue |
 | **Cmd/Ctrl + L** | Ouvre la page Library |
-| **Cmd/Ctrl + H** | Ouvre la page History |
+| **Cmd/Ctrl + Y** | Ouvre la page History |
 | **Cmd/Ctrl + K** | Ouvre la page Activity |
 | **Cmd/Ctrl + ,** | Ouvre la page Settings |
 

@@ -288,7 +288,7 @@ export function buildAboutBuildSection(parts: {
 <details>
 <summary><strong>Open Source Acknowledgements</strong></summary>
 
-MeedyaDL is built on top of many open-source projects. The full inventory of every direct dependency, its licence, and its purpose lives in the \`ACKNOWLEDGEMENTS.md\` file bundled inside this build (#802). Expand below to read it inline without leaving the app.
+MeedyaDL is built on top of many open-source projects. The full inventory of every direct dependency, its licence, and its purpose lives in the \`ACKNOWLEDGEMENTS.md\` file bundled inside this build. Expand below to read it inline without leaving the app.
 
 <details>
 <summary><em>Show full acknowledgements (ACKNOWLEDGEMENTS.md)</em></summary>

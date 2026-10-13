@@ -20,7 +20,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import { QueueItem } from './QueueItem';
+import { QueueItem, SpeedEta } from './QueueItem';
 import { makeQueueItem } from '@/testing/fixtures';
 import type { DownloadState, QueueItemStatus } from '@/types';
 
@@ -197,5 +197,27 @@ describe('QueueItem — click-to-expand row affordance (#911-0)', () => {
     expect(fullUrlCell?.textContent).toBe(
       'https://music.apple.com/us/album/very/long/9999'
     );
+  });
+});
+
+describe('QueueItem — speed and time left (polish pass, L5)', () => {
+  it('reads as one line with real spaces: "12.4 MiB/s · 00:03:12 left"', () => {
+    const { container } = render(<SpeedEta speed="12.4 MiB/s" eta="00:03:12" />);
+    // One element, one string: the spaces can no longer be trimmed away
+    // by a flex container, which is how the row came to read "·00:03:12".
+    expect(container.firstElementChild?.textContent).toBe('12.4 MiB/s · 00:03:12 left');
+    expect(container.firstElementChild?.children.length).toBe(0);
+  });
+
+  it('shows the figures once at each width, not twice', () => {
+    const item = makeQueueItem({ state: 'downloading', speed: '12.4 MiB/s', eta: '00:03:12', progress: 40 });
+    render(<QueueItem item={item} isSelected={false} canMoveUp canMoveDown {...noopHandlers} />);
+    const copies = screen.getAllByText('12.4 MiB/s · 00:03:12 left');
+    expect(copies).toHaveLength(2);
+    // One copy only from the lg width up (its own column), the other only
+    // below it (under the bar), so a person never sees both.
+    const classes = copies.map((c) => c.parentElement?.className ?? '');
+    expect(classes.some((c) => c.includes('hidden') && c.includes('lg:flex'))).toBe(true);
+    expect(classes.some((c) => c.includes('lg:hidden'))).toBe(true);
   });
 });

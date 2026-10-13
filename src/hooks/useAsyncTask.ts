@@ -36,7 +36,7 @@
  * toast in addition to local error state:
  *
  *   const submit = useAsyncTask(() =>
- *     withErrorToast(runPreflight, { errorMsg: 'Submit failed' }),
+ *     withErrorToast(runPreflight, { errorMsg: 'MeedyaDL could not check that. Try again.' }),
  *   );
  *
  * The wrapped fn can take arbitrary arguments, forwarded through
@@ -92,7 +92,7 @@ export interface UseAsyncTaskReturn<TArgs extends unknown[], TResult> {
  *   const save = useAsyncTask(() =>
  *     withErrorToast(saveSettings, {
  *       successMsg: 'Saved',
- *       errorMsg: 'Save failed',
+ *       errorMsg: 'MeedyaDL could not save that. Try again.',
  *     }),
  *   );
  */

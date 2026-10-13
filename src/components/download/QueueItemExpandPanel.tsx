@@ -138,7 +138,7 @@ function DetailField({
   if (value == null || value === '') return null;
   return (
     <div className={`flex flex-col gap-0.5 ${className}`}>
-      <span className="text-[10px] uppercase tracking-wide text-content-tertiary">
+      <span className="text-2xs uppercase tracking-wide text-content-tertiary">
         {label}
       </span>
       <span
@@ -174,7 +174,6 @@ export function QueueItemExpandPanel({
   const firstUrl = item.urls?.[0] ?? null;
   const extraUrlCount =
     item.urls && item.urls.length > 1 ? item.urls.length - 1 : 0;
-  const isActive = item.state === 'downloading' || item.state === 'processing';
   const audioTraits =
     item.audio_traits && item.audio_traits.length > 0
       ? item.audio_traits.join(', ')
@@ -214,17 +213,10 @@ export function QueueItemExpandPanel({
           value={platformLabel}
           className="md:hidden"
         />
-        {isActive && (
-          <DetailField
-            label="Speed / ETA"
-            value={
-              item.speed && item.eta
-                ? `${item.speed} · ETA ${item.eta}`
-                : item.speed ?? null
-            }
-            className="lg:hidden"
-          />
-        )}
+        {/* No "Speed / time left" field here: below `lg`, where the row's
+            own column is hidden, the row already shows those figures under
+            its progress bar (QueueItem's SpeedEta), so a field here would
+            show them a second time. */}
         <DetailField
           label="Codec / quality"
           value={item.codec_used}

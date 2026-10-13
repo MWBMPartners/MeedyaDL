@@ -76,6 +76,7 @@ import type { ComponentUpdate } from '@/types';
 
 /** Common Button component -- used for the "Upgrade" and "Download & Install" CTAs */
 import { Button } from './Button';
+import { GAMDL_UPDATE_FAILED, RESTART_FAILED, UPDATE_FAILED, componentUpdateFailed, showError } from '@/lib/errorMessages';
 
 /**
  * Renders an accent-themed banner showing available updates with
@@ -193,8 +194,9 @@ export function UpdateBanner() {
       // returned. Without this, all failures collapse to "Failed to
       // upgrade GAMDL" with no way to see which pip step actually broke
       // (resolver, network, dep conflict, …).
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || 'Failed to upgrade GAMDL', 'error');
+      // The installer's own report goes under "Details" (it used to be the
+      // whole message); the message says what to do.
+      showError(GAMDL_UPDATE_FAILED, e);
     }
   };
 
@@ -211,8 +213,7 @@ export function UpdateBanner() {
       addToast(`${c.name} updated successfully`, 'success');
       checkForUpdates().catch(() => {});
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || `Failed to update ${c.name}`, 'error');
+      showError(componentUpdateFailed(c.name), e);
     } finally {
       setUpgradingComponent(null);
     }
@@ -230,8 +231,7 @@ export function UpdateBanner() {
       await downloadAndInstallAppUpdate(tag);
       addToast('Update installed! Restart to apply.', 'success');
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || 'Failed to download and install update', 'error');
+      showError(UPDATE_FAILED, e);
     }
   };
 
@@ -243,7 +243,7 @@ export function UpdateBanner() {
     try {
       await relaunch();
     } catch {
-      addToast('Failed to restart. Please restart manually.', 'error');
+      addToast(RESTART_FAILED, 'error');
     }
   };
 
@@ -327,7 +327,7 @@ export function UpdateBanner() {
                   )}
                   {/* Pre-release badge -- amber indicator for beta/RC versions */}
                   {update.is_prerelease && (
-                    <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text">
+                    <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-platform-sm text-2xs font-semibold bg-status-warning-bg text-status-warning-text">
                       Pre-Release
                     </span>
                   )}
@@ -344,7 +344,7 @@ export function UpdateBanner() {
                    */}
                   {update.is_untested && !update.no_compatible_wheel && (
                     <span
-                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text"
+                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-platform-sm text-2xs font-semibold bg-status-warning-bg text-status-warning-text"
                       title="This version was released after MeedyaDL's last validation pass. Install at your own risk."
                     >
                       Untested
@@ -362,7 +362,7 @@ export function UpdateBanner() {
                    */}
                   {update.no_compatible_wheel && (
                     <span
-                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text"
+                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-platform-sm text-2xs font-semibold bg-status-warning-bg text-status-warning-text"
                       title="No compatible wheel has been published for this platform yet -- installing would fail."
                     >
                       Not Installable
@@ -438,8 +438,8 @@ export function UpdateBanner() {
                               }}
                             />
                           </div>
-                          <span className="text-[10px] text-content-tertiary tabular-nums">
-                            {downloadProgress != null ? `${downloadProgress}%` : '...'}
+                          <span className="text-2xs text-content-tertiary tabular-nums">
+                            {downloadProgress != null ? `${downloadProgress}%` : '…'}
                           </span>
                         </div>
                       ) : (
@@ -458,7 +458,7 @@ export function UpdateBanner() {
                               <button
                                 type="button"
                                 onClick={() => handleViewRelease(update.release_url!)}
-                                className="text-[11px] text-accent-hover hover:underline cursor-pointer"
+                                className="text-2xs text-accent-hover hover:underline cursor-pointer"
                                 title="Download the update manually from GitHub"
                               >
                                 Download Manually
@@ -481,7 +481,7 @@ export function UpdateBanner() {
                     <button
                       type="button"
                       onClick={() => handleViewRelease(update.release_url!)}
-                      className="p-1 rounded hover:bg-surface-secondary transition-colors"
+                      className="p-1 rounded-platform-sm hover:bg-surface-secondary transition-colors"
                       title="View release"
                       aria-label={`View ${update.name} release on GitHub`}
                     >
@@ -497,7 +497,7 @@ export function UpdateBanner() {
                   <button
                     type="button"
                     onClick={() => dismissUpdate(update.name)}
-                    className="p-1 rounded hover:bg-surface-secondary transition-colors"
+                    className="p-1 rounded-platform-sm hover:bg-surface-secondary transition-colors"
                     title="Dismiss"
                     aria-label={`Dismiss ${update.name} update notification`}
                   >
@@ -512,7 +512,7 @@ export function UpdateBanner() {
                * amber/warning colour scheme to draw attention.
                */}
               {update.is_prerelease && (
-                <p className="text-[11px] text-status-warning-text pl-0.5">
+                <p className="text-2xs text-status-warning-text pl-0.5">
                   This is a pre-release version and may contain bugs or incomplete features. Not
                   recommended for production use.
                 </p>
@@ -526,7 +526,7 @@ export function UpdateBanner() {
                * validated against MeedyaDL's GAMDL CLI / INI surface yet.
                */}
               {update.is_untested && !update.is_prerelease && !update.no_compatible_wheel && (
-                <p className="text-[11px] text-status-warning-text pl-0.5">
+                <p className="text-2xs text-status-warning-text pl-0.5">
                   This GAMDL release was published after MeedyaDL&apos;s last validation pass and
                   hasn&apos;t been audited yet. Install at your own risk, or wait for the next
                   MeedyaDL build.
@@ -542,7 +542,7 @@ export function UpdateBanner() {
                * blocker: the Upgrade button is disabled, not just risky.
                */}
               {update.no_compatible_wheel && (
-                <p className="text-[11px] text-status-warning-text pl-0.5">
+                <p className="text-2xs text-status-warning-text pl-0.5">
                   Not installable — no compatible wheel has been published for this platform yet.
                   Upgrading would fail; wait for a future GAMDL release or a MeedyaDL build with
                   a matching Python runtime.
@@ -575,7 +575,7 @@ export function UpdateBanner() {
                     </span>
                     {/* Backend-provided plain text only -- never HTML. */}
                     {update.manual_update_command && (
-                      <p className="text-[11px] text-content-tertiary truncate">
+                      <p className="text-2xs text-content-tertiary truncate">
                         Runs: {update.manual_update_command}
                       </p>
                     )}

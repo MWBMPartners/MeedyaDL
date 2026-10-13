@@ -28,7 +28,7 @@
 import { useEffect, useState } from 'react';
 
 // Icons used in the welcome step layout.
-import { Download, AlertTriangle, Package } from 'lucide-react';
+import { AlertTriangle, Package } from 'lucide-react';
 
 // Zustand store providing the completeStep action.
 import { useSetupStore } from '@/stores/setupStore';
@@ -38,6 +38,8 @@ import { scanForBundles, importProfile } from '@/lib/tauri-commands';
 import type { DiscoveredBundle } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
+import { showError } from '@/lib/errorMessages';
+import { Button } from '@/components/common';
 
 /**
  * WelcomeStep -- Renders the welcome screen.
@@ -122,7 +124,7 @@ export function WelcomeStep() {
         ['settings', ...bundle.summary.sections]
           .filter((s) => s !== 'credentials')
           .join(', ')
-      }.\n\nCredentials (if present) are NOT restored here — re-import them later from Settings > General > Profile Bundle.`,
+      }.\n\nSign-in details (if present) are NOT restored here — import the full copy again later from Settings > General > Full Copy of MeedyaDL.`,
     );
     if (!confirmed) return;
     setIsRestoringBundle(true);
@@ -167,8 +169,7 @@ export function WelcomeStep() {
       // or restore a different bundle. They can simply ignore it
       // and click Continue.
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      addToast(`Failed to restore bundle: ${message}`, 'error');
+      showError('MeedyaDL could not restore from that file. Check the password and that the file is complete, then try again — or carry on setting up from scratch.', err);
     } finally {
       setIsRestoringBundle(false);
     }
@@ -176,18 +177,39 @@ export function WelcomeStep() {
 
   return (
     <div className="text-center space-y-6">
+
+      {/* MeedyaDL's own logo -- the same file the sidebar shows. This used
+          to be a generic download arrow in a blue square, under the heading
+          "Welcome to GAMDL" / "Apple Music Downloader": the first screen a
+          new user saw was branded for the download engine underneath, not
+          for the app they had installed. alt="" because the heading right
+          below already says "MeedyaDL"; reading the logo out as well would
+          only say it twice. */}
+      <img src="/logo.svg" alt="" className="inline-block w-20 h-20" />
+
+      {/* Welcome heading */}
+      <div>
+        <h1 className="text-2xl font-bold text-content-primary">Welcome to MeedyaDL</h1>
+        <p className="text-base text-content-secondary mt-2">
+          Download music and music videos from Apple Music
+        </p>
+      </div>
+
       {/* #876 P5: restore-from-previous-install banner. Surfaces
           any .meedyabundle files we found in Downloads / Desktop /
-          home so a returning user can short-circuit the setup. */}
+          home so a returning user can short-circuit the setup.
+          It sits BELOW the welcome heading: it used to come first, so
+          its heading came before the page's own -- out of order for
+          anyone moving through the page by headings. */}
       {discoveredBundles.length > 0 && (
         <div className="text-left p-4 rounded-platform border border-accent/40 bg-accent/5">
           <div className="flex items-start gap-2 mb-3">
             <Package size={18} className="text-accent flex-shrink-0 mt-0.5" />
             <div>
-              <h3 className="text-sm font-semibold text-content-primary">
-                Found {discoveredBundles.length} previous-install bundle
-                {discoveredBundles.length === 1 ? '' : 's'}
-              </h3>
+              <h2 className="text-sm font-semibold text-content-primary">
+                Found {discoveredBundles.length === 1 ? 'a full copy' : `${discoveredBundles.length} full copies`} of
+                MeedyaDL from before
+              </h2>
               <p className="text-xs text-content-secondary mt-0.5">
                 Restore your settings, queue, history, and library index in
                 one click. You can still continue with a fresh setup if you'd
@@ -199,7 +221,7 @@ export function WelcomeStep() {
             {discoveredBundles.map((b) => (
               <div
                 key={b.path}
-                className="flex items-center justify-between gap-3 p-2 rounded border border-border bg-surface-primary text-xs"
+                className="flex items-center justify-between gap-3 p-2 rounded-platform-sm border border-border bg-surface-primary text-xs"
               >
                 <div className="min-w-0 flex-1">
                   <div className="font-medium truncate">{b.path}</div>
@@ -215,30 +237,20 @@ export function WelcomeStep() {
                     )}
                   </div>
                 </div>
-                <button
-                  type="button"
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="flex-shrink-0"
+                  loading={isRestoringBundle}
                   onClick={() => handleRestoreBundle(b)}
-                  disabled={isRestoringBundle}
-                  className="px-3 py-1 rounded bg-accent text-content-on-accent hover:opacity-90 disabled:opacity-50 flex-shrink-0"
                 >
-                  {isRestoringBundle ? 'Restoring...' : 'Restore'}
-                </button>
+                  {isRestoringBundle ? 'Restoring…' : 'Restore'}
+                </Button>
               </div>
             ))}
           </div>
         </div>
       )}
-
-      {/* App icon */}
-      <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-accent">
-        <Download size={40} className="text-content-on-accent" />
-      </div>
-
-      {/* Welcome heading */}
-      <div>
-        <h2 className="text-2xl font-bold text-content-primary">Welcome to GAMDL</h2>
-        <p className="text-base text-content-secondary mt-2">Apple Music Downloader</p>
-      </div>
 
       {/* Setup description */}
       <div className="text-left max-w-md mx-auto space-y-3 text-sm text-content-secondary">
@@ -247,28 +259,34 @@ export function WelcomeStep() {
           Music. Here's what we'll do:
         </p>
 
+        {/* Step 1 used to promise that "a portable Python runtime will be
+            downloaded". Since the Python step learned to reuse a Python the
+            computer already has (3.10 or newer), that was only one of two
+            things that can happen, so it now says both. */}
         <ol className="list-decimal list-inside space-y-2 ml-2">
           <li>
-            <strong className="text-content-primary">Install Python</strong> - A portable Python
-            runtime will be downloaded (no system changes)
+            <strong className="text-content-primary">Set up Python</strong> — reuse a Python
+            you already have (version 3.10 or newer), or let MeedyaDL download its own private
+            copy
           </li>
           <li>
-            <strong className="text-content-primary">Install GAMDL</strong> - The Apple Music
-            download tool will be installed into the portable Python
+            <strong className="text-content-primary">Install the download engine</strong> — GAMDL,
+            the free tool that does the Apple Music downloading, goes into MeedyaDL&apos;s own
+            Python
           </li>
           <li>
-            <strong className="text-content-primary">Install Tools</strong> - Required tools like
-            FFmpeg and mp4decrypt will be downloaded
+            <strong className="text-content-primary">Install tools</strong> — FFmpeg,
+            mp4decrypt and the other helper programs are downloaded, or copies you already have
+            are used
           </li>
           <li>
-            <strong className="text-content-primary">Import Cookies</strong> - You'll provide your
-            Apple Music authentication cookies
+            <strong className="text-content-primary">Sign in to Apple Music</strong> — so
+            MeedyaDL can download with your subscription
           </li>
         </ol>
 
         <p className="text-xs text-content-tertiary">
-          All files are installed to the application data directory. Nothing is installed
-          system-wide.
+          Everything is kept in MeedyaDL&apos;s own folder. Nothing on your system is changed.
         </p>
 
         {/* Disclaimer notice */}

@@ -28,12 +28,13 @@
  * @see https://react.dev/learn/rendering-lists       -- conditional rendering of count spans.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 
-// Tauri app API for reading the version from tauri.conf.json at runtime.
-import { getVersion } from '@tauri-apps/api/app';
+// The app's version number, never a placeholder (see the hook's notes).
+import { useAppVersion } from '@/hooks/useAppVersion';
 
 import { Square } from 'lucide-react';
+import { Button } from '@/components/common';
 
 // This component is visible on every screen of the app (it's pinned under
 // every page), so every word in it needs to go through i18next rather than
@@ -50,7 +51,7 @@ import { useTranslation } from 'react-i18next';
  */
 import { useDownloadStore } from '@/stores/downloadStore';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { useUiStore } from '@/stores/uiStore';
+import { ABORT_FAILED, showError } from '@/lib/errorMessages';
 
 /**
  * Translation keys (under `statusBar.actions.*`) for each after-queue
@@ -149,17 +150,11 @@ export function StatusBar() {
   const { t } = useTranslation();
 
   /**
-   * Application version string, fetched once on mount from `tauri.conf.json`
-   * via the Tauri app API. Falls back to 'unknown' if the call fails
-   * (e.g., in a test environment without Tauri runtime).
+   * Application version string: the build's own version from the first
+   * frame, then the desktop app's answer (see `useAppVersion`). It used to
+   * show "v..." while loading and "vunknown" if the lookup failed.
    */
-  const [appVersion, setAppVersion] = useState('...');
-
-  useEffect(() => {
-    getVersion()
-      .then((v) => setAppVersion(v))
-      .catch(() => setAppVersion('unknown'));
-  }, []);
+  const appVersion = useAppVersion();
 
   /**
    * Subscribe to the `queueItems` slice of the download store.
@@ -209,7 +204,6 @@ export function StatusBar() {
   const abortQueueConfirm = useSettingsStore(
     (s) => s.settings.abort_queue_confirm,
   );
-  const addToast = useUiStore((s) => s.addToast);
   const triggerAbort = useCallback(() => {
     if (abortQueueConfirm) {
       // `window.confirm` is a blocking native modal — acceptable here
@@ -220,8 +214,10 @@ export function StatusBar() {
       const confirmed = window.confirm(t('statusBar.abortConfirm'));
       if (!confirmed) return;
     }
-    void abortAll().catch((e) => addToast(`Abort failed: ${e}`, 'error'));
-  }, [abortAll, abortQueueConfirm, addToast, t]);
+    // abortAll reports its own failures (downloadStore); this catch is for
+    // anything that escapes it, worded the same way.
+    void abortAll().catch((e) => showError(ABORT_FAILED, e, { key: 'abort-failed' }));
+  }, [abortAll, abortQueueConfirm, t]);
 
   /**
    * Plain-English summary of the counters below, read aloud by a screen
@@ -277,11 +273,10 @@ export function StatusBar() {
      * `bg-surface-secondary` -- slightly elevated background colour.
      * `border-t border-border-light` -- thin top border separating it
      * from the scrollable content above.
-     * `text-[11px]` -- 11px font size (below Tailwind's smallest preset)
-     * for an unobtrusive footer feel.
+     * `text-2xs` -- the smallest step of the type scale (11px, defined in
+     * tailwind.config.js) for an unobtrusive footer feel.
      * `text-content-tertiary` -- muted text colour from the design tokens.
      *
-     * @see https://tailwindcss.com/docs/font-size  -- arbitrary font size
      *
      * `role="group"` + `aria-label` (rather than `role="status"`)
      * because this container is no longer a live region -- see the
@@ -292,7 +287,7 @@ export function StatusBar() {
     <div
       role="group"
       aria-label={t('statusBar.ariaLabel')}
-      className="flex items-center justify-between px-4 py-1.5 bg-surface-secondary border-t border-border-light text-[11px] text-content-tertiary"
+      className="flex items-center justify-between px-4 py-1.5 bg-surface-secondary border-t border-border-light text-2xs text-content-tertiary"
     >
       {/*
        * Screen-reader-only live region carrying ONLY the plain-English
@@ -346,11 +341,21 @@ export function StatusBar() {
         )}
         {/* Queued count -- items waiting to start */}
         {queuedCount > 0 && <span>{t('statusBar.queued', { count: queuedCount })}</span>}
+        {/* Completed count -- successfully finished items */}
+        {completedCount > 0 && <span>{t('statusBar.completed', { count: completedCount })}</span>}
+        {/* Empty-queue fallback message */}
+        {queueItems.length === 0 && <span>{t('statusBar.noDownloads')}</span>}
+
         {/*
           Global "Abort Queue" affordance (#620). Always available — even
           when the user is on Settings / History pages and can't reach the
           queue-page button. Fires the same abort path (confirmation
           respects `abort_queue_confirm`).
+
+          It used to sit in the MIDDLE of the counts ("1 queued [Abort] 1
+          completed"), where it read as one more count. It now comes after
+          all of them, set apart by a thin divider, and is the shared
+          Button (size xs) rather than a hand-made one.
 
           The "Cmd/Ctrl+Shift+." keyboard hint is deliberately kept out of
           the translated sentence and passed in as `{{shortcut}}` — key
@@ -358,21 +363,20 @@ export function StatusBar() {
           means a translator can't accidentally reword it.
         */}
         {(activeCount > 0 || queuedCount > 0) && (
-          <button
-            type="button"
-            onClick={triggerAbort}
-            aria-label={t('statusBar.abortAriaLabel')}
-            title={t('statusBar.abortTitle', { shortcut: 'Cmd/Ctrl+Shift+.' })}
-            className="flex items-center gap-1 text-status-error-text hover:bg-status-error/10 rounded px-1.5 py-0.5 transition-colors"
-          >
-            <Square size={12} />
-            <span className="text-xs">{t('statusBar.abort')}</span>
-          </button>
+          <span className="flex items-center border-l border-border-light pl-3">
+            <Button
+              variant="ghost"
+              size="xs"
+              icon={<Square size={12} />}
+              onClick={triggerAbort}
+              aria-label={t('statusBar.abortAriaLabel')}
+              title={t('statusBar.abortTitle', { shortcut: 'Cmd/Ctrl+Shift+.' })}
+              className="text-status-error-text hover:bg-status-error/10"
+            >
+              {t('statusBar.abort')}
+            </Button>
+          </span>
         )}
-        {/* Completed count -- successfully finished items */}
-        {completedCount > 0 && <span>{t('statusBar.completed', { count: completedCount })}</span>}
-        {/* Empty-queue fallback message */}
-        {queueItems.length === 0 && <span>{t('statusBar.noDownloads')}</span>}
       </div>
 
       {/* Centre: after-queue action indicator (if non-default) */}
@@ -384,7 +388,7 @@ export function StatusBar() {
           version-prefix convention ("v" + number) that reads the same in
           every language, so this is left as a plain string rather than
           wired through i18next. */}
-      <span>MeedyaDL v{appVersion}</span>
+      <span>MeedyaDL{appVersion ? ` v${appVersion}` : ''}</span>
     </div>
   );
 }

@@ -73,7 +73,6 @@ import {
   FileText, // Manual import icon
   Loader2, // Loading spinner
   ExternalLink, // External link icon (System Settings)
-  Info, // Info notice icon
   LogIn, // Sign-in icon for embedded browser login
 } from 'lucide-react';
 
@@ -89,7 +88,8 @@ import { useUiStore } from '@/stores/uiStore';
 import * as commands from '@/lib/tauri-commands';
 
 // Shared UI components.
-import { FilePickerButton, Button } from '@/components/common';
+import { FilePickerButton, Button, InlineError } from '@/components/common';
+import { COOKIES_IMPORT_FAILED, explainError } from '@/lib/errorMessages';
 
 // TypeScript types for cookie data.
 import type { CookieValidation, DetectedBrowser, CookieImportResult } from '@/types';
@@ -598,16 +598,25 @@ export function CookiesStep() {
   }, [completeStep]);
 
   // --- Render ---
+  // Polish pass L7: at the default 1100x700 window this step was taller than
+  // the space between the progress bar and the footer, so "Import from file
+  // instead" and "Skip for Now" ended up under the footer. What brings them
+  // into view is the order (the two links straight after the choices, the
+  // notes after them, see below). space-y-4 adds margin: with three browsers
+  // listed the links end 38px above the footer (14px with space-y-6).
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-semibold text-content-primary">Apple Music Cookies</h2>
+        <h1 className="text-xl font-semibold text-content-primary">Apple Music Cookies</h1>
         <p className="text-sm text-content-secondary mt-1">
-          GAMDL needs your Apple Music cookies to authenticate downloads.{' '}
-          <span className="font-medium text-content-primary">
-            You must be logged in to Apple Music in your browser.
-          </span>
+          {/* This used to say "You must be logged in to Apple Music in your
+              browser", in bold, right above a Sign in button that needs no
+              browser at all -- it opens its own sign-in window. Being signed
+              in to a browser only matters for importing from that browser. */}
+          MeedyaDL needs to sign in to Apple Music to download with your subscription. The
+          quickest way is the Sign in button below. You can also import the sign-in from a
+          browser where you are already signed in to Apple Music.
         </p>
       </div>
 
@@ -623,7 +632,6 @@ export function CookiesStep() {
           {!isLoginWindowOpen ? (
             /* Show the "Sign in" card when the login window is not open */
             <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
-              <p className="text-xs text-content-secondary">Sign in with your Apple Account:</p>
               <Button variant="primary" onClick={handleOpenLoginWindow} disabled={isImporting}>
                 <LogIn size={16} className="mr-2" />
                 Sign in with Apple Music
@@ -638,7 +646,7 @@ export function CookiesStep() {
             <div className="p-4 rounded-platform border border-accent bg-surface-elevated space-y-3">
               <div className="flex items-center gap-2.5">
                 <Loader2 size={16} className="animate-spin text-accent" />
-                <span className="text-sm font-medium text-content-primary">Signing in...</span>
+                <span className="text-sm font-medium text-content-primary">Signing in…</span>
               </div>
               <p className="text-xs text-content-secondary">
                 A browser window is open. Sign in with your Apple ID at music.apple.com, then return
@@ -669,7 +677,7 @@ export function CookiesStep() {
           {isDetecting ? (
             <div className="flex items-center gap-2 py-4 text-sm text-content-secondary">
               <Loader2 size={16} className="animate-spin" />
-              Detecting installed browsers...
+              Detecting installed browsers…
             </div>
           ) : browsers.length > 0 ? (
             <div className="rounded-platform border border-border-light bg-surface-elevated overflow-hidden">
@@ -696,18 +704,6 @@ export function CookiesStep() {
             </div>
           )}
 
-          {/* macOS Keychain notice (shown for Chromium browsers on macOS) */}
-          {isMacOS && !showFdaPanel && !importResult && (
-            <div className="flex items-start gap-2.5 p-3 rounded-platform border border-border-light bg-surface-elevated">
-              <Info size={14} className="text-content-tertiary flex-shrink-0 mt-0.5" />
-              <p className="text-xs text-content-secondary">
-                macOS may ask for your password when importing cookies from Chrome, Edge, or other
-                Chromium-based browsers. This is a standard macOS security prompt to access browser
-                data.
-              </p>
-            </div>
-          )}
-
           {/* FDA instruction panel (Safari on macOS) */}
           {showFdaPanel && (
             <FdaInstructionPanel onRetry={handleFdaRetry} onCancel={() => setShowFdaPanel(false)} />
@@ -720,7 +716,7 @@ export function CookiesStep() {
                 <XCircle size={16} className="text-status-error" />
                 <span className="text-sm font-medium text-content-primary">Import Failed</span>
               </div>
-              <p className="text-xs text-content-secondary ml-6">{importError}</p>
+              <InlineError className="ml-6" {...explainError(COOKIES_IMPORT_FAILED, importError)} />
             </div>
           )}
 
@@ -839,20 +835,6 @@ export function CookiesStep() {
       )}
 
       {/* ================================================
-          Privacy Notice
-          ================================================ */}
-      {!isManualMode && (
-        <div className="flex items-start gap-2.5 p-3 rounded-platform border border-border-light bg-surface-elevated">
-          <Shield size={14} className="text-accent flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-content-secondary">
-            Only cookies for <span className="font-medium text-content-primary">apple.com</span> and{' '}
-            <span className="font-medium text-content-primary">mzstatic.com</span> are read. No
-            other browsing data is accessed.
-          </p>
-        </div>
-      )}
-
-      {/* ================================================
           Mode Toggle & Skip
           ================================================ */}
       <div className="flex gap-3">
@@ -886,6 +868,32 @@ export function CookiesStep() {
           Skip for Now
         </Button>
       </div>
+
+      {/* ================================================
+          What is read, and the Mac password prompt
+          One note, after the choices (polish pass L7). These used to be
+          two separate boxes ABOVE "Import from file instead" and "Skip for
+          Now", which pushed those two under the footer at the default
+          window size. They are reassurance, not steps, so they come last.
+          ================================================ */}
+      {!isManualMode && (
+        <div className="flex items-start gap-2.5 p-3 rounded-platform border border-border-light bg-surface-elevated">
+          <Shield size={14} className="text-accent flex-shrink-0 mt-0.5" />
+          <p className="text-xs text-content-secondary">
+            Only Apple Music&apos;s own cookies (from{' '}
+            <span className="font-medium text-content-primary">apple.com</span> and{' '}
+            <span className="font-medium text-content-primary">mzstatic.com</span>) are read; nothing
+            else in your browser is touched.
+            {isMacOS && !showFdaPanel && !importResult && (
+              <>
+                {' '}
+                Importing from Chrome, Edge or another Chromium-based browser may make your Mac ask for
+                your password; that is macOS&apos;s own standard prompt.
+              </>
+            )}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

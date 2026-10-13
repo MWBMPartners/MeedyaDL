@@ -36,7 +36,15 @@
  */
 
 import { useId } from 'react';
-import { Toggle, SettingsSection } from '@/components/common';
+import { Select, Toggle, SettingsSection } from '@/components/common';
+
+/** ReplayGain target loudness choices (values are LUFS). */
+const REFERENCE_LEVEL_OPTIONS = [
+  { value: '-18', label: '-18.0 LUFS (EBU R128 — recommended for music)' },
+  { value: '-14', label: '-14.0 LUFS (Spotify / YouTube style — louder)' },
+  { value: '-23', label: '-23.0 LUFS (EBU R128 broadcast — conservative)' },
+  { value: '-16', label: '-16.0 LUFS (Apple Music / iTunes)' },
+];
 import { useSettingsField } from '@/hooks/useSettingsField';
 
 export function MetadataTab() {
@@ -117,25 +125,17 @@ export function MetadataTab() {
                 </span>
               </p>
 
-              <div>
-                <label htmlFor={referenceLevelId} className="block text-sm font-medium text-content-primary mb-1">
-                  Reference Level
-                </label>
-                <select
-                  id={referenceLevelId}
-                  className="w-full rounded-platform border border-border-light bg-surface-elevated px-3 py-2 text-sm text-content-primary"
-                  value={replaygainReferenceLevel.value}
-                  onChange={(e) => replaygainReferenceLevel.set(parseFloat(e.target.value))}
-                >
-                  <option value={-18}>-18.0 LUFS (EBU R128 — recommended for music)</option>
-                  <option value={-14}>-14.0 LUFS (Spotify / YouTube style — louder)</option>
-                  <option value={-23}>-23.0 LUFS (EBU R128 broadcast — conservative)</option>
-                  <option value={-16}>-16.0 LUFS (Apple Music / iTunes)</option>
-                </select>
-                <p className="text-xs text-content-tertiary mt-1">
-                  Target loudness. All tracks are adjusted to match this level. Most music players default to -18 LUFS (EBU R128). Choose -14 LUFS for louder playback similar to Spotify, or -23 LUFS for conservative broadcast levels.
-                </p>
-              </div>
+              {/* The shared Select (polish pass M17); it was a hand-made
+                  <select> with its own colours. Fix 9 (a11y audit): the
+                  id ties the label to the box. */}
+              <Select
+                id={referenceLevelId}
+                label="Reference Level"
+                options={REFERENCE_LEVEL_OPTIONS}
+                value={String(replaygainReferenceLevel.value)}
+                onChange={(e) => replaygainReferenceLevel.set(parseFloat(e.target.value))}
+                description="Target loudness. All tracks are adjusted to match this level. Most music players default to -18 LUFS (EBU R128). Choose -14 LUFS for louder playback similar to Spotify, or -23 LUFS for conservative broadcast levels."
+              />
 
               <Toggle
                 label="Prevent Clipping"

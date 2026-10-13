@@ -19,6 +19,7 @@ import {
   useUiStore,
   __resetToastWorkerForTests,
   __resetSidebarSaveForTests,
+  __resetNotificationNoticeForTests,
   MAX_TOASTS,
 } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -288,6 +289,19 @@ describe('uiStore', () => {
   // Toast Notifications
   // =========================================================================
   describe('addToast', () => {
+    // These tests are about the in-app toast list only. Run them with
+    // system notifications off: firing dozens of toasts at once also fires
+    // dozens of system-notification attempts, whose mocked dynamic imports
+    // race in Vitest (see the sequencing note in the dedup tests below).
+    // Those failed attempts used to vanish into a console warning; since a
+    // failed system notification now shows a notice in the app, one would
+    // otherwise land in whichever test happened to run next.
+    beforeEach(() => {
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, notification_style: 'in_app_only' },
+      }));
+    });
+
     it('adds a success toast to the queue', () => {
       useUiStore.getState().addToast('Download complete', 'success');
 
@@ -622,6 +636,19 @@ describe('uiStore', () => {
   // Toast list ceiling
   // =========================================================================
   describe('addToast — list ceiling (MAX_TOASTS)', () => {
+    // These tests are about the in-app toast list only. Run them with
+    // system notifications off: firing dozens of toasts at once also fires
+    // dozens of system-notification attempts, whose mocked dynamic imports
+    // race in Vitest (see the sequencing note in the dedup tests below).
+    // Those failed attempts used to vanish into a console warning; since a
+    // failed system notification now shows a notice in the app, one would
+    // otherwise land in whichever test happened to run next.
+    beforeEach(() => {
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, notification_style: 'in_app_only' },
+      }));
+    });
+
     it('keeps only the newest MAX_TOASTS entries once the list overflows, dropping the oldest first', () => {
       // Every message here is different, so the message-based dedup a few
       // lines up in `addToast` does nothing -- and these are persistent
@@ -689,6 +716,82 @@ describe('uiStore', () => {
       useUiStore.getState().removeToast('non-existent-id');
 
       expect(useUiStore.getState().toasts).toHaveLength(1);
+    });
+  });
+
+  // =========================================================================
+  // A system notification that cannot be shown is never silent
+  //
+  // Until October 2026 the only sign was a console.warn, which release
+  // builds strip -- so with "Native only" chosen and notifications blocked,
+  // a failed download could be reported nowhere at all.
+  // =========================================================================
+  describe('addToast — when the system notification cannot be shown', () => {
+    beforeEach(() => {
+      __resetNotificationNoticeForTests();
+    });
+
+    const blockNotifications = () => {
+      vi.mocked(notificationPlugin.isPermissionGranted).mockResolvedValueOnce(false);
+      vi.mocked(notificationPlugin.requestPermission).mockResolvedValueOnce('denied');
+    };
+
+    it('in "Native only" mode, shows the message in the app and says once that notifications are blocked', async () => {
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, desktop_notifications: true, notification_style: 'native_only' },
+      }));
+
+      blockNotifications();
+      useUiStore.getState().addToast('Download failed: album X', 'error');
+      await vi.waitFor(() => {
+        expect(useUiStore.getState().toasts.map((t) => t.message)).toContain('Download failed: album X');
+      });
+      const notice = useUiStore.getState().toasts.filter((t) => t.key === 'native-notifications-unavailable');
+      expect(notice).toHaveLength(1);
+      expect(notice[0].message).toMatch(/turned off in your system settings/);
+      expect(notificationPlugin.sendNotification).not.toHaveBeenCalled();
+
+      // A second blocked message is shown too, but the notice is not repeated.
+      blockNotifications();
+      useUiStore.getState().addToast('Download failed: album Y', 'error');
+      await vi.waitFor(() => {
+        expect(useUiStore.getState().toasts.map((t) => t.message)).toContain('Download failed: album Y');
+      });
+      expect(
+        useUiStore.getState().toasts.filter((t) => t.key === 'native-notifications-unavailable')
+      ).toHaveLength(1);
+    });
+
+    it('in "Native + in-app" mode, keeps the in-app toast and still says once why no system notification appeared', async () => {
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, desktop_notifications: true, notification_style: 'native_and_in_app' },
+      }));
+
+      blockNotifications();
+      useUiStore.getState().addToast('Queue finished', 'success');
+      await vi.waitFor(() => {
+        expect(
+          useUiStore.getState().toasts.some((t) => t.key === 'native-notifications-unavailable')
+        ).toBe(true);
+      });
+      // The message itself appears once, not twice.
+      expect(useUiStore.getState().toasts.filter((t) => t.message === 'Queue finished')).toHaveLength(1);
+    });
+
+    it('falls back the same way when sending the notification throws', async () => {
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, desktop_notifications: true, notification_style: 'native_only' },
+      }));
+      vi.mocked(notificationPlugin.sendNotification).mockImplementationOnce(() => {
+        throw new Error('no notification centre');
+      });
+
+      useUiStore.getState().addToast('Could not reach Apple Music', 'warning');
+      await vi.waitFor(() => {
+        expect(useUiStore.getState().toasts.map((t) => t.message)).toContain('Could not reach Apple Music');
+      });
+      const notice = useUiStore.getState().toasts.find((t) => t.key === 'native-notifications-unavailable');
+      expect(notice?.message).toMatch(/could not show a system notification/);
     });
   });
 });

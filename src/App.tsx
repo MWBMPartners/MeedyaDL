@@ -49,7 +49,7 @@
  * @see {@link https://react.dev/reference/react/useEffect}
  * @see {@link https://react.dev/reference/react/useState}
  */
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -90,12 +90,14 @@ import { useTheme } from './hooks/useTheme';
 
 /**
  * Custom hook for global keyboard shortcuts (Cmd/Ctrl+D, Cmd/Ctrl+,,
- * Cmd/Ctrl+Q, Cmd/Ctrl+Enter). Registers a single window-level keydown
+ * Cmd/Ctrl+J, Cmd/Ctrl+Enter). Registers a single window-level keydown
  * listener with cleanup on unmount.
  * @see ./hooks/useKeyboardShortcuts.ts for shortcut definitions
  */
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useKonamiCode } from './hooks/useKonamiCode';
+/** Sets the page title AND the native window title (see Fix 14 below). */
+import { setWindowTitle } from './lib/windowTitle';
 import { useClipboardMonitor } from './hooks/useClipboardMonitor';
 import { activateDevAccess, checkAppRelocation } from './lib/tauri-commands';
 
@@ -142,6 +144,7 @@ import { useFeatureFlagStore, selectServiceEnabled } from './stores/featureFlagS
  * @see ./components/layout/ for layout component implementations
  */
 import { MainLayout } from './components/layout';
+import { PageLoading } from './components/layout/PageLoading';
 
 /* ─── Page Components ────────────────────────────────────────────────── */
 
@@ -151,8 +154,23 @@ import { MainLayout } from './components/layout';
  */
 import { DownloadForm, DownloadQueue, HistoryPage, ActivityLog } from './components/download';
 
-/** UpdatesPage: Detailed update view with full release notes */
-import { UpdatesPage } from './components/updates';
+/*
+ * Help, Updates and Settings are loaded the first time they are opened,
+ * not at start-up (polish pass M12). Help carries every help page's text
+ * (about 350 kB) and, with Updates, the Markdown and HTML libraries
+ * (about 320 kB) that nothing else uses; Settings is the largest set of
+ * screens after those (about 150 kB). Loading them up front made
+ * MeedyaDL's start-up script 1.46 MB -- nearly three times the size Vite
+ * warns about -- and every launch paid for it, although most launches
+ * never open any of them. `PageLoading` fills the short wait the first
+ * time one is opened.
+ *
+ * Each import names the component's own file, not its folder's index:
+ * the indexes are imported elsewhere for types only, and pointing a lazy
+ * import at an index would only work while nothing else imports a value
+ * from it.
+ */
+const UpdatesPage = lazy(() => import('./components/updates/UpdatesPage').then((m) => ({ default: m.UpdatesPage })));
 
 /**
  * LibraryScanPage (Phase 5 / #717): scan an existing on-disk music library
@@ -161,11 +179,11 @@ import { UpdatesPage } from './components/updates';
  */
 import { LibraryScanPage } from './components/library/LibraryScanPage';
 
-/** SettingsPage: Full application settings editor with save/reset */
-import { SettingsPage } from './components/settings';
+/** SettingsPage: Full application settings editor with save/reset (loaded when first opened). */
+const SettingsPage = lazy(() => import('./components/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
 
-/** HelpViewer: In-app help documentation and FAQ */
-import { HelpViewer } from './components/help';
+/** HelpViewer: In-app help documentation and FAQ (loaded when first opened). */
+const HelpViewer = lazy(() => import('./components/help/HelpViewer').then((m) => ({ default: m.HelpViewer })));
 
 /**
  * SetupWizard: Multi-step guided setup shown on first run or when
@@ -249,6 +267,7 @@ import { initI18n, changeUiLanguage, systemLanguageOrEnglish } from './lib/i18n'
  * @see ./types/index.ts for the full type definition
  */
 import type { GamdlProgress, ActivityLogEntry, ComponentUpdate } from './types';
+import { showBackendError, showError } from '@/lib/errorMessages';
 
 /**
  * The root component that serves as the entry point for the application UI.
@@ -290,7 +309,7 @@ function App() {
   /*
    * ─── Keyboard Shortcuts ────────────────────────────────────────────
    * Registers global keyboard shortcuts (Cmd/Ctrl+D, Cmd/Ctrl+,,
-   * Cmd/Ctrl+Q, Cmd/Ctrl+Enter) via a single window-level keydown listener.
+   * Cmd/Ctrl+J, Cmd/Ctrl+Enter) via a single window-level keydown listener.
    * Shortcuts are suppressed when focus is in form elements to avoid
    * interfering with text editing. Cleanup is automatic on unmount.
    * @see ./hooks/useKeyboardShortcuts.ts
@@ -351,6 +370,11 @@ function App() {
    * had no way to tell Download apart from Settings without switching
    * to the app and looking. Reuses the same `nav.<page>` translation
    * keys the sidebar already uses, so the wording always matches.
+   *
+   * It goes through `setWindowTitle()`, which also sets the NATIVE window
+   * title: Tauri does not copy `document.title` onto the window, so until
+   * October 2026 this only ever changed a title nobody outside the page
+   * could see, and the window switcher kept saying "MeedyaDL".
    */
   useEffect(() => {
     const pageLabel = t(`nav.${currentPage}`);
@@ -359,7 +383,7 @@ function App() {
     // through translation (see index.html's <title>, and
     // check_i18n.py's UNUSED_KEY_EXCEPTIONS entry for `app.name`,
     // which documents the same rule for that key specifically).
-    document.title = `${pageLabel} — MeedyaDL`;
+    setWindowTitle(`${pageLabel} — MeedyaDL`);
   }, [currentPage, t]);
   /** Whether the setup wizard overlay is visible (first-run or missing deps) */
   const showSetupWizard = useUiStore((s) => s.showSetupWizard);
@@ -510,7 +534,9 @@ function App() {
     if (!isReady) return;
 
     const initialize = async () => {
-      /* Step 0: Initialize i18n translation system (loads English + detected locale) */
+      /* Step 0: Finish starting the translation system. English was set up
+       * in main.tsx before the first render; this fetches the system's
+       * language when MeedyaDL has a translation for it. */
       await initI18n();
 
       /* Step 1: Load settings from the Rust backend via IPC (get_settings command) */
@@ -777,12 +803,10 @@ function App() {
 
     initialize().catch((err) => {
       console.error('App initialization failed:', err);
-      useUiStore
-        .getState()
-        .addToast(
-          'App initialization failed — some features may not work correctly. Try restarting.',
-          'error'
-        );
+      showError(
+        'MeedyaDL did not finish starting up, so some features may not work. Quit and reopen MeedyaDL; if this keeps happening, report it from Settings > Advanced > Error Reporting.',
+        err
+      );
     });
   }, [isReady, loadSettings, checkAll, checkForUpdates, setShowSetupWizard]);
 
@@ -844,9 +868,13 @@ function App() {
     // English — never a language that has no file.
     const target = uiLanguageSetting || systemLanguageOrEnglish();
     changeUiLanguage(target).catch((err: unknown) => {
-      useUiStore
-        .getState()
-        .addToast(err instanceof Error ? err.message : String(err), 'warning', undefined, 'ui-language');
+      // changeUiLanguage's own message is a plain sentence; anything else
+      // (an unexpected failure) gets the fallback, details folded away.
+      showBackendError(
+        'MeedyaDL could not change the language, so it has not changed. Restart MeedyaDL and choose it again.',
+        err,
+        { type: 'warning', key: 'ui-language' }
+      );
     });
   }, [uiLanguageSetting]);
 
@@ -1251,7 +1279,7 @@ function App() {
               ui.addToast(`Back online — starting ${waiting} waiting download${plural}.`, 'success');
             } else {
               ui.addToast(
-                `Back online — ${waiting} download${plural} waiting. Press Start Queue to begin.`,
+                `Back online — ${waiting} download${plural} waiting. Press Start on the Queue page to begin.`,
                 'warning'
               );
             }
@@ -1322,11 +1350,10 @@ function App() {
               useUiStore
                 .getState()
                 .addToast(`URL received from external link${codecSuffix}`, 'info');
-
-              // dev-only diagnostic; the user already gets the toast above
-              // (#951 — matches the console.debug convention in useTheme.ts
-              // and main.tsx, suppressed at default browser log levels)
-              console.debug(`Deep link received: ${url}${codec ? `, codec=${codec}` : ''}`);
+              // A console.debug line used to repeat the full address here.
+              // It was removed: the toast above already tells the person,
+              // and writing whole addresses to the console only spreads
+              // them further (the polish check refuses console.debug/log).
             } catch (err) {
               console.error('Error in deep-link-download handler:', err);
             }
@@ -1406,7 +1433,7 @@ function App() {
   if (!isReady) {
     return (
       <div className="flex items-center justify-center h-screen bg-surface-primary">
-        <LoadingSpinner size="lg" label="Loading MeedyaDL..." />
+        <LoadingSpinner size="lg" label="Loading MeedyaDL…" />
       </div>
     );
   }
@@ -1462,11 +1489,11 @@ function App() {
       case 'activity':
         return <ActivityLog />; // Live subprocess output log
       case 'updates':
-        return <UpdatesPage />; // Update details with release notes
+        return <UpdatesPage />; // Update details with release notes (loaded on demand)
       case 'settings':
-        return <SettingsPage />; // Full settings editor
+        return <SettingsPage />; // Full settings editor (loaded on demand)
       case 'help':
-        return <HelpViewer />; // In-app help documentation
+        return <HelpViewer />; // In-app help documentation (loaded on demand)
       default:
         return <DownloadForm />; // Fallback to download form
     }
@@ -1485,7 +1512,15 @@ function App() {
    */
   return (
     <>
-      <MainLayout>{renderPage()}</MainLayout>
+      <MainLayout>
+        {/* Help, Updates and Settings arrive on demand (see their lazy
+            imports); the page's own header and a spinner fill the wait.
+            Keyed by page so moving to another page never shows the
+            previous page's fallback. */}
+        <Suspense key={currentPage} fallback={<PageLoading title={t(`nav.${currentPage}`)} />}>
+          {renderPage()}
+        </Suspense>
+      </MainLayout>
       {/* Pre-release first-load notice — rendered as an overlay on top of the
        * main application. Uses the Modal component so it doesn't block the UI
        * and can be dismissed independently. */}
@@ -1508,7 +1543,7 @@ function App() {
         <form onSubmit={(e) => { e.preventDefault(); handleDevSubmit(); }}>
           <input
             type="password"
-            className="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            className="w-full rounded-platform-sm border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
             placeholder="Passphrase"
             // Fix 9 (a11y audit): placeholder text is not a label -- it
             // disappears the moment something is typed, and was never
@@ -1532,7 +1567,7 @@ function App() {
           <button
             type="submit"
             disabled={devPassphrase.trim().length === 0}
-            className="mt-3 w-full rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600"
+            className="mt-3 w-full rounded-platform-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600"
           >
             Activate
           </button>

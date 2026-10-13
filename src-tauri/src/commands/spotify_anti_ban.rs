@@ -134,9 +134,11 @@ pub async fn reset_spotify_daily_cap_counter(app: AppHandle) -> Result<(), Strin
 pub enum DispatchGateOutcome {
     /// All gates cleared — caller may dispatch.
     Allowed,
-    /// `dev_access_enabled` is `false`. Surfaced as the
-    /// "Spotify is in active development" copy with the Konami
-    /// unlock hint.
+    /// `dev_access_enabled` is `false`. Surfaced as
+    /// [`crate::services::spotify_anti_ban::SPOTIFY_NOT_AVAILABLE`] -- the
+    /// same "cannot download from Spotify yet" answer any other
+    /// not-yet-supported service gets. It used to carry an unlock hint
+    /// naming the hidden key sequence; it must not.
     DevAccessRequired,
     /// `dev_access_enabled` is `true` but the first-run consent
     /// modal hasn't been acknowledged yet. The React layer should

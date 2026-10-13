@@ -33,13 +33,14 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 
 import type { ActivityLogEntry } from '@/types';
 import { useActivityStore } from '@/stores/activityStore';
-import { Button, Input } from '@/components/common';
+import { Button, FilterChip, IconButton, Input, MenuButton, Toggle } from '@/components/common';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { StatisticsPanel } from '@/components/download/StatisticsPanel';
-import { Download, Trash2, Search, X, Copy, ScrollText, HardDrive, FolderOpen } from 'lucide-react';
+import { ArrowDown, Download, Trash2, Search, X, Copy, ScrollText, HardDrive, FolderOpen, MoreHorizontal } from 'lucide-react';
 import { exportActivityLog, exportDiskActivityLog, getLogsFolderPath } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import { useLocalWallClock } from '@/hooks/useLocalWallClock';
+import { LOGS_FOLDER_FAILED, isCancellation, showError } from '@/lib/errorMessages';
 
 /**
  * Formats an ISO 8601 timestamp to a short HH:MM:SS format.
@@ -663,9 +664,8 @@ export function ActivityLog() {
       const kb = (bytes / 1024).toFixed(1);
       addToast(`Exported on-disk activity log (${kb} KB, last 3 days)`, 'success');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (!msg.toLowerCase().includes('cancel')) {
-        addToast(`Failed to export on-disk log: ${msg}`, 'error');
+      if (!isCancellation(err)) {
+        showError('MeedyaDL could not export the full log. Choose a folder you can save to, then try again.', err);
       }
     }
   };
@@ -684,14 +684,12 @@ export function ActivityLog() {
    * open an address (same pattern as QueueItem's "Open Folder" action).
    */
   const handleRevealLogsFolder = async () => {
-    const addToast = useUiStore.getState().addToast;
     try {
       const path = await getLogsFolderPath();
       const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
       await revealItemInDir(path);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      addToast(`Failed to open logs folder: ${msg}`, 'error');
+      showError(LOGS_FOLDER_FAILED, err);
     }
   };
 
@@ -742,57 +740,38 @@ export function ActivityLog() {
           </span>
         }
         actions={
-          <div className="flex items-center gap-2">
-            <label
-              className="flex items-center gap-1.5 text-xs text-content-secondary cursor-pointer select-none"
+          /*
+           * Auto-scroll, Clear and a "More" menu (polish pass M5, L4).
+           *
+           * At the smallest window (800x550) the old row -- a plain
+           * browser checkbox, two outlined buttons and two text buttons
+           * -- squeezed itself until "Auto-scroll", "0 lines" and "Export
+           * Disk" each broke onto two lines; it also mixed three button
+           * looks. Now: the shared switch for Auto-scroll, Clear as an
+           * ordinary header button, and the three export / folder actions
+           * in the same "More" menu the Queue page uses, with labels that
+           * say what each does ("Export Disk" did not).
+           */
+          <>
+            <span
               title={
                 paused
-                  ? 'Auto-scroll is paused (you scrolled up). Tick to scroll to the latest line and resume.'
-                  : 'Auto-scroll is following the latest line. Untick to pause, or scroll up.'
+                  ? 'Auto-scroll is paused (you scrolled up). Turn it on to scroll to the latest line and resume.'
+                  : 'Auto-scroll is following the latest line. Turn it off to pause, or scroll up.'
               }
             >
-              <input
-                type="checkbox"
+              <Toggle
+                label="Auto-scroll"
                 checked={!paused}
-                onChange={(e) => {
-                  if (e.target.checked) {
+                onChange={(on) => {
+                  if (on) {
                     resumeAutoScroll();
                   } else {
                     setPaused(true);
                   }
                 }}
-                className="accent-accent w-3.5 h-3.5 cursor-pointer"
               />
-              Auto-scroll
-            </label>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<Download size={14} />}
-              onClick={handleExport}
-              disabled={entries.length === 0}
-              title="Export the entries currently visible in this view"
-            >
-              Export
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<HardDrive size={14} />}
-              onClick={handleExportDisk}
-              title="Export the full on-disk activity log (last 3 days) — includes entries trimmed from the 10,000-line view"
-            >
-              Export Disk
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<FolderOpen size={14} />}
-              onClick={handleRevealLogsFolder}
-              title="Open the logs folder in the OS file manager"
-            >
-              Reveal
-            </Button>
+            </span>
             <Button
               variant="ghost"
               size="sm"
@@ -802,79 +781,81 @@ export function ActivityLog() {
             >
               Clear
             </Button>
-          </div>
+            <MenuButton
+              label="More"
+              title="More activity log actions"
+              icon={<MoreHorizontal size={14} />}
+              items={[
+                {
+                  label: 'Export the lines shown…',
+                  icon: <Download size={14} />,
+                  onClick: () => void handleExport(),
+                  disabled: entries.length === 0,
+                },
+                {
+                  label: 'Export the full log (last 3 days)…',
+                  icon: <HardDrive size={14} />,
+                  onClick: () => void handleExportDisk(),
+                },
+                {
+                  label: 'Open the logs folder',
+                  icon: <FolderOpen size={14} />,
+                  onClick: () => void handleRevealLogsFolder(),
+                },
+              ]}
+            />
+          </>
         }
       />
 
       {/* Session statistics panel (collapsible, hidden when queue is empty) */}
       <StatisticsPanel />
 
-      {/* Search and filter toolbar */}
-      <div className="mx-4 mb-2 space-y-2">
+      {/* Search and filter toolbar. `mx-6`, the same 24px inset as the
+          page title above it; it was `mx-4`, so the page's content sat
+          8px to the left of its own title (polish audit L1). */}
+      <div className="mx-6 mb-2 space-y-2">
         {/* Search input */}
         <Input
-          placeholder="Search activity log..."
+          placeholder="Search activity log…"
           value={searchQuery}
           onChange={handleSearchChange}
           icon={<Search size={16} />}
           suffix={
             searchQuery ? (
-              <button
-                onClick={handleClearSearch}
-                className="text-content-tertiary hover:text-content-primary transition-colors cursor-pointer"
-                aria-label="Clear search"
-              >
-                <X size={14} />
-              </button>
+              <IconButton size="sm" icon={<X size={14} />} label="Clear search" onClick={handleClearSearch} />
             ) : undefined
           }
           aria-label="Search activity log"
         />
 
-        {/* Category filter toggles */}
+        {/* Category filter toggles: the shared FilterChip (toggle
+            buttons), coloured like the lines they filter. */}
         <div className="flex gap-2">
-          <button
+          <FilterChip
+            tone="info"
+            pressed={showSystem}
             onClick={() => setShowSystem(!showSystem)}
-            className={`
-              px-2.5 py-1 text-xs font-medium rounded-platform border transition-colors cursor-pointer
-              ${showSystem
-                ? 'bg-status-info/15 text-status-info-text border-status-info/30'
-                : 'bg-transparent text-content-tertiary border-border hover:text-content-secondary'}
-            `}
-            role="checkbox"
-            aria-checked={showSystem ? 'true' : 'false'}
             aria-label="Filter system entries"
           >
             System
-          </button>
-          <button
+          </FilterChip>
+          <FilterChip
+            tone="accent"
+            pressed={showDownload}
             onClick={() => setShowDownload(!showDownload)}
-            className={`
-              px-2.5 py-1 text-xs font-medium rounded-platform border transition-colors cursor-pointer
-              ${showDownload
-                ? 'bg-accent/15 text-accent border-accent/30'
-                : 'bg-transparent text-content-tertiary border-border hover:text-content-secondary'}
-            `}
-            role="checkbox"
-            aria-checked={showDownload ? 'true' : 'false'}
             aria-label="Filter download entries"
           >
             Download
-          </button>
-          <button
+          </FilterChip>
+          <FilterChip
+            tone="warning"
+            pressed={showVerbose}
             onClick={() => setShowVerbose(!showVerbose)}
-            className={`
-              px-2.5 py-1 text-xs font-medium rounded-platform border transition-colors cursor-pointer
-              ${showVerbose
-                ? 'bg-status-warning/15 text-status-warning-text border-status-warning/30'
-                : 'bg-transparent text-content-tertiary border-border hover:text-content-secondary'}
-            `}
-            role="checkbox"
-            aria-checked={showVerbose ? 'true' : 'false'}
             aria-label="Filter verbose entries"
           >
             Verbose
-          </button>
+          </FilterChip>
         </div>
       </div>
 
@@ -882,7 +863,7 @@ export function ActivityLog() {
           Wrapped in a `relative` flex container so the floating
           "Jump to latest" pill can be absolute-positioned over the
           bottom-right corner when auto-scroll is paused. */}
-      <div className="relative flex-1 m-4 mt-0 min-h-0">
+      <div className="relative flex-1 mx-6 mb-4 min-h-0">
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -907,20 +888,23 @@ export function ActivityLog() {
             present child of the log (not part of the virtualised list),
             so it's always reachable, and says both numbers plainly. */}
         {entries.length > 0 && (
-          <p className="text-content-tertiary text-[11px] mb-2 select-none">
+          <p className="font-sans text-content-tertiary text-xs mb-2 select-none">
             {isFiltered
-              ? `Showing ${filteredEntries.length} of ${entries.length} lines in total (filtered). Only the lines near your current scroll position are rendered at once -- scroll to bring more into view.`
-              : `${entries.length} line${entries.length !== 1 ? 's' : ''} in total. Only the lines near your current scroll position are rendered at once -- scroll to bring more into view.`}
+              ? `Showing ${filteredEntries.length} of ${entries.length} lines in total (filtered). Only the lines near your current scroll position are shown at once — scroll to bring more into view.`
+              : `${entries.length} line${entries.length !== 1 ? 's' : ''} in total. Only the lines near your current scroll position are shown at once — scroll to bring more into view.`}
           </p>
         )}
         {entries.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-content-tertiary">
+          // `font-sans`: the log itself is monospace, and the empty state
+          // used to inherit that, so it looked like a log line rather
+          // than a message (polish audit L4).
+          <div className="flex flex-col items-center justify-center py-12 text-content-tertiary font-sans">
             <ScrollText size={32} className="mb-3 opacity-40" />
             <p className="text-sm font-medium">No activity yet</p>
             <p className="text-xs mt-1">Start a download to see live output here. The log resets on app restart.</p>
           </div>
         ) : filteredEntries.length === 0 ? (
-          <p className="text-content-tertiary text-center py-8">
+          <p className="font-sans text-sm text-content-tertiary text-center py-8">
             No entries match the current search or filter criteria.
           </p>
         ) : (
@@ -951,7 +935,7 @@ export function ActivityLog() {
                       width: '100%',
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
-                    className="flex items-center gap-2 py-1 px-1 font-mono text-[11px] text-content-tertiary select-none"
+                    className="flex items-center gap-2 py-1 px-1 font-mono text-2xs text-content-tertiary select-none"
                     role="separator"
                     aria-label={`Date changed to ${item.date}`}
                   >
@@ -991,25 +975,21 @@ export function ActivityLog() {
                     </>
                   )}
                   {entry.line}
-                  <button
-                    type="button"
-                    // Fix 14 (a11y audit): this button only revealed
-                    // itself on mouse hover -- Tab still landed on it
-                    // (it was always in the DOM and focusable), it was
-                    // just invisible when it got there. With ~150 of
-                    // these rendered at once, that's ~150 silent,
-                    // invisible stops for a keyboard user.
-                    // `focus-visible:opacity-100` reveals it on
-                    // keyboard focus the same way hover does for a mouse.
-                    className="absolute right-0 top-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:!opacity-100 transition-opacity p-0.5"
-                    title="Copy to clipboard"
-                    aria-label="Copy log entry"
+                  {/* Fix 14 (a11y audit): this button only revealed itself on
+                      mouse hover -- Tab still landed on it, invisibly. With
+                      ~150 rows rendered, that was ~150 silent stops for a
+                      keyboard user. `focus-visible:!opacity-100` reveals it
+                      on keyboard focus the same way hover does for a mouse.
+                      The shared IconButton since the polish pass (M17). */}
+                  <IconButton
+                    size="sm"
+                    className="absolute right-0 top-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:!opacity-100 transition-opacity"
+                    label="Copy log entry"
+                    icon={<Copy size={10} />}
                     onClick={() => {
                       navigator.clipboard.writeText(entry.line);
                     }}
-                  >
-                    <Copy size={10} />
-                  </button>
+                  />
                 </div>
               );
             })}
@@ -1022,15 +1002,18 @@ export function ActivityLog() {
             Gives a one-click resume that's more discoverable than
             unticking and re-ticking the Auto-scroll checkbox. */}
         {paused && entries.length > 0 && (
-          <button
-            type="button"
+          <Button
+            variant="primary"
+            size="sm"
+            pill
+            className="absolute bottom-3 right-3 z-10 shadow-md"
+            icon={<ArrowDown size={14} />}
             onClick={resumeAutoScroll}
-            className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-accent text-content-on-accent text-xs font-medium shadow-md hover:bg-accent-hover transition-colors cursor-pointer"
             title="Scroll to the latest line and resume auto-scroll"
             aria-label="Jump to latest activity log line and resume auto-scroll"
           >
-            ↓ Jump to latest
-          </button>
+            Jump to latest
+          </Button>
         )}
       </div>
     </div>

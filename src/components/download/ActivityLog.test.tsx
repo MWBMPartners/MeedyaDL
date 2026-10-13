@@ -10,13 +10,14 @@
  *   - Header subtitle: line counts + (filtered) / (paused) suffixes
  *   - Search input: case-insensitive substring filtering
  *   - Search clear (X) button
- *   - Category toggles (System / Download / Verbose) — aria-checked
- *     state + visible/hidden filter outcome
+ *   - Category toggles (System / Download / Verbose) — toggle buttons
+ *     (aria-pressed) + visible/hidden filter outcome
  *   - Filtered-to-empty state ("No entries match…")
  *   - Entry rendering: [System] badge, [shortId] badge, [MeedyaDL]
  *     badge for internal-stream entries
- *   - Action buttons: Export / Export Disk / Reveal / Clear with
- *     enabled/disabled gating on entry count
+ *   - Header (polish pass M5, L4): the Auto-scroll switch, Clear, and
+ *     the More menu (export the lines shown / export the full log / open
+ *     the logs folder), with gating on entry count
  *
  * **Mocks:**
  *   - `@tanstack/react-virtual` — replaced with a synchronous
@@ -28,7 +29,7 @@
  *   - `StatisticsPanel` — replaced with an empty placeholder so
  *     this file tests the log component, not the panel.
  *   - `@tauri-apps/plugin-opener` — `revealItemInDir()` stub so the
- *     Reveal button doesn't throw on click.
+ *     "Open the logs folder" item doesn't throw on click.
  *
  * @see src/components/download/ActivityLog.tsx
  */
@@ -287,19 +288,19 @@ describe('ActivityLog', () => {
   // Category toggles (System / Download / Verbose)
   // ===========================================================================
 
-  it('System / Download / Verbose toggles render with correct initial aria-checked', () => {
+  it('System / Download / Verbose toggles render with correct initial aria-pressed', () => {
     render(<ActivityLog />);
-    expect(screen.getByRole('checkbox', { name: /filter system entries/i })).toHaveAttribute(
-      'aria-checked',
+    expect(screen.getByRole('button', { name: /filter system entries/i })).toHaveAttribute(
+      'aria-pressed',
       'true'
     );
     expect(
-      screen.getByRole('checkbox', { name: /filter download entries/i })
-    ).toHaveAttribute('aria-checked', 'true');
+      screen.getByRole('button', { name: /filter download entries/i })
+    ).toHaveAttribute('aria-pressed', 'true');
     // Verbose starts off.
     expect(
-      screen.getByRole('checkbox', { name: /filter verbose entries/i })
-    ).toHaveAttribute('aria-checked', 'false');
+      screen.getByRole('button', { name: /filter verbose entries/i })
+    ).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('toggling System off hides system entries', () => {
@@ -312,7 +313,7 @@ describe('ActivityLog', () => {
       });
     });
     render(<ActivityLog />);
-    fireEvent.click(screen.getByRole('checkbox', { name: /filter system entries/i }));
+    fireEvent.click(screen.getByRole('button', { name: /filter system entries/i }));
     expect(screen.getByText('1 of 2 lines (filtered)')).toBeInTheDocument();
     expect(screen.queryByText('Update check started')).not.toBeInTheDocument();
     expect(screen.getByText('Track 1 of 5')).toBeInTheDocument();
@@ -338,12 +339,12 @@ describe('ActivityLog', () => {
     expect(screen.getByText(/\[VERBOSE\] Trace dump line/)).toBeInTheDocument();
 
     // Turn Download OFF — both download lines should now hide.
-    fireEvent.click(screen.getByRole('checkbox', { name: /filter download entries/i }));
+    fireEvent.click(screen.getByRole('button', { name: /filter download entries/i }));
     expect(screen.queryByText(/\[VERBOSE\] Trace dump line/)).not.toBeInTheDocument();
     expect(screen.queryByText('Normal line')).not.toBeInTheDocument();
 
     // Turn Verbose ON — only the verbose line comes back.
-    fireEvent.click(screen.getByRole('checkbox', { name: /filter verbose entries/i }));
+    fireEvent.click(screen.getByRole('button', { name: /filter verbose entries/i }));
     expect(screen.getByText(/\[VERBOSE\] Trace dump line/)).toBeInTheDocument();
     expect(screen.queryByText('Normal line')).not.toBeInTheDocument();
   });
@@ -402,35 +403,61 @@ describe('ActivityLog', () => {
   // Action buttons + gating
   // ===========================================================================
 
-  it('Export and Clear buttons are disabled when entries are empty', () => {
+  /** Opens the header's More menu and returns its items by name. */
+  function openMore() {
+    fireEvent.click(screen.getByRole('button', { name: /^more/i }));
+    return screen.getByRole('menu', { name: /more activity log actions/i });
+  }
+
+  it('the header holds Auto-scroll, Clear and More, and nothing else', () => {
     render(<ActivityLog />);
-    expect(screen.getByRole('button', { name: /^export$/i })).toBeDisabled();
-    expect(screen.getByRole('button', { name: /^clear$/i })).toBeDisabled();
+    const header = screen.getByRole('banner');
+    const buttons = [...header.querySelectorAll('button')].map((b) => b.textContent?.trim() || b.getAttribute('role'));
+    // The switch (role="switch", no text of its own), Clear, More.
+    expect(buttons).toEqual(['switch', 'Clear', 'More']);
+    expect(screen.getByRole('switch', { name: /auto-scroll/i })).toBeInTheDocument();
   });
 
-  it('Export and Clear buttons are enabled once entries exist', () => {
+  it('Export the lines shown and Clear are unavailable when there are no entries', () => {
+    render(<ActivityLog />);
+    expect(screen.getByRole('button', { name: /^clear$/i })).toBeDisabled();
+    openMore();
+    expect(screen.getByRole('menuitem', { name: /export the lines shown/i })).toBeDisabled();
+  });
+
+  it('Export the lines shown and Clear are available once entries exist', () => {
     act(() => {
       useActivityStore.setState({
         entries: [makeEntry({ _id: 1 })],
       });
     });
     render(<ActivityLog />);
-    expect(screen.getByRole('button', { name: /^export$/i })).toBeEnabled();
     expect(screen.getByRole('button', { name: /^clear$/i })).toBeEnabled();
+    openMore();
+    expect(screen.getByRole('menuitem', { name: /export the lines shown/i })).toBeEnabled();
   });
 
-  it('Export Disk and Reveal buttons are always present (not gated on entry count)', () => {
+  it('the full log export and the logs folder are always offered (not gated on entry count)', () => {
     render(<ActivityLog />);
-    expect(screen.getByRole('button', { name: /export disk/i })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /^reveal$/i })).toBeInTheDocument();
+    openMore();
+    expect(screen.getByRole('menuitem', { name: /export the full log/i })).toBeEnabled();
+    expect(screen.getByRole('menuitem', { name: /open the logs folder/i })).toBeEnabled();
   });
 
-  it('Auto-scroll checkbox renders + reflects paused state', () => {
+  it('Auto-scroll is the shared switch and reflects the paused state', () => {
     act(() => {
       useActivityStore.setState({ paused: true });
     });
     render(<ActivityLog />);
-    const checkbox = screen.getByLabelText(/auto-scroll/i) as HTMLInputElement;
-    expect(checkbox.checked).toBe(false); // paused = !auto-scroll
+    const autoScroll = screen.getByRole('switch', { name: /auto-scroll/i });
+    expect(autoScroll).toHaveAttribute('aria-checked', 'false'); // paused = !auto-scroll
+    fireEvent.click(autoScroll);
+    expect(useActivityStore.getState().paused).toBe(false);
+  });
+
+  it('shows the empty state in ordinary text, not the log\'s monospace', () => {
+    render(<ActivityLog />);
+    const empty = screen.getByText('No activity yet').closest('div');
+    expect(empty?.className).toContain('font-sans');
   });
 });

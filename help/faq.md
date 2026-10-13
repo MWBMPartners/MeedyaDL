@@ -14,7 +14,7 @@ Answers to the most commonly asked questions about MeedyaDL.
 
 ### What is MeedyaDL?
 
-MeedyaDL is a multiplatform graphical user interface for GAMDL, built with Tauri 2.0, React, and TypeScript. It provides a user-friendly way to download songs, albums, playlists, artist discographies, and music videos from Apple Music, with options for quality, format, lyrics, and metadata. MeedyaDL is open-source software developed by MeedyaSuite and released under the MIT License.
+MeedyaDL is a desktop app for Mac, Windows and Linux that downloads songs, albums, playlists, artists' discographies and music videos from Apple Music, with your choice of quality, format, lyrics and tags. Behind the scenes it uses GAMDL, a free download tool that is normally run by typing commands; MeedyaDL gives it windows and buttons instead, so you never have to. MeedyaDL is open-source software from MeedyaSuite, released under the MIT License.
 
 For more information, see [Getting Started](getting-started.md).
 
@@ -22,16 +22,16 @@ For more information, see [Getting Started](getting-started.md).
 
 MeedyaDL supports the following platforms:
 
-- **macOS** 13.3 (Ventura) or later -- Apple Silicon (M-series), `.dmg`
-- **Windows** -- x64 and ARM64, `.exe`
-- **Linux** -- x64, `.deb` / `.rpm` / `.AppImage`
-- **Linux ARM** -- ARM64 (Raspberry Pi 4/5, ARM servers) and ARMv7 (32-bit Raspberry Pi, experimental), `.deb` / `.rpm`
+- **macOS** 13.3 (Ventura) or later — Apple Silicon (M-series), `.dmg`
+- **Windows** — x64 and ARM64, `.exe`
+- **Linux** — x64, `.deb` / `.rpm` / `.AppImage`
+- **Linux ARM** — ARM64 (Raspberry Pi 4/5, ARM servers) and ARMv7 (32-bit Raspberry Pi, experimental), `.deb` / `.rpm`
 
 See [Getting Started](getting-started.md) for installation instructions on each platform.
 
 ### Do I need an Apple Music subscription?
 
-Yes, a valid Apple Music subscription is required to use MeedyaDL. Any subscription tier that grants access to the Apple Music catalog will work. The subscription is used for authentication via cookies -- without an active subscription, the app cannot access content from Apple's servers.
+Yes, a valid Apple Music subscription is required to use MeedyaDL. Any subscription tier that grants access to the Apple Music catalog will work. The subscription is used for authentication via cookies — without an active subscription, the app cannot access content from Apple's servers.
 
 ### Is MeedyaDL free?
 
@@ -49,7 +49,7 @@ If the paused item is a whole download service, MeedyaDL won't start new downloa
 
 ### Why do I need to provide cookies?
 
-Apple Music requires authentication to access its content catalog. Cookies are session tokens exported from your web browser after you sign in to Apple Music. By providing these cookies, the app can authenticate with Apple's servers on your behalf. Importantly, your Apple ID password is never stored or transmitted by the app -- only the browser session tokens are used.
+Apple Music requires authentication to access its content catalog. Cookies are session tokens exported from your web browser after you sign in to Apple Music. By providing these cookies, the app can authenticate with Apple's servers on your behalf. Importantly, your Apple ID password is never stored or transmitted by the app — only the browser session tokens are used.
 
 For full details on how to export and import cookies, see [Cookie Management](cookie-management.md).
 
@@ -83,13 +83,13 @@ See [Downloading Music](downloading-music.md) and [Downloading Videos](downloadi
 
 MeedyaDL supports the following audio formats:
 
-- **AAC** -- 256 kbps lossy compression, the standard Apple Music format
-- **AAC-HE** -- High Efficiency AAC for lower bitrate streaming
-- **AAC Binaural** -- Binaural rendering of spatial audio for headphone listening
-- **AAC Legacy** -- Legacy AAC encoding for older device compatibility
-- **ALAC** -- Apple Lossless Audio Codec, lossless up to 24-bit/192kHz
-- **Atmos** -- Dolby Atmos spatial audio
-- **AC3** -- Dolby Digital 5.1 surround sound
+- **AAC** — 256 kbps lossy compression, the standard Apple Music format
+- **AAC-HE** — High Efficiency AAC for lower bitrate streaming
+- **AAC Binaural** — Binaural rendering of spatial audio for headphone listening
+- **AAC Legacy** — Legacy AAC encoding for older device compatibility
+- **ALAC** — Apple Lossless Audio Codec, lossless up to 24-bit/192kHz
+- **Atmos** — Dolby Atmos spatial audio
+- **AC3** — Dolby Digital 5.1 surround sound
 
 For a full comparison of formats and quality levels, see [Quality Settings](quality-settings.md).
 
@@ -117,7 +117,7 @@ Three ways:
 
 - **Single failed item in Queue:** click the circular-arrow **Retry** button on the right of the row, or right-click the row and choose **Retry Download**.
 - **Single failed item in History:** the History page now shows the same Retry button on every failed entry, and the right-click menu offers Retry / Copy URL / Open Folder.
-- **Multiple failed items at once:** the Queue and History pages each show a **Retry All Failed (N)** button in their header when at least one failure exists. A confirmation modal lists the count, then re-queues every failed item. On History, duplicate URLs are deduplicated automatically.
+- **Multiple failed items at once:** when at least one failure exists, the History page shows a **Retry All Failed (N)** button in its header, and the Queue page offers **Retry all failed (N)** in its **More** menu. A confirmation modal lists the count, then re-queues every failed item. On History, duplicate URLs are deduplicated automatically.
 
 When you retry an item that left a partial download on disk, MeedyaDL uses the `manifest.meedyadl` file to figure out which tracks actually failed and only re-runs GAMDL for those — a 50-track box set with 3 missing tracks finishes in seconds. If every expected track is already on disk, the retry is refused with a friendly "Nothing to retry" message instead of pointlessly re-fetching the album.
 
@@ -129,10 +129,10 @@ A `.meedyadl` file is a download manifest that MeedyaDL saves in each album's ou
 
 The Queue page provides two options for clearing items:
 
-- **Clear Completed** -- Removes only completed and cancelled items from the queue, keeping active, queued, and failed items so you can review errors and retry.
-- **Clear All** -- Removes every queued, completed, failed and cancelled item. It asks you to confirm first. Anything that is downloading or being processed right now is left alone and keeps going -- to stop those too, use **Abort Queue**.
+- **Clear completed** — Removes only completed and cancelled items from the queue, keeping active, queued, and failed items so you can review errors and retry.
+- **Clear all** — Removes every queued, completed, failed and cancelled item. It asks you to confirm first. Anything that is downloading or being processed right now is left alone and keeps going — to stop those too, use **Abort**.
 
-Both buttons are in the queue header. If you want to keep failed items visible for review, use **Clear Completed** instead of **Clear All**.
+Both are in the **More** menu at the top of the Queue page. If you want to keep failed items visible for review, use **Clear completed** instead of **Clear all**.
 
 ### What is smart re-download detection?
 
@@ -144,9 +144,9 @@ When clipboard monitoring is enabled, MeedyaDL watches your system clipboard for
 
 ### How does the Activity Log work?
 
-The Activity Log shows real-time output from all downloads and system events. It auto-scrolls to the bottom by default — if you scroll up to read earlier entries, the **Auto-scroll** checkbox in the toolbar automatically unchecks. Re-check it to jump back to the bottom and resume auto-scrolling. The panel retains up to 10,000 entries per session (oldest entries are trimmed when the limit is reached, but are not lost — see below). Filtering by category (System, Download, Verbose) and text search are available in the toolbar.
+The Activity Log shows real-time output from all downloads and system events. It auto-scrolls to the bottom by default — if you scroll up to read earlier entries, the **Auto-scroll** switch at the top of the page turns itself off. Turn it back on to jump back to the bottom and resume auto-scrolling. The panel retains up to 10,000 entries per session (oldest entries are trimmed when the limit is reached, but are not lost — see below). Filtering by category (System, Download, Verbose) and text search are available in the toolbar.
 
-The toolbar offers three export actions: **Export** (what you currently see, respects filters), **Export Disk** (the complete on-disk activity log covering the last 3 days — the authoritative record for bug hunting), and **Reveal** (opens the logs folder in your OS file manager). The on-disk log is written to `activity-YYYY-MM-DD.log` files in the logs directory and is retained for 7 days. You can point the on-disk log at a custom directory (e.g. an external drive) via **Settings > Advanced > Diagnostics > On-disk activity log location**.
+The **More** menu at the top of the page offers three export actions: **Export the lines shown** (what you currently see, respects filters), **Export the full log (last 3 days)** (the complete on-disk activity log — the authoritative record for bug hunting), and **Open the logs folder** (opens it in your OS file manager). The on-disk log is written to `activity-YYYY-MM-DD.log` files in the logs directory and is retained for 7 days. You can point the on-disk log at a custom directory (e.g. an external drive) via **Settings > Advanced > Diagnostics > On-disk activity log location**.
 
 ### Does MeedyaDL support library URLs?
 
@@ -161,15 +161,15 @@ Yes. MeedyaDL accepts personal library URLs that use the `music.apple.com/librar
 The maximum quality levels available are:
 
 - **Audio**: ALAC at 24-bit/192kHz (Hi-Res Lossless). This provides the highest fidelity audio reproduction available on Apple Music.
-- **Video**: 2160p (4K) resolution, which is a ceiling rather than a specific request -- see below.
+- **Video**: 2160p (4K) resolution, which is a ceiling rather than a specific request — see below.
 
-Not all content is available at the highest audio codec: when your preferred audio codec is unavailable for a track, the fallback system automatically selects the next best option from your configured chain. Video resolution works differently -- it isn't something that can be "unavailable" in the first place, because it's a maximum rather than a request: ask for 4K and Apple Music simply gives you the best quality it has at or below that, in one attempt, with nothing to fall back from.
+Not all content is available at the highest audio codec: when your preferred audio codec is unavailable for a track, the fallback system automatically selects the next best option from your configured chain. Video resolution works differently — it isn't something that can be "unavailable" in the first place, because it's a maximum rather than a request: ask for 4K and Apple Music simply gives you the best quality it has at or below that, in one attempt, with nothing to fall back from.
 
 See [Quality Settings](quality-settings.md) for a full comparison of all quality tiers.
 
 ### What happens if my preferred quality is not available?
 
-For **codecs** -- both audio and video -- MeedyaDL includes a fallback system that automatically selects the next codec in your configured chain when your preferred one is unavailable. Each chain is configurable, so you control which alternatives the app tries and in what order. For **video resolution**, there's nothing to fall back through: it's a ceiling, and Apple Music always returns the best quality at or below it. See [Fallback Quality](fallback-quality.md) for details on how the codec chains work and why resolution doesn't have one.
+For **codecs** — both audio and video — MeedyaDL includes a fallback system that automatically selects the next codec in your configured chain when your preferred one is unavailable. Each chain is configurable, so you control which alternatives the app tries and in what order. For **video resolution**, there's nothing to fall back through: it's a ceiling, and Apple Music always returns the best quality at or below it. See [Fallback Quality](fallback-quality.md) for details on how the codec chains work and why resolution doesn't have one.
 
 ### What is the difference between AAC and ALAC?
 
@@ -194,9 +194,9 @@ Yes, MeedyaDL automatically embeds metadata into downloaded files, including tit
 
 MeedyaDL does not include a built-in metadata editor. If you need to modify metadata after downloading, use a third-party metadata editing tool such as:
 
-- **[MusicBrainz Picard](https://picard.musicbrainz.org/)** -- Free, open-source, cross-platform music tagger with database lookup
-- **[Mp3tag](https://www.mp3tag.de/)** -- Powerful metadata editor for Windows (also available on macOS)
-- **[Kid3](https://kid3.kde.org/)** -- Free, cross-platform audio tag editor
+- **[MusicBrainz Picard](https://picard.musicbrainz.org/)** — Free, open-source, cross-platform music tagger with database lookup
+- **[Mp3tag](https://www.mp3tag.de/)** — Powerful metadata editor for Windows (also available on macOS)
+- **[Kid3](https://kid3.kde.org/)** — Free, cross-platform audio tag editor
 
 ---
 
@@ -208,7 +208,7 @@ MeedyaDL does not include a built-in metadata editor. If you need to modify meta
 
 ### What is GAMDL?
 
-GAMDL is a command-line Apple Music download tool created by glomatico. It handles the core download functionality -- authentication, content fetching, decryption, and file writing. MeedyaDL provides a friendly graphical interface on top of GAMDL's capabilities. GAMDL is installed automatically during MeedyaDL's first-run setup, so you do not need to install it separately.
+GAMDL is a command-line Apple Music download tool created by glomatico. It handles the core download functionality — authentication, content fetching, decryption, and file writing. MeedyaDL provides a friendly graphical interface on top of GAMDL's capabilities. GAMDL is installed automatically during MeedyaDL's first-run setup, so you do not need to install it separately.
 
 ### Can I use MeedyaDL and the GAMDL CLI at the same time?
 
@@ -236,11 +236,11 @@ MeedyaDL checks for updates automatically (you can also press **Check for Update
 
 - **App updates**: The application checks GitHub Releases for new versions of MeedyaDL itself. When an update is available, a banner appears in the app with upgrade and dismiss actions.
 - **GAMDL updates**: The app checks PyPI for new versions of the GAMDL backend. When an update is available, GAMDL can be upgraded with one click directly from the update banner.
-- **Helper tool updates**: The five helper programs -- FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box and MediaInfo -- are each checked against the place a new copy would actually come from. See [External Tools](tools.md#keeping-the-tools-up-to-date).
+- **Helper tool updates**: The five helper programs — FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box and MediaInfo — are each checked against the place a new copy would actually come from. See [External Tools](tools.md#keeping-the-tools-up-to-date).
 
-No manual intervention is needed -- simply follow the prompts when the update banner appears.
+No manual intervention is needed — simply follow the prompts when the update banner appears.
 
-If MeedyaDL could not check something -- for example because you have no internet connection, or a tool would not tell it its version -- the Updates page says **No updates found** instead of **You're up to date!**, and lists what it could not check and why. That list is there so you are never told "up to date" when nobody actually knows.
+If MeedyaDL could not check something — for example because you have no internet connection, or a tool would not tell it its version — the Updates page says **No updates found** instead of **You're up to date!**, and lists what it could not check and why. That list is there so you are never told "up to date" when nobody actually knows.
 
 ---
 
@@ -296,11 +296,11 @@ Open **Settings > General**, scroll down to the update settings at the bottom of
 
 ## Related Topics
 
-- [Getting Started](getting-started.md) -- First-time setup guide
-- [Quality Settings](quality-settings.md) -- Detailed quality and format information
-- [Cookie Management](cookie-management.md) -- Authentication and cookie setup
-- [Lyrics and Metadata](lyrics-and-metadata.md) -- Lyric formats and metadata fields
-- [Troubleshooting](troubleshooting.md) -- Error resolution and diagnostics
+- [Getting Started](getting-started.md) — First-time setup guide
+- [Quality Settings](quality-settings.md) — Detailed quality and format information
+- [Cookie Management](cookie-management.md) — Authentication and cookie setup
+- [Lyrics and Metadata](lyrics-and-metadata.md) — Lyric formats and metadata fields
+- [Troubleshooting](troubleshooting.md) — Error resolution and diagnostics
 
 ### macOS shows "MeedyaDL can't be opened because Apple cannot check it for malicious software"
 

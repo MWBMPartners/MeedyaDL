@@ -13,8 +13,10 @@
  * the `detection` block in initI18n()).
  *
  * Usage:
- *   1. Import this module in App.tsx (side-effect import)
- *   2. Call `initI18n()` during app initialization
+ *   1. main.tsx calls `setUpI18n()` before the first render, so English is
+ *      ready for the very first screen (window title, skip link, toasts)
+ *   2. App.tsx calls `initI18n()` during start-up, which fetches the
+ *      system's language when MeedyaDL has it
  *   3. In components: `const { t } = useTranslation()` then `t('key')`
  *
  * Adding a new language:
@@ -52,18 +54,45 @@ import enTranslations from '../../public/locales/en/translation.json';
  * right next to the language's own native name, which is also written in
  * that language, so the two read as one consistent line instead of an
  * English sentence bolted onto a foreign word.
+ *
+ * `complete` (polish pass M10) says whether the language covers every
+ * piece of text the app shows. Only a complete language is offered in
+ * Settings > General > Appearance > Language, or chosen by "Auto". The
+ * German and French files have every key the code looks up -- but about
+ * 85% of the screens still write their text directly in English instead
+ * of looking it up, so choosing either gave a mostly English app with a
+ * few translated words. `tools/audit-checks/check_i18n.py` refuses
+ * `complete: true` while any on-screen text bypasses the catalogue or the
+ * language's file is missing a key the code uses, and reports how much is
+ * left.
+ *
+ * Somebody whose SAVED choice is an incomplete language keeps it: it is
+ * still applied, and the list shows it as their current choice, marked
+ * with `incompleteLabel` (written in that language), so nothing is taken
+ * away without a word. See `uiLanguageOptions`.
  */
 export const LOCALES = [
-  { code: 'en', nativeName: 'English', machineAssisted: false, machineAssistedLabel: '' },
+  {
+    code: 'en',
+    nativeName: 'English',
+    complete: true,
+    incompleteLabel: '',
+    machineAssisted: false,
+    machineAssistedLabel: '',
+  },
   {
     code: 'de',
     nativeName: 'Deutsch',
+    complete: false,
+    incompleteLabel: 'unvollständige Übersetzung',
     machineAssisted: true,
     machineAssistedLabel: 'automatische Übersetzung',
   },
   {
     code: 'fr',
     nativeName: 'Français',
+    complete: false,
+    incompleteLabel: 'traduction incomplète',
     machineAssisted: true,
     machineAssistedLabel: 'traduction automatique',
   },
@@ -78,6 +107,48 @@ export type LocaleCode = (typeof LOCALES)[number]['code'];
  * this name, and a flat list of codes is often all a caller needs.
  */
 export const AVAILABLE_LOCALES: readonly LocaleCode[] = LOCALES.map((l) => l.code);
+
+/**
+ * The languages offered in the language list and chosen by "Auto": the
+ * complete ones (see `complete` on `LOCALES`). English is always one.
+ */
+export const OFFERED_LOCALES: readonly string[] = LOCALES.filter((l) => l.complete).map((l) => l.code);
+
+/** One row of the Settings language list. */
+export interface LanguageOption {
+  value: string;
+  label: string;
+}
+
+/**
+ * The rows of the Settings language list, given the person's choices
+ * (`ui_language` values; empty means "Auto") -- the one saved when the
+ * page opened and the one picked now, so changing your mind before Save
+ * can still go back.
+ *
+ * "Auto (System)", then every offered (complete) language. A chosen
+ * language that is NOT offered -- German or French today, chosen before
+ * they were withdrawn -- is still listed, so the list shows what the
+ * person chose: its own name followed by "incomplete translation" in that
+ * language (and the machine-made note when that applies). Once something
+ * else is saved, it is no longer anybody's choice and leaves the list.
+ */
+export function uiLanguageOptions(...chosen: string[]): LanguageOption[] {
+  const chosenBases = new Set(chosen.filter(Boolean).map((c) => baseLanguageOf(c)));
+  const rows: LanguageOption[] = [{ value: 'auto', label: 'Auto (System)' }];
+  for (const locale of LOCALES) {
+    const isSaved = chosenBases.has(locale.code);
+    if (!locale.complete && !isSaved) continue;
+    const notes: string[] = [];
+    if (!locale.complete) notes.push(locale.incompleteLabel);
+    if (locale.machineAssisted) notes.push(locale.machineAssistedLabel);
+    rows.push({
+      value: locale.code,
+      label: notes.length ? `${locale.nativeName} (${notes.join(', ')})` : locale.nativeName,
+    });
+  }
+  return rows;
+}
 
 /**
  * Turn whatever the browser/OS reports (e.g. "de-DE", "en-US", "fr") into
@@ -173,8 +244,9 @@ async function loadLocaleResources(lng: string): Promise<void> {
  *   keyed, via `baseLanguageOf()`, same as everywhere else in this file.
  */
 /**
- * The system's language if MeedyaDL has a translation for it, otherwise
- * English. What "Auto" means.
+ * The system's language if MeedyaDL offers a translation for it (a
+ * complete one -- see `OFFERED_LOCALES`), otherwise English. What "Auto"
+ * means. `offered` is there for tests; the app always uses the default.
  *
  * Asking for a language MeedyaDL does not have (a Spanish system, say)
  * would only ever fail to load a file that does not exist -- so it is not
@@ -182,9 +254,9 @@ async function loadLocaleResources(lng: string): Promise<void> {
  * itself, a Spanish-system user on "Auto" would have been told on every
  * launch that "es" could not be loaded (Codex, batch-3 review).
  */
-export function systemLanguageOrEnglish(): string {
+export function systemLanguageOrEnglish(offered: readonly string[] = OFFERED_LOCALES): string {
   const system = typeof navigator !== 'undefined' ? navigator.language : 'en';
-  return (AVAILABLE_LOCALES as readonly string[]).includes(baseLanguageOf(system)) ? system : 'en';
+  return offered.includes(baseLanguageOf(system)) ? system : 'en';
 }
 
 /**
@@ -198,6 +270,14 @@ export function systemLanguageOrEnglish(): string {
 let latestLanguageRequest = 0;
 
 export async function changeUiLanguage(lng: string): Promise<void> {
+  // Make sure i18next exists before asking it anything. main.tsx sets it up
+  // before the first render, so this is normally a no-op -- but a language
+  // change that ran before set-up used to throw i18next's own internal
+  // error ("Cannot read properties of undefined (reading
+  // 'hasLanguageSomeTranslations')"), which the caller then showed to the
+  // person as a warning on every launch. Setting up here as well means no
+  // future caller can bring that back by running a little too early.
+  setUpI18n();
   const thisRequest = ++latestLanguageRequest;
   const base = baseLanguageOf(lng);
   /*
@@ -222,7 +302,9 @@ export async function changeUiLanguage(lng: string): Promise<void> {
     // the help text's "changes straight away" would make worse. So say so;
     // the caller shows it. The language on screen does not change.
     if (!i18n.hasResourceBundle(base, 'translation')) {
-      throw new Error(`The ${lng} language file could not be loaded, so the language has not changed.`);
+      throw new Error(
+        'MeedyaDL could not load that translation, so the language has not changed. Restart MeedyaDL and choose it again.'
+      );
     }
   }
   // A newer request arrived while this one's file was loading: it wins.
@@ -231,54 +313,103 @@ export async function changeUiLanguage(lng: string): Promise<void> {
 }
 
 /**
- * Initialize i18next with language detection and React integration.
- * Pre-loads English (fallback) and the detected/selected language.
+ * The options i18next is started with -- a fresh object on every call,
+ * because i18next keeps (and later adds languages into) the object it is
+ * given. Exported only so a test can start a separate i18next instance
+ * with exactly these options and prove that English is ready the moment
+ * `init()` returns, which is what `setUpI18n()` depends on.
  *
- * Call this once during app startup, before rendering.
+ * What makes it ready at once is `resources` below: when the words are
+ * handed over in memory, i18next finishes setting up before `init()`
+ * returns (read in i18next 26's own `init()`, and pinned by that test).
+ * Take English out of `resources` -- for example by switching to an HTTP
+ * loading plugin -- and the first screen goes back to showing raw keys.
  */
-export async function initI18n(): Promise<void> {
+export function i18nOptions() {
+  return {
+    fallbackLng: 'en',
+    debug: false,
+    interpolation: {
+      escapeValue: false, // React already escapes
+    },
+    // The system language only, and nothing remembered by the browser.
+    //
+    // This used to read `localStorage` FIRST and write every language
+    // change into it (`caches: ['localStorage']`). Since the dropdown
+    // switches the language the moment it changes — before Save — a
+    // language merely tried out and never saved came back after a
+    // restart, while the dropdown said "Auto"; and choosing "Auto"
+    // afterwards could never take effect, because the browser's copy
+    // still said otherwise (stand-in review, 24 Sept 2026). The saved
+    // `ui_language` setting is now the only thing that remembers a
+    // choice; App.tsx applies it once settings load. The cost: someone
+    // who saved a non-English language may see English for a moment at
+    // startup, until then. A stale value left in `localStorage` by older
+    // builds is simply never read.
+    detection: {
+      order: ['navigator'],
+      caches: [],
+    },
+    resources: {
+      en: { translation: enTranslations },
+    },
+  };
+}
+
+/**
+ * Sets up i18next with the bundled English, synchronously, exactly once.
+ *
+ * Called from main.tsx BEFORE the first render. Until 5 Oct 2026 the only
+ * set-up was inside `initI18n()`, which App.tsx runs from an effect --
+ * that is, after the first render. Three things went wrong on every
+ * launch because of that order, all seen in the production build:
+ *
+ *  - The window title read "nav.download — MeedyaDL" and the skip link
+ *    read "common.skipToMainContent": the first render looked words up in
+ *    an i18next that did not exist yet, got the raw keys back, and nothing
+ *    re-rendered those two until the person changed page.
+ *  - The language effect asked i18next to change language before it was
+ *    set up, and i18next threw its own internal error ("Cannot read
+ *    properties of undefined (reading 'hasLanguageSomeTranslations')"),
+ *    which the app showed as a warning that never went away by itself.
+ *
+ * Doing it here is cheap: English is bundled, so nothing is fetched. A
+ * system language other than English is still fetched afterwards, by
+ * `initI18n()`, without holding up the first screen.
+ *
+ * Safe to call any number of times; only the first call does anything.
+ */
+export function setUpI18n(): void {
+  if (i18n.isInitialized || i18n.isInitializing) return;
+
   // Registered before `.init()` so it also catches whatever language
   // detection resolves to on this very first call, not just later
   // changes -- `i18next` fires `languageChanged` as part of `init()`
   // itself once a language has been resolved.
   i18n.on('languageChanged', syncDocumentLanguage);
 
-  await i18n
-    .use(LanguageDetector)
-    .use(initReactI18next)
-    .init({
-      fallbackLng: 'en',
-      debug: false,
-      interpolation: {
-        escapeValue: false, // React already escapes
-      },
-      // The system language only, and nothing remembered by the browser.
-      //
-      // This used to read `localStorage` FIRST and write every language
-      // change into it (`caches: ['localStorage']`). Since the dropdown
-      // switches the language the moment it changes — before Save — a
-      // language merely tried out and never saved came back after a
-      // restart, while the dropdown said "Auto"; and choosing "Auto"
-      // afterwards could never take effect, because the browser's copy
-      // still said otherwise (stand-in review, 24 Sept 2026). The saved
-      // `ui_language` setting is now the only thing that remembers a
-      // choice; App.tsx applies it once settings load. The cost: someone
-      // who saved a non-English language may see English for a moment at
-      // startup, until then. A stale value left in `localStorage` by older
-      // builds is simply never read.
-      detection: {
-        order: ['navigator'],
-        caches: [],
-      },
-      resources: {
-        en: { translation: enTranslations },
-      },
-    });
+  // Not awaited on purpose: with the English words already in
+  // `resources`, i18next has finished by the time `init()` returns.
+  void i18n.use(LanguageDetector).use(initReactI18next).init(i18nOptions());
 
   // Belt-and-suspenders: set it directly too, in case some i18next
   // version/config path resolves the initial language without firing
   // the event synchronously during `init()`.
   syncDocumentLanguage(i18n.language);
+}
+
+/**
+ * Finishes starting the translation system: sets it up if main.tsx has
+ * not already (tests call this directly), then fetches and applies the
+ * system's language when it is one MeedyaDL has.
+ *
+ * Called once during app startup, from App.tsx. `offered` is the list of
+ * languages "Auto" may choose (the complete ones, `OFFERED_LOCALES`); it is
+ * a parameter only so tests can exercise the start-up path with a language
+ * other than English while no other language is complete.
+ */
+export async function initI18n(offered: readonly string[] = OFFERED_LOCALES): Promise<void> {
+  setUpI18n();
 
   // If the detected language is not English, fetch its file and apply it
   // -- but only a language MeedyaDL actually has, and never letting a
@@ -288,8 +419,16 @@ export async function initI18n(): Promise<void> {
   // (Codex, batch-3 review, reproduced -- caused by making a failed load
   // report itself). A failure here just leaves English; the saved
   // language is applied once settings load.
-  const detected = baseLanguageOf(i18n.language);
-  if (detected !== 'en' && (AVAILABLE_LOCALES as readonly string[]).includes(detected)) {
+  //
+  // The system language is asked of the detector afresh, not read from
+  // `i18n.language`. i18next now picks its language once, in
+  // `setUpI18n()` before the first render; reading `i18n.language` here
+  // would repeat that first answer even if something has changed the
+  // language since -- and the tests rely on a second call following the
+  // system, as a real first launch does.
+  const system = currentSystemLanguage();
+  const detected = baseLanguageOf(system);
+  if (detected !== 'en' && offered.includes(detected)) {
     // `changeUiLanguage()` does two things: fetches the file (if it
     // isn't already loaded) and then calls `i18n.changeLanguage()`.
     // That second step matters on its own, separately from the fetch:
@@ -309,15 +448,28 @@ export async function initI18n(): Promise<void> {
     // like a no-op, but the event it fires is the whole point — that's
     // what actually makes the screen update.
     try {
-      await changeUiLanguage(i18n.language);
+      await changeUiLanguage(system);
     } catch (err) {
       console.warn('Could not load the system language at startup; using English:', err);
     }
   } else if (detected !== 'en') {
-    // Not a language MeedyaDL has: show English, and say so in the log.
-    console.info(`No ${detected} translation is available; using English.`);
+    // Not a language MeedyaDL offers (none, or an incomplete one): show
+    // English, and say so in the log.
+    console.info(`No complete ${detected} translation is available; using English.`);
     await i18n.changeLanguage('en');
   }
+}
+
+/**
+ * What the language detector reports for this system right now (for
+ * example "de-DE"), or the language i18next is on when it reports nothing.
+ * The detector is i18next's own, set up with `order: ['navigator']`, so
+ * this is the same answer i18next would give -- just asked again.
+ */
+function currentSystemLanguage(): string {
+  const found: unknown = i18n.services.languageDetector?.detect();
+  const first = Array.isArray(found) ? found[0] : found;
+  return typeof first === 'string' && first ? first : i18n.language;
 }
 
 export default i18n;

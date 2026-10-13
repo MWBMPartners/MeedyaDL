@@ -93,7 +93,7 @@ three Settings fields in **Settings → Advanced → Wrapper**:
 |---|---|---|
 | Wrapper account URL | `http://127.0.0.1:30020` | Apple ID login, MusicKit JWT issuance |
 | Wrapper m3u8 IP | `127.0.0.1:20020` | HLS master playlist URL fetch (GAMDL 3.1+) |
-| Wrapper decryption IP | `127.0.0.1:10020` | FairPlay sample decrypt socket (#743) |
+| Wrapper decryption IP | `127.0.0.1:10020` | FairPlay sample decrypt socket |
 
 Setup is documented at [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper).
 MeedyaDL probes all three sockets before a wrapper download starts and
@@ -321,7 +321,7 @@ wrapper is bound to loopback only (`WRAPPER_HOST=127.0.0.1`) or the
 host's firewall is rejecting the LAN traffic.
 
 **Amber "Wrapper is on your LAN" note in Settings is unexpected** →
-That's the #891 security hint. If your wrapper URL is intentionally
+That's a security reminder. If your wrapper URL is intentionally
 on a private-range IP (`10/8`, `172.16-31/12`, `192.168/16`), the
 note is just confirming you understand wrapper-v2 has no
 network-layer auth. See the "Security caveat" section above for

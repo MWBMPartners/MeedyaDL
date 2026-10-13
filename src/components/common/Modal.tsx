@@ -360,7 +360,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
          */}
         {title && (
           <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
-            <h3 id={titleId} className="text-base font-semibold text-content-primary">{title}</h3>
+            <h2 id={titleId} className="text-base font-semibold text-content-primary">{title}</h2>
             {/*
              * Close button -- uses the Lucide X icon at 18px.
              * aria-label="Close" ensures screen readers announce its purpose.

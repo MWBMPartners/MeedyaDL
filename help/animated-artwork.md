@@ -12,7 +12,7 @@ MeedyaDL can automatically download **animated cover art** (motion artwork) from
 
 ## What is Animated Artwork?
 
-Many albums on Apple Music include animated cover art -- short, looping video clips that replace the static album cover. These come in two formats:
+Many albums on Apple Music include animated cover art — short, looping video clips that replace the static album cover. These come in two formats:
 
 | Format | Filename | Aspect Ratio | Max Resolution | Description |
 |--------|----------|-------------|----------------|-------------|
@@ -21,7 +21,7 @@ Many albums on Apple Music include animated cover art -- short, looping video cl
 
 Both files are saved as MP4 videos (HEVC H.265) alongside your downloaded album files. By default, these files are **hidden** on your filesystem to keep album folders clean (see [File Hiding](#file-hiding) below).
 
-> **Note:** Not all albums have animated artwork. When it's not available, MeedyaDL simply skips this step -- no errors are shown.
+> **Note:** Not all albums have animated artwork. When it's not available, MeedyaDL simply skips this step — no errors are shown.
 
 ---
 
@@ -44,7 +44,7 @@ If you don't already have one, sign up at [developer.apple.com](https://develope
 > **Important:** A free Apple Developer account is all you need. You do **not** need the paid Apple Developer Program membership ($99/year). The free tier provides full access to the MusicKit API.
 
 1. Go to [developer.apple.com](https://developer.apple.com) and click **Account**
-2. Sign in with your Apple Account (formerly Apple ID). Any Apple Account will work -- the same one you use for iCloud, the App Store, etc.
+2. Sign in with your Apple Account (formerly Apple ID). Any Apple Account will work — the same one you use for iCloud, the App Store, etc.
 3. If prompted, accept the Apple Developer Agreement
 
 ### Step 2: Create a MusicKit Key
@@ -77,7 +77,7 @@ This is the most critical step. Apple generates a private key file (`.p8` format
 1. After clicking Register, you will see a confirmation page with a **Download** button
 2. Click **Download** to save the `.p8` file (e.g., `AuthKey_ABC1234DEF.p8`)
 3. Save the `.p8` file somewhere safe and memorable (e.g., a dedicated folder like `~/Documents/MeedyaDL Keys/`)
-4. Note the **Key ID** shown on this page -- it is a 10-character alphanumeric string (e.g., `ABC1234DEF`). You can also find it later on the Keys list page
+4. Note the **Key ID** shown on this page — it is a 10-character alphanumeric string (e.g., `ABC1234DEF`). You can also find it later on the Keys list page
 
 > **Warning:** Apple only lets you download the `.p8` file once. If you navigate away from this page without downloading, or if you lose the file, you cannot re-download it. You would need to revoke the key and create a new one (Step 2 again).
 
@@ -109,7 +109,7 @@ The `.p8` file you downloaded in Step 3 is a plain-text file containing your pri
 
 4. **Select all** the content (`Ctrl+A` / `Cmd+A`), including the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` header/footer lines, and **copy** it (`Ctrl+C` / `Cmd+C`)
 
-> **Tip:** The key is typically 4-6 lines long. Make sure you copy everything -- including the "BEGIN" and "END" lines. Missing even one character will cause authentication to fail.
+> **Tip:** The key is typically 4-6 lines long. Make sure you copy everything — including the "BEGIN" and "END" lines. Missing even one character will cause authentication to fail.
 
 ### Step 6: Configure MeedyaDL
 
@@ -119,9 +119,9 @@ The `.p8` file you downloaded in Step 3 is a plain-text file containing your pri
 4. Enter your **Team ID** (from Step 4) in the "MusicKit Team ID" field
 5. Enter your **Key ID** (from Step 3) in the "MusicKit Key ID" field
 6. Paste the private key content you copied in Step 5 into the **"MusicKit Private Key"** textarea
-7. Click **"Save to Keychain"** -- the key is stored securely in your OS's native keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Once saved, the raw key text is discarded from memory and settings
+7. Click **"Save to Keychain"** — the key is stored securely in your OS's native keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service). Once saved, the raw key text is discarded from memory and settings
 8. The status message should change to **"Private key is stored in OS keychain"**
-9. Click **"Test Credentials"** to verify everything works -- the button generates a JWT and makes a test API call to Apple Music, showing success or a specific error message
+9. Click **"Test Credentials"** to verify everything works — the button generates a JWT and makes a test API call to Apple Music, showing success or a specific error message
 10. Click **Save** to apply your settings
 
 > **If you lost your `.p8` file:** You will need to revoke the old key and create a new one. In the Apple Developer portal, go to Keys, click on the key you created, click **Revoke**, then repeat from Step 2.
@@ -139,7 +139,7 @@ After you configure your MusicKit credentials, animated artwork downloading happ
    - `FrontCover.mp4` (square format)
    - `FrontCoverPortrait.mp4` (portrait format)
 
-The artwork download runs in the background and does **not** block your download queue -- other downloads continue processing normally.
+The artwork download runs in the background and does **not** block your download queue — other downloads continue processing normally.
 
 ---
 
@@ -149,11 +149,11 @@ Apple's animated artwork is delivered as an HLS stream with several resolution r
 
 | Option | Target | Notes |
 |--------|--------|-------|
-| **Standard (~1080p, recommended)** | Caps at ~1080p | Default. Smallest files -- indistinguishable from higher renditions at the sizes artwork is normally displayed |
+| **Standard (~1080p, recommended)** | Caps at ~1080p | Default. Smallest files — indistinguishable from higher renditions at the sizes artwork is normally displayed |
 | **High (~2160p / 4K)** | Caps at ~2160p | Noticeably larger files for a quality difference most people won't notice |
-| **Maximum (highest available, largest files)** | No cap | Always downloads the highest-resolution rendition Apple offers, regardless of size -- MeedyaDL's behaviour before this setting existed |
+| **Maximum (highest available, largest files)** | No cap | Always downloads the highest-resolution rendition Apple offers, regardless of size — MeedyaDL's behaviour before this setting existed |
 
-Higher resolution means a larger file -- a few MB difference per video adds up quickly across a large library, so **Standard** is the recommended default unless you have a specific reason to want the largest available rendition.
+Higher resolution means a larger file — a few MB difference per video adds up quickly across a large library, so **Standard** is the recommended default unless you have a specific reason to want the largest available rendition.
 
 ---
 
@@ -163,7 +163,7 @@ Some artists on Apple Music have an animated background video on their artist pa
 
 1. Look up the artist's Apple Music page for a promotional video
 2. If available, download it as `ArtistSpotlightCover.mp4` to the **artist folder** (the parent of the album directory)
-3. Skip the download if `ArtistSpotlightCover.mp4` already exists (idempotent -- won't re-download for every album by the same artist)
+3. Skip the download if `ArtistSpotlightCover.mp4` already exists (idempotent — won't re-download for every album by the same artist)
 
 > **Note:** Not all artists have a promo video. This feature requires MusicKit credentials (same as animated artwork). The file is hidden automatically if "Hide Animated Artwork Files" is enabled.
 
@@ -189,7 +189,7 @@ Taylor Swift/
 
 ## File Hiding
 
-By default, MeedyaDL sets the OS "hidden" attribute on animated artwork files after downloading them. This keeps your album folders clean -- you see only your music files -- while the animated artwork remains accessible to media players and scripts that reference them by name.
+By default, MeedyaDL sets the OS "hidden" attribute on animated artwork files after downloading them. This keeps your album folders clean — you see only your music files — while the animated artwork remains accessible to media players and scripts that reference them by name.
 
 ### Platform Behavior
 
@@ -234,14 +234,14 @@ Files downloaded after this change will remain visible. Previously hidden files 
 
 - Make sure you copied the **entire** `.p8` file content, including the `-----BEGIN PRIVATE KEY-----` and `-----END PRIVATE KEY-----` header/footer lines (see [Step 5](#step-5-extract-the-private-key-content) above)
 - Do not add extra spaces, newlines, or characters before or after the key text
-- The key must be a valid PKCS#8 PEM-encoded EC private key (P-256 curve) -- this is the standard format Apple provides
+- The key must be a valid PKCS#8 PEM-encoded EC private key (P-256 curve) — this is the standard format Apple provides
 - If you opened the `.p8` file in a rich-text editor (e.g., Word, Pages), invisible formatting characters may have been inserted. Always use a plain-text editor (see Step 5)
 - If you lost your `.p8` file, you must revoke the key in the Apple Developer portal and create a new one (see [Step 2](#step-2-create-a-musickit-key))
 
 ### "Apple Music API returned HTTP 401"
 
-- Your MusicKit key may have been revoked in the Apple Developer portal -- check the Keys page to verify the key is still active
-- The Team ID or Key ID may be incorrect -- double-check them in the Developer portal (see [Step 3](#step-3-download-your-private-key) and [Step 4](#step-4-find-your-team-id))
+- Your MusicKit key may have been revoked in the Apple Developer portal — check the Keys page to verify the key is still active
+- The Team ID or Key ID may be incorrect — double-check them in the Developer portal (see [Step 3](#step-3-download-your-private-key) and [Step 4](#step-4-find-your-team-id))
 - Use the **"Test Credentials"** button in **Settings > Advanced > API Credentials** to validate your credentials. It generates a JWT and makes a test API call, showing exactly what went wrong (expired key, wrong permissions, etc.)
 
 ### "FFmpeg not installed"
@@ -255,7 +255,7 @@ Files downloaded after this change will remain visible. Previously hidden files 
 
 - Your MusicKit **private key** is stored in your operating system's native keychain (macOS Keychain, Windows Credential Manager, or Linux Secret Service). It is never saved in plain text, config files, or logs.
 - Your **Team ID** and **Key ID** are stored in the MeedyaDL settings file (they are non-sensitive identifiers).
-- API requests are made directly from your device to Apple's servers -- no data passes through MeedyaDL's servers.
+- API requests are made directly from your device to Apple's servers — no data passes through MeedyaDL's servers.
 - MeedyaDL generates short-lived JWT tokens (1-hour expiry) from your credentials for each API request.
 
 ---

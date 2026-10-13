@@ -109,7 +109,7 @@ describe('SetupWizard', () => {
     render(<SetupWizard />);
     expect(screen.getByText('Welcome')).toBeInTheDocument();
     expect(screen.getByText('Python')).toBeInTheDocument();
-    expect(screen.getByText('GAMDL')).toBeInTheDocument();
+    expect(screen.getByText('Engine')).toBeInTheDocument();
     expect(screen.getByText('Tools')).toBeInTheDocument();
     expect(screen.getByText('Cookies')).toBeInTheDocument();
     expect(screen.getByText('Done')).toBeInTheDocument();
@@ -287,5 +287,35 @@ describe('SetupWizard', () => {
       'cookies',
       'complete',
     ]);
+  });
+});
+
+// Polish pass L7: a step taller than the window scrolls. Before, the only
+// sign was a row cut in half at the footer; now a fade is drawn over the
+// bottom edge while there is more below, and goes once the end is reached.
+// The test environment does no layout, so the sizes are set by hand.
+describe('SetupWizard -- "more below" fade', () => {
+  function setSizes(el: HTMLElement, sizes: { scrollHeight: number; clientHeight: number; scrollTop: number }) {
+    Object.defineProperty(el, 'scrollHeight', { configurable: true, value: sizes.scrollHeight });
+    Object.defineProperty(el, 'clientHeight', { configurable: true, value: sizes.clientHeight });
+    el.scrollTop = sizes.scrollTop;
+  }
+
+  it('shows while the step can scroll further, and goes at the end', () => {
+    render(<SetupWizard />);
+    const step = screen.getByTestId('step-welcome');
+    const region = step.parentElement!.parentElement!;
+    expect(region.className).toContain('overflow-y-auto');
+    expect(screen.queryByTestId('wizard-more-below')).not.toBeInTheDocument();
+
+    setSizes(region, { scrollHeight: 900, clientHeight: 400, scrollTop: 0 });
+    fireEvent.scroll(region);
+    const fade = screen.getByTestId('wizard-more-below');
+    expect(fade).toHaveAttribute('aria-hidden', 'true');
+    expect(fade.className).toContain('pointer-events-none');
+
+    setSizes(region, { scrollHeight: 900, clientHeight: 400, scrollTop: 500 });
+    fireEvent.scroll(region);
+    expect(screen.queryByTestId('wizard-more-below')).not.toBeInTheDocument();
   });
 });

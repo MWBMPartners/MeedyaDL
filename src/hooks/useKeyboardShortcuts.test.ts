@@ -202,9 +202,9 @@ describe('useKeyboardShortcuts', () => {
       unmount();
     });
 
-    it('Cmd/Ctrl+Q navigates to Queue', () => {
+    it('Cmd/Ctrl+J navigates to Queue', () => {
       const { unmount } = renderHook(() => useKeyboardShortcuts());
-      pressKey({ key: 'q', ctrlKey: true });
+      pressKey({ key: 'j', ctrlKey: true });
       expect(setPageMock).toHaveBeenCalledWith('queue');
       unmount();
     });
@@ -216,10 +216,23 @@ describe('useKeyboardShortcuts', () => {
       unmount();
     });
 
-    it('Cmd/Ctrl+H navigates to History', () => {
+    it('Cmd/Ctrl+Y navigates to History', () => {
       const { unmount } = renderHook(() => useKeyboardShortcuts());
-      pressKey({ key: 'h', metaKey: true });
+      pressKey({ key: 'y', metaKey: true });
       expect(setPageMock).toHaveBeenCalledWith('history');
+      unmount();
+    });
+
+    // On a Mac, Cmd+Q is Quit and Cmd+H is Hide, in MeedyaDL's own app menu
+    // as in every other app. Queue and History used to be bound to them.
+    // The app must leave both keys completely alone: no navigation, and no
+    // preventDefault() that could stop Quit or Hide from working.
+    it.each(['q', 'h'])('leaves Cmd+%s to the system (Quit / Hide)', (key) => {
+      const { unmount } = renderHook(() => useKeyboardShortcuts());
+      const event = new KeyboardEvent('keydown', { key, metaKey: true, bubbles: true, cancelable: true });
+      window.dispatchEvent(event);
+      expect(setPageMock).not.toHaveBeenCalled();
+      expect(event.defaultPrevented).toBe(false);
       unmount();
     });
 
@@ -232,7 +245,7 @@ describe('useKeyboardShortcuts', () => {
 
     it('does nothing at all without the platform modifier held', () => {
       const { unmount } = renderHook(() => useKeyboardShortcuts());
-      pressKey({ key: 'q' });
+      pressKey({ key: 'j' });
       expect(setPageMock).not.toHaveBeenCalled();
       unmount();
     });
@@ -243,7 +256,7 @@ describe('useKeyboardShortcuts', () => {
       input.focus();
 
       const { unmount } = renderHook(() => useKeyboardShortcuts());
-      pressKey({ key: 'q', metaKey: true });
+      pressKey({ key: 'j', metaKey: true });
 
       expect(setPageMock).not.toHaveBeenCalled();
 

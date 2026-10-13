@@ -116,9 +116,9 @@ export function TemplatesTab() {
     <div className="space-y-3">
       {/* Template variable reference (useful when in raw edit mode) */}
       <div className="p-4 rounded-platform border border-border-light bg-surface-elevated">
-        <h4 className="text-xs font-semibold text-content-primary mb-2">
+        <h2 className="text-xs font-semibold text-content-primary mb-2">
           Available Template Variables
-        </h4>
+        </h2>
         <div className="text-xs text-content-secondary font-mono space-y-0.5">
           <p>
             {'{artist}'}, {'{album_artist}'}, {'{album}'}, {'{title}'}
@@ -171,7 +171,7 @@ export function TemplatesTab() {
         */}
         <TemplateBuilder
           label="Playlist Folder"
-          description="Folder structure for playlist downloads. Requires GAMDL v3.0+ — earlier versions fall back to the upstream default layout regardless of this value."
+          description="Folder structure for playlist downloads."
           value={playlistFolder.value}
           onChange={playlistFolder.set}
           variableCategories={['common', 'playlist']}

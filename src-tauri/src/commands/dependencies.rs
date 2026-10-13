@@ -756,9 +756,10 @@ pub async fn install_ofscraper(app: AppHandle) -> Result<String, String> {
 ///   The order matches the tool registration order in `dependency_manager`.
 #[tauri::command]
 pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStatus>, String> {
-    // get_all_tools() returns the static list of tool definitions
-    // (id, name, required, download URLs per platform)
-    let tools = dependency_manager::get_all_tools();
+    // get_offered_tools() returns the tool definitions offered to people
+    // (id, name, required) -- every registered tool except those whose
+    // feature has not landed yet (rclone, until cloud upload exists)
+    let tools = dependency_manager::get_offered_tools();
     let mut results = Vec::new();
 
     // Check each tool's installation status by probing for its binary
@@ -1189,14 +1190,24 @@ pub async fn get_component_versions(app: AppHandle) -> Result<Vec<ComponentVersi
     super::super::services::votify_capabilities::set_detected_version(
         votify_version.clone(),
     );
-    versions.push(ComponentVersion {
-        name: "votify".to_string(),
-        version: votify_version,
-        installed: gamdl_version.is_some(), // Python presence proxies install availability
-    });
+    // Listed only with developer access on: votify is the engine of the
+    // Spotify preview, which nobody else can use. The probe above still runs
+    // for everyone, as before, because other code reads the version it
+    // caches. (Listing it for everyone meant the About page and diagnostics
+    // named a Spotify engine to people who were refused Spotify.)
+    let developer_previews = crate::services::config_service::load_settings(&app)
+        .map(|s| s.dev_access_enabled)
+        .unwrap_or(false);
+    if developer_previews {
+        versions.push(ComponentVersion {
+            name: "votify".to_string(),
+            version: votify_version,
+            installed: gamdl_version.is_some(), // Python presence proxies install availability
+        });
+    }
 
     // External tools: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box
-    for tool in dependency_manager::get_all_tools() {
+    for tool in dependency_manager::get_offered_tools() {
         let binary_path = dependency_manager::get_tool_binary_path(&app, tool.id);
         let installed = binary_path.exists();
         let version = if installed {

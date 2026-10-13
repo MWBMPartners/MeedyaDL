@@ -56,6 +56,8 @@ import { parseSubmittableUrl } from '@/lib/url-parser';
 // `#[tauri::command]` handler in the Rust backend.
 import * as commands from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { ABORT_FAILED, showError, undoFailed } from '@/lib/errorMessages';
 
 /**
  * Module-level handle for the undo-buffer auto-expiry timer (#894).
@@ -419,7 +421,10 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    * All three fields are updated atomically in a single `set()` call.
    */
   setUrlInput: (url) => {
-    const parsed = parseSubmittableUrl(url);
+    // Spotify links count as valid only with developer access on -- the
+    // backend refuses them otherwise (see `submittableServices()`).
+    const spotify = useSettingsStore.getState().settings.dev_access_enabled === true;
+    const parsed = parseSubmittableUrl(url, { spotify });
     set({
       urlInput: url,
       urlIsValid: parsed.isValid, // true if URL matches a submittable service
@@ -504,7 +509,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     try {
       await commands.cancelDownload(downloadId);
     } catch (e) {
+      // Recorded AND passed on (polish pass M8). This used to swallow the
+      // failure, so the caller's "requeued" / "cancelled" message was
+      // shown even when the backend had refused -- for example a retry
+      // refused because every track is already on disk.
       set({ error: String(e) });
+      throw e;
     }
   },
 
@@ -521,7 +531,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       const status = await commands.getQueueStatus();
       set({ queueItems: status.items });
     } catch (e) {
+      // Recorded AND passed on (polish pass M8). This used to swallow the
+      // failure, so the caller's "requeued" / "cancelled" message was
+      // shown even when the backend had refused -- for example a retry
+      // refused because every track is already on disk.
       set({ error: String(e) });
+      throw e;
     }
   },
 
@@ -537,7 +552,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       const status = await commands.getQueueStatus();
       set({ queueItems: status.items });
     } catch (e) {
+      // Recorded AND passed on (polish pass M8). This used to swallow the
+      // failure, so the caller's "requeued" / "cancelled" message was
+      // shown even when the backend had refused -- for example a retry
+      // refused because every track is already on disk.
       set({ error: String(e) });
+      throw e;
     }
   },
 
@@ -654,10 +674,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
                   }
                 })
                 .catch((e) => {
-                  addToast(
-                    `Failed to re-queue ${urls.length} item${urls.length !== 1 ? 's' : ''}: ${String(e)}`,
-                    'error'
-                  );
+                  showError(undoFailed(urls.length), e);
                 });
             }
           },
@@ -783,10 +800,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
                         }
                       })
                       .catch((e) => {
-                        addToast(
-                          `Failed to re-queue ${urls.length} item${urls.length !== 1 ? 's' : ''}: ${String(e)}`,
-                          'error'
-                        );
+                        showError(undoFailed(urls.length), e);
                       });
                   }
                 },
@@ -816,9 +830,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       // here, so the failure is too, and every caller is covered at once.
       const message = e instanceof Error ? e.message : String(e);
       set({ error: message });
-      useUiStore
-        .getState()
-        .addToast(`Could not stop the downloads: ${message}`, 'error', undefined, 'abort-failed');
+      showError(ABORT_FAILED, e, { key: 'abort-failed' });
       return 0;
     }
   },
@@ -1201,7 +1213,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
             // House style: never show the words "rate limit" on
             // screen -- say what it actually means instead.
             addToast(
-              `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. ${added} of your links were added. The other ${stillToAdd} have been left in the box -- press Download again in about ${waitSeconds} seconds.`,
+              `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. ${added} of your links were added. The other ${stillToAdd} have been left in the box — press Add to Queue again in about ${waitSeconds} seconds.`,
               'warning',
             );
           }

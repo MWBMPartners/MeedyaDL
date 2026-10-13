@@ -121,10 +121,13 @@ import {
   Toggle,
   Input,
   Button,
+  DisclosureButton,
   HelpButton,
+  InlineError,
   SettingsSection,
   Modal,
   FilePickerButton,
+  TextButton,
 } from '@/components/common';
 
 // TypeScript union types for download and remux mode values.
@@ -185,6 +188,7 @@ import {
   shouldShowSecurityHint,
   type WrapperUrlClass,
 } from '@/lib/wrapper-url-classifier';
+import { LOGS_FOLDER_FAILED, WRAPPER_SIGN_IN_FAILED, explainError, rawError, showError } from '@/lib/errorMessages';
 
 /**
  * Download mode dropdown options.
@@ -312,6 +316,8 @@ export function AdvancedTab() {
   const [validating, setValidating] = useState(false);
   /** Result message from the credential validation test */
   const [validationResult, setValidationResult] = useState<string | null>(null);
+  /** What the credentials check threw, if it failed (shown with InlineError). */
+  const [validationError, setValidationError] = useState<unknown>(null);
 
   // ── AcoustID state ──
   /** Whether a built-in AcoustID API key is available (embedded at compile time) */
@@ -474,6 +480,7 @@ export function AdvancedTab() {
   const handleTestCredentials = useCallback(async () => {
     setValidating(true);
     setValidationResult(null);
+    setValidationError(null);
     try {
       const result = await validateMusicKitCredentialsWithInput(
         musickitTeamId.value ?? null,
@@ -481,7 +488,9 @@ export function AdvancedTab() {
       );
       setValidationResult(result);
     } catch (err) {
-      setValidationResult(`Error: ${err}`);
+      // Shown under the button as a plain message with the backend's
+      // reason folded away (it used to read "Error: Keychain error: ...").
+      setValidationError(err);
     } finally {
       setValidating(false);
     }
@@ -515,24 +524,30 @@ export function AdvancedTab() {
   return (
     <div className="space-y-3">
       {/* ── Processing ── */}
-      <SettingsSection title="Processing" description="Download and remux tool selection.">
+      {/* Polish pass L8: each description opens with a plain sentence; the
+          technical words ("HLS", "remux") come after it, for the people who
+          look here for them. */}
+      <SettingsSection
+        title="Processing"
+        description="Which helper programs fetch and package your downloads. The defaults suit almost everyone."
+      >
         <Select
           label="Download Mode"
-          description="Which tool to use for downloading HLS streams"
+          description="Which helper program fetches the audio and video. Leave it on the default unless downloads keep failing. (Technically: the tool that downloads Apple's HLS streams.)"
           options={DOWNLOAD_MODE_OPTIONS}
           value={downloadMode.value}
           onChange={(e) => downloadMode.set(e.target.value as DownloadMode)}
         />
         <Select
           label="Remux Mode"
-          description="Which tool to use for video remuxing. MP4Box handles subtitle/CC tracks better."
+          description="Which helper program puts a music video's picture, sound and subtitles together into one file (remuxing). MP4Box keeps subtitles and captions more reliably."
           options={REMUX_MODE_OPTIONS}
           value={remuxMode.value}
           onChange={(e) => remuxMode.set(e.target.value as RemuxMode)}
         />
         <Select
-          label="GAMDL Idle Timeout"
-          description="Kill the GAMDL process if no output arrives for this many minutes. The watchdog pauses automatically once post-processing (remux / decrypt) begins, so this won't cut short a slow remux on a network volume."
+          label="Stop a Stalled Download After"
+          description="If the download tool shows no sign of progress for this many minutes, MeedyaDL stops it so the queue can move on. The timer pauses while a finished download is being decrypted and packaged, so a slow save to a network drive is not cut short."
           options={GAMDL_IDLE_TIMEOUT_OPTIONS}
           value={String(gamdlIdleTimeout.value)}
           onChange={(e) => gamdlIdleTimeout.set(Number(e.target.value))}
@@ -638,7 +653,7 @@ export function AdvancedTab() {
           onChange={verboseActivityLog.set}
         />
         {verboseActivityLog.value && (
-          <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+          <div className="p-3 rounded-platform-lg bg-status-warning-bg border border-status-warning">
             <p className="text-xs font-semibold text-status-warning-text mb-1">
               Sensitive Data Warning
             </p>
@@ -706,14 +721,12 @@ export function AdvancedTab() {
                 variant="secondary"
                 size="sm"
                 onClick={async () => {
-                  const addToast = useUiStore.getState().addToast;
                   try {
                     const path = await getLogsFolderPath();
                     const { revealItemInDir } = await import('@tauri-apps/plugin-opener');
                     await revealItemInDir(path);
                   } catch (err) {
-                    const msg = err instanceof Error ? err.message : String(err);
-                    addToast(`Failed to open logs folder: ${msg}`, 'error');
+                    showError(LOGS_FOLDER_FAILED, err);
                   }
                 }}
               >
@@ -797,7 +810,7 @@ export function AdvancedTab() {
               useUiStore
                 .getState()
                 .addToast(
-                  'Could not start the setup wizard again — MeedyaDL was unable to save the change.',
+                  'MeedyaDL could not start the setup again, because it could not save the change. Try again; if it keeps happening, restart MeedyaDL.',
                   'error'
                 );
               return;
@@ -885,7 +898,7 @@ export function AdvancedTab() {
                 onClick={handleTestConnection}
                 disabled={testState === 'testing' || !wrapperAccountUrl.value}
               >
-                {testState === 'testing' ? 'Testing...' : 'Test Connection'}
+                {testState === 'testing' ? 'Testing…' : 'Test Connection'}
               </Button>
               {/* Fix 13 (a11y audit): plain text after a button press,
                   with nothing announcing it to a screen reader. */}
@@ -931,7 +944,7 @@ export function AdvancedTab() {
             explain exactly what's happening instead.
           */}
           {drmBackendIsStale && (
-            <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+            <div className="p-3 rounded-platform-lg bg-status-warning-bg border border-status-warning">
               <p className="text-xs text-status-warning-text">
                 PlayReady is selected, but the installed GAMDL is older than the version that
                 understands it (3.9). Downloads are using the built-in Widevine unlocking instead
@@ -977,7 +990,7 @@ export function AdvancedTab() {
                 behaviour is visible rather than a silent surprise.
               */}
               {!prdPath.value && (
-                <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+                <div className="p-3 rounded-platform-lg bg-status-warning-bg border border-status-warning">
                   <p className="text-xs text-status-warning-text">
                     No PlayReady device file chosen yet. Downloads will keep using the built-in
                     Widevine unlocking until you choose one -- this will not stop a download from
@@ -995,19 +1008,15 @@ export function AdvancedTab() {
         {/* MusicKit */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <h4 className="text-sm font-medium text-content-secondary">MusicKit (Apple Developer)</h4>
+            <h3 className="text-sm font-medium text-content-secondary">MusicKit (Apple Developer)</h3>
             <HelpButton topic="animated-artwork" />
           </div>
           <p className="text-xs text-content-tertiary">
             Required for animated artwork, API metadata enrichment, and music video companion
             downloads. Get your credentials from an{' '}
-            <button
-              type="button"
-              className="text-accent hover:text-accent-hover underline transition-colors"
-              onClick={() => openExternal('https://developer.apple.com/account/resources/authkeys/list')}
-            >
+            <TextButton onClick={() => openExternal('https://developer.apple.com/account/resources/authkeys/list')}>
               Apple Developer account
-            </button>
+            </TextButton>
             .
           </p>
           <Input
@@ -1040,7 +1049,7 @@ export function AdvancedTab() {
                 setKeyInput(e.target.value);
                 setKeyStatus('idle');
               }}
-              placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+              placeholder="-----BEGIN PRIVATE KEY-----&#10;…&#10;-----END PRIVATE KEY-----"
               rows={4}
               className="w-full rounded-platform border border-border bg-surface-secondary px-3 py-2 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent resize-none"
             />
@@ -1051,14 +1060,16 @@ export function AdvancedTab() {
                 onClick={handleSaveKey}
                 disabled={!keyInput.trim() || keyStatus === 'saving'}
               >
-                {keyStatus === 'saving' ? 'Saving...' : 'Save to Keychain'}
+                {keyStatus === 'saving' ? 'Saving…' : 'Save to Keychain'}
               </Button>
               {/* Fix 13 (a11y audit): same as Test Connection above. */}
               {keyStatus === 'saved' && (
                 <span role="status" className="text-xs text-status-success-text">Saved to keychain</span>
               )}
               {keyStatus === 'error' && (
-                <span role="alert" className="text-xs text-status-error-text">Failed to save</span>
+                <span role="alert" className="text-xs text-status-error-text">
+                MeedyaDL could not save the key. Try again.
+              </span>
               )}
               {keyStored && keyStatus === 'idle' && (
                 <span className="text-xs text-status-success-text">Key stored in keychain</span>
@@ -1078,17 +1089,26 @@ export function AdvancedTab() {
                 !keyStored
               }
             >
-              {validating ? 'Testing...' : 'Test Credentials'}
+              {validating ? 'Testing…' : 'Test Credentials'}
             </Button>
+            {/* The check either succeeds (its result is the backend's own
+                success sentence) or throws; a failure is shown as a plain
+                message with the backend's reason under "Details". It used
+                to print "Error: <backend text>" in the same place, told
+                apart from success only by the word it began with. */}
             {validationResult && (
-              // Fix 13 (a11y audit): same as the two results above --
-              // "alert" for the error-shaped wording, "status" otherwise.
-              <span
-                role={validationResult.startsWith('Error') || validationResult.startsWith('error') ? 'alert' : 'status'}
-                className={`text-xs leading-relaxed pt-1 ${validationResult.startsWith('Error') || validationResult.startsWith('error') ? 'text-status-error-text' : 'text-status-success-text'}`}
-              >
+              <span role="status" className="text-xs leading-relaxed pt-1 text-status-success-text">
                 {validationResult}
               </span>
+            )}
+            {validationError !== null && (
+              <InlineError
+                className="pt-1"
+                {...explainError(
+                  'Apple Music did not accept those MusicKit details. Check the Team ID, the Key ID and the saved key, then test again.',
+                  validationError
+                )}
+              />
             )}
           </div>
         </div>
@@ -1097,7 +1117,7 @@ export function AdvancedTab() {
 
         {/* AcoustID */}
         <div className="space-y-3">
-          <h4 className="text-sm font-medium text-content-secondary">AcoustID</h4>
+          <h3 className="text-sm font-medium text-content-secondary">AcoustID</h3>
           <Input
             label={hasBuiltInKey ? 'AcoustID API Key (Optional Override)' : 'AcoustID API Key'}
             description={
@@ -1105,31 +1125,27 @@ export function AdvancedTab() {
                 <>
                   A built-in API key is included with this release. You can optionally override it
                   with your own key registered at{' '}
-                  <button
-                    type="button"
-                    className="text-accent hover:text-accent-hover underline transition-colors"
+                  <TextButton
                     onClick={(e) => {
                       e.preventDefault();
                       openExternal('https://acoustid.org/new-application');
                     }}
                   >
                     acoustid.org/new-application
-                  </button>
+                  </TextButton>
                   . Leave blank to use the built-in key.
                 </>
               ) : (
                 <>
                   Register a free application API key at{' '}
-                  <button
-                    type="button"
-                    className="text-accent hover:text-accent-hover underline transition-colors"
+                  <TextButton
                     onClick={(e) => {
                       e.preventDefault();
                       openExternal('https://acoustid.org/new-application');
                     }}
                   >
                     acoustid.org/new-application
-                  </button>
+                  </TextButton>
                   . Required for AcoustID lookups.
                 </>
               )
@@ -1144,7 +1160,7 @@ export function AdvancedTab() {
 
         {/* song.link (Odesli) */}
         <div className="space-y-3">
-          <h4 className="text-sm font-medium text-content-secondary">song.link (Odesli)</h4>
+          <h3 className="text-sm font-medium text-content-secondary">song.link (Odesli)</h3>
           <Input
             label="song.link Access Key"
             description={
@@ -1152,16 +1168,14 @@ export function AdvancedTab() {
                 Needed for &quot;Look up where else each album is available&quot; in Settings &gt;
                 Metadata. Odesli closed free public access to song.link in 2026 and now grant keys
                 by application through their{' '}
-                <button
-                  type="button"
-                  className="text-accent hover:text-accent-hover underline transition-colors"
+                <TextButton
                   onClick={(e) => {
                     e.preventDefault();
                     openExternal('https://odesli.co/help');
                   }}
                 >
                   help pages
-                </button>
+                </TextButton>
                 . The key is kept in your settings file, left out of exported settings, and only
                 ever sent to song.link.
               </>
@@ -1176,21 +1190,16 @@ export function AdvancedTab() {
 
         {/* API Field Audit */}
         <div>
-          <button
-            type="button"
-            className="flex items-center gap-2 text-sm font-medium text-content-secondary mb-2"
+          {/* The shared disclosure button sets aria-expanded and draws the
+              same chevron as every other fold-out section (it used to be a
+              hand-drawn triangle character, hidden from screen readers). */}
+          <DisclosureButton
+            open={auditExpanded}
+            className="w-auto text-sm font-medium text-content-secondary mb-2"
             onClick={() => setAuditExpanded(!auditExpanded)}
-            // Fix 6 (a11y audit): says whether the section below is open.
-            aria-expanded={auditExpanded}
           >
-            {/* Fix 7 (a11y audit): the triangle character is a real
-                Unicode glyph, and a screen reader reads it out as
-                "black right-pointing triangle" (or similar) before
-                every heading -- aria-hidden removes that noise since
-                aria-expanded above already says the same thing. */}
-            <span className="text-sm text-content-tertiary" aria-hidden="true">{auditExpanded ? '▼' : '▶'}</span>
             API Field Audit
-          </button>
+          </DisclosureButton>
           <p className="text-xs text-content-tertiary leading-relaxed mb-4">
             Developer tool: fetch an album from the Apple Music API and compare its fields against the
             known tag definitions in tags.toml. Discovers new or unknown API fields.
@@ -1210,18 +1219,19 @@ export function AdvancedTab() {
                   // text that disappears once something is typed.
                   aria-label="Apple Music album URL to audit"
                   value={auditUrl}
-                  placeholder="https://music.apple.com/us/album/.../1234567890"
+                  placeholder="https://music.apple.com/us/album/…/1234567890"
                   onChange={(e) => setAuditUrl(e.target.value)}
                   className="flex-1"
                 />
-                <button
-                  type="button"
-                  className="px-4 py-2 text-sm font-medium rounded-md bg-accent text-content-on-accent hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed self-end"
+                <Button
+                  variant="primary"
+                  className="self-end"
                   onClick={handleAudit}
-                  disabled={auditLoading || !auditUrl.trim() || !hasMusicKitCredentials}
+                  loading={auditLoading}
+                  disabled={!auditUrl.trim() || !hasMusicKitCredentials}
                 >
-                  {auditLoading ? 'Auditing...' : 'Audit'}
-                </button>
+                  {auditLoading ? 'Auditing…' : 'Audit'}
+                </Button>
               </div>
               {!hasMusicKitCredentials && (
                 <p className="text-sm text-status-warning-text">
@@ -1244,22 +1254,22 @@ export function AdvancedTab() {
                     </span>
                   </div>
                   <div className="flex gap-4 flex-wrap text-sm">
-                    <span className="px-2 py-0.5 rounded bg-green-500/20 text-green-400">
+                    <span className="px-2 py-0.5 rounded-platform-sm bg-green-500/20 text-green-400">
                       {auditResult.known_fields.length} known
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-amber-500/20 text-amber-400">
+                    <span className="px-2 py-0.5 rounded-platform-sm bg-amber-500/20 text-amber-400">
                       {auditResult.unknown_fields.length} unknown
                     </span>
-                    <span className="px-2 py-0.5 rounded bg-gray-500/20 text-gray-400">
+                    <span className="px-2 py-0.5 rounded-platform-sm bg-gray-500/20 text-gray-400">
                       {auditResult.missing_fields.length} missing
                     </span>
                   </div>
                   {auditResult.unknown_fields.length > 0 && (
                     <div>
-                      <h4 className="text-sm font-medium text-amber-400 mb-1">
+                      <h3 className="text-sm font-medium text-amber-400 mb-1">
                         Unknown Fields (not in tags.toml)
-                      </h4>
-                      <div className="max-h-48 overflow-y-auto bg-surface-secondary rounded p-2 space-y-1">
+                      </h3>
+                      <div className="max-h-48 overflow-y-auto bg-surface-secondary rounded-platform-sm p-2 space-y-1">
                         {auditResult.unknown_fields.map((field) => (
                           <div
                             key={`${field.scope}-${field.json_path}`}
@@ -1271,7 +1281,7 @@ export function AdvancedTab() {
                             {field.sample_value && (
                               <span className="text-content-tertiary ml-1">
                                 = {field.sample_value.length > 60
-                                  ? `${field.sample_value.slice(0, 60)}...`
+                                  ? `${field.sample_value.slice(0, 60)}…`
                                   : field.sample_value}
                               </span>
                             )}
@@ -1282,9 +1292,9 @@ export function AdvancedTab() {
                   )}
                   {auditResult.missing_fields.length > 0 && (
                     <div>
-                      <h4 className="text-sm font-medium text-gray-400 mb-1">
+                      <h3 className="text-sm font-medium text-gray-400 mb-1">
                         Missing Fields (in tags.toml but not in API response)
-                      </h4>
+                      </h3>
                       <div className="text-xs font-mono text-content-tertiary">
                         {auditResult.missing_fields.join(', ')}
                       </div>
@@ -1345,24 +1355,26 @@ function NotificationDiagnosticsRow() {
         const backend = await getNotificationDiagnostics();
         setDiag(backend);
       } catch (e) {
-        setError(`Failed to load backend diagnostics: ${e instanceof Error ? e.message : String(e)}`);
+        setError(rawError(e));
         return;
       }
       try {
         const { isPermissionGranted } = await import('@tauri-apps/plugin-notification');
         const granted = await isPermissionGranted();
         setOsPermission(granted ? 'granted' : 'not granted');
-      } catch (e) {
-        setOsPermission(`error: ${e instanceof Error ? e.message : String(e)}`);
+      } catch {
+        setOsPermission('could not be checked');
       }
     })();
   }, []);
 
   if (error) {
     return (
-      <div className="p-3 rounded-lg bg-status-error-bg border border-status-error">
-        <p className="text-xs text-status-error-text">{error}</p>
-      </div>
+      <InlineError
+        look="box"
+        message="MeedyaDL could not read how its notifications are set up. Close Settings and open it again."
+        details={error}
+      />
     );
   }
 
@@ -1387,7 +1399,7 @@ function NotificationDiagnosticsRow() {
     /* `border-border-default` was never a defined colour -- Tailwind's
        generated class for the `border.DEFAULT` token has no "-default"
        suffix, it is simply `border-border`. This box had no border. */
-    <div className="p-3 rounded-lg bg-surface-secondary border border-border">
+    <div className="p-3 rounded-platform-lg bg-surface-secondary border border-border">
       <p className="text-xs font-semibold text-content-primary mb-2">
         Native notification diagnostics (#834)
       </p>
@@ -1468,7 +1480,7 @@ function IntegrityScanSection() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
-      addToast(`Integrity scan failed: ${msg}`, 'error');
+      showError('MeedyaDL could not finish checking your downloaded files. Try again; the details say what stopped it.', e);
     } finally {
       setRunning(false);
     }
@@ -1478,10 +1490,10 @@ function IntegrityScanSection() {
     /* `border-border-default` was never a defined colour -- Tailwind's
        generated class for the `border.DEFAULT` token has no "-default"
        suffix, it is simply `border-border`. This box had no border. */
-    <div className="p-3 rounded-lg bg-surface-secondary border border-border">
+    <div className="p-3 rounded-platform-lg bg-surface-secondary border border-border">
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-content-primary">
-          Integrity scan (#537)
+          Integrity Scan
         </p>
         <Button
           variant="secondary"
@@ -1493,14 +1505,18 @@ function IntegrityScanSection() {
         </Button>
       </div>
       <p className="text-xs text-content-tertiary mb-2">
-        Walks your output folder looking for historic damage from
-        pre-v1.6 broken builds — empty-tag filenames (<code>-.mp4</code>),
+        Looks through your output folder for damage left by older
+        versions of MeedyaDL — empty-tag filenames (<code>-.mp4</code>),
         <code>[Unknown]/</code> folder segments, and zero-byte cover
-        files. <strong>Read-only</strong>: detects and reports only.
-        Quarantine action lands in a future update.
+        files. <strong>Read-only</strong>: it reports what it finds and
+        changes nothing.
       </p>
       {error && (
-        <p className="text-xs text-status-error-text mb-2">{error}</p>
+        <InlineError
+          message="MeedyaDL could not finish checking your downloaded files. Try again; the details say what stopped it."
+          details={error}
+          className="mb-2"
+        />
       )}
       {report && (
         <div className="mt-2">
@@ -1516,7 +1532,7 @@ function IntegrityScanSection() {
               <p className="text-xs font-semibold text-status-warning-text mb-1">
                 {report.issues.length} issue(s) found:
               </p>
-              <div className="max-h-48 overflow-y-auto border border-border rounded p-2 bg-surface-primary">
+              <div className="max-h-48 overflow-y-auto border border-border rounded-platform-sm p-2 bg-surface-primary">
                 {report.issues.map((issue, idx) => (
                   <div key={idx} className="text-xs font-mono text-content-primary py-0.5">
                     <span
@@ -1582,7 +1598,7 @@ function DevToolsSection() {
       <div className="space-y-4">
         {/* Token resolution hierarchy status */}
         <div>
-          <h4 className="text-sm font-medium mb-2">MusicKit Token Resolution</h4>
+          <h3 className="text-sm font-medium mb-2">MusicKit Token Resolution</h3>
           <div className="space-y-1 text-xs">
             <div className="flex items-center gap-2">
               <span className={hasUserCreds ? 'text-green-500' : 'text-gray-400'}>
@@ -1596,13 +1612,9 @@ function DevToolsSection() {
               </span>
               <span>Priority 2: Web session token</span>
               {webplayerStatus && (
-                <button
-                  type="button"
-                  onClick={handleClearWebplayerToken}
-                  className="ml-2 text-xs text-red-400 hover:text-red-300 underline"
-                >
+                <TextButton tone="danger" size="xs" className="ml-2" onClick={handleClearWebplayerToken}>
                   Clear
-                </button>
+                </TextButton>
               )}
             </div>
           </div>
@@ -1623,7 +1635,7 @@ function DevToolsSection() {
           user-facing Settings tabs.
         */}
         <div>
-          <h4 className="text-sm font-medium mb-2">GAMDL log level</h4>
+          <h3 className="text-sm font-medium mb-2">GAMDL log level</h3>
           <Select
             options={[
               { value: 'DEBUG', label: 'DEBUG — verbose (HTTP, decryption, m3u8 URLs)' },
@@ -1646,13 +1658,9 @@ function DevToolsSection() {
         </div>
 
         {/* Deactivate */}
-        <button
-          type="button"
-          onClick={handleDeactivate}
-          className="rounded border border-red-500 px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10"
-        >
+        <Button variant="danger" size="xs" onClick={handleDeactivate}>
           Deactivate Developer Access
-        </button>
+        </Button>
       </div>
     </SettingsSection>
   );
@@ -1703,10 +1711,7 @@ function DiagnosticBundleSection() {
       });
       setBundle(result);
     } catch (e) {
-      addToast(
-        `Diagnostic bundle failed: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      showError('MeedyaDL could not put the diagnostic report together. Try again; if it keeps happening, restart MeedyaDL.', e);
     } finally {
       setBusy(false);
     }
@@ -1718,10 +1723,7 @@ function DiagnosticBundleSection() {
       await navigator.clipboard.writeText(bundle.markdown_body);
       addToast('Bundle copied to clipboard.', 'success');
     } catch (e) {
-      addToast(
-        `Copy failed: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      showError('MeedyaDL could not copy the report. Select the report text and copy it with Cmd/Ctrl+C instead.', e);
     }
   };
 
@@ -1731,18 +1733,15 @@ function DiagnosticBundleSection() {
       const { open } = await import('@tauri-apps/plugin-shell');
       await open(bundle.github_issue_url);
     } catch (e) {
-      addToast(
-        `Failed to open browser: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      showError('MeedyaDL could not open your web browser. Copy the report instead, and paste it into a new issue on GitHub yourself.', e);
     }
   };
 
   return (
     <div className="pt-2 border-t border-border-light mt-2">
-      <h4 className="text-sm font-medium text-content-primary mb-1">
+      <h3 className="text-sm font-medium text-content-primary mb-1">
         Diagnostic Bundle
-      </h4>
+      </h3>
       <p className="text-xs text-content-secondary mb-2">
         Captures the last 200 activity-log entries, component versions,
         a redacted settings snapshot, and your output-directory tree
@@ -1863,10 +1862,7 @@ function WrapperSignInSection() {
       await wrapperSignOut();
       addToast('Signed out of wrapper.', 'success');
     } catch (err) {
-      addToast(
-        `Sign-out failed: ${err instanceof Error ? err.message : String(err)}`,
-        'error',
-      );
+      showError('MeedyaDL could not sign out of the wrapper. Check that the wrapper is running, then try again.', err);
     } finally {
       setSigningOut(false);
       refreshStatus();
@@ -1944,7 +1940,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
   /** Instructional text shown on the 2FA step (echoes the daemon's `message`). */
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   /** Inline failure text -- from a `failed`/`error` result OR a thrown/rejected call. */
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<{ message: string; details: string | null } | null>(null);
   /** True while a sign-in or 2FA request is in flight; disables the submit button. */
   const [submitting, setSubmitting] = useState(false);
 
@@ -1987,9 +1983,14 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
       );
       return;
     }
-    // 'failed' | 'error' -- stay open, surface the daemon's message inline.
+    // 'failed' | 'error' -- stay open, show the daemon's message inline
+    // (its own words when they are a plain sentence; see explainError).
     setInfoMessage(null);
-    setErrorMessage(result.message ?? 'Sign-in failed. Please try again.');
+    setErrorMessage(
+      result.message
+        ? explainError(WRAPPER_SIGN_IN_FAILED, result.message)
+        : { message: 'Apple did not accept that sign-in. Check your Apple ID and password, then try again.', details: null },
+    );
   };
 
   const handleCredentialsSubmit = async (e: FormEvent) => {
@@ -2002,8 +2003,10 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
       handleResult(result);
     } catch (err) {
       // Thrown/rejected call -- e.g. rate-limit Err(String) or the
-      // daemon being unreachable. Surface verbatim inline.
-      setErrorMessage(err instanceof Error ? err.message : String(err));
+      // daemon being unreachable. Shown inline: the backend's words when
+      // they are a plain sentence, otherwise a plain message with the
+      // technical text folded under "Details".
+      setErrorMessage(explainError(WRAPPER_SIGN_IN_FAILED, err));
     } finally {
       setSubmitting(false);
     }
@@ -2018,7 +2021,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
       const result = await wrapperSubmit2fa(code.trim());
       handleResult(result);
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : String(err));
+      setErrorMessage(explainError(WRAPPER_SIGN_IN_FAILED, err));
     } finally {
       setSubmitting(false);
     }
@@ -2038,7 +2041,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
             autoComplete="username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="you@example.com"
+            placeholder="Your Apple Account email address"
             required
           />
           <div>
@@ -2054,17 +2057,13 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
             <p className="text-xs text-content-tertiary mt-1">
               An app-specific password is strongly recommended over your main Apple ID
               password. Create one at{' '}
-              <button
-                type="button"
-                className="text-accent hover:text-accent-hover underline transition-colors"
-                onClick={() => openExternal('https://appleid.apple.com/account/manage')}
-              >
+              <TextButton onClick={() => openExternal('https://appleid.apple.com/account/manage')}>
                 appleid.apple.com
-              </button>{' '}
+              </TextButton>{' '}
               under Sign-In and Security &gt; App-Specific Passwords.
             </p>
           </div>
-          {errorMessage && <p className="text-xs text-status-error-text">{errorMessage}</p>}
+          {errorMessage && <InlineError {...errorMessage} />}
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="ghost" size="sm" type="button" onClick={handleClose}>
               Cancel
@@ -2096,7 +2095,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
             placeholder="123456"
             required
           />
-          {errorMessage && <p className="text-xs text-status-error-text">{errorMessage}</p>}
+          {errorMessage && <InlineError {...errorMessage} />}
           <div className="flex justify-end gap-2 pt-1">
             <Button variant="ghost" size="sm" type="button" onClick={handleClose}>
               Cancel

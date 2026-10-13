@@ -10,7 +10,8 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { useDownloadStore } from '@/stores/downloadStore';
-import { SettingsSection } from '@/components/common';
+import { InlineError, SettingsSection } from '@/components/common';
+import { rawError } from '@/lib/errorMessages';
 import { SONG_CODEC_LABELS, type SongCodec } from '@/types';
 import { getLifetimeStats, type LifetimeStats } from '@/lib/tauri-commands';
 
@@ -93,7 +94,9 @@ export function StatisticsPanel() {
   if (stats.total === 0) return null;
 
   return (
-    <div className="px-4 pb-2 space-y-2">
+    // `px-6`: the same inset as the page title (it was `px-4`, 8px to
+    // the left of the Activity page's own title; polish audit L1).
+    <div className="px-6 pb-2 space-y-2">
       <SettingsSection title="Session Statistics" defaultOpen={false}>
         {/* Row 1: Summary cards */}
         <div className="grid grid-cols-3 gap-3">
@@ -192,7 +195,7 @@ function LifetimeStatsSection() {
       })
       .catch((e) => {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e));
+          setError(rawError(e));
         }
       });
     return () => {
@@ -205,7 +208,10 @@ function LifetimeStatsSection() {
   if (error) {
     return (
       <SettingsSection title="Lifetime Statistics" defaultOpen={false}>
-        <p className="text-xs text-status-error-text">{error}</p>
+        <InlineError
+          message="MeedyaDL could not read your download history to count it. Open this panel again later."
+          details={error}
+        />
       </SettingsSection>
     );
   }
@@ -246,9 +252,9 @@ function LifetimeStatsSection() {
       {/* Codec distribution — bar list, hidden when empty. */}
       {stats.codec_distribution.length > 0 && (
         <div className="mt-3">
-          <h4 className="text-xs font-medium text-content-secondary mb-1.5">
+          <h2 className="text-xs font-medium text-content-secondary mb-1.5">
             By codec
-          </h4>
+          </h2>
           <div className="space-y-1">
             {stats.codec_distribution.slice(0, 6).map((c) => {
               const pct = (c.count / stats.success) * 100;
@@ -362,7 +368,7 @@ interface StatCardProps {
  */
 function StatCard({ value, label, colour }: StatCardProps) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-lg bg-surface-secondary/60 px-2 py-3 min-w-0">
+    <div className="flex flex-col items-center justify-center rounded-platform-lg bg-surface-secondary/60 px-2 py-3 min-w-0">
       <span className={`text-lg font-semibold leading-tight truncate max-w-full ${colour}`}>
         {value}
       </span>

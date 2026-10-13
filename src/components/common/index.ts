@@ -100,6 +100,30 @@ export { ContextMenu } from './ContextMenu';
  */
 export type { ContextMenuItem } from './ContextMenu';
 
+/**
+ * A button that opens a menu of further actions ("More ▾"), keyboard
+ * operable and announced as a menu button to screen readers.
+ * Used in: DownloadQueue (the page header's secondary actions).
+ */
+export { MenuButton } from './MenuButton';
+
+/**
+ * The shared small controls (polish pass M17): an icon-only button with a
+ * required name, a link-style button, a single checkbox, the one expand
+ * toggle and chevron, and an entry in a vertical list of places.
+ */
+export { IconButton } from './IconButton';
+export { TextButton } from './TextButton';
+export { Checkbox } from './Checkbox';
+export { DisclosureButton, ExpandChevron } from './DisclosureButton';
+export { NavListItem } from './NavListItem';
+
+/**
+ * A small on/off pill that filters a list (toggle-button semantics).
+ * Used in: DownloadQueue (state filters), ActivityLog (category filters).
+ */
+export { FilterChip } from './FilterChip';
+
 /* -------------------------------------------------------------------------- */
 /*  Feedback / status components                                               */
 /* -------------------------------------------------------------------------- */
@@ -130,6 +154,13 @@ export { Tooltip } from './Tooltip';
  * forcing the user to widen the window.
  */
 export { ErrorMessageDisplay } from './ErrorMessageDisplay';
+
+/**
+ * The folded "Details" part under an error message, and an on-page error
+ * (plain message + folded details). See lib/errorMessages.ts.
+ */
+export { ErrorDetails } from './ErrorDetails';
+export { InlineError } from './InlineError';
 
 /**
  * Small "?" icon button that navigates to the Help page with a specific

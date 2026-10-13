@@ -43,8 +43,12 @@ interface CrashReportDialogProps {
   open: boolean;
   /** Callback invoked when the modal should close */
   onClose: () => void;
-  /** The crash report to preview and potentially report */
-  report: CrashReport;
+  /**
+   * The crash report to preview and potentially report. Only its id and
+   * source are read, so only those are required -- the crash screen
+   * (`CrashScreen.tsx`) knows just the id of the report it has saved.
+   */
+  report: Pick<CrashReport, 'id' | 'source'>;
   /** Optional callback after the GitHub URL is successfully opened */
   onReported?: () => void;
 }
@@ -72,7 +76,7 @@ export function CrashReportDialog({ open, onClose, report, onReported }: CrashRe
       setIsLoading(true);
       exportCrashReport(report.id)
         .then(setPreview)
-        .catch(() => setPreview('Failed to load crash report preview.'))
+        .catch(() => setPreview('MeedyaDL could not show this report. Close this window and try again.'))
         .finally(() => setIsLoading(false));
     }
   }, [open, report]);
@@ -94,12 +98,12 @@ export function CrashReportDialog({ open, onClose, report, onReported }: CrashRe
         await deleteCrashReport(report.id);
         addToast('Report opened in browser and cleaned up locally', 'info');
       } catch {
-        addToast('Opening GitHub Issues in your browser...', 'info');
+        addToast('Opening GitHub Issues in your browser…', 'info');
       }
       onReported?.();
       onClose();
     } catch {
-      addToast('Failed to open GitHub Issues', 'error');
+      addToast('MeedyaDL could not open your web browser, so the report was not sent. Check that a default browser is set, then try again.', 'error');
     } finally {
       setIsOpening(false);
     }

@@ -41,7 +41,7 @@ function isMacPlatform(): boolean {
 /** Render a key glyph as a small kbd-styled chip. */
 function Key({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-block min-w-[1.75rem] text-center px-1.5 py-0.5 rounded border border-border bg-surface-secondary text-content-primary text-xs font-mono leading-none">
+    <kbd className="inline-block min-w-[1.75rem] text-center px-1.5 py-0.5 rounded-platform-sm border border-border bg-surface-secondary text-content-primary text-xs font-mono leading-none">
       {children}
     </kbd>
   );
@@ -90,7 +90,7 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
               <>
                 <Key>{mod}</Key>
                 <span>+</span>
-                <Key>Q</Key>
+                <Key>J</Key>
               </>
             }
           />
@@ -110,7 +110,7 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
               <>
                 <Key>{mod}</Key>
                 <span>+</span>
-                <Key>H</Key>
+                <Key>Y</Key>
               </>
             }
           />

@@ -94,6 +94,9 @@ vi.mock('lucide-react', () => {
     Shield: stub('Shield'),
     ShieldOff: stub('ShieldOff'),
     Headphones: stub('Headphones'),
+    /* SettingsSection and DisclosureButton: the shared expand chevron
+     * (polish pass L3). */
+    ChevronRight: stub('ChevronRight'),
   };
 });
 
@@ -204,6 +207,18 @@ beforeEach(() => {
 // GeneralTab
 // =============================================================================
 describe('GeneralTab', () => {
+  // Polish pass L13: three backup features had near-identical names
+  // ("Backup", "Profile Bundle", and "Backups" in Tools).
+  it('names the two ways to save settings by what each one holds', () => {
+    render(<GeneralTab />);
+    expect(screen.getByRole('button', { name: 'Settings File' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Full Copy of MeedyaDL' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Export Full Copy/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Import Full Copy/ })).toBeInTheDocument();
+    expect(screen.queryByText(/Profile Bundle|Export Profile|Import Profile/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Backups?$/ })).not.toBeInTheDocument();
+  });
+
   // ===========================================================================
   // Toggle rendering -- initial state
   // ===========================================================================
@@ -354,38 +369,53 @@ describe('GeneralTab', () => {
    * review of the language-policy work; the rows used to show only
    * "Deutsch", "Français", "English".
    */
-  it('shows the machine-translation qualifier on the German and French options, but not on English', () => {
+  it('offers only complete languages: German and French are not listed for an English user (polish pass M10)', () => {
     render(<GeneralTab />);
 
     const select = screen.getByLabelText('Language') as HTMLSelectElement;
-    const options = Array.from(select.options);
+    const values = Array.from(select.options).map((o) => o.value);
 
-    expect(options.find((o) => o.value === 'de')?.textContent).toBe(
-      'German — Deutsch (automatische Übersetzung)'
-    );
-    expect(options.find((o) => o.value === 'fr')?.textContent).toBe(
-      'French — Français (traduction automatique)'
-    );
+    expect(values).toEqual(['auto', 'en']);
     // The two names are the same, so it is shown once.
-    expect(options.find((o) => o.value === 'en')?.textContent).toBe('English');
+    expect(Array.from(select.options).find((o) => o.value === 'en')?.textContent).toBe('English');
+  });
+
+  it('keeps a saved German choice in the list, marked incomplete and machine-made (polish pass M10)', () => {
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, ui_language: 'de' } }));
+    render(<GeneralTab />);
+
+    const select = screen.getByLabelText('Language') as HTMLSelectElement;
+    expect(select.value).toBe('de');
+    // Named in the interface language first, then in its own language with
+    // its own notes (BCP 47 policy UI-011, polish pass M10).
+    expect(Array.from(select.options).find((o) => o.value === 'de')?.textContent).toBe(
+      'German — Deutsch (unvollständige Übersetzung, automatische Übersetzung)',
+    );
+    // French was never chosen, so it is not offered.
+    expect(Array.from(select.options).some((o) => o.value === 'fr')).toBe(false);
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, ui_language: '' } }));
   });
 
   /** The first name follows the interface language; the value stays the code. */
   it('names each interface language in the language the app is showing', async () => {
+    // French is not complete, so it is listed only because it is the saved
+    // choice (polish pass M10); German, chosen by nobody, is not listed.
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, ui_language: 'fr' } }));
     await useTestLanguage('fr');
     try {
       render(<GeneralTab />);
       const select = screen.getByLabelText('Language') as HTMLSelectElement;
       const options = Array.from(select.options);
-      expect(options.find((o) => o.value === 'de')?.textContent).toMatch(/^allemand — Deutsch/);
+      expect(options.some((o) => o.value === 'de')).toBe(false);
       expect(options.find((o) => o.value === 'en')?.textContent).toBe('anglais — English');
       // French in a French interface: "français" and "Français" differ only
       // in letter case, so the name is shown once.
       expect(options.find((o) => o.value === 'fr')?.textContent).toBe(
-        'Français (traduction automatique)'
+        'Français (traduction incomplète, traduction automatique)'
       );
     } finally {
       await useTestLanguage('en');
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, ui_language: '' } }));
     }
   });
 

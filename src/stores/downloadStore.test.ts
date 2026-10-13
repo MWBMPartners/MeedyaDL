@@ -17,6 +17,7 @@
 import { useDownloadStore, __resetUndoBufferTimerForTests } from '@/stores/downloadStore';
 import * as commands from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 import type { QueueItemStatus, GamdlProgress } from '@/types';
 
@@ -144,11 +145,20 @@ describe('downloadStore', () => {
       expect(useDownloadStore.getState().urlContentType).toBe('unknown');
     });
 
-    it('accepts a Spotify URL (#983)', () => {
+    it('accepts a Spotify URL with developer access on (#983)', () => {
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: true } }));
       useDownloadStore.getState().setUrlInput('https://open.spotify.com/track/12345');
 
       expect(useDownloadStore.getState().urlIsValid).toBe(true);
       expect(useDownloadStore.getState().urlContentType).toBe('unknown');
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: false } }));
+    });
+
+    it('refuses a Spotify URL without developer access -- Spotify is a developer-only preview', () => {
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: false } }));
+      useDownloadStore.getState().setUrlInput('https://open.spotify.com/track/12345');
+
+      expect(useDownloadStore.getState().urlIsValid).toBe(false);
     });
 
     it('rejects a not-yet-submittable service URL (YouTube)', () => {
@@ -461,9 +471,13 @@ describe('downloadStore', () => {
       const total = await useDownloadStore.getState().abortAll();
       expect(total).toBe(0);
       const toasts = useUiStore.getState().toasts;
-      expect(toasts.some((t) => t.type === 'error' && t.message.includes('backend unavailable'))).toBe(
-        true,
-      );
+      // The message says what to do; the backend's words are under
+      // "Details" (polish pass M8).
+      expect(
+        toasts.some(
+          (t) => t.type === 'error' && t.message.includes('could not stop the downloads') && t.details === 'backend unavailable',
+        ),
+      ).toBe(true);
     });
 
     it('does not report a successful abort as failed when only the list refresh fails', async () => {
@@ -489,10 +503,11 @@ describe('downloadStore', () => {
       expect(commands.cancelDownload).toHaveBeenCalledWith('dl-1');
     });
 
-    it('sets error on failure', async () => {
+    it('sets error on failure and passes the failure on', async () => {
       vi.mocked(commands.cancelDownload).mockRejectedValueOnce('Cancel failed');
 
-      await useDownloadStore.getState().cancelDownload('dl-1');
+      // Passed on so the caller does not report "cancelled" (polish M8).
+      await expect(useDownloadStore.getState().cancelDownload('dl-1')).rejects.toBe('Cancel failed');
 
       expect(useDownloadStore.getState().error).toBe('Cancel failed');
     });
@@ -515,6 +530,12 @@ describe('downloadStore', () => {
 
       expect(commands.retryDownload).toHaveBeenCalledWith('dl-1');
       expect(useDownloadStore.getState().queueItems).toEqual(refreshedItems);
+    });
+
+    it('passes a refused retry on, so the caller can say why', async () => {
+      vi.mocked(commands.retryDownload).mockRejectedValueOnce('Every track is already on disk.');
+      await expect(useDownloadStore.getState().retryDownload('dl-1')).rejects.toBe('Every track is already on disk.');
+      expect(useDownloadStore.getState().error).toBe('Every track is already on disk.');
     });
   });
 
@@ -973,7 +994,7 @@ describe('downloadStore', () => {
 
       await vi.waitFor(() => {
         expect(
-          useUiStore.getState().toasts.some((t) => t.type === 'error' && t.message.includes('Failed to re-queue'))
+          useUiStore.getState().toasts.some((t) => t.type === 'error' && t.message.includes('could not put back'))
         ).toBe(true);
       });
     });

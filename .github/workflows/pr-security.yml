@@ -44,7 +44,8 @@
 #                                                comment-mentioned file paths, parallel/concurrent claims in
 #                                                comments, a setting the app lets you change that the backend
 #                                                never reads, updater manifest platform keys written down
-#                                                anywhere but the one shared release script)
+#                                                anywhere but the one shared release script, and the
+#                                                "nothing may look unfinished" polish rules)
 #
 # Checks 2-7 only scan files CHANGED in the PR. Check 8 validates whole-repo
 # state (a drift can live in an unchanged file that this PR orphaned). The
@@ -591,6 +592,22 @@ jobs:
           SETTINGS_DEFAULTS=$(python3 tools/audit-checks/check_settings_defaults.py 2>&1 || true)
           if echo "$SETTINGS_DEFAULTS" | grep -q '•'; then
             add_section "Starting settings differ between the app and the page" "$(echo "$SETTINGS_DEFAULTS" | grep -A100 '###')"
+          fi
+
+          # --- Nothing may look unfinished --------------------------------
+          # The maintainer's rule (4 Oct 2026): no placeholder addresses or
+          # "coming soon", no issue numbers or old version notes on screen,
+          # one name and version everywhere, a real crash screen, one <h1>
+          # per screen, no debug output, no drafts in what ships, no silenced
+          # size warning, nothing fake, real Settings places, no claims of
+          # features with no code, and ratchets on hand-made controls and
+          # styling. The same script runs before every push
+          # (tools/hooks/pre-push), so this is the backstop for a clone
+          # that never installed the hook. Whole-repo, because an unfinished
+          # word can sit in a file this PR never touched.
+          POLISH=$(python3 tools/audit-checks/check_polish.py 2>&1 || true)
+          if echo "$POLISH" | grep -q '•'; then
+            add_section "Something looks unfinished (check_polish.py)" "$(echo "$POLISH" | grep -A100 '###')"
           fi
 
           echo "hits=$HITS" >> "$GITHUB_OUTPUT"

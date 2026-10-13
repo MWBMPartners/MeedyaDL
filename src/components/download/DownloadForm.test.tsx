@@ -60,6 +60,8 @@ vi.mock('@/lib/tauri-commands', () => ({
  */
 beforeEach(() => {
   act(() => {
+    // Developer access off unless a test turns it on: the ordinary case.
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: false } }));
     useDownloadStore.getState().setUrlInput('');
     useDownloadStore.getState().setOverrideOptions(null);
     useUiStore.setState({ toasts: [] });
@@ -129,15 +131,47 @@ describe('DownloadForm', () => {
     const textarea = screen.getByLabelText('Media URL input');
     fireEvent.change(textarea, { target: { value: 'not-a-real-url' } });
     expect(
-      screen.getByText('Please enter a valid Apple Music or Spotify URL')
+      screen.getByText(/That does not look like a link MeedyaDL can download/)
     ).toBeInTheDocument();
   });
 
+  it('says a YouTube link cannot be downloaded YET, instead of calling it invalid', () => {
+    render(<DownloadForm />);
+    const textarea = screen.getByLabelText('Media URL input');
+    fireEvent.change(textarea, { target: { value: 'https://www.youtube.com/watch?v=abc123' } });
+    expect(screen.getByText(/MeedyaDL cannot download from YouTube yet/)).toBeInTheDocument();
+  });
+
   // ===========================================================================
-  // Spotify URL acceptance (#983)
+  // Spotify: a developer-only preview
+  //
+  // Until October 2026 this page invited Spotify links from everyone and
+  // accepted them, and only the final check refused them -- pointing at a
+  // settings section ordinary users cannot see.
   // ===========================================================================
 
-  it('accepts a Spotify URL and shows the Spotify badge', () => {
+  it('without developer access, never mentions Spotify and refuses a Spotify link like any unsupported service', () => {
+    render(<DownloadForm />);
+    // Nothing on the empty page names Spotify: not the subtitle, the
+    // placeholder, or the helper text.
+    expect(document.body.textContent).not.toMatch(/Spotify/);
+    const textarea = screen.getByLabelText('Media URL input');
+    expect(textarea.getAttribute('placeholder')).not.toMatch(/Spotify/);
+
+    fireEvent.change(textarea, {
+      target: { value: 'https://open.spotify.com/album/abc123' },
+    });
+    expect(useDownloadStore.getState().urlIsValid).toBe(false);
+    expect(screen.getByRole('button', { name: /add to queue/i })).toBeDisabled();
+    expect(screen.getByText(/MeedyaDL cannot download from Spotify yet/)).toBeInTheDocument();
+    // And never a hint about how to switch the hidden preview on.
+    expect(document.body.textContent).not.toMatch(/developer|unlock|Konami/i);
+  });
+
+  it('with developer access, accepts a Spotify URL and shows the Spotify badge (as before)', () => {
+    act(() => {
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: true } }));
+    });
     render(<DownloadForm />);
     const textarea = screen.getByLabelText('Media URL input');
     fireEvent.change(textarea, {
@@ -146,7 +180,51 @@ describe('DownloadForm', () => {
     expect(useDownloadStore.getState().urlIsValid).toBe(true);
     expect(screen.getByRole('button', { name: /add to queue/i })).toBeEnabled();
     // Non-Apple services render the service label instead of a content type.
-    expect(screen.getByText('Spotify')).toBeInTheDocument();
+    expect(screen.getAllByText('Spotify').length).toBeGreaterThan(0);
+  });
+
+  // ===========================================================================
+  // Layout of the input row (polish pass: H4, L19)
+  // ===========================================================================
+
+  it('draws the service badge beside the label, never inside the text box', () => {
+    // The badge used to be positioned over the right-hand end of the box,
+    // so a long link ran underneath it. It must not sit in the box's own
+    // wrapper any more, for a single link or for several.
+    act(() => {
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: true } }));
+    });
+    render(<DownloadForm />);
+    const textarea = screen.getByLabelText('Media URL input');
+    fireEvent.change(textarea, { target: { value: 'https://open.spotify.com/album/abc123' } });
+    const badge = screen.getByTestId('url-badge');
+    expect(textarea.parentElement?.contains(badge)).toBe(false);
+    expect(badge.parentElement?.contains(screen.getByText('Media URL'))).toBe(true);
+
+    fireEvent.change(textarea, {
+      target: { value: 'https://music.apple.com/us/album/foo/123\nhttps://music.apple.com/us/album/bar/456' },
+    });
+    expect(textarea.parentElement?.contains(screen.getByTestId('url-badge'))).toBe(false);
+  });
+
+  it('puts the buttons under the box on a narrow row and beside it on a wide one', () => {
+    // jsdom does no layout, so this pins the rule itself; the screenshots
+    // at 800x550 and 1100x700 prove what it looks like.
+    render(<DownloadForm />);
+    const row = screen.getByTestId('url-input-row');
+    expect(row.className).toMatch(/(^|\s)flex-col(\s|$)/);
+    expect(row.className).toContain('@5xl:flex-row');
+    expect(row.parentElement?.className).toContain('@container');
+  });
+
+  it('gives the link-list button the same size as its neighbours and a label that says what it does', () => {
+    render(<DownloadForm />);
+    const linkList = screen.getByRole('button', { name: /^link list$/i });
+    const importButton = screen.getByRole('button', { name: /^import$/i });
+    // Same size class as Import (the old ".txt" button was size="sm").
+    expect(linkList.className).toContain('px-4 py-2 text-sm');
+    expect(importButton.className).toContain('px-4 py-2 text-sm');
+    expect(screen.queryByRole('button', { name: /^\.txt$/i })).toBeNull();
   });
 
   // ===========================================================================
@@ -215,7 +293,7 @@ describe('DownloadForm', () => {
     fireEvent.change(textarea, {
       target: { value: ['nope', 'still-nope', 'https://example.com'].join('\n') },
     });
-    expect(screen.getByText('No valid Apple Music or Spotify URLs found')).toBeInTheDocument();
+    expect(screen.getByText(/None of these links can be downloaded/)).toBeInTheDocument();
   });
 
   // ===========================================================================

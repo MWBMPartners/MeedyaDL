@@ -68,7 +68,8 @@ import { useSetupStore } from '@/stores/setupStore';
 import { useUiStore } from '@/stores/uiStore';
 
 // Shared UI components.
-import { Button, LoadingSpinner } from '@/components/common';
+import { Button, InlineError, LoadingSpinner } from '@/components/common';
+import { explainError } from '@/lib/errorMessages';
 
 // Package-manager provenance badge label helper (Phase 2a -- see
 // .github/audits/package-manager-abstraction-design-2026-08-10.md §3.D).
@@ -149,16 +150,16 @@ export function DependenciesStep() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-content-primary">External Tools</h2>
+        <h1 className="text-xl font-semibold text-content-primary">External Tools</h1>
         <p className="text-sm text-content-secondary mt-1">
-          GAMDL uses several external tools for processing downloads. Required tools must be
-          installed; optional tools provide additional features.
+          MeedyaDL uses a few helper programs to download and process music. Each one is downloaded
+          for you, or a copy you already have is used.
         </p>
       </div>
 
       {/* Loading state */}
       {isChecking ? (
-        <LoadingSpinner label="Checking dependencies..." />
+        <LoadingSpinner label="Checking dependencies…" />
       ) : (
         <>
           {/* Install all button */}
@@ -170,7 +171,7 @@ export function DependenciesStep() {
               onClick={handleInstallAll}
             >
               {isInstalling
-                ? `Installing ${installingName}...`
+                ? `Installing ${installingName}…`
                 : `Install All (${missingCount} missing)`}
             </Button>
           )}
@@ -209,12 +210,14 @@ export function DependenciesStep() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-content-primary">{tool.name}</span>
                     {tool.required && (
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-status-error/10 text-status-error-text">
+                      // Neutral, not the error colour (polish pass L3): it was red on
+                      // every healthy tool. A missing tool is shown by the icon on the left.
+                      <span className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-surface-secondary text-content-secondary">
                         Required
                       </span>
                     )}
                     {!tool.required && (
-                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-surface-secondary text-content-tertiary">
+                      <span className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-surface-secondary text-content-tertiary">
                         Optional
                       </span>
                     )}
@@ -224,7 +227,7 @@ export function DependenciesStep() {
                          * were never defined colours (same defect as the
                          * matching badge in ToolsTab.tsx) -- this badge
                          * had no background and unstyled text. */
-                        className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent-hover"
+                        className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent-hover"
                         title="Using your existing install — no duplicate download"
                       >
                         {sourceLabel(tool.source)}
@@ -299,7 +302,7 @@ export function DependenciesStep() {
                               // would write the path somewhere wrong and
                               // look like it worked.
                               useUiStore.getState().addToast(
-                                `MeedyaDL does not know where to record a path for ${tool.name}.`,
+                                `MeedyaDL cannot record a location for ${tool.name}. Use its Install button instead.`,
                                 'error'
                               );
                               return;
@@ -348,10 +351,17 @@ export function DependenciesStep() {
       )}
 
       {/* Error display */}
+      {/* The installer's own report is folded under "Details" (it used to
+          be the whole message); the backend's words are kept when they are
+          already a plain sentence. */}
       {error && (
-        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error-text">
-          {error}
-        </div>
+        <InlineError
+          look="box"
+          {...explainError(
+            'MeedyaDL could not install that tool. Check your internet connection, then try again — or use Browse to point to a copy you already have.',
+            error
+          )}
+        />
       )}
     </div>
   );

@@ -27,7 +27,7 @@
  *   - **Artist Auto-Select** -- When downloading from an artist URL,
  *     controls which content type is automatically selected (main albums,
  *     compilations, singles, etc.). Maps to `settings.artist_auto_select`.
- *     Requires GAMDL 2.9.1+.
+ *     (Every GAMDL version MeedyaDL supports, 3.0 and newer, has it.)
  *
  *   - **Maximum Video Resolution** -- The highest resolution to accept for
  *     music video downloads. This is a ceiling, not a request: the download
@@ -214,7 +214,7 @@ export function QualityTab() {
         {/* Companion download mode */}
         <Select
           label="Companion Downloads"
-          description="Automatically download additional format versions alongside the primary download. Specialist formats get a suffix ([Dolby Atmos], [Lossless]); the most compatible companion uses a clean filename. Select 'Custom...' to pick exact codecs."
+          description="Automatically download additional format versions alongside the primary download. Specialist formats get a suffix ([Dolby Atmos], [Lossless]); the most compatible companion uses a clean filename. Select 'Custom…' to pick exact codecs."
           options={companionModeOptions}
           value={companionMode.value}
           onChange={(e) => companionMode.set(e.target.value as CompanionMode)}
@@ -237,7 +237,7 @@ export function QualityTab() {
             sync with the multi-select array for backwards compat. */}
         <CheckboxGroup<ArtistAutoSelect>
           label="Artist Auto-Select"
-          description="When downloading from an artist URL, automatically download these content types. Select multiple to download each type separately (MeedyaDL creates one download per selected mode). Leave empty to use GAMDL's default behaviour. Requires GAMDL 2.9.1+."
+          description="When downloading from an artist URL, automatically download these content types. Select multiple to download each type separately (MeedyaDL creates one download per selected mode). Leave empty to use GAMDL's default behaviour."
           options={ARTIST_AUTO_SELECT_LABELS}
           selected={artistAutoSelectMulti.value}
           onChange={(selected) => {
@@ -343,7 +343,7 @@ export function QualityTab() {
         />
 
         {musicVideoCompanion.value && (
-          <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+          <div className="p-3 rounded-platform-lg bg-status-warning-bg border border-status-warning">
             <p className="text-xs font-semibold text-status-warning-text mb-1">
               Experimental Feature
             </p>

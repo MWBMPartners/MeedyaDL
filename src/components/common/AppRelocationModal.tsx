@@ -87,7 +87,7 @@ export default function AppRelocationModal() {
         <div className="flex justify-end gap-3 pt-2">
           <button
             type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium text-content-secondary hover:text-content-primary transition-colors disabled:opacity-50"
+            className="px-4 py-2 rounded-platform-lg text-sm font-medium text-content-secondary hover:text-content-primary transition-colors disabled:opacity-50"
             onClick={handleDecline}
             disabled={isMoving}
           >
@@ -95,7 +95,7 @@ export default function AppRelocationModal() {
           </button>
           <button
             type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity disabled:opacity-50"
+            className="px-4 py-2 rounded-platform-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity disabled:opacity-50"
             onClick={handleMove}
             disabled={isMoving}
           >

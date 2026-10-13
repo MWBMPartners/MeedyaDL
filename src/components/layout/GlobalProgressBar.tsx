@@ -173,7 +173,7 @@ export function GlobalProgressBar() {
       <div className="flex items-center gap-2 mb-1">
         {/* Platform icon + track info (left) */}
         <PlatformIcon platform={platform} />
-        <span className="text-[12px] text-content-secondary truncate min-w-0 flex-1">
+        <span className="text-xs text-content-secondary truncate min-w-0 flex-1">
           {activeItem ? itemLabel : 'Waiting…'}
         </span>
         {/* Speed + ETA + percentage (right).
@@ -183,7 +183,7 @@ export function GlobalProgressBar() {
             only fires in the brief gaps where no signal exists at
             all. When it does fire, that's the honest answer — we
             don't fake a percentage we can't measure. */}
-        <span className="text-[12px] text-content-tertiary whitespace-nowrap flex-shrink-0">
+        <span className="text-xs text-content-tertiary whitespace-nowrap flex-shrink-0">
           {speedEta ? `${speedEta} · ` : ''}
           {itemProgress !== null ? `${Math.round(itemProgress)}%` : 'Processing…'}
         </span>
@@ -222,10 +222,10 @@ export function GlobalProgressBar() {
       {/* Lower bar: queue-level progress */}
       <div className="flex items-center gap-2 mb-0.5">
         <PlatformIcon platform={platform} />
-        <span className="text-[12px] text-content-tertiary truncate min-w-0 flex-1">
+        <span className="text-xs text-content-tertiary truncate min-w-0 flex-1">
           {completedItems} of {totalItems} complete
         </span>
-        <span className="text-[12px] text-content-tertiary whitespace-nowrap flex-shrink-0">
+        <span className="text-xs text-content-tertiary whitespace-nowrap flex-shrink-0">
           {queueProgress}%
         </span>
       </div>
