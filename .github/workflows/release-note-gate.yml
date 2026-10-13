@@ -153,10 +153,8 @@ jobs:
     if: startsWith(github.event.pull_request.head.ref, 'release-please--')
     steps:
       # Check out the BASE branch by name (main, as it is when this job
-      # runs), not the PR's merge ref. The notes file is normally merged
-      # to main by a separate PR, so main is where it is usually found.
-      # The next step covers the other way it can arrive: committed on the
-      # release PR's own branch (as for 1.10.9).
+      # runs), not the PR's merge ref. The next step then builds a FRESH
+      # merge of that main with the PR and takes the notes file from it.
       #
       # The default checkout (the PR's merge ref) went stale on #1345:
       # GitHub built that trial merge before the notes landed on main and
@@ -172,12 +170,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # If the release PR itself adds or changes the notes file, that copy
-      # is the one that will be released, so check it instead of main's.
-      # "Changes" means it differs from where the PR branched off main; a
-      # copy the branch merely inherited from an older main is ignored,
-      # so main's newer copy is checked.
-      - name: Use the release PR's own notes file if it adds or changes one
+      # Build the merge of today's main and the PR in memory (no files are
+      # touched) and put the notes file exactly as it would be after
+      # merging into the working tree, for the next step to check. This
+      # covers every way the notes can arrive or go: merged to main by a
+      # separate PR, committed on the release branch itself (as for
+      # 1.10.9), changed on both, or deleted on the release branch (then
+      # the file is removed here, so the next step fails).
+      #
+      # The PR head is fetched without credentials, which works because
+      # this repository is public. If it ever goes private, this fetch
+      # fails and the check turns red rather than passing.
+      - name: Take the notes file from a fresh merge of main and the PR
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -188,15 +192,24 @@ jobs:
           NOTES_FILE=".github/release-notes/v${VER}.md"
 
           git fetch --no-tags --quiet origin "$HEAD_SHA"
-          BRANCH_POINT=$(git merge-base HEAD "$HEAD_SHA")
 
-          if git cat-file -e "${HEAD_SHA}:${NOTES_FILE}" 2>/dev/null \
-             && ! git diff --quiet "$BRANCH_POINT" "$HEAD_SHA" -- "$NOTES_FILE"; then
+          # Exit status 1 means some file conflicts; the merged tree is
+          # still written. Only a conflict in the notes file matters here.
+          if MERGE_OUT=$(git merge-tree --write-tree --name-only HEAD "$HEAD_SHA"); then
+            :
+          elif printf '%s\n' "$MERGE_OUT" | tail -n +2 | grep -qxF "$NOTES_FILE"; then
+            echo "::error::${NOTES_FILE} was changed on both main and the release PR in ways that conflict. Settle it on one side, then re-run this check."
+            exit 1
+          fi
+          MERGED_TREE=$(printf '%s\n' "$MERGE_OUT" | head -1)
+
+          if git cat-file -e "${MERGED_TREE}:${NOTES_FILE}" 2>/dev/null; then
             mkdir -p "$(dirname "$NOTES_FILE")"
-            git show "${HEAD_SHA}:${NOTES_FILE}" > "$NOTES_FILE"
-            echo "The release PR adds or changes ${NOTES_FILE}; checking its copy."
+            git show "${MERGED_TREE}:${NOTES_FILE}" > "$NOTES_FILE"
+            echo "Checking ${NOTES_FILE} as it will be after merging into today's main."
           else
-            echo "Checking ${NOTES_FILE} as it is on the base branch now."
+            rm -f "$NOTES_FILE"
+            echo "${NOTES_FILE} will not exist after merging into today's main."
           fi
 
       - name: Require a populated tier-1 notes file for this version
