@@ -41,6 +41,7 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | lofty | 0.22 | MIT/Apache-2.0 | Audio metadata reading/writing (FLAC, MP3, OGG) |
 | log | 0.4 | MIT/Apache-2.0 | Logging facade |
 | mp4ameta | 0.13 | MIT/Apache-2.0 | M4A metadata reading/writing |
+| pbkdf2 | 0.12 | MIT/Apache-2.0 | Slow, salted check of the developer-access passphrase |
 | regex | 1.12 | MIT/Apache-2.0 | Regular expression parsing |
 | reqwest | 0.12-0.13 | MIT/Apache-2.0 | HTTP client |
 | rookie | 0.5 | — | Browser cookie extraction |
