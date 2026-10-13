@@ -22,7 +22,8 @@
 // The app checks a typed passphrase by repeating the same calculation
 // (`passphrase_is_accepted` in `src-tauri/src/commands/credentials.rs`), so the
 // format here and the format there must stay the same. A Rust test in that file
-// holds a record made by this script to prove they agree.
+// holds a record made by the same calculation in Node (with a fixed salt) to
+// prove they agree.
 //
 // Why so many rounds: the record ships inside every copy of the app, so anyone
 // can copy it out and guess passphrases on their own computer. Each round makes
