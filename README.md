@@ -41,7 +41,7 @@
 - **Lyrics format fallback** — if the primary lyrics format isn't available for some tracks, automatically tries alternatives (Audio: TTML → LRC → SRT; Video: TTML → SRT → LRC)
 - **Lyrics embed + sidecar** — embed lyrics in file metadata AND save as separate LRC, SRT, or TTML files
 - **Cover art** — save artwork as JPG, PNG, or raw format at full resolution. Optional cross-service upgrade (off by default) checks Deezer's public catalogue, matched by the release barcode, and swaps in Deezer's picture only when it has more pixels than the one already saved
-- **Rich metadata tagging** powered by GAMDL
+- **Rich metadata tagging**
 - **Comprehensive metadata enrichment** — 30+ freeform atoms per file including: codec/source/channel tags, ISRC, UPC, genre, advisory ratings, artist IDs, record label, copyright, release dates, Apple Digital Master flag, composer, editorial notes, and animated artwork URLs. All sourced from the Apple Music API and written in dual namespaces (`com.apple.iTunes` for player compatibility + `MeedyaMeta` for MeedyaDL attribution) with industry-standard alternative names (`LABEL`, `COPYRIGHT`, `COMPILATION`, `TOTALTRACKS`)
 - **Config-driven tag system** — tag definitions live in `tags.toml`; adding new metadata tags requires only editing the TOML file — zero code changes
 - **AcoustID fingerprinting** (opt-in) — Chromaprint audio fingerprints with acoustid.org lookup for MusicBrainz identification. Built-in API key included in release builds; no registration required
