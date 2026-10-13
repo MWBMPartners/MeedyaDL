@@ -3398,6 +3398,7 @@ dependencies = [
  "log",
  "meedya-core",
  "mp4ameta",
+ "pbkdf2",
  "regex",
  "reqwest 0.12.28",
  "rookie",

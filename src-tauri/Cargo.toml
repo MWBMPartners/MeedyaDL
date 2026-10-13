@@ -242,6 +242,11 @@ tar = "0.4"
 # @see https://docs.rs/sha2/ -- sha2 crate documentation
 sha2 = "0.10"
 
+# pbkdf2 -- PBKDF2-HMAC-SHA256, the deliberately slow, salted check for the
+# developer-access passphrase (`commands/credentials.rs`). Already in the
+# dependency tree through other crates, so this adds nothing new to the build.
+pbkdf2 = { version = "0.12", features = ["hmac"] }
+
 # ---- Configuration ----
 
 # configparser -- INI-style configuration file parser.
