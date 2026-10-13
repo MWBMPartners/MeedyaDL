@@ -40,7 +40,11 @@ polish-pass. Two files conflicted, both the Settings > General language list:
   using polish-pass's copy in `src/lib/i18n.ts`, which stays (it has its own tests). Two
   bcp47 tests now save French as the choice so French is listed.
 - Checked: type-check, lint, all 1,036 Vitest tests, all 13 `tools/audit-checks` in `--strict`.
-  Rust tests (`cargo test --locked`): still running when this was written — see the next handoff update.
+  Rust: `cargo test --locked` passes (2,205 main-suite tests plus the smaller suites) and CI's
+  `cargo clippy -- -D warnings` passes, both on Linux after installing the GTK/WebKit build
+  libraries. A stricter local run (`--all-targets`, which CI does not use) flags one unused test
+  helper, `only_stream()` in `music_video_subtitle_service.rs`; it is identical on the original
+  bcp47 branch, so it predates this merge. Worth tidying when that work is next touched.
 
 **Old branches:** `feature/bcp47-language-policy` and `feature/polish-pass` are fully contained
 in `work-in-progress` and can be deleted. This cloud session's git proxy refuses branch
