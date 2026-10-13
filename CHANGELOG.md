@@ -6,9 +6,19 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(security)** Slow passphrase check, package fixes, and code scanning findings (#1341)
+
+- fast-uri 3.1.8, and postcss-selector-parser 7.1.6 under the Tailwind typography plugin (Dependabot #61). Build tools only; built stylesheets byte-for-byte identical.
+  - Developer-access passphrase checked with PBKDF2-SHA256 (600,000 rounds, random salt) instead of one SHA-256 hash (code scanning #29). The old form is refused; regenerate the DEV_ACCESS_HASH secret with scripts/make-dev-access-hash.mjs. Brings the #1162 empty-passphrase fix to main, whose shipped builds could be unlocked with an empty passphrase.
+  - Cookie test reads cookies as a site sends them (#30); support message names its values one way (#31).
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.10.9 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ### 🔄 CI/CD
