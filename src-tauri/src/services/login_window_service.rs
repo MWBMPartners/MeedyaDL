@@ -944,21 +944,37 @@ mod tests {
         assert!(!line.starts_with(".."));
     }
 
-    /// Verifies that insecure cookies have FALSE for the secure flag.
-    /// Note: `.secure(false)` is intentional — this test validates that the
-    /// Netscape format output correctly reports "FALSE" for non-secure cookies.
+    /// Verifies that a cookie which is not secure is written with FALSE in the
+    /// secure field — both when the site sent no `Secure` attribute at all and
+    /// when the flag is explicitly off.
+    ///
+    /// The cookies are read from cookie text, the way a site sends them, rather
+    /// than made with `Cookie::build(..).secure(false).build()`. That is how the
+    /// app really meets cookies: it never creates any of its own, it only copies
+    /// the ones Apple's sign-in page set into the file GAMDL reads, and it must
+    /// copy the secure flag exactly as the site set it. Building an insecure
+    /// cookie in code made CodeQL's `rust/insecure-cookie` check read this test
+    /// as code that creates an insecure cookie (code scanning alert #30). The
+    /// check still watches every real place a cookie could be built.
     #[test]
     fn insecure_cookie_has_false_flag() {
-        let cookie = cookie::Cookie::build(("n", "v"))
-            .domain(".apple.com")
-            .path("/")
-            .secure(false)
-            .build();
+        // The site sent no Secure attribute: the flag is simply absent.
+        let unset =
+            cookie::Cookie::parse("n=v; Domain=.apple.com; Path=/").expect("valid cookie text");
+        assert_eq!(unset.secure(), None);
 
-        let line = format_netscape_line(&cookie);
-        // The 4th field (secure) should be FALSE
-        let fields: Vec<&str> = line.split('\t').collect();
-        assert_eq!(fields[3], "FALSE");
+        // The flag is present but explicitly off.
+        let mut off = cookie::Cookie::parse("n=v; Domain=.apple.com; Path=/; Secure")
+            .expect("valid cookie text");
+        off.set_secure(false);
+        assert_eq!(off.secure(), Some(false));
+
+        for cookie in [unset, off] {
+            let line = format_netscape_line(&cookie);
+            // The 4th field (secure) should be FALSE
+            let fields: Vec<&str> = line.split('\t').collect();
+            assert_eq!(fields[3], "FALSE", "line: {line}");
+        }
     }
 
     /// Verifies that session cookies (no expiry) get timestamp 0.

@@ -426,26 +426,35 @@ in a release build, cause a deliberate crash, and check the project for it.
 
 | Secret | Description |
 |--------|-------------|
-| `DEV_ACCESS_HASH` | The SHA-256 hash of the passphrase that unlocks the hidden developer tools, read via `option_env!("DEV_ACCESS_HASH")`. **The passphrase itself never goes in a secret and never reaches the binary** — only its hash does. |
+| `DEV_ACCESS_HASH` | A record made from the passphrase that unlocks the hidden developer tools, read via `option_env!("DEV_ACCESS_HASH")`. **The passphrase itself never goes in a secret and never reaches the binary** — only this record does. |
 
-**Shape**: 64 lowercase hexadecimal characters.
+**Shape**: one line, four parts separated by `$`:
 
-Generate it from the passphrase you have chosen:
+```
+pbkdf2-sha256$600000$<32 hex characters of salt>$<64 hex characters of key>
+```
+
+Make it from the passphrase you have chosen (it asks twice and shows nothing
+as you type):
 
 ```bash
-# macOS / Linux. Note the -n: without it you hash a trailing newline as well,
-# and the passphrase will never match.
-printf '%s' 'your chosen passphrase' | shasum -a 256 | cut -d" " -f1
+node scripts/make-dev-access-hash.mjs
 ```
 
-Example, so you can check your command produces the right shape — this is the
-hash of the word `example`, which is obviously not a passphrase to use:
+Then set `DEV_ACCESS_HASH` to the whole line it prints. Running it again gives a
+different line for the same passphrase (a new random salt); either one works.
 
-```
-50d858e0985ecc7f60418aaf0cc5ab587f42c2570a884095a9e8ccacd0f6545c
-```
-
-Then set `DEV_ACCESS_HASH` to that 64-character string.
+**Why not a plain SHA-256 hash any more** (code scanning alert #29, 13 Oct
+2026): this value ships inside every copy of the app, so anyone can copy it out
+and guess passphrases on their own computer, where the app's five-tries-a-minute
+limit does not apply. One SHA-256 hash lets a graphics card try billions of
+guesses a second. The record is PBKDF2-SHA256 with 600,000 rounds and a random
+salt, which makes every guess hundreds of thousands of times more expensive and
+stops one precomputed list working against every build. **A value in the old
+64-character SHA-256 form is refused** — developer access stays locked until the
+secret is regenerated with the script — so a fast hash can never quietly stay in
+use. The app also refuses a record with fewer than 100,000 or more than
+10,000,000 rounds, or a salt shorter than 16 bytes.
 
 **When this is unset there is no way in at all**, and that is deliberate. It
 used to fall back to the hash of the empty string, on the reasoning that only an

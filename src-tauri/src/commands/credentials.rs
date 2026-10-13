@@ -467,24 +467,51 @@ pub async fn clear_webplayer_token() -> Result<(), String> {
 // Developer Access
 // ============================================================
 
-/// Compile-time developer-access passphrase hash (SHA-256), injected via a CI
-/// secret (`DEV_ACCESS_HASH`) in production builds. The plaintext passphrase
-/// never appears in the binary.
+/// The developer-access passphrase record, injected at build time through the
+/// `DEV_ACCESS_HASH` secret. The passphrase itself never appears in the
+/// binary; only this record does.
 ///
-/// **When this is `None`, developer access cannot be unlocked at all.**
+/// **When this is `None` (or empty), developer access cannot be unlocked at
+/// all.** It used to fall back to the hash of an empty string, which turned
+/// "not configured" into "pressing the button without typing anything works"
+/// (#1162). No configured record now means no way in.
 ///
-/// That wording is deliberate, and it is a correction. This used to fall back
-/// to the SHA-256 of the empty string when no hash was supplied, on the
-/// reasoning that "only an empty passphrase would match", which was treated as
-/// equivalent to being switched off. It was not. An empty passphrase is the
-/// starting state of the text box in the prompt — the easiest thing in the
-/// world to submit — and nothing on either side rejected it. So every build
-/// that shipped without the secret configured (which, as of #1162, was every
-/// build we had ever shipped) could be unlocked by doing the hidden key
-/// sequence and pressing the button without typing anything.
+/// **Format** (see `scripts/make-dev-access-hash.mjs`, which writes it):
 ///
-/// The rule now is simply: no configured hash means no way in. See #1162.
+/// ```text
+/// pbkdf2-sha256$<rounds>$<salt as hex>$<derived key as hex>
+/// ```
+///
+/// Why a slow, salted check rather than one SHA-256 hash: this record ships
+/// inside every copy of the app, so anyone can pull it out and guess offline,
+/// where the five-a-minute limit in [`activate_dev_access`] does not apply.
+/// One SHA-256 hash lets a graphics card try billions of guesses a second;
+/// PBKDF2 with hundreds of thousands of rounds makes each guess that many
+/// times more expensive. The salt stops one precomputed list working against
+/// every build. A record in the old single-SHA-256 form is refused outright,
+/// so a fast hash can never quietly stay in use (CodeQL `rust/weak-sensitive-
+/// data-hashing`).
 const DEV_ACCESS_HASH: Option<&str> = option_env!("DEV_ACCESS_HASH");
+
+/// The only scheme a passphrase record may use. See [`DEV_ACCESS_HASH`].
+const DEV_ACCESS_SCHEME: &str = "pbkdf2-sha256";
+
+/// The fewest rounds a passphrase record is allowed to ask for. A record with
+/// fewer is refused, so a weak record cannot be configured by mistake. The
+/// script that writes records uses 600,000, OWASP's figure for PBKDF2-SHA256.
+const DEV_ACCESS_MIN_ROUNDS: u32 = 100_000;
+
+/// The most rounds a passphrase record may ask for. A record with more is
+/// refused rather than run: a mistyped build secret with a few extra digits
+/// would otherwise hold a thread for minutes or hours on every unlock attempt,
+/// which looks like a hang instead of a refusal.
+const DEV_ACCESS_MAX_ROUNDS: u32 = 10_000_000;
+
+/// The shortest salt, in bytes, a passphrase record may carry.
+const DEV_ACCESS_MIN_SALT_BYTES: usize = 16;
+
+/// The length, in bytes, of the derived key a passphrase record stores.
+const DEV_ACCESS_KEY_BYTES: usize = 32;
 
 /// Keychain account name for the developer access sentinel.
 const DEV_ACCESS_KEYCHAIN_KEY: &str = "dev_access_token";
@@ -514,61 +541,142 @@ pub fn check_dev_access(app: tauri::AppHandle) -> bool {
     matches!(entry.get_password(), Ok(val) if val == DEV_ACCESS_SENTINEL)
 }
 
+/// A passphrase record read out of [`DEV_ACCESS_HASH`].
+struct DevAccessRecord {
+    /// How many PBKDF2 rounds to run.
+    rounds: u32,
+    /// The random salt the record was made with.
+    salt: Vec<u8>,
+    /// The key PBKDF2 produced from the real passphrase.
+    key: Vec<u8>,
+}
+
+/// Turns a string of hexadecimal digits into bytes.
+///
+/// Returns `None` for an odd length or anything that is not a hex digit, so a
+/// damaged record is refused rather than half-read. The digit check is needed:
+/// `u8::from_str_radix` on its own would accept a pair such as `+1`.
+fn decode_hex(text: &str) -> Option<Vec<u8>> {
+    if !text.len().is_multiple_of(2) || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    text.as_bytes()
+        .chunks(2)
+        .map(|pair| {
+            let digits = std::str::from_utf8(pair).ok()?;
+            u8::from_str_radix(digits, 16).ok()
+        })
+        .collect()
+}
+
+/// Reads a passphrase record, or returns `None` if it is not one this build
+/// accepts: wrong scheme (including the old single-SHA-256 form), too few or
+/// too many rounds, too short a salt, a key of the wrong length, or damaged
+/// text.
+fn parse_dev_access_record(text: &str) -> Option<DevAccessRecord> {
+    let mut parts = text.trim().split('$');
+    let (Some(scheme), Some(rounds), Some(salt), Some(key), None) = (
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return None;
+    };
+    if scheme != DEV_ACCESS_SCHEME {
+        return None;
+    }
+    let rounds: u32 = rounds.parse().ok()?;
+    let salt = decode_hex(salt)?;
+    let key = decode_hex(key)?;
+    if !(DEV_ACCESS_MIN_ROUNDS..=DEV_ACCESS_MAX_ROUNDS).contains(&rounds)
+        || salt.len() < DEV_ACCESS_MIN_SALT_BYTES
+        || key.len() != DEV_ACCESS_KEY_BYTES
+    {
+        return None;
+    }
+    Some(DevAccessRecord { rounds, salt, key })
+}
+
+/// Compares two byte strings without stopping at the first difference, so the
+/// time taken does not hint at how much of a guess was right.
+fn same_bytes(a: &[u8], b: &[u8]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |diff, (x, y)| diff | (x ^ y)) == 0
+}
+
 /// Decides whether a typed passphrase unlocks developer access.
 ///
 /// Split out from [`activate_dev_access`] so the rules can be tested on their
 /// own — the command itself needs a running app and writes to the OS keychain,
 /// neither of which belongs in a unit test.
 ///
-/// Two things are refused before the passphrase is even compared, both added
-/// by #1162:
+/// Refused, in this order:
 ///
 /// 1. **An empty entry.** Blank, or nothing but whitespace. The prompt's text
 ///    box starts empty, so accepting an empty value would mean the gate opens
-///    by pressing the button. Trimmed, so spaces do not sneak past.
-/// 2. **A build with no passphrase configured.** If no hash was supplied when
-///    this binary was built, there is no way in at all. It used to fall back to
-///    the hash of an empty string, which quietly turned "not configured" into
-///    "the empty passphrase works".
+///    by pressing the button (#1162).
+/// 2. **A build with no passphrase configured.** No way in at all (#1162).
+/// 3. **A record this build does not accept** — see
+///    [`parse_dev_access_record`]. Logged as a warning, because it means the
+///    build secret needs regenerating, not that someone typed it wrong.
+/// 4. **A passphrase whose PBKDF2 key does not match the record.**
+///
+/// Slow on purpose (see [`DEV_ACCESS_HASH`]), so call it off the async
+/// runtime's worker threads.
 ///
 /// # Arguments
 ///
-/// * `passphrase` -- What the user typed.
-/// * `configured` -- The SHA-256 hash built into this binary, if any.
+/// * `passphrase` -- What the user typed, compared exactly (not trimmed).
+/// * `configured` -- The passphrase record built into this binary, if any.
 fn passphrase_is_accepted(passphrase: &str, configured: Option<&str>) -> bool {
-    use sha2::{Digest, Sha256};
-
     // Rule 1: nothing typed means nothing unlocked.
     if passphrase.trim().is_empty() {
         return false;
     }
 
-    // Rule 2: no passphrase configured for this build means no way in.
-    let Some(expected) = configured else {
+    // Rule 2: no passphrase configured for this build means no way in. An
+    // uncreated build secret arrives as an empty string, so treat that the same.
+    let Some(configured) = configured.filter(|c| !c.trim().is_empty()) else {
         log::debug!("dev access: no passphrase configured for this build — refused");
         return false;
     };
 
-    // Compare the hash of what was typed against the hash built in.
-    format!("{:x}", Sha256::digest(passphrase.as_bytes())) == expected
+    // Rule 3: only a record in the current, slow form is accepted.
+    let Some(record) = parse_dev_access_record(configured) else {
+        log::warn!(
+            "dev access: the passphrase record built into this app is not in the \
+             expected form, so developer access cannot be unlocked. Regenerate the \
+             DEV_ACCESS_HASH build secret with scripts/make-dev-access-hash.mjs."
+        );
+        return false;
+    };
+
+    // Rule 4: derive a key from what was typed and compare it with the record.
+    let mut derived = vec![0u8; record.key.len()];
+    pbkdf2::pbkdf2_hmac::<sha2::Sha256>(
+        passphrase.as_bytes(),
+        &record.salt,
+        record.rounds,
+        &mut derived,
+    );
+    same_bytes(&derived, &record.key)
 }
 
 /// Activates developer access after validating the passphrase.
 ///
 /// **Frontend caller:** `activateDevAccess(passphrase)` in `src/lib/tauri-commands.ts`
 ///
-/// The passphrase is checked by [`passphrase_is_accepted`], which refuses an
-/// empty entry and refuses everything when this build has no configured
-/// passphrase (#1162), then compares the SHA-256 hash of what was typed against
-/// the hash built into the binary. On success, stores a keychain sentinel and enables
-/// `dev_access_enabled` in settings. Returns whether activation succeeded.
+/// The passphrase is checked by [`passphrase_is_accepted`]. On success, stores
+/// a keychain sentinel and enables `dev_access_enabled` in settings. Returns
+/// whether activation succeeded.
 ///
 /// On failure, returns `false` silently (no error hint to prevent brute-forcing).
 ///
-/// **Rate-limited** at 5 attempts per 60-second sliding window (#940). Plain
-/// SHA-256 with no salt and no throttle is wordlist-trivial for any code with
-/// IPC access (post-XSS, hostile markdown, compromised npm dep); the limit
-/// turns thousands-of-attempts-per-second brute force into ≤5/min. Legit users
+/// **Rate-limited** at 5 attempts per 60-second sliding window (#940), which
+/// slows guessing through the app itself (post-XSS, hostile markdown, a
+/// compromised npm dependency). Guessing offline against the record pulled out
+/// of the binary is slowed by the record's PBKDF2 rounds instead. Legit users
 /// type the passphrase by hand so the cap has zero UX cost. Mirrors the
 /// existing rate-limiter pattern used by `start_download`,
 /// `import_cookies_from_browser`, and `check_all_updates`.
@@ -583,11 +691,15 @@ pub async fn activate_dev_access(app: tauri::AppHandle, passphrase: String) -> b
         return false;
     }
 
-    // Decide whether the typed passphrase is accepted. Kept in a separate,
-    // pure function so the two refusal rules added by #1162 can be tested
-    // directly — this command takes an `AppHandle` and writes to the keychain,
-    // so it cannot be exercised in a unit test.
-    if !passphrase_is_accepted(&passphrase, DEV_ACCESS_HASH) {
+    // The check runs hundreds of thousands of hash rounds on purpose, which can
+    // take a second or two on a slow machine, so it runs on a blocking thread
+    // rather than holding up the async runtime. A failed thread counts as "no".
+    let accepted = tauri::async_runtime::spawn_blocking(move || {
+        passphrase_is_accepted(&passphrase, DEV_ACCESS_HASH)
+    })
+    .await
+    .unwrap_or(false);
+    if !accepted {
         return false;
     }
 
@@ -727,30 +839,35 @@ mod tests {
         }
     }
 
-    // ── Developer-access passphrase rules (#1162) ──────────────────────
-    //
-    // These cover the hole found on 2026-09-08: every shipped build could be
-    // unlocked by doing the hidden key sequence and pressing the button with
-    // the box left empty, because "no passphrase configured" fell back to
-    // accepting the hash of an empty string.
+    // ---- Developer access passphrase ----
 
-    /// SHA-256 of the empty string — the value the old code fell back to.
-    /// Written out here rather than in the source under test, so no hash
-    /// literal sits in shipped code.
-    fn hash_of_empty() -> String {
-        use sha2::{Digest, Sha256};
-        format!("{:x}", Sha256::digest(b""))
-    }
+    /// A record for the passphrase `a-real-passphrase`, made OUTSIDE Rust with
+    /// Node's own PBKDF2 — the same calculation `scripts/make-dev-access-hash.mjs`
+    /// does (fixed salt here so the test is repeatable, and the minimum rounds
+    /// so it stays quick):
+    ///
+    /// ```text
+    /// node -e "const c=require('crypto');const s=Buffer.from('000102030405060708090a0b0c0d0e0f','hex');
+    ///   console.log(c.pbkdf2Sync('a-real-passphrase',s,100000,32,'sha256').toString('hex'))"
+    /// ```
+    ///
+    /// If this test ever fails, the script and the app no longer agree.
+    const REAL_RECORD: &str = "pbkdf2-sha256$100000$000102030405060708090a0b0c0d0e0f$\
+                               e1127b2a122aebc5472aca32a3d89fbceaf7acf51884ac5e9f9a8d7f219e6967";
 
-    fn hash_of(text: &str) -> String {
-        use sha2::{Digest, Sha256};
-        format!("{:x}", Sha256::digest(text.as_bytes()))
+    /// Writes out a record with chosen parts, for the tests that check the
+    /// record rules. Those rules refuse a record before any hashing happens, so
+    /// these records reuse the real record's key: only the part under test
+    /// differs, and nothing is ever hashed with a made-up salt.
+    fn record_with(rounds: impl std::fmt::Display, salt_hex: &str) -> String {
+        let real_key = REAL_RECORD.rsplit('$').next().expect("record has a key");
+        format!("pbkdf2-sha256${rounds}${salt_hex}${real_key}")
     }
 
     #[test]
     fn empty_passphrase_is_refused_when_nothing_is_configured() {
-        // This is the exact hole: a build with no configured passphrase, and a
-        // user who pressed the button without typing anything.
+        // The #1162 hole: a build with no configured passphrase, and a user who
+        // pressed the button without typing anything.
         assert!(!passphrase_is_accepted("", None));
     }
 
@@ -759,42 +876,133 @@ mod tests {
         // A box containing only spaces is still an empty box.
         assert!(!passphrase_is_accepted("   ", None));
         assert!(!passphrase_is_accepted("\t \n", None));
+        assert!(!passphrase_is_accepted("   ", Some(REAL_RECORD)));
     }
 
     #[test]
     fn nothing_unlocks_a_build_with_no_configured_passphrase() {
-        // Not just the empty case — when no passphrase was built in, there is
-        // no way in at all.
-        assert!(!passphrase_is_accepted("correct horse battery staple", None));
+        // Not just the empty case: no record built in means no way in at all.
+        assert!(!passphrase_is_accepted(
+            "correct horse battery staple",
+            None
+        ));
         assert!(!passphrase_is_accepted("a", None));
     }
 
     #[test]
-    fn empty_passphrase_is_refused_even_if_the_empty_hash_were_configured() {
-        // Belt and braces. Even if someone configured the hash of an empty
-        // string by accident, pressing the button without typing must not
-        // unlock anything — an empty box is the prompt's starting state, not a
-        // deliberate act.
-        let empty_hash = hash_of_empty();
-        assert!(!passphrase_is_accepted("", Some(&empty_hash)));
-        assert!(!passphrase_is_accepted("   ", Some(&empty_hash)));
+    fn an_empty_build_secret_counts_as_not_configured() {
+        // A build secret that was never created arrives as an empty string.
+        assert!(!passphrase_is_accepted("a-real-passphrase", Some("")));
+        assert!(!passphrase_is_accepted("a-real-passphrase", Some("  ")));
     }
 
     #[test]
     fn the_configured_passphrase_is_accepted() {
-        // The feature still works when it is set up properly.
-        let secret = "a-real-passphrase";
-        let configured = hash_of(secret);
-        assert!(passphrase_is_accepted(secret, Some(&configured)));
+        // The feature still works when it is set up properly, using a record
+        // made by Node, so the script and the app are proven to agree.
+        assert!(passphrase_is_accepted(
+            "a-real-passphrase",
+            Some(REAL_RECORD)
+        ));
     }
 
     #[test]
     fn a_wrong_passphrase_is_refused() {
-        let configured = hash_of("a-real-passphrase");
-        assert!(!passphrase_is_accepted("not-the-passphrase", Some(&configured)));
+        assert!(!passphrase_is_accepted(
+            "not-the-passphrase",
+            Some(REAL_RECORD)
+        ));
         // Case matters, and so does surrounding whitespace: only the empty
         // check trims, the comparison itself does not.
-        assert!(!passphrase_is_accepted("A-Real-Passphrase", Some(&configured)));
-        assert!(!passphrase_is_accepted(" a-real-passphrase ", Some(&configured)));
+        assert!(!passphrase_is_accepted(
+            "A-Real-Passphrase",
+            Some(REAL_RECORD)
+        ));
+        assert!(!passphrase_is_accepted(
+            " a-real-passphrase ",
+            Some(REAL_RECORD)
+        ));
+    }
+
+    #[test]
+    fn the_old_fast_hash_form_is_refused_even_with_the_right_passphrase() {
+        // A record in the old single-SHA-256 form must never unlock anything,
+        // so a fast hash cannot quietly stay in use after this change.
+        use sha2::{Digest, Sha256};
+        let old_form = format!("{:x}", Sha256::digest(b"a-real-passphrase"));
+        assert!(!passphrase_is_accepted(
+            "a-real-passphrase",
+            Some(&old_form)
+        ));
+    }
+
+    #[test]
+    fn a_record_with_too_few_rounds_is_refused() {
+        let weak = record_with(
+            DEV_ACCESS_MIN_ROUNDS - 1,
+            "000102030405060708090a0b0c0d0e0f",
+        );
+        assert!(parse_dev_access_record(&weak).is_none());
+        assert!(!passphrase_is_accepted("a-real-passphrase", Some(&weak)));
+    }
+
+    #[test]
+    fn a_record_with_too_many_rounds_is_refused() {
+        // Built by hand rather than derived: running this many rounds is
+        // exactly the hang the ceiling exists to prevent.
+        let too_many = format!(
+            "pbkdf2-sha256${}$000102030405060708090a0b0c0d0e0f${}",
+            u64::from(DEV_ACCESS_MAX_ROUNDS) + 1,
+            "00".repeat(32)
+        );
+        assert!(parse_dev_access_record(&too_many).is_none());
+        let at_ceiling = format!(
+            "pbkdf2-sha256${DEV_ACCESS_MAX_ROUNDS}$000102030405060708090a0b0c0d0e0f${}",
+            "00".repeat(32)
+        );
+        assert!(parse_dev_access_record(&at_ceiling).is_some());
+    }
+
+    #[test]
+    fn a_record_with_a_short_salt_is_refused() {
+        let short = record_with(DEV_ACCESS_MIN_ROUNDS, "0001020304050607");
+        assert!(parse_dev_access_record(&short).is_none());
+    }
+
+    #[test]
+    fn damaged_or_foreign_records_are_refused() {
+        let derived_hex = "e1127b2a122aebc5472aca32a3d89fbceaf7acf51884ac5e9f9a8d7f219e6967";
+        let salt = "000102030405060708090a0b0c0d0e0f";
+        for bad in [
+            // Wrong scheme name.
+            format!("pbkdf2-sha512$100000${salt}${derived_hex}"),
+            // Missing field.
+            format!("pbkdf2-sha256$100000${derived_hex}"),
+            // Extra field.
+            format!("pbkdf2-sha256$100000${salt}${derived_hex}$extra"),
+            // Rounds not a number.
+            format!("pbkdf2-sha256$lots${salt}${derived_hex}"),
+            // Key one byte short.
+            format!("pbkdf2-sha256$100000${salt}${}", &derived_hex[..62]),
+            // Not hexadecimal.
+            format!("pbkdf2-sha256$100000${salt}${}zz", &derived_hex[..62]),
+            // Odd number of hex digits.
+            format!("pbkdf2-sha256$100000${salt}${derived_hex}0"),
+        ] {
+            assert!(parse_dev_access_record(&bad).is_none(), "accepted: {bad}");
+        }
+        assert!(parse_dev_access_record(REAL_RECORD).is_some());
+    }
+
+    #[test]
+    fn hex_decoding_and_byte_comparison() {
+        assert_eq!(decode_hex("00ff10"), Some(vec![0x00, 0xff, 0x10]));
+        assert_eq!(decode_hex("ABcd"), Some(vec![0xab, 0xcd]));
+        assert_eq!(decode_hex(""), Some(vec![]));
+        assert_eq!(decode_hex("abc"), None);
+        assert_eq!(decode_hex("+1"), None);
+        assert!(same_bytes(b"abc", b"abc"));
+        assert!(!same_bytes(b"abc", b"abd"));
+        assert!(!same_bytes(b"abc", b"ab"));
     }
 }

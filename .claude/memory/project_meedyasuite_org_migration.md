@@ -46,7 +46,7 @@ Grep'd from `.github/workflows/`:
 
 **Not yet wired in CI but referenced in code via `option_env!`:**
 - `MUSICKIT_DEVELOPER_TOKEN` (compile-time embedded Apple Music JWT for premium features)
-- `DEV_ACCESS_HASH` (SHA-256 hash for Konami dev-access sentinel)
+- `DEV_ACCESS_HASH` (PBKDF2-SHA256 record for the Konami dev-access gate, made by `scripts/make-dev-access-hash.mjs`; an old SHA-256 value is refused since Oct 2026)
 - `SENTRY_DSN` (optional)
 
 These three will need wiring at the same time as the migration if they get integrated into CI.
