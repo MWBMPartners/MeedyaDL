@@ -102,6 +102,21 @@ ignore = [
     # paste — unmaintained (transitive dependency from lofty, used for ReplayGain tagging)
     "RUSTSEC-2024-0436", # paste — unmaintained (archived by dtolnay, no security issue)
 
+    # unsafe-libyaml — unmaintained (archived by dtolnay on 2024-03-25; the
+    # advisory itself was only published in October 2026, which is when it
+    # started failing CI on every alpha PR). It is not a reported
+    # vulnerability, only a notice that bugs will not be fixed upstream.
+    # It arrives via `serde_yaml -> meedya-lyrics` (MeedyaSuite-core), which
+    # writes the opt-in, off-by-default Lyricsfile (`.lyrics`) sidecar — so,
+    # like `paste` above, it is not something MeedyaDL can swap out on its
+    # own. The real fix is for `meedya-lyrics` to move to a maintained YAML
+    # library (the advisory suggests `serde-saphyr`); remove this entry when
+    # that lands and the lockfile no longer contains unsafe-libyaml.
+    # Tracked in #1335. Like `paste`, this sits outside carve-out (a) as
+    # written above (that one names Tauri only); #1335 also covers widening
+    # that wording to "a dependency MeedyaDL cannot replace on its own".
+    "RUSTSEC-2024-0449", # unsafe-libyaml — unmaintained (via serde_yaml -> meedya-lyrics)
+
     # glib — VariantStrIter unsoundness in Iterator / DoubleEndedIterator
     # impls. Removed from the tree at some point during the Tauri dependency
     # churn (cargo-deny reports "advisory-not-detected"); the ignore is
