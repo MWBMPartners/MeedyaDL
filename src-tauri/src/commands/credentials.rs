@@ -855,13 +855,13 @@ mod tests {
     const REAL_RECORD: &str = "pbkdf2-sha256$100000$000102030405060708090a0b0c0d0e0f$\
                                e1127b2a122aebc5472aca32a3d89fbceaf7acf51884ac5e9f9a8d7f219e6967";
 
-    /// Builds a record in Rust with a chosen number of rounds and salt, for the
-    /// tests that check the record rules rather than the calculation.
-    fn record_for(passphrase: &str, rounds: u32, salt: &[u8]) -> String {
-        let mut key = [0u8; 32];
-        pbkdf2::pbkdf2_hmac::<sha2::Sha256>(passphrase.as_bytes(), salt, rounds, &mut key);
-        let hex = |bytes: &[u8]| bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        format!("pbkdf2-sha256${rounds}${}${}", hex(salt), hex(&key))
+    /// Writes out a record with chosen parts, for the tests that check the
+    /// record rules. Those rules refuse a record before any hashing happens, so
+    /// these records reuse the real record's key: only the part under test
+    /// differs, and nothing is ever hashed with a made-up salt.
+    fn record_with(rounds: impl std::fmt::Display, salt_hex: &str) -> String {
+        let real_key = REAL_RECORD.rsplit('$').next().expect("record has a key");
+        format!("pbkdf2-sha256${rounds}${salt_hex}${real_key}")
     }
 
     #[test]
@@ -938,8 +938,10 @@ mod tests {
 
     #[test]
     fn a_record_with_too_few_rounds_is_refused() {
-        let salt = [7u8; 16];
-        let weak = record_for("a-real-passphrase", DEV_ACCESS_MIN_ROUNDS - 1, &salt);
+        let weak = record_with(
+            DEV_ACCESS_MIN_ROUNDS - 1,
+            "000102030405060708090a0b0c0d0e0f",
+        );
         assert!(parse_dev_access_record(&weak).is_none());
         assert!(!passphrase_is_accepted("a-real-passphrase", Some(&weak)));
     }
@@ -963,29 +965,29 @@ mod tests {
 
     #[test]
     fn a_record_with_a_short_salt_is_refused() {
-        let short = record_for("a-real-passphrase", DEV_ACCESS_MIN_ROUNDS, &[7u8; 8]);
+        let short = record_with(DEV_ACCESS_MIN_ROUNDS, "0001020304050607");
         assert!(parse_dev_access_record(&short).is_none());
     }
 
     #[test]
     fn damaged_or_foreign_records_are_refused() {
-        let key = "e1127b2a122aebc5472aca32a3d89fbceaf7acf51884ac5e9f9a8d7f219e6967";
+        let derived_hex = "e1127b2a122aebc5472aca32a3d89fbceaf7acf51884ac5e9f9a8d7f219e6967";
         let salt = "000102030405060708090a0b0c0d0e0f";
         for bad in [
             // Wrong scheme name.
-            format!("pbkdf2-sha512$100000${salt}${key}"),
+            format!("pbkdf2-sha512$100000${salt}${derived_hex}"),
             // Missing field.
-            format!("pbkdf2-sha256$100000${key}"),
+            format!("pbkdf2-sha256$100000${derived_hex}"),
             // Extra field.
-            format!("pbkdf2-sha256$100000${salt}${key}$extra"),
+            format!("pbkdf2-sha256$100000${salt}${derived_hex}$extra"),
             // Rounds not a number.
-            format!("pbkdf2-sha256$lots${salt}${key}"),
+            format!("pbkdf2-sha256$lots${salt}${derived_hex}"),
             // Key one byte short.
-            format!("pbkdf2-sha256$100000${salt}${}", &key[..62]),
+            format!("pbkdf2-sha256$100000${salt}${}", &derived_hex[..62]),
             // Not hexadecimal.
-            format!("pbkdf2-sha256$100000${salt}${}zz", &key[..62]),
+            format!("pbkdf2-sha256$100000${salt}${}zz", &derived_hex[..62]),
             // Odd number of hex digits.
-            format!("pbkdf2-sha256$100000${salt}${key}0"),
+            format!("pbkdf2-sha256$100000${salt}${derived_hex}0"),
         ] {
             assert!(parse_dev_access_record(&bad).is_none(), "accepted: {bad}");
         }
