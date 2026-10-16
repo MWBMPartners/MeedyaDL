@@ -151,3 +151,80 @@ All Meedya applications should read/preserve known schemas and safely retain unk
 ### Central metadata ownership
 
 Use the shared contract's [central metadata catalogue](https://github.com/MeedyaSuite/MeedyaSuite-specs/blob/docs/cross-app-media-contract/standards/CROSS-APP-MEDIA-CONTRACT.md#central-metadata-catalogue-and-meedyasuite-core-ownership) and the [core implementation roadmap](https://github.com/MWBMPartners/MeedyaSuite-core/issues/112). Specs owns the versioned field definitions and standards references; core owns shared typed models, validation, serialization/migrations, preservation/conflict policies and capability APIs. This app consumes those contracts rather than creating a divergent MeedyaMeta schema or claiming a planned field is supported. App UI, backend/container operations and provider integrations remain separately verified. Source records are returned/preserved by default, with standard mappings plus full permitted MeedyaMeta preservation and explicit overrides.
+
+## Experimental carriage, caption authoring and suite roadmap (2026-10-16)
+
+Research/design requirements only. No native DVB/Teletext MP4/MOV mux, private-carriage prototype, authored 708 output or target-player test was executed for this update.
+
+### Research findings
+
+Original DVB-Sub/Teletext bytes can be archived in a designed private extension. A usable timed subtitle track additionally needs sample framing, codec configuration, descriptors, timing/state reconstruction and a cooperating reader/decoder. This review has not established widely interoperable native DVB-Sub/Teletext subtitle carriage in MP4/MOV. An inspected registry's absence is not a proof of impossibility.
+
+Correct earlier shorthand about TrueHD being simply outside MP4 standards: MP4RA registers mlpa (MLP audio), and FFmpeg implements a specific dmlp/TrueHD writer. Registration does not prove every file/brand/profile conformant; experimental muxer gates and player support are separate questions. DVB/Teletext cannot acquire equivalent support just by forcing a codec tag.
+
+GPAC has a generic sample-description path, including GMCW/GMCC wrapping for certain otherwise unmapped codecs. This is a credible investigation lead, NOT a tested DVB/Teletext mux command or a standard mapping. Internal dvbs/dvbt identifiers are not proof of ISO sample-entry registration. Do not relabel native data as c608/c708, DVD/VobSub, tx3g or stpp. MOV, generic ISO BMFF/MP4, CMAF and device/DASH profiles must be assessed separately.
+
+Some readers skip unknown tracks; others reject the file, mis-select defaults or discard custom data during remux. Fallback tracks do not guarantee whole-file compatibility. Test open, seek, track/service selection, captions and third-party remux survival on each claimed platform/backend.
+
+### Explicit opt-in for experimental export
+
+Source preservation remains the default policy. Creating private MP4/MOV carriage requires a separate explicit opt-in: **Preserve DVB/Teletext originals in experimental/private MP4/MOV carriage**. Expose it only after the chosen implementation passes verification, with clear states: experimental playable timed track, extractable archive, or unsupported.
+
+Offer independent options for verified native carriage, private timed carriage, embedded archive, original-capable container/sidecar package, and compatible derived subtitle rendition. Show retained/converted/archived/dropped content, known target support and exact losses before execution. No silent OCR, burn-in, stripping or codec mislabelling.
+
+MeedyaMeta should use a versioned manifest plus bounded binary storage/references, not huge inline text tags by default. Preserve source payloads, codec private/configuration, page/service/PMT descriptors where available, timing transforms, discontinuities and state required for recovery. Record source/native/derived IDs, hashes, language/role evidence, mapping version and reconstruction dependencies. Distinguish elementary-payload retention from full TS packet/PCR/M2TS arrival-timestamp retention. An MKV may lack original transport context: disclose missing data, never invent it. This roadmap assigns no final private FourCC/UUID/brand.
+
+DVB-Sub preservation covers composition/ancillary page IDs, segments/order, display/page/region/object/CLUT state, shared resources, acquisition changes, clears and animation. Teletext preservation covers selected subtitle AND general pages/subpages, magazines, national character options, controls/mosaics and timed updates. CEA fields/services/T1–T4/XDS remain independent.
+
+Compatible alternatives:
+- Teletext decoding to timed text, retaining representable text/style/position/language with explicit losses.
+- DVB bitmap rendering into a researched IMSC Image Profile rendition. This can avoid OCR for visual reproduction, but is converted presentation, not original DVB commands. Exact ISO BMFF sample/resource packaging and target support require verification; generic stpp support does not guarantee Image Profile rendering.
+- Optional OCR-derived text with confidence/correction and retained original. Preserve original plus converted rendition and lineage; subtitle fallback may need Meedya-specific selection logic rather than a universal native relationship.
+- Safe alternate-container/sidecar export where embedded preservation is unverified. Clearly distinguish data outside the MP4 from embedded data.
+
+### Text-to-608/708 authoring
+
+Converter #548, Subtitler #20 and DL #1323 already track this goal; extend them rather than duplicate it. Explicitly author 608, native 708, or native 708 plus 608 compatibility from validated SRT/SubRip, SSA/ASS, TTML/IMSC and other text inputs. Preserve source text/resources; generated captions are derived content, not recovered original CC or lossless conversion.
+
+GStreamer's 608 encoder source and 708 encoder documentation demonstrate feasibility. The inspected 708 plugin accepts UTF-8 and emits cc_data; it has service/mode controls and optional 608 compatibility currently limited by that implementation to channels 1/3. Plugin restrictions are not format restrictions. ccconverter repackages caption data; carried 608 compatibility is not itself native 708 semantic services.
+
+Choose channel/service, language evidence, mode, frame rate, line/column limits, style mapping and scheduling explicitly. Preserve source semantics where possible; plain text has no original CC mode. Validate unsupported characters/scripts, bidi, accents, overlaps, simultaneous speakers, bandwidth/preloading, clears and reading speed. Never silently truncate/substitute or infer forced/SDH from generation. Rich ASS/TTML layout and animation may need approximation or rejection.
+
+Packaging is a separate gate: valid native c608/c708 sample structures/video associations, or a verified codec user-data/SEI path. GStreamer documents H.264 caption SEI insertion into already encoded video: pixel re-encoding need not always be required, but encoded bytes change. Verify frame display/decode ordering, timing, existing caption merge policy and preservation of unrelated SEI/HDR/Dolby Vision data. Other codecs/platforms need their own tested path. Encoder output is not automatically an MP4 track.
+
+Acceptance: independent decode/render/readback, full cue/character checks, service/mode/clear/seek state, existing captions, exact unchanged source tracks, allowlisted bitstream changes and target-player results. Source default/override policies and standard-plus-MeedyaMeta metadata remain applicable. Preserve app licensing/engine boundaries; no new dependency is selected here.
+
+### Suite features to round out the workflow
+
+These are proposed design priorities, not claims of novelty or implemented capability:
+1. Preservation preflight and before/after inspector: stream/service/relationship/dynamic-data inventory and retain/transform/archive/drop evidence.
+2. Reversible originals plus accessible/searchable renditions: related native/derived tracks, extraction/recovery and a readable provenance graph.
+3. Versioned per-device compatibility lab: measured open/seek/HDR/stereo/caption/default/fallback/remux results, producing evidence-based export profiles.
+4. Subtitle/caption semantic and rendered QC: missing cues/characters, drift/overlaps/reading speed, style/position comparisons, screen-safe areas and correction workflow.
+5. Edition-aware alignment: fingerprint-assisted piecewise rational timing proposals for differing cuts/intros/frame rates, previewed and explicitly accepted.
+6. Relationship editor and playback-policy simulator: supported audio fallbacks, forced/full/following subtitles, language/service choice and preferences, with native/custom distinctions.
+7. Reproducible transactional jobs: saved mappings/policies, backend versions, hashes, resume/rollback and portable verification receipts; omit private paths by default.
+8. Accessible CC/Teletext/guide browser: simple service/page/language choices, general information pages, ratings and advanced optional inspection.
+
+Specs/core own common manifests, capability/evidence and identity/timing/relationship contracts; Converter implements mux/export/extract/verify; Subtitler owns authoring/QC/preview/correction; Player implements verified native/custom decoding and selection; Manager/Library inspect and organise; DL delegates explicit post-processing; DB persists models/evidence. Apple/system-player support is not implied by Meedya support. Library's direct repository remains undiscovered. Stage models/fixtures first, then standard adapters/authoring; private carriage stays experimental until recovery and target tests pass.
+
+### Primary sources and bounded observation locks
+
+Observed 2026-10-16. Implementation snapshot refs below were checked against the stated file blob IDs. These are research observations, not changes to the normative Matroska source lock or complete standards/conformance audits.
+
+| Source | Evidence and boundary |
+| --- | --- |
+| [MP4RA registry](https://mp4ra.org/registered-types/codecs) | mlpa, c608/c708, tx3g/stpp registrations; dedicated native DVB/Teletext mapping not established by inspected list |
+| [FFmpeg MOV writer](https://github.com/FFmpeg/FFmpeg/blob/5cb9fcd21167cf2f5a2852ea582997bbd0055521/libavformat/movenc.c) | mov_write_dmlp_tag and codec handling; Git blob SHA-1 2c349ef663be7d172cfddc55eb08fb3a3ad9c6c6 |
+| [GPAC ISO muxer](https://github.com/gpac/gpac/blob/39c23ed6f027741c154cd1fe4adbc087a503cc4b/src/filters/mux_isom.c) | generic description/GMCW/GMCC branch; Git blob SHA-1 25033a2e8283dcca686e44372de9f9c0f4c40cb4; not a DVB playback proof |
+| [GStreamer 608 writer](https://github.com/GStreamer/gst-plugins-rs/blob/569290a2c3efb4f9e4ce8efa3eb49ed7a46f4bdf/video/closedcaption/src/tttocea608/imp.rs) | scheduling/bandwidth/command authoring; Git blob SHA-1 90751abbad84c65daa4331bf1ea5211e0d9efecb |
+| [GStreamer 708 writer](https://gstreamer.freedesktop.org/documentation/rsclosedcaption/tttocea708.html) | timed UTF-8 to cc_data, mode/service/compatibility controls |
+| [H.264 SEI insertion](https://gstreamer.freedesktop.org/documentation/closedcaption/h264seiinserter.html) | documented insertion into encoded H.264; version/platform availability must be checked |
+| [Caption packaging converter](https://gstreamer.freedesktop.org/documentation/closedcaption/ccconverter.html) | raw/s334-1a/cc_data/CDP; do not infer arbitrary semantic upconversion |
+| [Apple caption media](https://developer.apple.com/documentation/quicktime-file-format/closed_captioning_media) | QuickTime native caption carriage, not universal MP4 player support |
+| [ETSI EN 300 472 V1.4.1](https://www.etsi.org/deliver/etsi_en/300400_300499/300472/01.04.01_60/en_300472v010401p.pdf) | Teletext DVB PES/data-unit carriage; no MP4 mapping inferred |
+| [ETSI EN 300 743 V1.6.1 (2018-10), §§5–8](https://www.etsi.org/deliver/etsi_en/300700_300799/300743/01.06.01_60/en_300743v010601p.pdf) | DVB subtitle state/segments |
+| [ETSI TS 103 285 V1.4.1 (2023-09), subtitle codecs table](https://www.etsi.org/deliver/etsi_ts/103200_103299/103285/01.04.01_60/ts_103285v010401p.pdf) | EBU-TT-D/stpp in this DVB-DASH profile, not native bitmap retention |
+| [W3C IMSC 1.2, §§6.3/10 and Annex D](https://www.w3.org/TR/ttml-imsc1.2/) | image subtitles and text alternatives; conversion/packaging/rendering remain distinct |
+
+Living documentation can exceed installed/released builds. Pin applicable specification edition/status/errata and implementation/build/licence before adopting a path. No claim these ETSI editions are the latest. Documentation validation does not demonstrate media preservation.
