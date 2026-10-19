@@ -8,6 +8,17 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(security)** Combined dependency updates and new advisory fixes (main) (#1364)
+
+### 📚 Documentation
+
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.10.10 [skip ci]
+
+## [1.10.10] - 2026-10-13
+
+### 🐛 Bug Fixes
+
 - **(security)** Slow passphrase check, package fixes, and code scanning findings (#1341)
 
 - fast-uri 3.1.8, and postcss-selector-parser 7.1.6 under the Tailwind typography plugin (Dependabot #61). Build tools only; built stylesheets byte-for-byte identical.
