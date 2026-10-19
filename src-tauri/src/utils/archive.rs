@@ -207,6 +207,19 @@ pub async fn download_file(url: &str, dest: &Path) -> Result<(u64, String), Stri
     Ok((downloaded, sha256_hex))
 }
 
+/// Keeps only the ordinary read, write and run permission bits from a mode
+/// stored in a zip archive, dropping "run as owner" (setuid), "run as group"
+/// (setgid) and the sticky bit.
+///
+/// A downloaded archive decides what these bits say, so copying them as-is
+/// would let it plant a program that runs with someone else's rights. This is
+/// the substance of RUSTSEC-2026-0367 (zip's own extract function kept those
+/// bits); MeedyaDL unpacks entries itself, so it applies the same rule here.
+#[cfg_attr(not(unix), allow(dead_code))]
+fn ordinary_permission_bits(mode: u32) -> u32 {
+    mode & 0o777
+}
+
 /// Extracts a ZIP archive to the specified destination directory.
 ///
 /// Iterates over every entry in the ZIP file and extracts it to `dest`.
@@ -326,13 +339,20 @@ pub async fn extract_zip(archive_path: &Path, dest: &Path) -> Result<(), String>
                 // `.ok()` discards any error (best-effort) -- failing to set
                 // permissions is not worth aborting the entire extraction.
                 //
+                // Only the ordinary read/write/run bits are kept (see
+                // `ordinary_permission_bits`): an archive must never be able
+                // to mark a file "run as its owner" or "run as its group".
+                //
                 // Reference: https://doc.rust-lang.org/std/os/unix/fs/trait.PermissionsExt.html
                 #[cfg(unix)]
                 {
                     use std::os::unix::fs::PermissionsExt;
                     if let Some(mode) = entry.unix_mode() {
-                        std::fs::set_permissions(&outpath, std::fs::Permissions::from_mode(mode))
-                            .ok();
+                        std::fs::set_permissions(
+                            &outpath,
+                            std::fs::Permissions::from_mode(ordinary_permission_bits(mode)),
+                        )
+                        .ok();
                     }
                 }
             }
@@ -841,6 +861,20 @@ pub fn set_executable(path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unpacking_keeps_only_ordinary_permission_bits() {
+        // Ordinary modes pass through unchanged.
+        assert_eq!(ordinary_permission_bits(0o755), 0o755);
+        assert_eq!(ordinary_permission_bits(0o644), 0o644);
+        // File-type bits from the archive (regular file) are dropped too.
+        assert_eq!(ordinary_permission_bits(0o100_755), 0o755);
+        // "Run as owner", "run as group" and sticky are never kept.
+        assert_eq!(ordinary_permission_bits(0o4755), 0o755);
+        assert_eq!(ordinary_permission_bits(0o2755), 0o755);
+        assert_eq!(ordinary_permission_bits(0o1777), 0o777);
+        assert_eq!(ordinary_permission_bits(0o7777), 0o777);
+    }
 
     /// A real, minimal `.tar.xz` archive (208 bytes) generated for these
     /// tests. Contains a single entry, `hello.txt`, whose content is the

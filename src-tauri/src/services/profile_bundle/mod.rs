@@ -428,14 +428,15 @@ impl BundleReader {
         prefix: &str,
     ) -> Result<Vec<String>, BundleError> {
         let mut out = Vec::new();
-        for i in 0..self.archive.len() {
-            // Read-only access to entry names doesn't need a mutable
-            // archive borrow in zip 2.x — we go through the central
-            // directory via `file_names`.
-            if let Some(name) = self.archive.file_names().nth(i) {
-                if name.starts_with(prefix) {
-                    out.push(name.to_string());
-                }
+        // Read-only access to entry names doesn't need a mutable archive
+        // borrow — `file_names` reads the central directory. Since zip 9
+        // each name comes back as a result (a name that cannot be decoded
+        // is an error), so a damaged bundle is reported rather than having
+        // entries silently skipped.
+        for name in self.archive.file_names() {
+            let name = name?;
+            if name.starts_with(prefix) {
+                out.push(name.into_owned());
             }
         }
         Ok(out)

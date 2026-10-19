@@ -100,7 +100,7 @@ exact number.
 | tracing-subscriber | 0.3 | MIT | `tracing` event collector and formatter (stderr + file) |
 | url | 2.5 | MIT/Apache-2.0 | URL parsing |
 | uuid | 1.23 | MIT/Apache-2.0 | UUID generation |
-| zip | 2.4 | MIT | ZIP archive extraction |
+| zip | 9.0 | MIT | ZIP archive extraction |
 
 ### Tauri Plugins
 
