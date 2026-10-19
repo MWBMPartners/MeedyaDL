@@ -3,7 +3,7 @@
 **Last updated:** 2026-10-19 — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.10** · `alpha` **1.13.0-alpha.83** · `beta` **1.9.4-beta.15** · `release-candidate` **1.0.0-rc.42** — read from each branch's `package.json` on 19 Oct, after the combined dependency updates merged.
+**Channel versions:** `main` **1.10.11** · `alpha` **1.13.0-alpha.83** · `beta` **1.9.4-beta.15** · `release-candidate` **1.0.0-rc.42** — read from each branch's `package.json` on 19 Oct, after the combined dependency updates merged and 1.10.11 was released.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-10-19: new Rust advisories fixed; dependency updates combined and merged on all four channels; #1348 moved to `work-in-progress`
+## ★★★★ LATEST — 2026-10-19: new Rust advisories fixed; dependency updates combined and merged on all four channels; 1.10.11 released; #1348 moved to `work-in-progress`
 
 > **PICK UP HERE, on `work-in-progress`.** It does NOT yet contain today's alpha merge
 > (#1361 → alpha.83): bring alpha in (a merge, never a rebase) at the start of the next round.
@@ -25,6 +25,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 | 5 | release-candidate: #1354 + #1358 combined | #1363 | Done (`44149f17`) | Combining fixed the npm/Rust version mismatch |
 | 6 | main: #1351 + #1355 + #1359 combined | #1364 | Done (`671f6ddf`) | Same; release-please will open 1.10.11 for it |
 | 7 | Draft #1348 retargeted to `work-in-progress` and its conflicts fixed | #1348 | Done (`71c6a9c4`), still a DRAFT | Its branch had been started from `main`, which shares no history with the alpha line. Rebuilt on `work-in-progress` and force-pushed with a lease, at the maintainer's explicit choice. The file existed only on `main`, so the whole doc (230 lines) is added. Old head, if ever needed: `99ce0e9b958aa46817b875ccde1c9fe610c99458`. |
+| 8 | Release 1.10.11 (stable) | #1365 | Done (`01819496`) | The notes check failed only because `.github/release-notes/v1.10.11.md` was missing. Added on the release PR's own branch (`b6dd35ab`), not through a second PR to main, so nothing could merge out of order. Merged at the maintainer's go-ahead, pinned to that commit. Release build [39252597902](https://github.com/MWBMPartners/MeedyaDL/actions/runs/39252597902) passed in 20 minutes. The release is **published** (not a draft) with the plain-English notes and every installer. |
 
 **Checks run locally on all four combined branches before pushing:** `cargo deny check` fully ok, clippy clean, all Rust tests (alpha 2083, main 1219, beta 1206, rc 978), all frontend tests (866/489/489/305), npm audit clean, Tauri version sync ok. CI was then fully green on each before merging.
 
@@ -32,7 +33,14 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 **Maintainer actions:**
 1. Delete branches this session cannot delete: `chore/rust-toolchain-bump-1.99.1-alpha`, `chore/rust-toolchain-bump-1.99.1-main`, `ci/notes-check-reads-main`.
-2. release-please will open a 1.10.11 PR for #1364. It needs `.github/release-notes/v1.10.11.md` on main; the notes check now reads a fresh merge (#1347).
+2. ~~1.10.11 release PR~~ — done (#1365, row 8).
+
+**Known gap, not new in 1.10.11:** `latest.json` on main's releases has six entries
+(Mac, both Windows ×2, Linux AppImage). It has no Linux `.deb`/`.rpm` entries, and the ARMv7
+packages have no `.sig`. So Linux package users are still offered the AppImage by the in-app
+updater. 1.10.10 had exactly the same six. The fix (#1166, `scripts/release/updater-manifest.sh`)
+exists only on the alpha line and reaches main when alpha is promoted. Don't patch main
+separately: that would be a second hand-typed key list, the very thing #1178 removed.
 
 **Lesson:** a merge pinned to a commit must use the FULL commit ID fetched from GitHub, never one typed out from a short ID. A guessed one was correctly refused (409); nothing was harmed.
 
