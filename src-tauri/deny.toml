@@ -105,6 +105,32 @@ ignore = [
     # (Currently empty — RUSTSEC-2026-0097 / `rand 0.7.3` build-only chain
     #  was dropped upstream and no longer matches any crate in the tree.
     #  Re-add here if a similar carve-out becomes necessary in the future.)
+    # --- Added 19 Oct 2026 (combined dependency updates, all four channels) ---
+    #
+    # zip 4.x via tauri-plugin-updater: three advisories in zip's
+    # "extract everything" functions (setuid/setgid bits kept, symbolic links
+    # pointing outside the destination, permissions applied through links).
+    # Fixed only in zip 9; even tauri-plugin-updater 2.14.0 (14 Oct 2026)
+    # still asks for zip ^4, so this cannot be fixed from this repository.
+    # Not reachable for MeedyaDL: the updater unzips only on Windows, only
+    # when the downloaded update is itself a zip (MeedyaDL publishes plain
+    # -setup.exe installers), and only after the update's signature has been
+    # checked; and all three concern Unix permissions and links. MeedyaDL's
+    # own zip dependency was moved to 9 in the same change, so these entries
+    # cover the updater's copy only. Revisit when tauri-plugin-updater moves
+    # to zip 9 or later.
+    "RUSTSEC-2026-0367", # zip 4.x via tauri-plugin-updater — setuid/setgid kept by extract(); Windows-only zip path, unused by MeedyaDL's installers
+    "RUSTSEC-2026-0368", # zip 4.x via tauri-plugin-updater — extract() symlink targets outside destination; same reasoning
+    "RUSTSEC-2026-0369", # zip 4.x via tauri-plugin-updater — extract() applies permissions through symlinks; same reasoning
+    #
+    # zvariant, zbus_names and zvariant_derive are no longer published as
+    # separate crates (merged into zbus 6). They arrive through zbus 3 (via
+    # rookie, the browser-cookie import) and zbus 5 (via Tauri's notification
+    # and file-opening plugins). Unmaintained, not vulnerable, and no release of either
+    # parent uses zbus 6 yet. Revisit when rookie and Tauri move to zbus 6.
+    "RUSTSEC-2026-0370", # zvariant — unmaintained (merged into zbus 6); via zbus 3 (rookie) and zbus 5 (Tauri notification/opener plugins)
+    "RUSTSEC-2026-0371", # zbus_names — unmaintained (merged into zbus 6); same parents
+    "RUSTSEC-2026-0372", # zvariant_derive — unmaintained (merged into zbus 6); same parents
 ]
 
 # ============================================================
@@ -143,6 +169,7 @@ allow = [
     "OpenSSL",                  # aws-lc-sys (OpenSSL licence, permissive)
     "Unicode-3.0",              # icu_*, unicode-ident, zerovec, yoke
     "CDLA-Permissive-2.0",      # webpki-root-certs (Community Data Licence)
+    "bzip2-1.0.6",              # libbz2-rs-sys, via zip 9 (BSD-style; added 19 Oct 2026)
 
     # Weakly-copyleft licences (compatible with MIT for linking)
     "MPL-2.0",                  # symphonia, cssparser, selectors (Mozilla Public Licence)
