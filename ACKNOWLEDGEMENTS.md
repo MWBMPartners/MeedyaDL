@@ -58,7 +58,7 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | tracing | 0.1 | MIT | Structured logging |
 | url | 2.5 | MIT/Apache-2.0 | URL parsing |
 | uuid | 1.23 | MIT/Apache-2.0 | UUID generation |
-| zip | 2.4-4.6 | MIT | ZIP archive extraction |
+| zip | 4.6-9.0 | MIT | ZIP archive extraction |
 
 ### Tauri Plugins
 
