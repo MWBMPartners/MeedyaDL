@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-13 — see ★★★★ LATEST below
+**Last updated:** 2026-10-19 — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.9** · `alpha` **1.13.0-alpha.82** · `beta` **1.9.4-beta.14** · `release-candidate` **1.0.0-rc.41** — read from each branch's `package.json` on 13 Oct, after the security fixes merged.
+**Channel versions:** `main` **1.10.10** · `alpha` **1.13.0-alpha.83** · `beta` **1.9.4-beta.15** · `release-candidate` **1.0.0-rc.42** — read from each branch's `package.json` on 19 Oct, after the combined dependency updates merged.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,36 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-10-13 (afternoon): security alerts fixed on every channel; `work-in-progress` is the working branch
+## ★★★★ LATEST — 2026-10-19: new Rust advisories fixed; dependency updates combined and merged on all four channels; #1348 moved to `work-in-progress`
+
+> **PICK UP HERE, on `work-in-progress`.** It does NOT yet contain today's alpha merge
+> (#1361 → alpha.83): bring alpha in (a merge, never a rebase) at the start of the next round.
+
+| # | Task | Issue / PR | Status | Notes |
+|---|---|---|---|---|
+| 1 | New Rust advisories (published 14–17 Oct) made every dependency PR red | #1360 (closed) | Done | rustls 0.23.45→0.23.46 (RUSTSEC-2026-0346..0349); MeedyaDL's own `zip` 2→9; unpacking keeps only `mode & 0o777` (`ordinary_permission_bits` in `utils/archive.rs`, with a test); on alpha only, `profile_bundle::file_names_starting_with` walks zip 9's `file_names()` results. |
+| 2 | Accepted with reasons in `deny.toml` (maintainer's choice) | #1360 | Done | RUSTSEC-2026-0367/0368/0369 for **tauri-plugin-updater's zip 4** (Windows-only, zip-packaged updates only, after the signature check; even updater 2.14.0 still uses zip ^4). RUSTSEC-2026-0370/0371/0372: zvariant / zbus_names / zvariant_derive unmaintained (via rookie's zbus 3 and Tauri's notification/opener plugins' zbus 5). `bzip2-1.0.6` licence allowed (libbz2-rs-sys, via zip 9). **Revisit** each when the updater moves to zip 9 and rookie/Tauri move to zbus 6. |
+| 3 | alpha: #1350 + #1352 + #1353 combined | #1361 | Done (`8eba3599`) | Rust 1.99.1 + 14 npm + 9 Rust updates |
+| 4 | beta: #1356 + #1357 combined | #1362 | Done (`dad53a61`) | Tauri npm/Rust versions checked by hand (beta has no automatic check) |
+| 5 | release-candidate: #1354 + #1358 combined | #1363 | Done (`44149f17`) | Combining fixed the npm/Rust version mismatch |
+| 6 | main: #1351 + #1355 + #1359 combined | #1364 | Done (`671f6ddf`) | Same; release-please will open 1.10.11 for it |
+| 7 | Draft #1348 retargeted to `work-in-progress` and its conflicts fixed | #1348 | Done (`71c6a9c4`), still a DRAFT | Its branch had been started from `main`, which shares no history with the alpha line. Rebuilt on `work-in-progress` and force-pushed with a lease, at the maintainer's explicit choice. The file existed only on `main`, so the whole doc (230 lines) is added. Old head, if ever needed: `99ce0e9b958aa46817b875ccde1c9fe610c99458`. |
+
+**Checks run locally on all four combined branches before pushing:** `cargo deny check` fully ok, clippy clean, all Rust tests (alpha 2083, main 1219, beta 1206, rc 978), all frontend tests (866/489/489/305), npm audit clean, Tauri version sync ok. CI was then fully green on each before merging.
+
+**Review:** Codex not installed in cloud sessions. A fresh Claude agent reviewed in two rounds, both clean. Round 1 missed the zip 9 `file_names()` change; the build caught it. **Run `codex review` over #1361–#1364 at the next local session.**
+
+**Maintainer actions:**
+1. Delete branches this session cannot delete: `chore/rust-toolchain-bump-1.99.1-alpha`, `chore/rust-toolchain-bump-1.99.1-main`, `ci/notes-check-reads-main`.
+2. release-please will open a 1.10.11 PR for #1364. It needs `.github/release-notes/v1.10.11.md` on main; the notes check now reads a fresh merge (#1347).
+
+**Lesson:** a merge pinned to a commit must use the FULL commit ID fetched from GitHub, never one typed out from a short ID. A guessed one was correctly refused (409); nothing was harmed.
+
+**Running:** nothing.
+
+---
+
+## ★★★★ Previous — 2026-10-13 (afternoon): security alerts fixed on every channel; `work-in-progress` is the working branch
 
 > **PICK UP HERE, on `work-in-progress`.** That is the branch for the next round of
 > development (the maintainer's instruction, 13 Oct). It will likely change once it is merged.
