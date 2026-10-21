@@ -32,7 +32,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 **Review:** Codex not installed in cloud sessions. A fresh Claude agent reviewed in two rounds, both clean. Round 1 missed the zip 9 `file_names()` change; the build caught it. **Run `codex review` over #1361–#1364 at the next local session.**
 
 **Maintainer actions:**
-1. Delete branches this session cannot delete: `chore/rust-toolchain-bump-1.99.1-alpha`, `chore/rust-toolchain-bump-1.99.1-main`, `ci/notes-check-reads-main`.
+1. ~~Delete the three leftover branches~~ — done by the maintainer (21 Oct); confirmed gone from GitHub.
 2. ~~1.10.11 release PR~~ — done (#1365, row 8).
 
 **Known gap, not new in 1.10.11:** `latest.json` on main's releases has six entries
