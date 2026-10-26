@@ -6,9 +6,59 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(ci)** Let Dependabot auto-merge recognise Dependabot's GraphQL name (#1386)
+
+## Summary
+
+  The Dependabot auto-merge workflow runs when CI passes, but it skipped
+  every Dependabot PR. Its log for #1383:
+
+  > PR #1383 author is 'app/dependabot', not dependabot[bot] — skipping.
+
+  The workflow looks the PR up with `gh pr list --json author`, which goes
+  through GitHub's GraphQL API and names Dependabot `app/dependabot`. The
+  author check accepted only `dependabot[bot]`, the REST API's name for
+  the same account. Both names are now accepted, as
+  `forward-port-security.yml` already does. Neither name can be taken by a
+  person, because user names cannot contain `[` or `/`. Tracking issue
+  #1385.
+
+  Only `main`'s copy runs: it is started by another workflow, which always
+  runs from the default branch. The same fix is on `work-in-progress`
+  (`294307b6`), so alpha's copy is corrected at the next merge. Beta and
+  release-candidate do not have this file.
+
+  ## Scope of changes
+
+  - [x] CI / workflows (`.github/`): `dependabot-auto-merge.yml`, the
+  author check only
+
+  ## Test plan
+
+  - [x] Valid YAML
+  - [x] The new check accepts `dependabot[bot]` and `app/dependabot`, and
+  still skips anyone else (tested with sample names)
+  - [ ] First live run: the next Dependabot PR whose CI passes
+
+  ## Security review
+
+  - [x] Still merges only PRs authored by Dependabot, on the same four
+  branches, after every check has passed
+
+  ## Review
+
+  Not independently reviewed (a one-check change matching an existing,
+  reviewed pattern).
+
+  🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.10.12 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [1.10.12] - 2026-10-26
