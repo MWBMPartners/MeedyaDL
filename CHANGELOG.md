@@ -8,6 +8,20 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ### 🐛 Bug Fixes
 
+- **(security)** Combined dependency updates and new advisory fixes (main) (#1379)
+
+## Summary
+
+
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.10.11 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.10.11] - 2026-10-19
+
+### 🐛 Bug Fixes
+
 - **(security)** Combined dependency updates and new advisory fixes (main) (#1364)
 
 ### 📚 Documentation
@@ -15,7 +29,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - **(security)** Update supported versions to 1.10.10 [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.10.11 [skip ci]
 
 ## [1.10.10] - 2026-10-13
 
