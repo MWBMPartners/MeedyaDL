@@ -189,6 +189,11 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # 2.6.2 does not compile on Linux (it builds rust-ini's ParseOption with
+      # two of its four fields). Skip only that release so a fixed one is
+      # still offered. Remove once a newer 2.x is out.
+      - dependency-name: "tauri-plugin-deep-link"
+        versions: ["2.6.2"]
     open-pull-requests-limit: 5
     # Wait 7 days after a release is published before opening a version-update
     # PR for it (supply-chain cooldown). Does not affect security updates.
@@ -214,6 +219,11 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # 2.6.2 does not compile on Linux (it builds rust-ini's ParseOption with
+      # two of its four fields). Skip only that release so a fixed one is
+      # still offered. Remove once a newer 2.x is out.
+      - dependency-name: "tauri-plugin-deep-link"
+        versions: ["2.6.2"]
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
@@ -237,6 +247,11 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # 2.6.2 does not compile on Linux (it builds rust-ini's ParseOption with
+      # two of its four fields). Skip only that release so a fixed one is
+      # still offered. Remove once a newer 2.x is out.
+      - dependency-name: "tauri-plugin-deep-link"
+        versions: ["2.6.2"]
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
@@ -260,6 +275,11 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # 2.6.2 does not compile on Linux (it builds rust-ini's ParseOption with
+      # two of its four fields). Skip only that release so a fixed one is
+      # still offered. Remove once a newer 2.x is out.
+      - dependency-name: "tauri-plugin-deep-link"
+        versions: ["2.6.2"]
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
