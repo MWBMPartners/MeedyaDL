@@ -154,13 +154,15 @@ Most users should stick with **cookie-based authentication** (the default — wo
 - Need **ALAC** (lossless) — the one codec that still requires a wrapper on GAMDL 3.8+
 - Are on **GAMDL 3.0 – 3.7.x** and need **Atmos**, **AC3**, or the non-`aac-web` AAC variants (`aac`, `aac-he`, `aac-binaural`, …) — these need a wrapper on those older releases but *not* on 3.8+
 - Experience frequent cookie expiration issues
-- Are comfortable running local server software (or — on GAMDL 3.6+ — Docker on macOS/Windows)
+- Are comfortable running local server software (or — on GAMDL 3.6+ — Docker on macOS/Windows; on a Mac, [OrbStack](https://orbstack.dev/) works in place of Docker Desktop)
 
 ### Setup ([wrapper-v2](https://github.com/glomatico/wrapper-v2), GAMDL 3.6+)
 
-1. Clone and build [glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2) — this requires Docker on macOS/Windows or a Linux box with `SYS_ADMIN` capabilities. You must also extract Apple Music for Android's `.so` files and stage them per the wrapper-v2 README (the upstream image does **not** ship Apple's binaries).
+1. Clone and build [glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2) — this requires Docker on macOS/Windows (on a Mac, Docker Desktop or [OrbStack](https://orbstack.dev/)) or a Linux box with `SYS_ADMIN` capabilities. You must also extract Apple Music for Android's `.so` files and stage them per the wrapper-v2 README (the upstream image does **not** ship Apple's binaries).
 2. `docker compose up -d` to run the daemon — exposes `http://localhost:80` by default.
 3. In MeedyaDL, **Settings > Advanced** → toggle **Use Wrapper** on, set **Wrapper URL** to `http://127.0.0.1` (or whatever port you mapped), and click **Sign In** to authenticate. MeedyaDL preflights `/health` + `/me` before every download and surfaces a yellow toast if either fails.
+
+> **Using OrbStack instead of Docker Desktop (Mac only).** [OrbStack](https://orbstack.dev/) is a lighter alternative to Docker Desktop for Macs, with Apple Silicon and Intel versions. It provides the same `docker` and `docker compose` commands, so the steps above are unchanged: install OrbStack, open it once, then run them as written. Other GAMDL users run wrapper-v2 this way. wrapper-v1's Docker image needs a privileged container, which OrbStack also supports. MeedyaDL itself has not been tested against either wrapper under OrbStack, so if something behaves differently from Docker Desktop, please tell us. OrbStack does not run on Windows or Linux: use Docker Desktop on Windows and Docker Engine on Linux.
 
 > **Why "Sign In" matters:** GAMDL 3.6 added an interactive credential prompt (`InquirerPy`) at the CLI level. Without a pre-authenticated wrapper, the GAMDL subprocess would deadlock waiting on stdin — MeedyaDL's preflight catches this before the queue starts.
 
