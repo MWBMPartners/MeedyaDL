@@ -74,6 +74,8 @@ This changelog is automatically generated from [conventional commits](https://ww
 - **(security)** Update supported versions to 1.10.11 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.10.12 [skip ci]
 
 ## [1.10.11] - 2026-10-19
 
