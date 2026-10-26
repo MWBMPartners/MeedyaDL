@@ -102,7 +102,7 @@ exact number.
 | url | 2.5 | MIT/Apache-2.0 | URL parsing |
 | uuid | 1.23 | MIT/Apache-2.0 | UUID generation |
 | windows-sys | 0.61 | MIT/Apache-2.0 | Windows only: puts a finished subtitle in place only if nothing is already there, and tells which file a name refers to (so a temporary subtitle file is deleted only while it is still the one MeedyaDL made). Already part of the dependency tree; listed because the app calls it directly |
-| zip | 2.4 | MIT | ZIP archive extraction |
+| zip | 9.0 | MIT | ZIP archive extraction |
 
 ### Tauri Plugins
 
