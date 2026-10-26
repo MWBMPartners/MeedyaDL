@@ -133,7 +133,10 @@ consequences:
   Apple's `.so` files from the Apple Music Android APK and stage them
   into the wrapper's `rootfs/system/lib64/` (digests pinned in
   `LIBS_VERSION.json`).
-- **macOS / Windows**: **Docker Desktop is required.** The wrapper-v2
+- **macOS / Windows**: **Docker is required.** On Windows that means
+  Docker Desktop. On a Mac it can be Docker Desktop or [OrbStack](https://orbstack.dev/), a
+  lighter alternative that provides the same `docker` and
+  `docker compose` commands (OrbStack is Mac-only). The wrapper-v2
   ships as a `Dockerfile` + `compose.yaml`; you build the image
   locally with the staged `.so` files (Apple `.so` files are not
   redistributed by glomatico/wrapper-v2 — you stage them yourself).
@@ -181,8 +184,8 @@ A common request — and a fully supported configuration — is to run
 wrapper-v2 on a **different machine** than MeedyaDL. Two reasons:
 
 - You have an always-on home server (Raspberry Pi 4/5, NAS,
-  ProxmoxVE box, mini PC) and don't want to keep Docker Desktop
-  running on your laptop just for FairPlay decryption.
+  ProxmoxVE box, mini PC) and don't want to keep Docker Desktop (or
+  OrbStack) running on your laptop just for FairPlay decryption.
 - One household wrapper instance can serve multiple MeedyaDL
   clients without each one needing its own Docker setup.
 
@@ -344,7 +347,8 @@ MeedyaDL:
   a question for that project — check its own releases page before assuming
   one exists for yours.
 - **wrapper-v2** is documented above: Linux can run it directly, while
-  macOS and Windows need Docker Desktop.
+  Windows needs Docker Desktop and a Mac needs Docker Desktop or
+  [OrbStack](https://orbstack.dev/).
 
 If there is no wrapper you can run here, you can still use one. See below.
 
