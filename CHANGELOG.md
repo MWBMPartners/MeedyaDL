@@ -60,6 +60,8 @@ This changelog is automatically generated from [conventional commits](https://ww
 - **(security)** Update supported versions to 1.10.12 [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+- **(security)** Update supported versions to 1.10.13 [skip ci]
 
 ## [1.10.12] - 2026-10-26
 
