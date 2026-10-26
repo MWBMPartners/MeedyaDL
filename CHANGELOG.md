@@ -6,6 +6,13 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.10.12 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.10.12] - 2026-10-26
+
 ### 🐛 Bug Fixes
 
 - **(security)** Combined dependency updates and new advisory fixes (main) (#1379)
@@ -75,7 +82,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.10.12 [skip ci]
 
 ## [1.10.11] - 2026-10-19
 
