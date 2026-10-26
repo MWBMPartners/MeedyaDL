@@ -115,12 +115,22 @@ jobs:
           URL=$(jq -r '.url'            <<<"$PR_JSON")
           HEAD_OID=$(jq -r '.headRefOid'<<<"$PR_JSON")
 
-          # Author gate: only Dependabot's own PRs.
-          if [ "$AUTHOR" != "dependabot[bot]" ]; then
-            echo "::notice::PR #$NUMBER author is '$AUTHOR', not dependabot[bot] — skipping."
-            echo "proceed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          # Author gate: only Dependabot's own PRs. `gh pr list --json author`
+          # goes through GitHub's GraphQL API, which names Dependabot
+          # "app/dependabot"; the REST API calls the same account
+          # "dependabot[bot]". This check used to accept only the REST
+          # spelling, so it skipped every Dependabot PR (seen on #1383).
+          # Both are accepted, as in forward-port-security.yml, so a future
+          # change to either cannot quietly break it again. Neither can be
+          # taken by a person: user names cannot contain "[" or "/".
+          case "$AUTHOR" in
+            "dependabot[bot]"|"app/dependabot") : ;;
+            *)
+              echo "::notice::PR #$NUMBER author is '$AUTHOR', not Dependabot — skipping."
+              echo "proceed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+          esac
 
           # Branch gate: the four branches dependabot.yml opens routine
           # updates against (alpha, beta, release-candidate, main) — main
