@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-19 — see ★★★★ LATEST below
+**Last updated:** 2026-10-26 — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.11** · `alpha` **1.13.0-alpha.83** · `beta` **1.9.4-beta.15** · `release-candidate` **1.0.0-rc.42** — read from each branch's `package.json` on 19 Oct, after the combined dependency updates merged and 1.10.11 was released.
+**Channel versions:** `main` **1.10.11** (1.10.12 release PR #1380 open, awaiting the maintainer) · `alpha` **1.13.0-alpha.84** (the OrbStack docs merge is cutting alpha.85) · `beta` **1.9.4-beta.16** · `release-candidate` **1.0.0-rc.43** — read from each branch's `package.json` on 26 Oct.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,37 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-10-19: new Rust advisories fixed; dependency updates combined and merged on all four channels; 1.10.11 released; #1348 moved to `work-in-progress`
+## ★★★★ LATEST — 2026-10-26: dependency PRs combined on all four channels; alpha merged into `work-in-progress`; code scanning #65 fixed; OrbStack documented
+
+> **PICK UP HERE, on `work-in-progress`.** It contains alpha up to alpha.84 (merge `b37660f6`)
+> plus the alert #65 fix and the OrbStack docs. The OrbStack docs merge to alpha (#1384) is
+> already on this branch as its own commit, so the next alpha merge brings nothing new for it.
+
+| # | Task | Issue / PR | Status | Notes |
+|---|---|---|---|---|
+| 1 | Every Dependabot PR of 26 Oct (#1367–#1374) was red | #1375 (closed) | Done | Three causes. (a) `tauri-plugin-deep-link` 2.6.2 does not build on Linux (it fills `rust-ini`'s `ParseOption` with 2 of its 4 fields; no `rust-ini` 0.21 fits it): **held at 2.6.1** by putting back only its own lockfile entry, and `main`'s `dependabot.yml` now skips 2.6.2 for every cargo channel (remove when a newer 2.x is out). (b) New Rust advisories: `ctutils` 0.4.6, `rustls-webpki` 0.103.16, `webpki-root-certs` 1.0.11, `webpki-roots` 1.0.11 (alpha only). (c) New npm advisories: `undici` 7.30.1, `fast-uri` 3.1.9. |
+| 2 | alpha: #1367 + #1368 | #1376 | Done (`423fbbde`) | |
+| 3 | beta: #1371 + #1372 | #1377 | Done (`7ab544c3`) | Beta has no Tauri version-sync script; alpha's copy was run against beta's lockfiles. |
+| 4 | release-candidate: #1369 + #1373 | #1378 | Done (`4bb0834a`) | |
+| 5 | main: #1370 + #1374 | #1379 | Done (`f2586cfb`) | Includes the Dependabot skip for deep-link 2.6.2. |
+| 6 | Dependabot alert #62 (`@vitest/mocker`) | — | Fixed | Every channel and this branch now have vitest + `@vitest/mocker` 4.1.12. GitHub closes the alert on its next scan (this session cannot read alerts: 403). |
+| 7 | Merge alpha into `work-in-progress` | — | Done (`b37660f6`) | Conflicts in `ACKNOWLEDGEMENTS.md` (kept `windows-sys` row, zip 9.0) and `Cargo.lock` (started from this branch's, then every shared crate set to alpha's exact version; `meedya-lang` is the only difference). 2226 Rust + 1036 frontend tests, all 13 audit checks pass. |
+| 8 | Code scanning #65: Tier-1 notes check fetched the release PR's commits | #1381 (closed), #1382 | Done (`8a64e67e` on main; `8807f842` here) | The step now fetches nothing from the PR: merge base via the compare API, the PR's notes file via the contents API, then a three-way merge of that one file. Tested on 15 simulated cases, against #1365 for real, compared byte for byte with `git merge-tree` over 24 cases by the reviewer, and **passed live on #1380**. |
+| 9 | Release 1.10.12 | #1380 | **Awaiting the maintainer's go-ahead** | `.github/release-notes/v1.10.12.md` added on the release branch (`270154b4`; note the commit's author came out as `github-actions[bot]` — harmless, left as is rather than force-push). Do not merge without the maintainer saying so. |
+| 10 | OrbStack documented as a Mac alternative to Docker Desktop for the wrapper | #1384 | Done (`6bb998ef` on alpha; `533b2bf0` here) | `README.md` + `help/wrapper.md`. Says plainly: other GAMDL users run wrapper-v2 on OrbStack; wrapper-v1's Docker image needs a privileged container, which OrbStack supports; MeedyaDL itself has not been tested under OrbStack; Mac only. Links go to https://orbstack.dev/. **Never name the private wrapper Docker image in MeedyaDL docs.** |
+| 11 | OrbStack in the private wrapper repo (MeedyaSuite/dockerWrapperForMeedyaDL) | its #8, #9 | Done (`e406cdb` on `claude/nice-hypatia-ccocdp`) | Maintainer chose "list it now, marked not yet tested". Guide 1.10, new `scripts/build-guide-pdf.py`, PDF regenerated. Its #9: Mac auto-update probably never finds `docker` (background job's search path) — not fixed. That repo opens no PR until the maintainer asks. |
+
+**Open, not mine to act on:** a new Dependabot PR to main, #1383 (Tauri 2.12.2 → 2.12.4). Not handled here.
+
+**Review:** Codex is not installed in cloud sessions. Fresh Claude agents reviewed the dependency branches (clean), the #65 fix (clean) and the private-repo change (points fixed). **Run `codex review` over all of the above at the next local session.**
+
+**Disk lesson:** each Rust build here takes ~8 GB; building four branches filled the disk and a test run died with a linker "bus error". Delete finished `target/` folders between branches.
+
+**Running:** nothing.
+
+---
+
+## ★★★★ Previous — 2026-10-19: new Rust advisories fixed; dependency updates combined and merged on all four channels; 1.10.11 released; #1348 moved to `work-in-progress`
 
 > **PICK UP HERE, on `work-in-progress`.** It does NOT yet contain today's alpha merge
 > (#1361 → alpha.83): bring alpha in (a merge, never a rebase) at the start of the next round.
