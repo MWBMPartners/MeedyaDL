@@ -12,10 +12,67 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## Summary
 
+- **(ci)** Read the release PR's notes file without fetching its commits (#1382)
+
+## Summary
+
+  Fixes code scanning alert #65 ("Checkout of untrusted code in a
+  non-privileged context") in the Tier-1 release-notes check. Tracking
+  issue #1381.
+
+  The check used to fetch the release PR's commits to build a merge with
+  main. Nothing from them was run, but the fetch is what the rule flags.
+  The step now fetches nothing from the PR. Through GitHub's API it asks
+  only for:
+  - the point where the PR branched off main;
+  - the one notes file as it is on the PR.
+
+  Main's copy and the branch point's copy come from the main checkout the
+  job already has. A three-way merge of that one file follows:
+  - one side changed it: that side wins;
+  - both changed it: the changes are merged;
+  - a conflict, or one side adding or deleting the file while the other
+  changed it: the check turns red.
+
+  Any API error, or an answer that is not a commit ID, also turns it red.
+  It never reads as "no notes". As a side effect, the check no longer
+  depends on the repository being public.
+
+  ## Scope of changes
+
+  - [x] CI / workflows (`.github/`): `release-note-gate.yml`, one step of
+  the `release-pr-notes-file` job
+
+  ## Test plan
+
+  - [x] Against GitHub's real API with the 1.10.11 release PR (#1365):
+  notes only on the PR, on both, and on neither all give the right result
+  - [x] With a simulated API across 15 cases: one-sided changes, clean and
+  conflicting merges, additions, deletions, API errors, bad commit IDs
+  - [x] Valid YAML; every `${{ }}` value reaches the script through `env:`
+  - [ ] The job itself runs only on release-please PRs, so its first live
+  run is the next release PR
+
+  ## Security review
+
+  - [x] No PR code is fetched, checked out or run in this job any more
+  - [x] Uses the job's read-only token; nothing prints it
+
+  ## Review
+
+  Codex is not installed in this session. A fresh Claude agent that did
+  not write this reviewed it in one round and found no real defects. It
+  compared the new step with `git merge-tree` over 24 cases, byte for
+  byte, and confirmed the API behaviour. Codex review still to run in a
+  local session, so **not fully reviewed**.
+
+  ## Related issues
+
 
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.10.11 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
 ## [1.10.11] - 2026-10-19
