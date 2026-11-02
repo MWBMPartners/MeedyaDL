@@ -785,8 +785,9 @@ pub(crate) fn gamdl_v4_args(
     // would have). Callers already skip on an error from the builder.
     if options.synced_lyrics_only == Some(true) {
         return Err(
-            "GAMDL 4 has no lyrics-only download; this request would download the whole album \
-             again"
+            "GAMDL 4 cannot download lyrics on their own (the \"Synced Lyrics Only\" setting \
+             and MeedyaDL's extra lyrics steps need that); it would download the whole album \
+             instead, so nothing was started"
                 .to_string(),
         );
     }
@@ -1054,7 +1055,7 @@ mod gamdl_v4_command_tests {
             ..GamdlOptions::default()
         };
         let err = gamdl_v4_args(&urls, &opts).unwrap_err();
-        assert!(err.contains("lyrics-only"), "{err}");
+        assert!(err.contains("lyrics on their own"), "{err}");
     }
 
     #[test]

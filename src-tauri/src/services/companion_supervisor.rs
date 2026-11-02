@@ -232,11 +232,20 @@ pub async fn run_supervised(
         String::new()
     };
 
-    let exit_success = matches!(exit_status, Ok(s) if s.success());
-
     let stdout_text = accumulated_stdout.lock().await.clone();
     let stderr_text = accumulated_stderr.lock().await.clone();
     let combined = format!("{stdout_text}\n{stderr_text}");
+
+    // GAMDL 4.x exits with a failure code when any item is not offered in
+    // the format asked for; 3.x warned and exited 0. A 4.x extra-format
+    // run that saved every track it could is a success here, as it is on
+    // 3.x — see `gamdl_v4_run_was_partial_success` (review round 5).
+    let exit_success = matches!(exit_status, Ok(s) if s.success())
+        || (exit_status.is_ok()
+            && !watchdog_killed
+            && crate::services::gamdl_capabilities::detected_cli_generation()
+                == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
+            && crate::utils::process::gamdl_v4_run_was_partial_success(combined.lines()));
 
     let error_count = parse_gamdl_error_count(&combined).unwrap_or(0);
     let friendly = classify_gamdl_traceback(&combined).map(std::string::ToString::to_string);

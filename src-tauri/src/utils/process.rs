@@ -227,6 +227,109 @@ pub fn parse_gamdl_v4_line(trimmed: &str) -> Option<GamdlOutputEvent> {
     None
 }
 
+/// GAMDL 4.x's end-of-run summary (`cli/commands/runner.py`):
+/// `Finished: 12 downloaded, 0 overwritten, 1 skipped, 2 failed, 0
+/// finalization failures (15 discovered)`. Groups: downloaded,
+/// overwritten, skipped, failed, finalization failures.
+static V4_SUMMARY_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^Finished: (\d+) downloaded, (\d+) overwritten, (\d+) skipped, (\d+) failed, (\d+) finalization failures? \(\d+ discovered\)$",
+    )
+    .expect("Invalid GAMDL 4 summary regex")
+});
+
+/// GAMDL 4.x's fixed per-item error messages (`cli/errors.py`,
+/// `short_error`), longest-lived first. 4.x prints each failure as
+/// `✗ <title>: <one of these>`, so the title comes first and is free
+/// text; these are what the message part can be.
+const GAMDL_V4_FIXED_ERRORS: &[&str] = &[
+    "Interactive selection required",
+    "Media is not streamable",
+    "Media is unavailable in this storefront",
+    "No music-video HLS stream available",
+    "No music-video HLS rendition matches",
+    "Video rendition has no separate audio HLS track",
+    "Library song has no playable catalog equivalent",
+    "Requested codec or stream unavailable",
+    "Unsupported or unavailable media",
+    "Authentication failed",
+    "Apple Music rate limit reached",
+    "Unable to acquire decryption key",
+    "Network request failed",
+    "Media saved, but couldn't",
+    "Output already exists",
+    "Unexpected download error",
+];
+
+/// The 4.x errors that mean "this item is not offered in the formats
+/// asked for" — the case 3.x reported as a warning and moved past.
+const GAMDL_V4_FORMAT_UNAVAILABLE: &[&str] = &[
+    "Requested codec or stream unavailable",
+    "No music-video HLS stream available",
+    "No music-video HLS rendition matches",
+    "Video rendition has no separate audio HLS track",
+];
+
+/// The fixed part of a GAMDL 4.x error, without the song title in front
+/// of it, or the whole message when it is not one of 4.x's shapes.
+///
+/// 4.x puts the title first (`Song Name: Network request failed`), so
+/// sorting the error into a kind by its words would also read the
+/// title's — a song called "Login" would look like a sign-in problem.
+/// Use this for sorting; keep the whole message for display.
+#[must_use]
+pub fn gamdl_v4_error_core(message: &str) -> &str {
+    for fixed in GAMDL_V4_FIXED_ERRORS {
+        let needle = format!(": {fixed}");
+        if let Some(i) = message.rfind(&needle) {
+            return &message[i + 2..];
+        }
+    }
+    message
+}
+
+/// Did a GAMDL 4.x run that exited with a failure code actually save
+/// what was available, failing only items not offered in the formats
+/// asked for?
+///
+/// 3.x reports such an item as a warning and exits 0; 4.x counts it as a
+/// failure and exits 1. Read naively, a 4.x album with one track missing
+/// a format would be a failed download (and an extra-format run that
+/// saved every other track would be thrown away). This reads 4.x's own
+/// end-of-run summary and its error list: `true` only when something was
+/// saved, nothing failed after saving, and every listed failure is
+/// "format not available". Anything else stays a failure.
+#[must_use]
+pub fn gamdl_v4_run_was_partial_success<'a>(lines: impl IntoIterator<Item = &'a str>) -> bool {
+    let mut summary: Option<[u64; 5]> = None;
+    let mut errors: Vec<&str> = Vec::new();
+    for raw in lines {
+        let line = raw.trim();
+        if let Some(c) = V4_SUMMARY_REGEX.captures(line) {
+            let n = |i: usize| c.get(i).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+            summary = Some([n(1), n(2), n(3), n(4), n(5)]);
+        } else if let Some(rest) = line.strip_prefix('✗') {
+            let rest = rest.trim();
+            if !rest.starts_with("Run 'gamdl rip --help'") {
+                errors.push(rest);
+            }
+        }
+    }
+    let Some([downloaded, overwritten, skipped, failed, finalization]) = summary else {
+        return false;
+    };
+    downloaded + overwritten + skipped > 0
+        && failed > 0
+        && finalization == 0
+        && !errors.is_empty()
+        && errors.iter().all(|e| {
+            let core = gamdl_v4_error_core(e);
+            GAMDL_V4_FORMAT_UNAVAILABLE
+                .iter()
+                .any(|fixed| core.starts_with(fixed))
+        })
+}
+
 /// Matches GAMDL "Saved to" completion lines.
 ///
 /// Capture groups:
@@ -4051,5 +4154,73 @@ mod gamdl_v4_output_tests {
         assert!(super::parse_gamdl_v4_line("Saved to: /path/song.m4a").is_none());
         assert!(super::parse_gamdl_v4_line("[Track 1/12] Downloading \"Song\"").is_none());
         assert!(super::parse_gamdl_v4_line("ERROR: something").is_none());
+    }
+}
+
+#[cfg(test)]
+mod gamdl_v4_outcome_tests {
+    use super::{gamdl_v4_error_core, gamdl_v4_run_was_partial_success};
+
+    fn run(lines: &[&str]) -> bool {
+        gamdl_v4_run_was_partial_success(lines.iter().copied())
+    }
+
+    #[test]
+    fn saved_items_with_only_format_gaps_is_a_partial_success() {
+        assert!(run(&[
+            "✓ A: downloaded → /m/01 A.m4a",
+            "Finished: 11 downloaded, 0 overwritten, 0 skipped, 1 failed, 0 finalization failures (12 discovered)",
+            "Errors (1):",
+            "  ✗ Bonus: Requested codec or stream unavailable",
+        ]));
+    }
+
+    #[test]
+    fn anything_else_stays_a_failure() {
+        // Nothing saved.
+        assert!(!run(&[
+            "Finished: 0 downloaded, 0 overwritten, 0 skipped, 2 failed, 0 finalization failures (2 discovered)",
+            "  ✗ A: Requested codec or stream unavailable",
+            "  ✗ B: Requested codec or stream unavailable",
+        ]));
+        // A failure of another kind.
+        assert!(!run(&[
+            "Finished: 5 downloaded, 0 overwritten, 0 skipped, 2 failed, 0 finalization failures (7 discovered)",
+            "  ✗ A: Requested codec or stream unavailable",
+            "  ✗ B: Network request failed",
+        ]));
+        // Something failed after it was saved.
+        assert!(!run(&[
+            "Finished: 5 downloaded, 0 overwritten, 0 skipped, 1 failed, 1 finalization failures (6 discovered)",
+            "  ✗ A: Requested codec or stream unavailable",
+        ]));
+        // No summary at all (a crash, a command-line error).
+        assert!(!run(&[
+            "✗ No such option: --foo",
+            "✗ Run 'gamdl rip --help' to see available options."
+        ]));
+        // A 3.x run.
+        assert!(!run(&["Finished with 1 error(s)", "Saved to: /m/x.m4a"]));
+    }
+
+    #[test]
+    fn the_title_is_not_read_as_the_error() {
+        assert_eq!(
+            gamdl_v4_error_core("Login: Network request failed"),
+            "Network request failed"
+        );
+        assert_eq!(
+            gamdl_v4_error_core("Song: Part 2: Requested codec or stream unavailable"),
+            "Requested codec or stream unavailable"
+        );
+        // Not a 4.x shape: unchanged.
+        assert_eq!(
+            gamdl_v4_error_core("ERROR: cookie expired"),
+            "ERROR: cookie expired"
+        );
+        assert_eq!(
+            super::classify_error(gamdl_v4_error_core("Login: Network request failed")),
+            "network"
+        );
     }
 }

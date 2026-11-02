@@ -1544,7 +1544,7 @@ pub fn process_queue(
                                 save_queue_to_disk(&app_clone, &queue_clone).await;
 
                                 // Emit error guidance to the activity log
-                                let error_category = process::classify_error(&error_msg);
+                                let error_category = classify_error_for_installed_gamdl(&error_msg);
                                 let guidance = process::error_guidance(error_category);
                                 emit_download_log(
                                     &app_clone,
@@ -4545,7 +4545,7 @@ pub fn process_queue(
                     // === Error path ===
                     // Classify the error to determine the appropriate retry strategy.
                     // process::classify_error() returns "codec", "network", or "unknown".
-                    let error_category = process::classify_error(&error_msg);
+                    let error_category = classify_error_for_installed_gamdl(&error_msg);
                     log::error!("Download {dl_id} failed ({error_category}): {error_msg}");
 
                     // Verbose: full error message + classification details
@@ -5657,6 +5657,22 @@ pub(crate) fn write_spotify_manifest_best_effort(
     );
 }
 
+/// Sorts a download error into a kind (see `process::classify_error`).
+///
+/// GAMDL 4.x puts the song title in front of its error (`Login: Network
+/// request failed`), so for 4.x only the error's own words are read —
+/// otherwise a title could decide which retry runs (review round 5).
+/// 3.x messages are read exactly as before.
+fn classify_error_for_installed_gamdl(error_msg: &str) -> &'static str {
+    if crate::services::gamdl_capabilities::detected_cli_generation()
+        == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
+    {
+        process::classify_error(process::gamdl_v4_error_core(error_msg))
+    } else {
+        process::classify_error(error_msg)
+    }
+}
+
 /// Runs a GAMDL download while forwarding parsed events to both
 /// the queue item (for status tracking) and the frontend (for UI updates).
 ///
@@ -6363,7 +6379,28 @@ pub(crate) async fn run_download_with_events(
         return Err(friendly);
     }
 
-    if status.success() {
+    // GAMDL 4.x exits with a failure code when any item is not offered in
+    // the formats asked for; 3.x warned and exited 0. A 4.x run that saved
+    // what was available and failed only on that is treated the way 3.x's
+    // was: done, with the gaps as warnings — not a failed download that
+    // the format fallback would then download again in full (review
+    // round 5). Never consulted for 3.x.
+    let v4_partial_success = !status.success()
+        && crate::services::gamdl_capabilities::detected_cli_generation()
+            == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
+        && {
+            let raw = raw_output_lines.lock().await.snapshot();
+            process::gamdl_v4_run_was_partial_success(raw.iter().map(String::as_str))
+        };
+    if v4_partial_success {
+        emit_download_log(
+            app,
+            download_id,
+            "Some tracks were not available in the chosen formats — the rest were saved",
+        );
+    }
+
+    if status.success() || v4_partial_success {
         // Return any error-pattern lines as non-fatal warnings.
         // These are issues GAMDL logged during the run but didn't consider
         // fatal enough to exit with a non-zero code.

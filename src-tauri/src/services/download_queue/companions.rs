@@ -1760,21 +1760,6 @@ pub(crate) async fn run_lyrics_fallback(
         return;
     }
 
-    // GAMDL 4.x has no lyrics-only mode: the request would be dropped and
-    // the run would download the whole album again, in GAMDL's default
-    // format, beside (or over) the files already there. 4.x writes what
-    // lyrics it has (`.lrc` or `.txt`) during the main download, so there
-    // is nothing for this step to do (found in review round 4).
-    if crate::services::gamdl_capabilities::detected_cli_generation()
-        == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
-    {
-        emit_download_log(
-            app,
-            dl_id,
-            "Lyrics fallback skipped — GAMDL 4 has no lyrics-only download",
-        );
-        return;
-    }
     let dir = std::path::Path::new(album_dir);
     let (audio_count, video_count) = count_media_files(dir);
     let total_media = audio_count + video_count;
@@ -1787,6 +1772,24 @@ pub(crate) async fn run_lyrics_fallback(
     if lyrics_count >= total_media {
         log::debug!("Lyrics fallback not needed for {dl_id}: {lyrics_count}/{total_media} tracks have lyrics");
         return; // All tracks already have lyrics
+    }
+
+    // GAMDL 4.x has no lyrics-only mode: the request would be dropped and
+    // the run would download the whole album again, in GAMDL's default
+    // format, beside (or over) the files already there. 4.x writes what
+    // lyrics it has (`.lrc` or `.txt`) during the main download, so there
+    // is nothing for this step to do (found in review round 4). Checked
+    // only once lyrics really are missing, so the line is not written on
+    // every download (review round 5).
+    if crate::services::gamdl_capabilities::detected_cli_generation()
+        == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
+    {
+        emit_download_log(
+            app,
+            dl_id,
+            "Lyrics fallback skipped — GAMDL 4 has no lyrics-only download",
+        );
+        return;
     }
 
     // Determine fallback chain based on content type.
@@ -3363,7 +3366,10 @@ pub(crate) fn spawn_companion_downloads(
     // during the main download.
     let lyrics_only_unavailable = crate::services::gamdl_capabilities::detected_cli_generation()
         == crate::services::gamdl_capabilities::GamdlCliGeneration::V4;
-    if lyrics_only_unavailable && !lyrics_settings.companion_lyrics_formats.is_empty() {
+    if lyrics_only_unavailable
+        && !lyrics_settings.companion_lyrics_formats.is_empty()
+        && (!lyrics_settings.no_synced_lyrics || lyrics_settings.embed_lyrics_and_sidecar)
+    {
         emit_download_log(
             app,
             dl_id,
