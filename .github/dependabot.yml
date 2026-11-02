@@ -87,6 +87,13 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # @tauri-apps/cli 2.12.3 and 2.12.4 cannot package a pre-release version
+      # (e.g. 1.13.0-alpha.86) as an .rpm: the RPM library they use rejects
+      # the hyphen, so every alpha/beta/rc Linux build fails. Stable
+      # versions have no hyphen, so main is not held back. Lift this once a
+      # Tauri CLI release handles pre-release versions for .rpm again.
+      - dependency-name: "@tauri-apps/cli"
+        versions: [">2.12.2"]
     # Limit open PRs to avoid overwhelming the maintainer
     open-pull-requests-limit: 5
     # Wait 7 days after a release is published before opening a version-update
@@ -115,6 +122,13 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # @tauri-apps/cli 2.12.3 and 2.12.4 cannot package a pre-release version
+      # (e.g. 1.13.0-alpha.86) as an .rpm: the RPM library they use rejects
+      # the hyphen, so every alpha/beta/rc Linux build fails. Stable
+      # versions have no hyphen, so main is not held back. Lift this once a
+      # Tauri CLI release handles pre-release versions for .rpm again.
+      - dependency-name: "@tauri-apps/cli"
+        versions: [">2.12.2"]
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
@@ -138,6 +152,13 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+      # @tauri-apps/cli 2.12.3 and 2.12.4 cannot package a pre-release version
+      # (e.g. 1.13.0-alpha.86) as an .rpm: the RPM library they use rejects
+      # the hyphen, so every alpha/beta/rc Linux build fails. Stable
+      # versions have no hyphen, so main is not held back. Lift this once a
+      # Tauri CLI release handles pre-release versions for .rpm again.
+      - dependency-name: "@tauri-apps/cli"
+        versions: [">2.12.2"]
     open-pull-requests-limit: 5
     cooldown:
       default-days: 7
