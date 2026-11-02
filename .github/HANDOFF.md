@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-10-26 — see ★★★★ LATEST below
+**Last updated:** 2026-11-02 — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.13** · `alpha` **1.13.0-alpha.84** (the OrbStack docs merge is cutting alpha.85) · `beta` **1.9.4-beta.16** · `release-candidate` **1.0.0-rc.43** — read from each branch's `package.json` on 26 Oct.
+**Channel versions:** `main` **1.10.13** (1.10.14 release PR #1402 open, awaiting the maintainer) · `alpha` **1.13.0-alpha.87** · `beta` **1.9.4-beta.19** · `release-candidate` **1.0.0-rc.46** — read from each branch's `package.json` on 2 Nov.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,25 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-10-26: dependency PRs combined on all four channels; alpha merged into `work-in-progress`; code scanning #65 fixed; OrbStack documented
+## ★★★★ LATEST — 2026-11-02: zip/minimatch alerts cleared; pre-release Linux builds fixed (broken since 26 Oct)
+
+| # | Task | Issue / PR | Status | Notes |
+|---|---|---|---|---|
+| 1 | Dependabot #64–#66 + RUSTSEC-2026-0429 (`zip`) | #1397 (closed) | Done | Vulnerable copy was zip 4.6.1 inside `tauri-plugin-updater` 2.14.0. 2.14.1 uses zip ^9, so zip 4 left the build and the three `deny.toml` exceptions (RUSTSEC-2026-0367/0368/0369) were removed. Our own zip stays **9.1.2** on purpose: the alerts' fixes are in 9.0.0/9.0.5, and 9.2.2 was hours old (the 7-day cooldown). |
+| 2 | Dependabot #63 (`minimatch` < 11.0.1) | #1397 | Done | Only ESLint/typescript-eslint use it and they ask ^10, so Dependabot could not update it. npm override `"minimatch": "11.0.3"` (exact; 11.0.4 was hours old). Lift when ESLint/typescript-eslint ask for 11 themselves. |
+| 3 | **Every alpha/beta/rc Linux build failed since 26 Oct** (alpha.84–86, beta.16–18, rc.43–45) | #1397 | Done | `@tauri-apps/cli` 2.12.3+ (moved in by the 26 Oct combined PRs — I did not watch those pre-release builds) rejects a hyphen in the `.rpm` version. Held at **exactly 2.12.2** on alpha/beta/rc/work-in-progress; `main`'s `dependabot.yml` ignores `@tauri-apps/cli` `>2.12.2` for the three pre-release npm entries. Main is unaffected (no hyphen). **Lift both** when a Tauri CLI release handles pre-release `.rpm` versions (2.12.4 does not). Known cost: the 2.12.2 CLI still carries zip 4 internally (build machines only). **A branch promotion or `realign-alpha` can silently undo the hold — check after either.** |
+| 4 | GitHub moved `ubuntu-latest` to 26.04 | #1397 | Done | ARM cross-compile setup tried to downgrade ~900 runner packages; building on 26.04 would also raise the minimum Linux the app runs on. The three Linux release jobs are pinned to `ubuntu-24.04` on every branch (every release so far was built there). |
+| 5 | Merges | #1398 main `87328c12`, #1399 alpha `da3317ae`, #1400 beta `76330132`, #1401 rc `9295a2b6`; work-in-progress `0a73c30d`+`99b3ebbf` | Done | Merge messages carry the `Release-Note:` in the final trailer block (the PR body's attribution footer pushes it out of the trailer block otherwise — pass `commit_message` when squash-merging). |
+| 6 | Release builds | alpha.87, beta.19, rc.46 | Done | All passed on every platform, published with Linux files. alpha.87's `latest.json` lists every Linux package type; beta/rc list the AppImage only (the #1166 fix is alpha-only). Older failed pre-releases left as they are: Mac/Windows users updated normally, Linux users simply were not offered them. |
+| 7 | Release 1.10.14 | #1402 | **Awaiting the maintainer** | Notes file added on the release branch (`09c3c9cf`). CI green. First stable release built on the pinned ubuntu-24.04. |
+
+**Review:** a fresh Claude agent reviewed all five commits; its points (fresh zip/minimatch versions, trailer placement, documenting the CLI's zip 4) were acted on. **Codex review still owed.**
+
+**Disk:** two local test runs died with a linker "bus error" when the disk filled — delete each `src-tauri/target` before building the next branch.
+
+---
+
+## ★★★★ Previous — 2026-10-26: dependency PRs combined on all four channels; alpha merged into `work-in-progress`; code scanning #65 fixed; OrbStack documented
 
 > **PICK UP HERE, on `work-in-progress`.** It contains alpha up to alpha.84 (merge `b37660f6`)
 > plus the alert #65 fix and the OrbStack docs. The OrbStack docs merge to alpha (#1384) is
