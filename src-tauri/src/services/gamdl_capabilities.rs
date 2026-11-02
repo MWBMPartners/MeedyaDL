@@ -763,6 +763,18 @@ pub fn pip_version_spec_for_platform(platform_id: &str) -> String {
 /// ceiling, with a reason the user can act on.
 #[must_use]
 pub fn pip_target_spec(target: &str) -> String {
+    // GAMDL 4.0 made the Widevine unlocking library an optional extra
+    // (`pywidevine` moved from the main requirements to
+    // `[project.optional-dependencies] widevine`). Widevine is still its
+    // default way of unlocking tracks, so a plain `gamdl==4.x` install
+    // would download nothing protected. Asking for the extra keeps the
+    // install equivalent to what 3.x gave. The PlayReady extra is NOT
+    // added: it pulls in `cryptography` at a range with no Windows ARM64
+    // build (see the per-platform ceiling notes), and only the few people
+    // who choose PlayReady need it — a follow-up in the 4.0 audit.
+    if cli_generation_of(target) == GamdlCliGeneration::V4 {
+        return format!("gamdl[widevine]=={target}");
+    }
     format!("gamdl=={target}")
 }
 
@@ -1345,8 +1357,12 @@ impl GamdlFeature {
             // 3.1..3.7.4 window because `structlog`'s
             // `ExceptionPrettyPrinter` was in the processor list
             // unconditionally. Same shape as `FFmpegPath` above.
+            //
+            // GAMDL 4.0 drops the option entirely (its `rip` command has a
+            // `--debug` switch instead, and hides tracebacks by default).
             Self::NoExceptionsFlag => {
-                !is_version_at_least(version, "3.1") || is_version_at_least(version, "3.8")
+                (!is_version_at_least(version, "3.1") || is_version_at_least(version, "3.8"))
+                    && !is_version_at_least(version, "4.0")
             }
             // GAMDL v3.6 family (#853):
             // Added in v3.6 — single HTTP URL replacing the three wrapper-v1 sockets.
@@ -1365,8 +1381,15 @@ impl GamdlFeature {
             // depends on FFmpeg. The other two stay removed. So the gate
             // is true when EITHER < 3.6 (original tool-path era) OR >= 3.7
             // (FFmpeg-only reinstatement era). Only false on the 3.6.x line.
+            //
+            // GAMDL 4.0 removes it again, for good this time: 4.0 does all
+            // of its downloading and muxing in its own compiled code and
+            // starts no outside program at all (checked against the 4.0
+            // branch on 2 Nov 2026 — no `ffmpeg`, `subprocess` or
+            // `shutil.which` anywhere in its source).
             Self::FFmpegPath => {
-                !is_version_at_least(version, "3.6") || is_version_at_least(version, "3.7")
+                (!is_version_at_least(version, "3.6") || is_version_at_least(version, "3.7"))
+                    && !is_version_at_least(version, "4.0")
             }
             // GAMDL >= 2.9.1 (#880): classical.apple.com URLs must be
             // rewritten to classical.music.apple.com before being handed
@@ -1411,6 +1434,101 @@ pub fn supports(feature: GamdlFeature) -> bool {
         Some(ver) if is_parseable_semver(&ver) => feature.is_available_on(&ver),
         _ => false,
     }
+}
+
+// ============================================================
+// GAMDL 4.0 preparation (command-line generation)
+// ============================================================
+//
+// GAMDL 4.0 is a rewrite, not an update (analysed from the upstream `4.0`
+// branch on 2 Nov 2026, version string `4.0.0a0`; full findings in
+// `.github/audits/gamdl-v4.0-preview-audit.md`). Everything MeedyaDL uses
+// to talk to it changes at once:
+//
+// - there is no `python -m gamdl` any more (no `__main__` module); the
+//   program is a command group and downloading is its `rip` command;
+// - the settings file is YAML, read from GAMDL's own folder, not the
+//   `config.ini` MeedyaDL writes;
+// - most options are renamed or gone, and the output is a different
+//   shape entirely.
+//
+// None of the per-feature gates above can express that, because they all
+// assume the same program with options added and removed. So the
+// generation is its own question, answered once here, and everything that
+// builds a command line asks it first.
+
+/// Which shape of command line the installed GAMDL expects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GamdlCliGeneration {
+    /// GAMDL 3.x: `python -m gamdl <urls> <options>`, `config.ini`.
+    V3,
+    /// GAMDL 4.x: `gamdl --no-config rip <options> <urls>`, YAML settings,
+    /// renamed options. See `GamdlOptions::to_cli_args_v4`.
+    V4,
+}
+
+/// The highest GAMDL major version this MeedyaDL build will install and
+/// run.
+///
+/// **This is the switch that turns GAMDL 4 support on.** The command
+/// builder for 4.x is written and tested against the unreleased 4.0 code,
+/// but it has never driven a real download, because there is no 4.0
+/// release to drive yet. Until somebody has done that, an install of 4.x
+/// is refused (see `gamdl_service::refuse_unsupported_target`) and the
+/// Updates page does not offer it — otherwise the day 4.0 appears on the
+/// package index, anybody who clicked the "Untested" upgrade would end up
+/// with a GAMDL MeedyaDL cannot start, and every download would fail.
+///
+/// Raising this to 4 is the last step of adding 4.x support, after the
+/// checks listed in the 4.0 audit have been run on a real release.
+pub const HIGHEST_DRIVABLE_MAJOR: u32 = 3;
+
+/// The major version number of `version`, read from its leading digits.
+///
+/// Deliberately looser than [`is_parseable_semver`]: a pre-release such
+/// as `4.0.0a0` (the upstream branch's own version) or `4.0.0rc1` still
+/// has an unambiguous major version, and that is all the generation
+/// question needs. `None` only when the string does not start with a
+/// number at all.
+#[must_use]
+pub fn major_version_of(version: &str) -> Option<u32> {
+    let first = version.trim().split('.').next()?;
+    let digits: String = first.chars().take_while(char::is_ascii_digit).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// The command-line generation of a given GAMDL version.
+///
+/// Anything that is not readable as 4 or above counts as 3.x — the shape
+/// every release in the current support window uses, so an unknown or
+/// unreadable version keeps today's behaviour exactly.
+#[must_use]
+pub fn cli_generation_of(version: &str) -> GamdlCliGeneration {
+    match major_version_of(version) {
+        Some(major) if major >= 4 => GamdlCliGeneration::V4,
+        _ => GamdlCliGeneration::V3,
+    }
+}
+
+/// The command-line generation of the GAMDL that is installed now.
+///
+/// [`GamdlCliGeneration::V3`] when no version has been detected yet, for
+/// the same reason as [`cli_generation_of`].
+#[must_use]
+pub fn detected_cli_generation() -> GamdlCliGeneration {
+    detected_version().map_or(GamdlCliGeneration::V3, |v| cli_generation_of(&v))
+}
+
+/// Is `version` from a major release this build cannot drive yet?
+///
+/// See [`HIGHEST_DRIVABLE_MAJOR`]. `false` for a string with no readable
+/// major version: that is not evidence of a newer major release.
+#[must_use]
+pub fn is_beyond_drivable_major(version: &str) -> bool {
+    major_version_of(version).is_some_and(|major| major > HIGHEST_DRIVABLE_MAJOR)
 }
 
 /// Is this platform genuinely held below what everyone else can
@@ -2517,7 +2635,9 @@ mod tests {
         // an exact version so pip can't silently resolve to something
         // else under the user's `gamdl>=…,<=…` cap.
         assert_eq!(pip_target_spec("3.3"), "gamdl==3.3");
-        assert_eq!(pip_target_spec("4.0.1"), "gamdl==4.0.1");
+        // 4.x asks for the Widevine extra — see `pip_target_spec`.
+        assert_eq!(pip_target_spec("4.0.1"), "gamdl[widevine]==4.0.1");
+        assert_eq!(pip_target_spec("3.9.1"), "gamdl==3.9.1");
     }
 
     // ----------------------------------------------------------------
@@ -3055,5 +3175,64 @@ mod tests {
         );
 
         set_detected_version(None);
+    }
+
+    // ----------------------------------------------------------------
+    // GAMDL 4.0 preparation
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn major_version_reads_pre_releases_and_refuses_garbage() {
+        assert_eq!(major_version_of("3.9.1"), Some(3));
+        assert_eq!(major_version_of("4.0.0a0"), Some(4));
+        assert_eq!(major_version_of("4rc1"), Some(4));
+        assert_eq!(major_version_of(" 4.1 "), Some(4));
+        assert_eq!(major_version_of("v4.0"), None);
+        assert_eq!(major_version_of(""), None);
+    }
+
+    #[test]
+    fn generation_is_v4_only_from_major_four() {
+        for v in ["3.0", "3.9.1", "3.10", "garbage", ""] {
+            assert_eq!(cli_generation_of(v), GamdlCliGeneration::V3, "{v}");
+        }
+        for v in ["4.0", "4.0.0a0", "4.2.1", "5.0"] {
+            assert_eq!(cli_generation_of(v), GamdlCliGeneration::V4, "{v}");
+        }
+    }
+
+    #[test]
+    fn detected_generation_defaults_to_v3_when_nothing_is_known() {
+        let _lock = test_lock();
+        set_detected_version(None);
+        assert_eq!(detected_cli_generation(), GamdlCliGeneration::V3);
+        set_detected_version(Some("4.0.0a0".to_string()));
+        assert_eq!(detected_cli_generation(), GamdlCliGeneration::V4);
+        set_detected_version(Some("3.9.1".to_string()));
+        assert_eq!(detected_cli_generation(), GamdlCliGeneration::V3);
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn four_is_beyond_what_this_build_drives() {
+        // Fails loudly the day the switch is raised, so whoever raises it
+        // has to update this test (and so read why it was 3).
+        assert_eq!(HIGHEST_DRIVABLE_MAJOR, 3);
+        assert!(is_beyond_drivable_major("4.0.0"));
+        assert!(is_beyond_drivable_major("4.0.0a0"));
+        assert!(!is_beyond_drivable_major("3.9.1"));
+        assert!(!is_beyond_drivable_major("garbage"));
+    }
+
+    #[test]
+    fn options_gamdl_four_removed_are_off_on_four() {
+        // Both still on for the 3.x releases that accept them...
+        assert!(GamdlFeature::FFmpegPath.is_available_on("3.9.1"));
+        assert!(GamdlFeature::NoExceptionsFlag.is_available_on("3.9.1"));
+        // ...and off on 4.x, which rejects any option it does not know.
+        for v in ["4.0", "4.0.0", "4.1"] {
+            assert!(!GamdlFeature::FFmpegPath.is_available_on(v), "{v}");
+            assert!(!GamdlFeature::NoExceptionsFlag.is_available_on(v), "{v}");
+        }
     }
 }

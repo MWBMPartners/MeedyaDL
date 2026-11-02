@@ -138,6 +138,75 @@ static TRACK_INFO_V2_REGEX: LazyLock<Regex> = LazyLock::new(|| {
         .expect("Invalid track info v2 regex")
 });
 
+/// A GAMDL 4.x per-item result line.
+///
+/// Printed by `RipProgress.finish` (`src/gamdl/cli/progress.py` on the 4.0
+/// branch) once per item, whether or not progress bars are on:
+///
+/// ```text
+/// ✓ Song Title: downloaded → /Music/Artist/Album/01 Song Title.m4a
+/// ✓ Song Title: overwritten → /Music/…
+/// ✓ Song Title: media saved (finalization incomplete) → /Music/…
+/// ↷ Song Title: skipped (already exists) → /Music/…
+/// ```
+///
+/// Capture groups: 1 the title, 2 the outcome, 3 the path. The title is
+/// matched lazily so a title containing ": " still leaves the outcome
+/// word to group 2.
+static V4_RESULT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^(?:✓|↷)\s+(.+?):\s+(downloaded|overwritten|skipped|media saved \(finalization incomplete\))(?:\s+\(.*?\))?\s+→\s+(.+)$",
+    )
+    .expect("Invalid GAMDL 4 result regex")
+});
+
+/// Classifies a line printed by GAMDL 4.x, or returns `None` when the
+/// line is not one of 4.x's shapes (every 3.x line returns `None`).
+///
+/// 4.x prints a small, fixed set of human-readable lines instead of log
+/// records (`src/gamdl/cli/output.py`, `progress.py` and
+/// `commands/runner.py` on the 4.0 branch):
+///
+/// - `✓ / ↷ title: outcome → path` — one per item; becomes `Complete`
+///   with the path, including for a file skipped because it is already
+///   there (the file the person asked for is on disk at that path, which
+///   is what everything after the download needs to know);
+/// - `✗ label: message` — an error, either in the end-of-run error list
+///   or a command-line problem; becomes `Error`;
+/// - `✓ Authenticated`, `! …` notices, `Errors (N):` and the
+///   `Finished: …` summary — information, so `ProcessingStep`;
+/// - `No supported media found at this URL.` — an error (4.x exits 1).
+pub fn parse_gamdl_v4_line(trimmed: &str) -> Option<GamdlOutputEvent> {
+    if let Some(captures) = V4_RESULT_REGEX.captures(trimmed) {
+        let path = captures
+            .get(3)
+            .map(|m| m.as_str().trim().to_string())
+            .unwrap_or_default();
+        return Some(GamdlOutputEvent::Complete { path });
+    }
+    if let Some(rest) = trimmed.strip_prefix('✗') {
+        return Some(GamdlOutputEvent::Error {
+            message: rest.trim().to_string(),
+        });
+    }
+    if trimmed.starts_with('✓')
+        || trimmed.starts_with('↷')
+        || trimmed.starts_with("! ")
+        || trimmed.starts_with("Finished: ")
+        || (trimmed.starts_with("Errors (") && trimmed.ends_with("):"))
+    {
+        return Some(GamdlOutputEvent::ProcessingStep {
+            step: trimmed.to_string(),
+        });
+    }
+    if trimmed == "No supported media found at this URL." {
+        return Some(GamdlOutputEvent::Error {
+            message: trimmed.to_string(),
+        });
+    }
+    None
+}
+
 /// Matches GAMDL "Saved to" completion lines.
 ///
 /// Capture groups:
@@ -544,6 +613,15 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
     // Skip empty lines
     if trimmed.is_empty() {
         return GamdlOutputEvent::Unknown { raw: String::new() };
+    }
+
+    // GAMDL 4.x result lines. Checked first because their shapes are
+    // unambiguous (they start with a symbol no 3.x line starts with) and
+    // because the end-of-run summary contains the word "failed", which the
+    // keyword match further down would otherwise report as an error even
+    // when nothing failed.
+    if let Some(event) = parse_gamdl_v4_line(trimmed) {
+        return event;
     }
 
     // Priority 1: yt-dlp download progress (most frequent during downloads).
@@ -3858,4 +3936,87 @@ mod tests {
         assert!(joined.contains("example.test"), "and still says where it points: {joined}");
     }
 
+}
+
+#[cfg(test)]
+mod gamdl_v4_output_tests {
+    use super::{parse_gamdl_output, GamdlOutputEvent};
+
+    // Line shapes copied from the GAMDL 4.0 branch's own output code
+    // (`cli/progress.py::RipProgress.finish`, `cli/commands/runner.py`,
+    // `cli/output.py`). 4.0 is unreleased; if a release changes them,
+    // these are the lines to update.
+
+    fn path_of(line: &str) -> String {
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Complete { path } => path,
+            other => panic!("expected Complete for {line:?}, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn each_item_result_gives_its_path() {
+        assert_eq!(
+            path_of("✓ Song Title: downloaded → /Music/A/B/01 Song Title.m4a"),
+            "/Music/A/B/01 Song Title.m4a"
+        );
+        assert_eq!(path_of("✓ X: overwritten → /m/x.m4a"), "/m/x.m4a");
+        assert_eq!(
+            path_of("✓ X: media saved (finalization incomplete) → /m/x.m4a"),
+            "/m/x.m4a"
+        );
+        assert_eq!(
+            path_of("↷ X: skipped (already exists) → /m/Album (Deluxe)/x.m4a"),
+            "/m/Album (Deluxe)/x.m4a"
+        );
+        // A title that itself contains ": ".
+        assert_eq!(
+            path_of("✓ Interlude: Part 2: downloaded → C:\\Music\\x.m4a"),
+            "C:\\Music\\x.m4a"
+        );
+    }
+
+    #[test]
+    fn errors_are_errors() {
+        match parse_gamdl_output("  ✗ Some Song: Requested codec or stream unavailable") {
+            GamdlOutputEvent::Error { message } => {
+                assert_eq!(message, "Some Song: Requested codec or stream unavailable");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(
+            parse_gamdl_output("No supported media found at this URL."),
+            GamdlOutputEvent::Error { .. }
+        ));
+    }
+
+    #[test]
+    fn the_summary_is_not_mistaken_for_a_failure() {
+        // Contains "failed" — the keyword match would call it an error.
+        let line = "Finished: 12 downloaded, 0 overwritten, 0 skipped, 0 failed, 0 finalization failures (12 discovered)";
+        assert!(matches!(
+            parse_gamdl_output(line),
+            GamdlOutputEvent::ProcessingStep { .. }
+        ));
+        for info in [
+            "✓ Authenticated",
+            "! An active Apple Music subscription was not confirmed",
+            "Errors (2):",
+        ] {
+            assert!(
+                matches!(
+                    parse_gamdl_output(info),
+                    GamdlOutputEvent::ProcessingStep { .. }
+                ),
+                "{info}"
+            );
+        }
+    }
+
+    #[test]
+    fn three_x_lines_are_untouched() {
+        assert!(super::parse_gamdl_v4_line("Saved to: /path/song.m4a").is_none());
+        assert!(super::parse_gamdl_v4_line("[Track 1/12] Downloading \"Song\"").is_none());
+        assert!(super::parse_gamdl_v4_line("ERROR: something").is_none());
+    }
 }

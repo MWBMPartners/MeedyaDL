@@ -5700,7 +5700,15 @@ pub(crate) async fn run_download_with_events(
         download_id,
         &format!(
             "GAMDL CLI args: {:?}",
-            crate::utils::process::redact_cli_args(&options.to_cli_args())
+            crate::utils::process::redact_cli_args(
+                &if crate::services::gamdl_capabilities::detected_cli_generation()
+                    == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
+                {
+                    options.to_cli_args_v4()
+                } else {
+                    options.to_cli_args()
+                }
+            )
         ),
     );
 

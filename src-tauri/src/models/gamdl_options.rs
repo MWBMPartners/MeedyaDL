@@ -1399,6 +1399,350 @@ impl GamdlOptions {
 // Unit Tests
 // ============================================================
 
+// ============================================================
+// GAMDL 4.0 command line (prepared ahead of release)
+// ============================================================
+//
+// Written against the upstream `4.0` branch as it stood on 2 Nov 2026
+// (`src/gamdl/cli/options.py`, version string `4.0.0a0`). 4.0 is not
+// released, so this is a head start, not finished support: it is used only
+// when the installed GAMDL reports a major version of 4 or more, and the
+// install path refuses 4.x until `HIGHEST_DRIVABLE_MAJOR` is raised. Every
+// 3.x download keeps using `to_cli_args` above, unchanged.
+//
+// Full option-by-option comparison: `.github/audits/gamdl-v4.0-preview-audit.md`.
+
+/// The metadata fields GAMDL 4.0 accepts in `--exclude-tags`: the fields
+/// of its `Tags` record (`src/gamdl/download/tags.py`) plus `cover`.
+///
+/// 4.0 refuses the whole run if any name is not on this list, so names
+/// are translated (see [`v4_exclude_tag_name`]) and anything it would not
+/// recognise is left out rather than passed on.
+pub const GAMDL_V4_TAG_NAMES: &[&str] = &[
+    "title",
+    "artist",
+    "album",
+    "album_artist",
+    "title_id",
+    "artist_id",
+    "album_id",
+    "track_number",
+    "track_total",
+    "disc_number",
+    "disc_total",
+    "release_date",
+    "genre",
+    "genre_id",
+    "isrc",
+    "xid",
+    "title_sort",
+    "artist_sort",
+    "album_sort",
+    "composer",
+    "composer_id",
+    "composer_sort",
+    "copyright",
+    "comment",
+    "compilation",
+    "gapless",
+    "explicit",
+    "storefront",
+    "media_type",
+    "rating",
+    "lyrics",
+    "cover",
+];
+
+/// The song codec names GAMDL 4.0 accepts in `--song-codec-priority`
+/// (`src/gamdl/media/song/enums.py`). Same names as 3.6 and later; the
+/// interactive `ask` choice is no longer a codec.
+const GAMDL_V4_SONG_CODECS: &[&str] = &[
+    "aac-web",
+    "aac-he-web",
+    "aac",
+    "aac-he",
+    "aac-binaural",
+    "aac-downmix",
+    "aac-he-binaural",
+    "aac-he-downmix",
+    "atmos",
+    "ac3",
+    "alac",
+];
+
+/// Translates a 3.x `--exclude-tags` name to its 4.0 name, or `None` when
+/// 4.0 has no such field.
+///
+/// Three fields were renamed in 4.0: `track` → `track_number`, `disc` →
+/// `disc_number`, `date` → `release_date`. Everything else either kept its
+/// name or is on neither list.
+#[must_use]
+pub fn v4_exclude_tag_name(name: &str) -> Option<&'static str> {
+    let translated = match name.trim() {
+        "track" => "track_number",
+        "disc" => "disc_number",
+        "date" => "release_date",
+        other => other,
+    };
+    GAMDL_V4_TAG_NAMES
+        .iter()
+        .copied()
+        .find(|known| *known == translated)
+}
+
+/// Rewrites a comma-separated codec list into names 4.0 accepts: the 3.x
+/// spellings `aac-legacy` / `aac-he-legacy` become `aac-web` /
+/// `aac-he-web` (the rename 3.6 made), and anything 4.0 does not know —
+/// including `ask` — is dropped. Order is kept and repeats removed.
+fn v4_song_codec_priority(list: &str) -> Option<String> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for raw in list.split(',') {
+        let name = match raw.trim() {
+            "aac-legacy" => "aac-web",
+            "aac-he-legacy" => "aac-he-web",
+            other => other,
+        };
+        if let Some(known) = GAMDL_V4_SONG_CODECS.iter().copied().find(|c| *c == name) {
+            if !out.contains(&known) {
+                out.push(known);
+            }
+        }
+    }
+    (!out.is_empty()).then(|| out.join(","))
+}
+
+/// Keeps only `h264` / `h265` from a comma-separated video codec list.
+fn v4_music_video_codec_priority(list: &str) -> Option<String> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for raw in list.split(',') {
+        let known = match raw.trim() {
+            "h264" => "h264",
+            "h265" => "h265",
+            _ => continue,
+        };
+        if !out.contains(&known) {
+            out.push(known);
+        }
+    }
+    (!out.is_empty()).then(|| out.join(","))
+}
+
+impl VideoResolution {
+    /// The picture height in lines, which is how GAMDL 4.0 takes the
+    /// resolution ceiling (`--max-height`).
+    #[must_use]
+    pub fn height(&self) -> u32 {
+        match self {
+            Self::P2160 => 2160,
+            Self::P1440 => 1440,
+            Self::P1080 => 1080,
+            Self::P720 => 720,
+            Self::P540 => 540,
+            Self::P480 => 480,
+            Self::P360 => 360,
+            Self::P240 => 240,
+        }
+    }
+}
+
+impl GamdlOptions {
+    /// The options for GAMDL 4.0's `rip` command, built from the same
+    /// settings as [`Self::to_cli_args`].
+    ///
+    /// Returns only the options. The launcher, the group-level
+    /// `--no-config`, the `rip` command name and the links are added by
+    /// `gamdl_service::build_gamdl_command`, which is the only caller.
+    ///
+    /// What changes, in brief (the audit has the full table):
+    ///
+    /// - renamed: `--output-path` → `--output-dir`; `--music-video-resolution`
+    ///   → `--max-height` (a number); `--music-video-remux-format` →
+    ///   `--music-video-container`; `--wvd-path` / `--prd-path` →
+    ///   `--device-path`; `--no-synced-lyrics` → `--no-lyrics`;
+    ///   `--use-wrapper` → `--auth-mode wrapper`; `--overwrite` →
+    ///   `--overwrite replace`;
+    /// - always sent: `--auth-mode` (with none, 4.0 opens an interactive
+    ///   sign-in wizard, which has nobody to answer it here), and
+    ///   `--no-progress` (its progress display is for a terminal);
+    /// - not sent, because 4.0 has no such option: the four helper
+    ///   program paths (it starts no outside program), `--cover-size`,
+    ///   `--synced-lyrics-format` (it only writes `.lrc` or `.txt`),
+    ///   `--synced-lyrics-only` (no lyrics-only mode), `--use-album-date`,
+    ///   `--date-tag-template`, `--download-mode`, `--log-level`,
+    ///   `--no-exceptions`, `--wrapper-m3u8-ip`, `--wrapper-account-url`,
+    ///   `--read-urls-as-txt`, `--no-config-file` (replaced by the group's
+    ///   `--no-config`, which the caller always adds);
+    /// - deliberately not sent: `--save-cover`. 4.0 saves one picture
+    ///   per TRACK, named after the track, instead of one `Cover.jpg` per
+    ///   album; MeedyaDL's own cover step already writes the album
+    ///   picture under the name the person chose, so asking 4.0 for it
+    ///   would only scatter a copy beside every song.
+    ///
+    /// Any option 4.0 does not know ends the run before anything
+    /// downloads, so nothing here is passed on unchecked: codec names and
+    /// tag names are translated and filtered, not forwarded.
+    #[must_use]
+    pub fn to_cli_args_v4(&self) -> Vec<String> {
+        let mut args: Vec<String> = Vec::new();
+        fn push(args: &mut Vec<String>, flag: &str, value: String) {
+            args.push(flag.to_string());
+            args.push(value);
+        }
+
+        // --- Sign-in ---
+        // Always say which method, so 4.0 never opens its wizard.
+        if self.use_wrapper == Some(true) {
+            push(&mut args, "--auth-mode", "wrapper".to_string());
+            if let Some(ref url) = self.wrapper_url {
+                push(&mut args, "--wrapper-url", url.clone());
+            }
+            if let Some(ref addr) = self.wrapper_decrypt_ip {
+                if let Some((host, port)) = addr.rsplit_once(':') {
+                    // 4.0 checks the port is a number from 1 to 65535 and
+                    // refuses the run otherwise; leave its default in
+                    // place rather than send one it would refuse.
+                    if port.parse::<u16>().is_ok_and(|p| p > 0) && !host.is_empty() {
+                        push(&mut args, "--wrapper-decrypt-host", host.to_string());
+                        push(&mut args, "--wrapper-decrypt-port", port.to_string());
+                    }
+                }
+            }
+        } else {
+            push(&mut args, "--auth-mode", "cookies".to_string());
+        }
+        if let Some(ref path) = self.cookies_path {
+            push(&mut args, "--cookies-path", path.clone());
+        }
+        if let Some(ref lang) = self.language {
+            push(&mut args, "--language", lang.clone());
+        }
+
+        // --- Unlocking protected tracks ---
+        // One device-file option now serves both methods.
+        match self.drm_backend {
+            Some(DrmBackend::PlayReady) => {
+                push(&mut args, "--drm-backend", "playready".to_string());
+                if let Some(ref path) = self.prd_path {
+                    push(&mut args, "--device-path", path.clone());
+                }
+            }
+            Some(DrmBackend::Widevine) | None => {
+                if let Some(ref path) = self.wvd_path {
+                    push(&mut args, "--device-path", path.clone());
+                }
+            }
+        }
+
+        // --- Audio and video ---
+        let song_priority = self.song_codec_priority.clone().or_else(|| {
+            self.song_codec
+                .as_ref()
+                .map(|c| c.to_cli_string().to_string())
+        });
+        if let Some(list) = song_priority.as_deref().and_then(v4_song_codec_priority) {
+            push(&mut args, "--song-codec-priority", list);
+        }
+        if let Some(list) = self
+            .music_video_codec_priority
+            .as_deref()
+            .and_then(v4_music_video_codec_priority)
+        {
+            push(&mut args, "--music-video-codec-priority", list);
+        }
+        if let Some(ref resolution) = self.music_video_resolution {
+            push(&mut args, "--max-height", resolution.height().to_string());
+        }
+        if let Some(container) = self
+            .music_video_remux_format
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| *c == "m4v" || *c == "mp4")
+        {
+            push(&mut args, "--music-video-container", container.to_string());
+        }
+        // The 3.x values `best` and `ask` do not exist in 4.0 (it names
+        // Apple's own quality variants instead, best first by default), so
+        // there is nothing to translate them into: leaving the option out
+        // gets the best available, which is what `best` meant.
+
+        // --- Artwork, lyrics, tags ---
+        // `raw` (the original file) is not offered by 4.0; leaving the
+        // option out gets its default, JPEG.
+        match self.cover_format {
+            Some(CoverFormat::Jpg) => push(&mut args, "--cover-format", "jpg".to_string()),
+            Some(CoverFormat::Png) => push(&mut args, "--cover-format", "png".to_string()),
+            Some(CoverFormat::Raw) | None => {}
+        }
+        if let Some(ref tags) = self.exclude_tags {
+            let mut names: Vec<&'static str> = Vec::new();
+            for name in tags.split(',').filter_map(v4_exclude_tag_name) {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+            if !names.is_empty() {
+                push(&mut args, "--exclude-tags", names.join(","));
+            }
+        }
+        if self.no_synced_lyrics == Some(true) {
+            args.push("--no-lyrics".to_string());
+        }
+
+        // --- Where files go ---
+        if let Some(ref path) = self.output_path {
+            push(&mut args, "--output-dir", path.clone());
+        }
+        if let Some(ref path) = self.temp_path {
+            push(&mut args, "--temp-path", path.clone());
+        }
+        if self.overwrite == Some(true) {
+            push(&mut args, "--overwrite", "replace".to_string());
+        }
+        if let Some(truncate) = self.truncate.filter(|t| *t > 0) {
+            push(&mut args, "--truncate", truncate.to_string());
+        }
+        for (flag, value) in [
+            ("--album-folder-template", &self.album_folder_template),
+            (
+                "--compilation-folder-template",
+                &self.compilation_folder_template,
+            ),
+            ("--no-album-folder-template", &self.no_album_folder_template),
+            ("--playlist-folder-template", &self.playlist_folder_template),
+            (
+                "--single-disc-file-template",
+                &self.single_disc_file_template,
+            ),
+            ("--multi-disc-file-template", &self.multi_disc_file_template),
+            ("--no-album-file-template", &self.no_album_file_template),
+            ("--playlist-file-template", &self.playlist_file_template),
+        ] {
+            if let Some(template) = value {
+                push(&mut args, flag, template.clone());
+            }
+        }
+        if self.save_playlist == Some(true) {
+            args.push("--save-playlist".to_string());
+        }
+
+        // --- Which items an artist link means ---
+        // Without this, 4.0 needs a person to pick from a menu and stops.
+        if let Some(ref mode) = self.artist_auto_select {
+            push(
+                &mut args,
+                "--artist-auto-select",
+                mode.to_cli_string().to_string(),
+            );
+        }
+
+        // Its progress display is drawn for a terminal; the per-item
+        // result lines are what MeedyaDL reads.
+        args.push("--no-progress".to_string());
+
+        args
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2138,5 +2482,247 @@ mod tests {
         assert_eq!(SongCodec::AacHeLegacy.required_audio_trait(), None);
         assert_eq!(SongCodec::AacHeBinaural.required_audio_trait(), None);
         assert_eq!(SongCodec::AacHeDownmix.required_audio_trait(), None);
+    }
+}
+
+#[cfg(test)]
+mod gamdl_v4_args_tests {
+    use super::*;
+
+    /// Every option name `rip` accepts on the 4.0 branch
+    /// (`src/gamdl/cli/options.py`, `RipOptions`). Anything the builder
+    /// sends that is not on this list would end the run before anything
+    /// downloads, so every test below checks against it.
+    const V4_RIP_OPTIONS: &[&str] = &[
+        "--select",
+        "--artist-auto-select",
+        "--output-dir",
+        "--temp-path",
+        "--overwrite",
+        "--concurrency",
+        "--concurrent-downloads",
+        "--song-codec",
+        "--song-codec-priority",
+        "--music-video-codec",
+        "--music-video-codec-priority",
+        "--music-video-container",
+        "--max-height",
+        "--uploaded-video-quality",
+        "--ask-song-codec",
+        "--ask-music-video-streams",
+        "--ask-uploaded-video-quality",
+        "--save-cover",
+        "--no-save-cover",
+        "--cover-format",
+        "--no-tag",
+        "--tag",
+        "--exclude-tags",
+        "--no-lyrics",
+        "--save-playlist",
+        "--no-save-playlist",
+        "--fail-fast",
+        "--database",
+        "--no-database",
+        "--database-path",
+        "--no-progress",
+        "--max-visible-tracks",
+        "--debug",
+        "--no-debug",
+        "--auth-mode",
+        "--cookies-path",
+        "--wrapper-url",
+        "--media-user-token",
+        "--wrapper-decrypt-host",
+        "--wrapper-decrypt-port",
+        "--storefront",
+        "--language",
+        "--drm-backend",
+        "--device-path",
+        "--album-folder-template",
+        "--compilation-folder-template",
+        "--no-album-folder-template",
+        "--playlist-folder-template",
+        "--single-disc-file-template",
+        "--multi-disc-file-template",
+        "--no-album-file-template",
+        "--playlist-file-template",
+        "--truncate",
+    ];
+
+    fn assert_only_known_options(args: &[String]) {
+        for a in args.iter().filter(|a| a.starts_with("--")) {
+            assert!(
+                V4_RIP_OPTIONS.contains(&a.as_str()),
+                "4.0 has no option {a}"
+            );
+        }
+    }
+
+    fn value_of<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+        args.iter()
+            .position(|a| a == flag)
+            .and_then(|i| args.get(i + 1))
+            .map(String::as_str)
+    }
+
+    /// Everything MeedyaDL can set, at once — the realistic worst case.
+    fn everything() -> GamdlOptions {
+        GamdlOptions {
+            song_codec: Some(SongCodec::Alac),
+            song_codec_priority: Some("alac,atmos,aac-legacy,aac-he-legacy,ask,alac".into()),
+            music_video_codec_priority: Some("h265,ask,h264".into()),
+            music_video_resolution: Some(VideoResolution::P2160),
+            music_video_remux_format: Some("mp4".into()),
+            uploaded_video_quality: Some("best".into()),
+            disable_music_video_skip: Some(true),
+            synced_lyrics_format: Some(LyricsFormat::Ttml),
+            no_synced_lyrics: Some(false),
+            synced_lyrics_only: Some(true),
+            save_cover: Some(true),
+            cover_format: Some(CoverFormat::Png),
+            cover_size: Some(3000),
+            output_path: Some("/Music".into()),
+            temp_path: Some("/tmp/MeedyaDL".into()),
+            overwrite: Some(true),
+            truncate: Some(120),
+            cookies_path: Some("/c/cookies.txt".into()),
+            use_wrapper: Some(true),
+            wrapper_account_url: Some("http://127.0.0.1:30020".into()),
+            wrapper_decrypt_ip: Some("192.168.1.5:10020".into()),
+            wrapper_m3u8_ip: Some("127.0.0.1:20020".into()),
+            wrapper_url: Some("http://192.168.1.5".into()),
+            language: Some("en-GB".into()),
+            exclude_tags: Some("track,disc,date,lyrics,not_a_tag,track".into()),
+            use_album_date: Some(true),
+            date_tag_template: Some("%Y".into()),
+            album_folder_template: Some("{album_artist}/{album}".into()),
+            compilation_folder_template: Some("Compilations/{album}".into()),
+            no_album_folder_template: Some("{artist}/Unknown Album".into()),
+            playlist_folder_template: Some("Playlists/{playlist_artist}".into()),
+            single_disc_file_template: Some("{track:02d} {title}".into()),
+            multi_disc_file_template: Some("{disc}-{track:02d} {title}".into()),
+            no_album_file_template: Some("{title}".into()),
+            playlist_file_template: Some("{playlist_title}".into()),
+            ffmpeg_path: Some("/bin/ffmpeg".into()),
+            mp4decrypt_path: Some("/bin/mp4decrypt".into()),
+            mp4box_path: Some("/bin/MP4Box".into()),
+            nm3u8dlre_path: Some("/bin/N_m3u8DL-RE".into()),
+            wvd_path: Some("/d/device.wvd".into()),
+            drm_backend: None,
+            prd_path: None,
+            download_mode: Some(DownloadMode::Nm3u8dlre),
+            remux_mode: Some(RemuxMode::Mp4box),
+            artist_auto_select: Some(ArtistAutoSelect::MainAlbums),
+            log_level: Some(LogLevel::Debug),
+            no_exceptions: Some(true),
+            save_playlist: Some(true),
+            read_urls_as_txt: Some(true),
+            no_config_file: Some(true),
+        }
+    }
+
+    #[test]
+    fn nothing_four_point_zero_would_reject() {
+        assert_only_known_options(&everything().to_cli_args_v4());
+        assert_only_known_options(&GamdlOptions::default().to_cli_args_v4());
+    }
+
+    #[test]
+    fn renamed_options_carry_their_values() {
+        let args = everything().to_cli_args_v4();
+        assert_eq!(value_of(&args, "--output-dir"), Some("/Music"));
+        assert_eq!(value_of(&args, "--max-height"), Some("2160"));
+        assert_eq!(value_of(&args, "--music-video-container"), Some("mp4"));
+        assert_eq!(value_of(&args, "--overwrite"), Some("replace"));
+        assert_eq!(value_of(&args, "--device-path"), Some("/d/device.wvd"));
+        assert_eq!(value_of(&args, "--auth-mode"), Some("wrapper"));
+        assert_eq!(value_of(&args, "--wrapper-url"), Some("http://192.168.1.5"));
+        assert_eq!(
+            value_of(&args, "--wrapper-decrypt-host"),
+            Some("192.168.1.5")
+        );
+        assert_eq!(value_of(&args, "--wrapper-decrypt-port"), Some("10020"));
+        assert_eq!(value_of(&args, "--artist-auto-select"), Some("main-albums"));
+        assert_eq!(value_of(&args, "--cover-format"), Some("png"));
+        assert_eq!(value_of(&args, "--truncate"), Some("120"));
+    }
+
+    #[test]
+    fn codec_lists_use_four_point_zero_names_only() {
+        let args = everything().to_cli_args_v4();
+        assert_eq!(
+            value_of(&args, "--song-codec-priority"),
+            Some("alac,atmos,aac-web,aac-he-web")
+        );
+        assert_eq!(
+            value_of(&args, "--music-video-codec-priority"),
+            Some("h265,h264")
+        );
+    }
+
+    #[test]
+    fn tag_names_are_translated_and_unknown_ones_dropped() {
+        let args = everything().to_cli_args_v4();
+        assert_eq!(
+            value_of(&args, "--exclude-tags"),
+            Some("track_number,disc_number,release_date,lyrics")
+        );
+    }
+
+    #[test]
+    fn always_says_how_to_sign_in_and_never_draws_progress_bars() {
+        let args = GamdlOptions::default().to_cli_args_v4();
+        assert_eq!(value_of(&args, "--auth-mode"), Some("cookies"));
+        assert!(args.iter().any(|a| a == "--no-progress"));
+    }
+
+    #[test]
+    fn play_ready_uses_the_shared_device_option() {
+        let opts = GamdlOptions {
+            drm_backend: Some(DrmBackend::PlayReady),
+            prd_path: Some("/d/device.prd".into()),
+            wvd_path: Some("/d/device.wvd".into()),
+            ..GamdlOptions::default()
+        };
+        let args = opts.to_cli_args_v4();
+        assert_eq!(value_of(&args, "--drm-backend"), Some("playready"));
+        assert_eq!(value_of(&args, "--device-path"), Some("/d/device.prd"));
+        assert_eq!(args.iter().filter(|a| *a == "--device-path").count(), 1);
+    }
+
+    #[test]
+    fn values_four_point_zero_cannot_take_are_left_out() {
+        let opts = GamdlOptions {
+            cover_format: Some(CoverFormat::Raw),
+            uploaded_video_quality: Some("best".into()),
+            wrapper_decrypt_ip: Some("host:notaport".into()),
+            use_wrapper: Some(true),
+            truncate: Some(0),
+            save_cover: Some(true),
+            ..GamdlOptions::default()
+        };
+        let args = opts.to_cli_args_v4();
+        for absent in [
+            "--cover-format",
+            "--uploaded-video-quality",
+            "--wrapper-decrypt-host",
+            "--wrapper-decrypt-port",
+            "--truncate",
+            "--save-cover",
+        ] {
+            assert!(
+                !args.iter().any(|a| a == absent),
+                "{absent} should not be sent"
+            );
+        }
+    }
+
+    #[test]
+    fn the_three_x_builder_is_unchanged_by_any_of_this() {
+        // Spot check: the 3.x builder still speaks 3.x.
+        let args = everything().to_cli_args();
+        assert!(args.iter().any(|a| a == "--output-path"));
+        assert!(!args.iter().any(|a| a == "--output-dir"));
+        assert!(!args.iter().any(|a| a == "--auth-mode"));
     }
 }

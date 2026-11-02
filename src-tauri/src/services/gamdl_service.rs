@@ -132,6 +132,21 @@ pub fn refuse_unsupported_target(target: &str, platform_id: &str) -> Result<(), 
 
     let target = target.trim();
 
+    // A new major release that this build cannot start yet — today, any
+    // GAMDL 4.x. Checked first because nothing else about such a release
+    // matters: it would install fine and then every download would fail,
+    // since 4.x is started and configured in a different way (see
+    // `gamdl_capabilities::HIGHEST_DRIVABLE_MAJOR`).
+    if super::gamdl_capabilities::is_beyond_drivable_major(target) {
+        return Err(format!(
+            "MeedyaDL will not install GAMDL {target} yet. GAMDL {major} is a rewrite that is \
+             started and set up differently, and this version of MeedyaDL cannot work with it \
+             — every download would fail. A MeedyaDL update will add support for it. Until \
+             then, the GAMDL you have keeps working.",
+            major = super::gamdl_capabilities::major_version_of(target).unwrap_or_default(),
+        ));
+    }
+
     if let Some(bad) = known_bad_version(target) {
         // `known_bad_advice` is what stops this refusal naming a fix
         // this same function refuses two lines below it — see its own
@@ -641,6 +656,15 @@ fn build_gamdl_command(
         return Err("Python is not installed. Run the setup wizard first.".to_string());
     }
 
+    // GAMDL 4.x is started, configured and spoken to differently, so it
+    // gets its own builder. Nothing below this point runs for it, and
+    // nothing in that builder runs for 3.x. See `GamdlCliGeneration`.
+    if super::gamdl_capabilities::detected_cli_generation()
+        == super::gamdl_capabilities::GamdlCliGeneration::V4
+    {
+        return build_gamdl_v4_command(&python_bin, urls, options);
+    }
+
     // Start building the command: `python -m gamdl`
     // The `-m gamdl` flag runs GAMDL as a Python module, equivalent to running
     // the `gamdl` command-line entry point but ensuring we use our managed Python.
@@ -701,6 +725,104 @@ fn build_gamdl_command(
     let redacted_args = crate::utils::process::redact_cli_args(&cli_args);
     log::info!("GAMDL command: python -m gamdl {urls:?} {redacted_args:?}");
 
+    Ok(cmd)
+}
+
+/// The Python one-liner that starts GAMDL 4.x.
+///
+/// 4.x has no `__main__` module, so `python -m gamdl` fails outright
+/// ("No module named gamdl.__main__"). Its command-line entry point is
+/// `gamdl.cli.main:main` (the `gamdl` script in `pyproject.toml`). Calling
+/// it from the managed Python, rather than running the `gamdl` script
+/// pip leaves in the environment, keeps exactly one way of finding the
+/// interpreter for every GAMDL version, and works the same whether that
+/// environment is the portable runtime or a reused system Python.
+pub(crate) const GAMDL_V4_LAUNCHER: &str =
+    "import sys; from gamdl.cli.main import main; sys.exit(main())";
+
+/// Every argument after the Python binary for a GAMDL 4.x download:
+/// `-c <launcher> --no-config rip <options...> <links...>`.
+///
+/// Pure, so it can be checked without a GAMDL install.
+///
+/// - `--no-config` belongs to the command group, so it comes before
+///   `rip`. It stops 4.x reading (and, when it finds an older one,
+///   rewriting) its own YAML settings file in the user's settings folder:
+///   everything MeedyaDL wants is on the command line, and a settings file
+///   somebody made for running GAMDL by hand must not change what
+///   MeedyaDL downloads.
+/// - The links are checked the same way as for 3.x and go last.
+///
+/// # Errors
+///
+/// A link that does not start with `http://` or `https://`.
+pub(crate) fn gamdl_v4_args(
+    urls: &[String],
+    options: &GamdlOptions,
+) -> Result<Vec<String>, String> {
+    let mut args = vec![
+        "-c".to_string(),
+        GAMDL_V4_LAUNCHER.to_string(),
+        "--no-config".to_string(),
+        "rip".to_string(),
+    ];
+    args.extend(options.to_cli_args_v4());
+    for url in urls {
+        if !url.starts_with("https://") && !url.starts_with("http://") {
+            return Err(format!(
+                "Invalid URL (must start with http:// or https://): {url}"
+            ));
+        }
+        args.push(url.clone());
+    }
+    Ok(args)
+}
+
+/// Builds the command for a GAMDL 4.x download. See [`gamdl_v4_args`].
+///
+/// Differences from the 3.x path, each for a reason:
+///
+/// - no `config.ini` is written or passed: 4.x does not read it;
+/// - no helper program paths: 4.x starts no outside program, and refuses
+///   an option it does not know;
+/// - the program reads nothing from its input (`stdin` is closed), so a
+///   question it asks — a sign-in prompt, a menu — fails at once instead
+///   of waiting for ever for an answer nobody can give;
+/// - its output library is told the screen is very wide and to use no
+///   colour, so a long file path stays on one line and arrives without
+///   control characters (4.x prints through `rich`, which wraps at 80
+///   columns when it is not writing to a terminal);
+/// - its output is forced to UTF-8: it marks results with ✓, ↷ and ✗,
+///   which Windows' default encoding for a pipe cannot represent — the
+///   program would stop with an encoding error on its first result;
+/// - any `GAMDL_…` setting in MeedyaDL's own environment is removed: 4.x
+///   reads every option from a `GAMDL_` variable as well, so one left
+///   over from somebody's terminal would quietly change downloads.
+fn build_gamdl_v4_command(
+    python_bin: &std::path::Path,
+    urls: &[String],
+    options: &GamdlOptions,
+) -> Result<Command, String> {
+    let args = gamdl_v4_args(urls, options)?;
+    let mut cmd = Command::new(python_bin);
+    cmd.args(&args);
+    cmd.stdin(std::process::Stdio::null());
+    cmd.env("COLUMNS", "4096");
+    cmd.env("NO_COLOR", "1");
+    cmd.env("PYTHONIOENCODING", "utf-8");
+    cmd.env("PYTHONUTF8", "1");
+    for (key, _) in std::env::vars_os() {
+        if key
+            .to_string_lossy()
+            .to_ascii_uppercase()
+            .starts_with("GAMDL_")
+        {
+            cmd.env_remove(&key);
+        }
+    }
+
+    let redacted = crate::utils::process::redact_cli_args(&args[2..]);
+    log::info!("GAMDL 4 command: python -c <launcher> {redacted:?}");
     Ok(cmd)
 }
 
@@ -874,6 +996,37 @@ mod refusal_agreement_tests {
                  refused = {refused} — they must agree"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod gamdl_v4_command_tests {
+    use super::{gamdl_v4_args, GAMDL_V4_LAUNCHER};
+    use crate::models::gamdl_options::GamdlOptions;
+
+    #[test]
+    fn launcher_then_group_option_then_rip_then_links_last() {
+        let urls = vec!["https://music.apple.com/us/album/x/1".to_string()];
+        let args = gamdl_v4_args(&urls, &GamdlOptions::default()).unwrap();
+        assert_eq!(&args[..4], ["-c", GAMDL_V4_LAUNCHER, "--no-config", "rip"]);
+        assert_eq!(args.last().unwrap(), &urls[0]);
+        // Never the 3.x way of starting it, which 4.x cannot do.
+        assert!(!args.iter().any(|a| a == "-m"));
+        // Nothing that belongs to 3.x's settings file.
+        assert!(!args.iter().any(|a| a == "--config-path"));
+    }
+
+    #[test]
+    fn a_link_that_could_read_as_an_option_is_refused() {
+        let urls = vec!["--output-dir=/tmp".to_string()];
+        assert!(gamdl_v4_args(&urls, &GamdlOptions::default()).is_err());
+    }
+
+    #[test]
+    fn launcher_calls_the_published_entry_point() {
+        // `pyproject.toml` on the 4.0 branch: gamdl = "gamdl.cli.main:main".
+        assert!(GAMDL_V4_LAUNCHER.contains("from gamdl.cli.main import main"));
+        assert!(GAMDL_V4_LAUNCHER.contains("sys.exit(main())"));
     }
 }
 
@@ -1126,6 +1279,25 @@ mod tests {
     }
 
     #[test]
+    fn a_major_release_this_build_cannot_start_is_refused_everywhere() {
+        // GAMDL 4 is started and configured differently; installing it
+        // would leave every download failing. Refused on every platform,
+        // for finished releases and pre-releases alike, with a reason a
+        // person can act on.
+        for platform_id in ["macos", "windows-x86_64", "windows-aarch64", "linux-armv7"] {
+            for target in ["4.0.0", "4.0", " 4.1.2 ", "4.0.0a0"] {
+                let err = refuse_unsupported_target(target, platform_id)
+                    .expect_err("GAMDL 4 must be refused until support is switched on");
+                assert!(err.contains("GAMDL 4"), "{platform_id} {target}: {err}");
+                assert!(
+                    err.contains("keeps working"),
+                    "{platform_id} {target}: {err}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn known_bad_refusal_says_move_back_on_a_held_back_platform() {
         // Windows on ARM is held at 3.8.5, BELOW the currently-installed
         // known-bad 3.9 — so the advised version (3.8.5) is a downgrade
@@ -1206,8 +1378,12 @@ mod tests {
         // is a decision the user is allowed to make — it is what the
         // amber "Untested" badge on the Updates page offers. That must
         // keep working on platforms that have no ceiling of their own.
-        assert!(refuse_unsupported_target("99.0.0", "macos").is_ok());
-        assert!(refuse_unsupported_target("99.0.0", "linux-x86_64").is_ok());
+        //
+        // Within the same major version: a new major release (GAMDL 4)
+        // is refused for a different reason — this build cannot start it
+        // at all — and has its own test.
+        assert!(refuse_unsupported_target("3.99.0", "macos").is_ok());
+        assert!(refuse_unsupported_target("3.99.0", "linux-x86_64").is_ok());
 
         // But not on a platform held back on purpose: nothing above
         // its ceiling can be installed there at all, so an untested
@@ -1215,7 +1391,7 @@ mod tests {
         if crate::services::gamdl_capabilities::platform_ceiling_override("windows-aarch64")
             .is_some()
         {
-            assert!(refuse_unsupported_target("99.0.0", "windows-aarch64").is_err());
+            assert!(refuse_unsupported_target("3.99.0", "windows-aarch64").is_err());
         }
     }
 
