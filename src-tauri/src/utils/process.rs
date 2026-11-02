@@ -140,15 +140,19 @@ static TRACK_INFO_V2_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 /// A GAMDL 4.x per-item result line.
 ///
-/// Printed by `RipProgress.finish` (`src/gamdl/cli/progress.py` on the 4.0
+/// Printed by `RipProgress.finish` (`gamdl/cli/progress.py` on the 4.0
 /// branch) once per item, whether or not progress bars are on:
 ///
 /// ```text
 /// ✓ Song Title: downloaded → /Music/Artist/Album/01 Song Title.m4a
 /// ✓ Song Title: overwritten → /Music/…
 /// ✓ Song Title: media saved (finalization incomplete) → /Music/…
-/// ↷ Song Title: skipped (already exists) → /Music/…
+/// ↷ Song Title: skipped → /Music/…
 /// ```
+///
+/// A skip reported by the downloader carries a path and no reason; a skip
+/// caused by an error carries a reason in brackets and no path, and so
+/// does not match (it is still read as information further down).
 ///
 /// Capture groups: 1 the title, 2 the outcome, 3 the path. The title is
 /// matched lazily so a title containing ": " still leaves the outcome
@@ -164,7 +168,7 @@ static V4_RESULT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 /// line is not one of 4.x's shapes (every 3.x line returns `None`).
 ///
 /// 4.x prints a small, fixed set of human-readable lines instead of log
-/// records (`src/gamdl/cli/output.py`, `progress.py` and
+/// records (`gamdl/cli/output.py`, `progress.py` and
 /// `commands/runner.py` on the 4.0 branch):
 ///
 /// - `✓ / ↷ title: outcome → path` — one per item; becomes `Complete`
@@ -183,6 +187,14 @@ pub fn parse_gamdl_v4_line(trimmed: &str) -> Option<GamdlOutputEvent> {
             .map(|m| m.as_str().trim().to_string())
             .unwrap_or_default();
         return Some(GamdlOutputEvent::Complete { path });
+    }
+    // The second line 4.0 prints after a command-line mistake is a hint,
+    // not the error. Treating it as one would make it the message the
+    // queue shows, in place of the real cause printed just before it.
+    if trimmed == "✗ Run 'gamdl rip --help' to see available options." {
+        return Some(GamdlOutputEvent::ProcessingStep {
+            step: trimmed.to_string(),
+        });
     }
     if let Some(rest) = trimmed.strip_prefix('✗') {
         return Some(GamdlOutputEvent::Error {
@@ -3966,7 +3978,7 @@ mod gamdl_v4_output_tests {
             "/m/x.m4a"
         );
         assert_eq!(
-            path_of("↷ X: skipped (already exists) → /m/Album (Deluxe)/x.m4a"),
+            path_of("↷ X: skipped → /m/Album (Deluxe)/x.m4a"),
             "/m/Album (Deluxe)/x.m4a"
         );
         // A title that itself contains ": ".
@@ -3987,6 +3999,16 @@ mod gamdl_v4_output_tests {
         assert!(matches!(
             parse_gamdl_output("No supported media found at this URL."),
             GamdlOutputEvent::Error { .. }
+        ));
+        // The hint after a command-line error is not the error.
+        assert!(matches!(
+            parse_gamdl_output("✗ Run 'gamdl rip --help' to see available options."),
+            GamdlOutputEvent::ProcessingStep { .. }
+        ));
+        // A skip caused by an error: a reason, no path — information.
+        assert!(matches!(
+            parse_gamdl_output("↷ X: skipped (Media is not streamable)"),
+            GamdlOutputEvent::ProcessingStep { .. }
         ));
     }
 

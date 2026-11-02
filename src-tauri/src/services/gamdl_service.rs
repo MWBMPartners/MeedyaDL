@@ -1155,10 +1155,49 @@ pub async fn check_latest_gamdl_version() -> Result<String, String> {
 
     // Navigate to info.version in the JSON response.
     // This is the latest stable version published on PyPI.
-    json["info"]["version"]
+    let newest = json["info"]["version"]
         .as_str()
         .map(std::string::ToString::to_string)
-        .ok_or_else(|| "Could not find version in PyPI response".to_string())
+        .ok_or_else(|| "Could not find version in PyPI response".to_string())?;
+
+    // Once GAMDL 4 is published, PyPI's "latest" is a release this build
+    // cannot start. Reporting it would hide every 3.x update behind it —
+    // the update check compares only against this one version, so a
+    // person on a 3.x release with a known fault would never again be
+    // offered the 3.x fix. So "latest" here means the newest release this
+    // build can actually use. See `gamdl_capabilities::HIGHEST_DRIVABLE_MAJOR`.
+    if super::gamdl_capabilities::is_beyond_drivable_major(&newest) {
+        return newest_drivable_release(&json).ok_or_else(|| {
+            format!(
+                "The newest GAMDL on PyPI is {newest}, which this version of MeedyaDL cannot use, \
+                 and no usable earlier release was found"
+            )
+        });
+    }
+    Ok(newest)
+}
+
+/// The newest finished release in a PyPI project document whose major
+/// version this build can drive, ignoring pre-releases and releases whose
+/// files have all been withdrawn ("yanked").
+///
+/// Pure, so it can be tested without the network.
+#[must_use]
+pub fn newest_drivable_release(json: &serde_json::Value) -> Option<String> {
+    use super::gamdl_capabilities::{is_beyond_drivable_major, numeric_version};
+    let releases = json["releases"].as_object()?;
+    releases
+        .iter()
+        .filter(|(version, _)| !is_beyond_drivable_major(version))
+        .filter(|(_, files)| {
+            files.as_array().is_some_and(|f| {
+                f.iter()
+                    .any(|file| !file["yanked"].as_bool().unwrap_or(false))
+            })
+        })
+        .filter_map(|(version, _)| numeric_version(version).map(|n| (n, version)))
+        .max_by_key(|(n, _)| *n)
+        .map(|(_, version)| version.clone())
 }
 
 #[cfg(test)]
@@ -1276,6 +1315,30 @@ mod tests {
 
         // The release that fixes it is fine.
         assert!(refuse_unsupported_target("3.9.1", "macos").is_ok());
+    }
+
+    #[test]
+    fn latest_skips_a_major_release_this_build_cannot_use() {
+        let json = serde_json::json!({
+            "info": {"version": "4.0.0"},
+            "releases": {
+                "3.8.5": [{"yanked": false}],
+                "3.9": [{"yanked": false}],
+                "3.9.1": [{"yanked": false}],
+                "3.9.2": [{"yanked": true}],
+                "3.10.0rc1": [{"yanked": false}],
+                "3.10": [],
+                "4.0.0": [{"yanked": false}],
+                "4.0.1": [{"yanked": false}]
+            }
+        });
+        // 3.9.2 is withdrawn, 3.10.0rc1 is a pre-release, 3.10 has no
+        // files, and 4.x cannot be used: 3.9.1 is the answer. Numeric
+        // order, not text order ("3.10" > "3.9" in numbers, not in text).
+        assert_eq!(newest_drivable_release(&json).as_deref(), Some("3.9.1"));
+        let json = serde_json::json!({"releases": {"3.9": [{}], "3.10.1": [{}]}});
+        assert_eq!(newest_drivable_release(&json).as_deref(), Some("3.10.1"));
+        assert_eq!(newest_drivable_release(&serde_json::json!({})), None);
     }
 
     #[test]

@@ -1500,6 +1500,17 @@ pub fn major_version_of(version: &str) -> Option<u32> {
     digits.parse().ok()
 }
 
+/// A finished release's version as three numbers, for ordering; `None`
+/// for a pre-release or anything else not plainly numeric (the same
+/// strict reading as the support-window checks).
+#[must_use]
+pub fn numeric_version(version: &str) -> Option<(u32, u32, u32)> {
+    if !is_parseable_semver(version) {
+        return None;
+    }
+    numeric_version_parts(version.trim())
+}
+
 /// The command-line generation of a given GAMDL version.
 ///
 /// Anything that is not readable as 4 or above counts as 3.x — the shape

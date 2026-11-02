@@ -263,6 +263,13 @@ pub async fn upgrade_votify(
 /// anything that isn't a syntactically bare PyPI package name (no
 /// URLs, VCS refs, paths, or CLI flags) — defence in depth in case a
 /// future engine registry entry is ever misconfigured.
+/// Packages that must never be upgraded through the generic, unbounded
+/// [`upgrade_pip_engine`] route because they have a bounded route of their
+/// own. Pure, for testing.
+fn refuses_unbounded_upgrade(package: &str) -> bool {
+    package.trim().eq_ignore_ascii_case("gamdl")
+}
+
 #[tauri::command]
 pub async fn upgrade_pip_engine(app: AppHandle, package: String) -> Result<String, String> {
     // Layer 1: only allow packages that a known engine actually declares.
@@ -277,6 +284,25 @@ pub async fn upgrade_pip_engine(app: AppHandle, package: String) -> Result<Strin
         let msg = format!(
             "Refusing to upgrade '{package}': it is not a pip_package declared by any \
              engine in engines.toml."
+        );
+        log::warn!("{msg}");
+        emit_app_log(&app, &msg);
+        return Err(msg);
+    }
+
+    // GAMDL is declared in engines.toml, so it passes the allowlist above,
+    // but this route installs with no version limit at all
+    // (`pip install --upgrade gamdl`). That skips the tested range, the
+    // known-bad list, the per-platform ceilings and the refusal of a
+    // major release this build cannot start (GAMDL 4.x) — the last of
+    // which would leave every download failing. GAMDL has its own update
+    // route (`upgrade_gamdl` → `gamdl_service::install_gamdl`), which
+    // applies all of them; the app never sends GAMDL here, so refusing it
+    // costs nothing and closes the gap (found in review, 2 Nov 2026).
+    if refuses_unbounded_upgrade(&package) {
+        let msg = format!(
+            "Refusing to upgrade '{package}' here: it has its own update route, which keeps it \
+             within the versions this build can use."
         );
         log::warn!("{msg}");
         emit_app_log(&app, &msg);
@@ -733,5 +759,20 @@ mod launch_version_tests {
         // Settings not read yet. This is the one case where guessing
         // wrong is visible to the user, so it says no.
         assert!(!is_first_launch_after_upgrade(None, "1.10.8"));
+    }
+}
+
+#[cfg(test)]
+mod unbounded_upgrade_tests {
+    use super::refuses_unbounded_upgrade;
+
+    #[test]
+    fn gamdl_is_never_upgraded_without_its_version_limits() {
+        for name in ["gamdl", "GAMDL", " gamdl "] {
+            assert!(refuses_unbounded_upgrade(name), "{name}");
+        }
+        for name in ["votify", "yt-dlp", "gamdl-extra"] {
+            assert!(!refuses_unbounded_upgrade(name), "{name}");
+        }
     }
 }

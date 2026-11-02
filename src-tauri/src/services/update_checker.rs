@@ -1270,16 +1270,6 @@ fn gamdl_update_description(
     if !update_available {
         return None;
     }
-    // A new major release this build cannot start (GAMDL 4.x for now)
-    // comes before everything else: whatever else is true of it, it is
-    // not something this app can use, and the install path refuses it.
-    if let Some(latest) = latest.filter(|v| gamdl_capabilities::is_beyond_drivable_major(v)) {
-        return Some(format!(
-            "GAMDL {latest} is out, but it is a rewrite this version of MeedyaDL cannot work \
-             with yet. A MeedyaDL update will add support for it. Nothing needs doing — the \
-             GAMDL you have keeps working."
-        ));
-    }
     Some(if no_compatible_wheel {
         "New GAMDL version available on PyPI (no compatible wheel published for this platform yet — not installable)"
             .to_string()
@@ -1378,11 +1368,11 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
     // newly released GAMDL versions until we'd audited them; surfacing
     // them with a warning badge is the better default.
     //
-    // A release from a major version this build cannot start (GAMDL 4.x
-    // for now) is marked incompatible, which keeps it out of the update
-    // banner and the update count: offering it would invite an install
-    // the install path then refuses. See
-    // `gamdl_capabilities::HIGHEST_DRIVABLE_MAJOR`.
+    // `latest` is never from a major version this build cannot start
+    // (GAMDL 4.x for now): `check_latest_gamdl_version` reports the
+    // newest usable release instead, so 3.x updates keep being offered
+    // after 4.0 is published. The check below is a second line, in case
+    // that ever changes.
     let is_compatible = latest.as_ref().is_some_and(|v| {
         is_gamdl_compatible(v) && !gamdl_capabilities::is_beyond_drivable_major(v)
     });
@@ -3728,39 +3718,6 @@ mod tests {
             gamdl_update_description(false, false, None, false, "macos", Some("3.9.1"), Some("3.9.1")),
             None
         );
-    }
-
-    #[test]
-    fn gamdl_update_description_says_a_new_major_release_is_not_usable_yet() {
-        // GAMDL 4 is refused by the install path, so the update text must
-        // not read as an offer — whatever the other flags say, including
-        // "untested", which would otherwise invite the click.
-        for untested in [true, false] {
-            let desc = gamdl_update_description(
-                true,
-                false,
-                None,
-                untested,
-                "macos",
-                Some("3.9.1"),
-                Some("4.0.0"),
-            )
-            .unwrap();
-            assert!(desc.contains("cannot work"), "{desc}");
-            assert!(!desc.contains("untested"), "{desc}");
-        }
-        // 3.x is unaffected.
-        let desc = gamdl_update_description(
-            true,
-            false,
-            None,
-            false,
-            "macos",
-            Some("3.9"),
-            Some("3.9.1"),
-        )
-        .unwrap();
-        assert_eq!(desc, "New GAMDL version available on PyPI");
     }
 
     // ============================================================

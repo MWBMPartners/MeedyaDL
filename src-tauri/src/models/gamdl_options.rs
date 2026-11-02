@@ -1404,7 +1404,7 @@ impl GamdlOptions {
 // ============================================================
 //
 // Written against the upstream `4.0` branch as it stood on 2 Nov 2026
-// (`src/gamdl/cli/options.py`, version string `4.0.0a0`). 4.0 is not
+// (`gamdl/cli/options.py`, version string `4.0.0a0`). 4.0 is not
 // released, so this is a head start, not finished support: it is used only
 // when the installed GAMDL reports a major version of 4 or more, and the
 // install path refuses 4.x until `HIGHEST_DRIVABLE_MAJOR` is raised. Every
@@ -1413,7 +1413,7 @@ impl GamdlOptions {
 // Full option-by-option comparison: `.github/audits/gamdl-v4.0-preview-audit.md`.
 
 /// The metadata fields GAMDL 4.0 accepts in `--exclude-tags`: the fields
-/// of its `Tags` record (`src/gamdl/download/tags.py`) plus `cover`.
+/// of its `Tags` record (`gamdl/download/tags.py`) plus `cover`.
 ///
 /// 4.0 refuses the whole run if any name is not on this list, so names
 /// are translated (see [`v4_exclude_tag_name`]) and anything it would not
@@ -1454,7 +1454,7 @@ pub const GAMDL_V4_TAG_NAMES: &[&str] = &[
 ];
 
 /// The song codec names GAMDL 4.0 accepts in `--song-codec-priority`
-/// (`src/gamdl/media/song/enums.py`). Same names as 3.6 and later; the
+/// (`gamdl/media/song/enums.py`). Same names as 3.6 and later; the
 /// interactive `ask` choice is no longer a codec.
 const GAMDL_V4_SONG_CODECS: &[&str] = &[
     "aac-web",
@@ -1574,9 +1574,15 @@ impl GamdlOptions {
     ///   `--no-config`, which the caller always adds);
     /// - deliberately not sent: `--save-cover`. 4.0 saves one picture
     ///   per TRACK, named after the track, instead of one `Cover.jpg` per
-    ///   album; MeedyaDL's own cover step already writes the album
-    ///   picture under the name the person chose, so asking 4.0 for it
-    ///   would only scatter a copy beside every song.
+    ///   album, so asking for it would scatter a copy beside every song.
+    ///   MeedyaDL's own cover step writes the album picture instead — but
+    ///   only when it has the album's details from Apple Music, which
+    ///   needs MusicKit credentials and does not happen for library
+    ///   links. Without them a 4.x download has no saved cover file (the
+    ///   picture inside each track is unaffected). Follow-up 4 in the 4.0
+    ///   audit; settle it before support is switched on;
+    /// - not sent: PlayReady (see below) — 4.x downloads use Widevine;
+    /// - `all` in the tags to leave out becomes `--no-tag`.
     ///
     /// Any option 4.0 does not know ends the run before anything
     /// downloads, so nothing here is passed on unchecked: codec names and
@@ -1619,18 +1625,18 @@ impl GamdlOptions {
 
         // --- Unlocking protected tracks ---
         // One device-file option now serves both methods.
-        match self.drm_backend {
-            Some(DrmBackend::PlayReady) => {
-                push(&mut args, "--drm-backend", "playready".to_string());
-                if let Some(ref path) = self.prd_path {
-                    push(&mut args, "--device-path", path.clone());
-                }
-            }
-            Some(DrmBackend::Widevine) | None => {
-                if let Some(ref path) = self.wvd_path {
-                    push(&mut args, "--device-path", path.clone());
-                }
-            }
+        //
+        // PlayReady is NOT passed on, even when chosen. 4.0 needs its
+        // optional `playready` extra for it, and `pip_target_spec` installs
+        // only the Widevine one (the PlayReady extra pulls in a
+        // `cryptography` range with no Windows ARM64 build). Without the
+        // extra, 4.0 stops the whole run before downloading anything
+        // ("Required DRM backend or default device is not available"), so
+        // passing it would turn every download into a failure. Widevine is
+        // what 3.x users had before PlayReady existed. Revisit together
+        // with the install extra — follow-up 2 in the 4.0 audit.
+        if let Some(ref path) = self.wvd_path {
+            push(&mut args, "--device-path", path.clone());
         }
 
         // --- Audio and video ---
@@ -1673,7 +1679,16 @@ impl GamdlOptions {
             Some(CoverFormat::Png) => push(&mut args, "--cover-format", "png".to_string()),
             Some(CoverFormat::Raw) | None => {}
         }
-        if let Some(ref tags) = self.exclude_tags {
+        // `all` meant "write no tags at all" in 3.x; 4.0 says that with
+        // `--no-tag` and has no `all` tag name, so it is translated rather
+        // than quietly dropped (which would have written every tag).
+        let exclude_all = self
+            .exclude_tags
+            .as_deref()
+            .is_some_and(|tags| tags.split(',').any(|t| t.trim() == "all"));
+        if exclude_all {
+            args.push("--no-tag".to_string());
+        } else if let Some(ref tags) = self.exclude_tags {
             let mut names: Vec<&'static str> = Vec::new();
             for name in tags.split(',').filter_map(v4_exclude_tag_name) {
                 if !names.contains(&name) {
@@ -2490,7 +2505,7 @@ mod gamdl_v4_args_tests {
     use super::*;
 
     /// Every option name `rip` accepts on the 4.0 branch
-    /// (`src/gamdl/cli/options.py`, `RipOptions`). Anything the builder
+    /// (`gamdl/cli/options.py`, `RipOptions`). Anything the builder
     /// sends that is not on this list would end the run before anything
     /// downloads, so every test below checks against it.
     const V4_RIP_OPTIONS: &[&str] = &[
@@ -2677,7 +2692,9 @@ mod gamdl_v4_args_tests {
     }
 
     #[test]
-    fn play_ready_uses_the_shared_device_option() {
+    fn play_ready_is_not_passed_on_until_its_install_extra_is_decided() {
+        // 4.0 stops the whole run if asked for PlayReady without its
+        // optional extra, which MeedyaDL does not install yet.
         let opts = GamdlOptions {
             drm_backend: Some(DrmBackend::PlayReady),
             prd_path: Some("/d/device.prd".into()),
@@ -2685,9 +2702,22 @@ mod gamdl_v4_args_tests {
             ..GamdlOptions::default()
         };
         let args = opts.to_cli_args_v4();
-        assert_eq!(value_of(&args, "--drm-backend"), Some("playready"));
-        assert_eq!(value_of(&args, "--device-path"), Some("/d/device.prd"));
-        assert_eq!(args.iter().filter(|a| *a == "--device-path").count(), 1);
+        assert!(!args
+            .iter()
+            .any(|a| a == "--drm-backend" || a == "playready"));
+        assert!(!args.iter().any(|a| a == "/d/device.prd"));
+        assert_eq!(value_of(&args, "--device-path"), Some("/d/device.wvd"));
+    }
+
+    #[test]
+    fn excluding_all_tags_means_no_tags() {
+        let opts = GamdlOptions {
+            exclude_tags: Some("lyrics,all".into()),
+            ..GamdlOptions::default()
+        };
+        let args = opts.to_cli_args_v4();
+        assert!(args.iter().any(|a| a == "--no-tag"));
+        assert!(!args.iter().any(|a| a == "--exclude-tags"));
     }
 
     #[test]
