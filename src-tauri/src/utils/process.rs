@@ -285,6 +285,19 @@ pub fn gamdl_v4_error_core(message: &str) -> &str {
             return &message[i + 2..];
         }
     }
+    // 4.x's catch-all for any of its own errors not named above: the
+    // error's type name with "Error" turned into " failed" —
+    // `ApiResponse failed`, `Drm failed`, `StreamManifest failed`
+    // (`short_error`'s last GamdlError case). One word, letters only, so
+    // the last ": " before it is where the title ends (review round 6).
+    if let Some(i) = message.rfind(": ") {
+        let tail = &message[i + 2..];
+        if let Some(word) = tail.strip_suffix(" failed") {
+            if !word.is_empty() && word.chars().all(|c| c.is_ascii_alphabetic()) {
+                return tail;
+            }
+        }
+    }
     message
 }
 
@@ -4212,6 +4225,21 @@ mod gamdl_v4_outcome_tests {
         assert_eq!(
             gamdl_v4_error_core("Song: Part 2: Requested codec or stream unavailable"),
             "Requested codec or stream unavailable"
+        );
+        // 4.x's catch-all wording: a title like "Connection" must not
+        // make an Apple HTTP error look like a network problem.
+        assert_eq!(
+            gamdl_v4_error_core("Connection: ApiResponse failed"),
+            "ApiResponse failed"
+        );
+        assert_ne!(
+            super::classify_error(gamdl_v4_error_core("Connection: ApiResponse failed")),
+            "network"
+        );
+        assert_eq!(gamdl_v4_error_core("Cookie Jar: Drm failed"), "Drm failed");
+        assert_ne!(
+            super::classify_error(gamdl_v4_error_core("Cookie Jar: Drm failed")),
+            "auth"
         );
         // Not a 4.x shape: unchanged.
         assert_eq!(
