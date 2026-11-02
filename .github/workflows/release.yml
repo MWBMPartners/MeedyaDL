@@ -147,8 +147,14 @@ jobs:
           # Uses the default target triple for ubuntu-latest (x86_64-unknown-linux-gnu).
           # Empty args/rust_target means "build for the host architecture".
           # Produces: gamdl_x.x.x_amd64.deb and gamdl_x.x.x_amd64.AppImage
+          # Linux builds run on ubuntu-24.04, never ubuntu-latest. GitHub moved
+          # ubuntu-latest to 26.04 at the end of October 2026: there the ARM
+          # cross-compile setup tries to downgrade ~900 runner packages and fails,
+          # and an app built on a newer Ubuntu needs that Ubuntu's newer system
+          # libraries, so it would stop starting on older Linux (Ubuntu 22.04/24.04,
+          # Raspberry Pi OS). Move this only on purpose, with a run checked.
           - name: Linux (x64)
-            os: ubuntu-latest
+            os: ubuntu-24.04
             args: ''
             rust_target: ''
 
@@ -165,7 +171,7 @@ jobs:
           # can't execute on x86_64 runners (Exec format error).
           # Produces: MeedyaDL_x.x.x_arm64.deb, MeedyaDL-x.x.x-1.aarch64.rpm
           - name: Linux (ARM64)
-            os: ubuntu-latest
+            os: ubuntu-24.04
             args: '--target aarch64-unknown-linux-gnu --bundles deb rpm'
             rust_target: aarch64-unknown-linux-gnu
             cross_arch: arm64
@@ -178,7 +184,7 @@ jobs:
           # --bundles deb rpm: Skip AppImage (same reason as ARM64 above).
           # Produces: MeedyaDL_x.x.x_armhf.deb, MeedyaDL-x.x.x-1.armv7hl.rpm
           - name: Linux (ARMv7)
-            os: ubuntu-latest
+            os: ubuntu-24.04
             args: '--target armv7-unknown-linux-gnueabihf --bundles deb rpm'
             rust_target: armv7-unknown-linux-gnueabihf
             cross_arch: armhf
