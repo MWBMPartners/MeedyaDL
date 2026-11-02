@@ -132,6 +132,24 @@ pub fn refuse_unsupported_target(target: &str, platform_id: &str) -> Result<(), 
 
     let target = target.trim();
 
+    // Only a plain version is a target: a digit first, then digits,
+    // letters, dots and (for an epoch) `!`. pip reads more than that — a
+    // leading `v`, a leading `=` (which becomes `===`), commas — and some
+    // of those spellings would mean "4.0" to pip while reading as no
+    // version at all here, slipping past the refusal below (found in
+    // review round 3). The same bar `install_gamdl_version` already uses,
+    // minus anything that is not part of a version.
+    if !target.starts_with(|c: char| c.is_ascii_digit())
+        || !target
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '!')
+    {
+        return Err(format!(
+            "MeedyaDL will not install GAMDL '{target}': that is not a plain version number \
+             such as 3.9.1."
+        ));
+    }
+
     // A new major release that this build cannot start yet — today, any
     // GAMDL 4.x. Checked first because nothing else about such a release
     // matters: it would install fine and then every download would fail,
@@ -1318,6 +1336,22 @@ mod tests {
     }
 
     #[test]
+    fn only_a_plain_version_is_accepted_as_a_target() {
+        // Spellings pip would read as a version (some of them as 4.0)
+        // but that are not a plain version number.
+        for target in [
+            "v4.0", "=4.0.0", "==4.0", "4.0,<5", "3.9.*", "", " ", "3.9.1;x",
+        ] {
+            assert!(
+                refuse_unsupported_target(target, "macos").is_err(),
+                "{target:?}"
+            );
+        }
+        assert!(refuse_unsupported_target("3.9.1", "macos").is_ok());
+        assert!(refuse_unsupported_target("3.8.5", "macos").is_ok());
+    }
+
+    #[test]
     fn latest_skips_a_major_release_this_build_cannot_use() {
         let json = serde_json::json!({
             "info": {"version": "4.0.0"},
@@ -1348,7 +1382,7 @@ mod tests {
         // for finished releases and pre-releases alike, with a reason a
         // person can act on.
         for platform_id in ["macos", "windows-x86_64", "windows-aarch64", "linux-armv7"] {
-            for target in ["4.0.0", "4.0", " 4.1.2 ", "4.0.0a0"] {
+            for target in ["4.0.0", "4.0", " 4.1.2 ", "4.0.0a0", "0!4.0.0"] {
                 let err = refuse_unsupported_target(target, platform_id)
                     .expect_err("GAMDL 4 must be refused until support is switched on");
                 assert!(err.contains("GAMDL 4"), "{platform_id} {target}: {err}");

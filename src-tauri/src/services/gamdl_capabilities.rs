@@ -1538,6 +1538,36 @@ pub fn detected_cli_generation() -> GamdlCliGeneration {
     detected_version().map_or(GamdlCliGeneration::V3, |v| cli_generation_of(&v))
 }
 
+/// The shortest stall limit, in minutes, used for any GAMDL 4.x run.
+///
+/// GAMDL 4.x prints nothing while an item downloads: one result line when
+/// it finishes, and no progress at all when its output is not a terminal.
+/// Every minute of a long item (a 4K music video, a slow connection) is
+/// therefore "silent", and the normal limit (5 minutes by default) would
+/// kill healthy downloads part-way. Until 4.x can report progress in a
+/// form MeedyaDL reads (follow-up 5 in the 4.0 audit), 30 minutes is the
+/// floor.
+pub const GAMDL_V4_MIN_IDLE_MINUTES: u32 = 30;
+
+/// The stall limit to use for a GAMDL run, given the person's setting and
+/// the command-line generation. The one copy of this rule: the main
+/// download and the extra-format (companion) runs both ask here, so the
+/// two watchdogs cannot drift apart (they did once — review round 3).
+#[must_use]
+pub fn idle_minutes_for(configured_minutes: u32, generation: GamdlCliGeneration) -> u32 {
+    let configured = configured_minutes.max(1);
+    match generation {
+        GamdlCliGeneration::V3 => configured,
+        GamdlCliGeneration::V4 => configured.max(GAMDL_V4_MIN_IDLE_MINUTES),
+    }
+}
+
+/// [`idle_minutes_for`] for the GAMDL installed now.
+#[must_use]
+pub fn idle_minutes_for_installed(configured_minutes: u32) -> u32 {
+    idle_minutes_for(configured_minutes, detected_cli_generation())
+}
+
 /// Is `version` from a major release this build cannot drive yet?
 ///
 /// See [`HIGHEST_DRIVABLE_MAJOR`]. `false` for a string with no readable
@@ -3240,6 +3270,15 @@ mod tests {
         assert!(is_beyond_drivable_major("4.0.0a0"));
         assert!(!is_beyond_drivable_major("3.9.1"));
         assert!(!is_beyond_drivable_major("garbage"));
+    }
+
+    #[test]
+    fn stall_limit_is_unchanged_for_three_and_at_least_thirty_minutes_for_four() {
+        assert_eq!(idle_minutes_for(5, GamdlCliGeneration::V3), 5);
+        assert_eq!(idle_minutes_for(0, GamdlCliGeneration::V3), 1);
+        assert_eq!(idle_minutes_for(45, GamdlCliGeneration::V3), 45);
+        assert_eq!(idle_minutes_for(5, GamdlCliGeneration::V4), 30);
+        assert_eq!(idle_minutes_for(45, GamdlCliGeneration::V4), 45);
     }
 
     #[test]

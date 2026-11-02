@@ -115,7 +115,9 @@ installed GAMDL's major version is 4 or more, and installing one is refused.
    track finishes. Options: accept per-track steps, or ask upstream for a
    machine-readable progress mode. Because 4.x is silent while an item
    downloads, the stall watchdog's limit is at least 30 minutes for 4.x
-   (`GAMDL_V4_MIN_IDLE_MINUTES`); revisit once there is progress to watch.
+   (`GAMDL_V4_MIN_IDLE_MINUTES`, one rule in `idle_minutes_for` used by both
+   the main download and the extra-format runs); revisit once there is
+   progress to watch.
    4.x's information lines (`✓ Authenticated`, the summary) are read as
    plain information, never as "post-processing", which would switch the
    watchdog off for the whole run.

@@ -2754,9 +2754,15 @@ pub(crate) fn spawn_companion_downloads(
                     let supervisor_dl = comp_dl_id.clone();
                     let label_for_emit = format!("companion-tier-{tier_idx}");
                     let companion_settings = load_settings_for_queue(&comp_app);
-                    let idle_timeout = std::time::Duration::from_secs(
-                        u64::from(companion_settings.gamdl_idle_timeout_minutes.max(1)) * 60,
-                    );
+                    // Same rule as the main download (at least 30 minutes
+                    // for GAMDL 4.x, which is silent while it downloads):
+                    // see `gamdl_capabilities::idle_minutes_for`.
+                    let companion_idle_minutes =
+                        crate::services::gamdl_capabilities::idle_minutes_for_installed(
+                            companion_settings.gamdl_idle_timeout_minutes,
+                        );
+                    let idle_timeout =
+                        std::time::Duration::from_secs(u64::from(companion_idle_minutes) * 60);
                     // Track-aware companion caption (#799). The
                     // per-tier label set at tier start
                     // ("Companion: downloading atmos (tier 2)…") is
@@ -2995,8 +3001,7 @@ pub(crate) fn spawn_companion_downloads(
                                 msg
                             } else if r.idle_killed {
                                 format!(
-                                    "GAMDL was idle for {} min — terminated by watchdog",
-                                    companion_settings.gamdl_idle_timeout_minutes.max(1)
+                                    "GAMDL was idle for {companion_idle_minutes} min — terminated by watchdog"
                                 )
                             } else if r.had_soft_error {
                                 "GAMDL exited 0 but reported per-track errors — treating as failure"
