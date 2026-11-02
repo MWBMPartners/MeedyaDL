@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-11-02 — see ★★★★ LATEST below
+**Last updated:** 2026-11-02 (afternoon) — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.13** (1.10.14 release PR #1402 open, awaiting the maintainer) · `alpha` **1.13.0-alpha.87** · `beta` **1.9.4-beta.19** · `release-candidate` **1.0.0-rc.46** — read from each branch's `package.json` on 2 Nov.
+**Channel versions:** `main` **1.10.14** (release PR #1402 merged 2 Nov, `4a3901dd`; release build running) · `alpha` **1.13.0-alpha.87** · `beta` **1.9.4-beta.19** · `release-candidate` **1.0.0-rc.46** — read from each branch's `package.json` on 2 Nov.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,18 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-11-02: zip/minimatch alerts cleared; pre-release Linux builds fixed (broken since 26 Oct)
+## ★★★★ LATEST — 2026-11-02: GAMDL 4.0 preparation; release 1.10.14 merged
+
+| # | Task | Issue / PR | Status | Notes |
+|---|---|---|---|---|
+| 1 | Read the unreleased GAMDL 4.0 branch (`0c884ecc`) and prepare for it | — | **In review** (`06e5b53`) | 4.0 is a rewrite. 4.x is now refused (`HIGHEST_DRIVABLE_MAJOR = 3`); a dormant 4.x command builder + output parser are in place. Findings and follow-ups: `.github/audits/gamdl-v4.0-preview-audit.md`. Codex not available here; a fresh Claude Opus agent is reviewing. No GitHub issue opened yet. |
+| 2 | Merge release 1.10.14 | #1402 | In progress | Squash-merged `4a3901dd` (maintainer asked). Watching CI, Release Please, the tag and the Release build. |
+
+**Running and how it is watched:** the review agent and a 10-minute timer in this session (both die with the session). If the session ends first: check the Actions runs for `4a3901dd` and the `v1.10.14` Release run.
+
+---
+
+## ★★★★ Previous — 2026-11-02: zip/minimatch alerts cleared; pre-release Linux builds fixed (broken since 26 Oct)
 
 | # | Task | Issue / PR | Status | Notes |
 |---|---|---|---|---|
