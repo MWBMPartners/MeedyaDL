@@ -11,6 +11,7 @@ On 2 Nov 2026 the unreleased upstream GAMDL `4.0` branch (commit `0c884ecc`, ver
 - `GamdlOptions::to_cli_args_v4` + `gamdl_service::gamdl_v4_args` / `build_gamdl_v4_command`: `python -c "<launcher>" --no-config rip <options> <links>`, stdin closed, `COLUMNS=4096`, `NO_COLOR`, UTF-8 output, `GAMDL_*` env vars removed. Only reached when the installed GAMDL is 4+.
 - `process::parse_gamdl_v4_line` for `✓/↷ title: outcome → path`, `✗ …`, `Finished: …`.
 - `FFmpegPath` and `NoExceptionsFlag` gates are off from 4.0.
+- Hardening from 7 review rounds (later commits up to `14cbaa8b`, issue #1404): 3.x updates stay offered once 4.0 is on PyPI (`newest_drivable_release`); `upgrade_pip_engine` refuses `gamdl`; install targets must be plain versions; lyrics-only requests refused on 4.x (it has no such mode — would re-download the album); 30-minute stall floor for silent 4.x runs (`idle_minutes_for`, main + companions); 4.x info lines are `Unknown` (a `ProcessingStep` switches the watchdog off); a 4.x run failing only on "format not available" counts as done with warnings (4.x exits 1, 3.x exited 0); song titles stripped before sorting 4.x errors; PlayReady not passed to 4.x until its install extra is decided.
 
 **Why:** without the refusal, the "Untested" upgrade button would install 4.0 the day it is published and every download would fail on the first line.
 
