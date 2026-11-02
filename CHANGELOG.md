@@ -6,6 +6,13 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.10.13 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.10.13] - 2026-10-26
+
 ### 🐛 Bug Fixes
 
 - **(ci)** Let Dependabot auto-merge recognise Dependabot's GraphQL name (#1386)
@@ -61,7 +68,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.10.13 [skip ci]
 
 ## [1.10.12] - 2026-10-26
 
