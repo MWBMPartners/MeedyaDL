@@ -103,7 +103,11 @@ installed GAMDL's major version is 4 or more, and installing one is refused.
    from Apple itself (enrichment step 1b) when a MusicKit key and a sign-in
    token are present; making that step write the `.ttml` file when GAMDL has
    not is the likely fix. Without it, a 4.x download gets only GAMDL's own
-   line-timed `.lrc`.
+   line-timed `.lrc`. MeedyaDL's two lyrics-only runs (the extra lyrics
+   formats after a download, and the lyrics fallback) are skipped on 4.x
+   with a line in the activity log, and the 4.x builder refuses any
+   lyrics-only request outright: 4.x has no such mode, so either run would
+   otherwise download the whole album again.
 4. **Artwork.** MeedyaDL's own cover step writes the album picture only
    when it has the album's details from Apple Music (MusicKit credentials;
    never for library links). Without them, a 4.x download currently gets no

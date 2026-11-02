@@ -1759,6 +1759,22 @@ pub(crate) async fn run_lyrics_fallback(
         );
         return;
     }
+
+    // GAMDL 4.x has no lyrics-only mode: the request would be dropped and
+    // the run would download the whole album again, in GAMDL's default
+    // format, beside (or over) the files already there. 4.x writes what
+    // lyrics it has (`.lrc` or `.txt`) during the main download, so there
+    // is nothing for this step to do (found in review round 4).
+    if crate::services::gamdl_capabilities::detected_cli_generation()
+        == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
+    {
+        emit_download_log(
+            app,
+            dl_id,
+            "Lyrics fallback skipped — GAMDL 4 has no lyrics-only download",
+        );
+        return;
+    }
     let dir = std::path::Path::new(album_dir);
     let (audio_count, video_count) = count_media_files(dir);
     let total_media = audio_count + video_count;
@@ -3341,7 +3357,21 @@ pub(crate) fn spawn_companion_downloads(
     // format using --synced-lyrics-only. This produces sidecar lyrics
     // files (.lrc, .srt, .ttml) without re-downloading audio.
     let lyrics_settings = load_settings_for_queue(app);
-    if !lyrics_settings.companion_lyrics_formats.is_empty()
+    // GAMDL 4.x has no lyrics-only mode, so each of these runs would
+    // become a full re-download of the album (found in review round 4).
+    // Skipped, with one line saying why; 4.x writes `.lrc` / `.txt`
+    // during the main download.
+    let lyrics_only_unavailable = crate::services::gamdl_capabilities::detected_cli_generation()
+        == crate::services::gamdl_capabilities::GamdlCliGeneration::V4;
+    if lyrics_only_unavailable && !lyrics_settings.companion_lyrics_formats.is_empty() {
+        emit_download_log(
+            app,
+            dl_id,
+            "Extra lyrics formats skipped — GAMDL 4 has no lyrics-only download",
+        );
+    }
+    if !lyrics_only_unavailable
+        && !lyrics_settings.companion_lyrics_formats.is_empty()
         && (!lyrics_settings.no_synced_lyrics || lyrics_settings.embed_lyrics_and_sidecar)
     {
         let lyrics_app = app.clone();

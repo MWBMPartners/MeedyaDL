@@ -778,6 +778,18 @@ pub(crate) fn gamdl_v4_args(
     urls: &[String],
     options: &GamdlOptions,
 ) -> Result<Vec<String>, String> {
+    // 4.x has no lyrics-only mode. The builder cannot express the request,
+    // and dropping it would turn "fetch the lyrics" into "download the
+    // whole album again". Refused here so that no caller — today's or a
+    // future one — can make that mistake (review round 4 found two that
+    // would have). Callers already skip on an error from the builder.
+    if options.synced_lyrics_only == Some(true) {
+        return Err(
+            "GAMDL 4 has no lyrics-only download; this request would download the whole album \
+             again"
+                .to_string(),
+        );
+    }
     let mut args = vec![
         "-c".to_string(),
         GAMDL_V4_LAUNCHER.to_string(),
@@ -1032,6 +1044,17 @@ mod gamdl_v4_command_tests {
         assert!(!args.iter().any(|a| a == "-m"));
         // Nothing that belongs to 3.x's settings file.
         assert!(!args.iter().any(|a| a == "--config-path"));
+    }
+
+    #[test]
+    fn a_lyrics_only_request_is_refused_rather_than_becoming_a_full_download() {
+        let urls = vec!["https://music.apple.com/us/album/x/1".to_string()];
+        let opts = GamdlOptions {
+            synced_lyrics_only: Some(true),
+            ..GamdlOptions::default()
+        };
+        let err = gamdl_v4_args(&urls, &opts).unwrap_err();
+        assert!(err.contains("lyrics-only"), "{err}");
     }
 
     #[test]
