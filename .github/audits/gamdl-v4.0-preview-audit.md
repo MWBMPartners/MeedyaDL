@@ -42,7 +42,7 @@ pieces MeedyaDL needs to drive 4.x, so that support can follow quickly once
 | Uploaded videos | `best` / `ask` | Apple's own variant names | `best`/`ask` refused | not sent (default is best-first) |
 | Artwork format | jpg, png, raw | jpg, png only; `--cover-size` gone | `raw` refused | `raw` not sent (4.0 uses jpg) |
 | **Saved artwork** | one `Cover.<ext>` per album folder | **one picture per track, named after the track** | MeedyaDL's rename step finds no `Cover` file; a picture beside every song | 4.x builder does not ask for saved artwork. MeedyaDL's own cover step writes the album picture **only when it has the album's details from Apple Music** (MusicKit credentials; not for library links) — otherwise no saved cover (follow-up 4) |
-| **Lyrics** | `.lrc`, `.srt` or `.ttml` sidecar (`--synced-lyrics-format`) | **`.lrc` (line timing) or `.txt` only**; no format option; no lyrics-only mode | MeedyaDL's Enhanced LRC, WebVTT, Rich SRT, ASS and Lyricsfile steps all start from the `.ttml` file, which 4.0 never writes | **not solved** — see follow-up 3 |
+| **Lyrics** | `.lrc`, `.srt` or `.ttml` sidecar (`--synced-lyrics-format`) | **`.lrc` (line timing) or `.txt` only**; no format option; no lyrics-only mode; `rip` never puts lyrics inside the music file (its downloader can, but the command does not ask it to) | MeedyaDL's Enhanced LRC, WebVTT, Rich SRT, ASS and Lyricsfile steps all start from the `.ttml` file, which 4.0 never writes | **not solved** — see follow-up 3 |
 | Tags to leave out | `track`, `disc`, `date`, `all`, … | `track_number`, `disc_number`, `release_date`, plus `isrc`, `explicit`; no `all` (that is `--no-tag`); an unknown name ends the run | rename | translated; `all` becomes `--no-tag`; unknown names dropped |
 | Overwrite | flag | `--overwrite skip\|replace\|error` | rename | mapped |
 | Other options gone | `--log-level`, `--no-exceptions`, `--use-album-date`, `--date-tag-template`, `--download-mode`, `--music-video-remux-mode`, `--read-urls-as-txt`, `--no-config-file`, `--synced-lyrics-only` | gone (`--debug` replaces the traceback option) | sending any ends the run | not sent; `NoExceptionsFlag` gate now off from 4.0 |
@@ -113,7 +113,12 @@ installed GAMDL's major version is 4 or more, and installing one is refused.
 5. **Progress.** 4.0 reports progress to its own code as events, not as
    text. Without a live percentage the item bar will sit still until each
    track finishes. Options: accept per-track steps, or ask upstream for a
-   machine-readable progress mode.
+   machine-readable progress mode. Because 4.x is silent while an item
+   downloads, the stall watchdog's limit is at least 30 minutes for 4.x
+   (`GAMDL_V4_MIN_IDLE_MINUTES`); revisit once there is progress to watch.
+   4.x's information lines (`✓ Authenticated`, the summary) are read as
+   plain information, never as "post-processing", which would switch the
+   watchdog off for the whole run.
 6. **Track numbering in the activity log** (`[Track N/M]`) has no 4.0
    equivalent; the per-item result lines carry the title only.
 7. **Output detection.** 4.0's result lines carry full paths, which is

@@ -5657,6 +5657,10 @@ pub(crate) fn write_spotify_manifest_best_effort(
     );
 }
 
+/// The shortest stall limit used for a GAMDL 4.x download, in minutes.
+/// See the comment where it is applied in the download runner.
+const GAMDL_V4_MIN_IDLE_MINUTES: u32 = 30;
+
 /// Runs a GAMDL download while forwarding parsed events to both
 /// the queue item (for status tracking) and the frontend (for UI updates).
 ///
@@ -6149,11 +6153,24 @@ pub(crate) async fn run_download_with_events(
     // Idle watchdog configuration (#508). Read once before the loop —
     // changing it mid-download has no effect until the next item.
     // `.max(1)` clamps a pathological 0 to one minute.
-    let idle_limit_ms = u64::from(
-        load_settings_for_queue(app)
-            .gamdl_idle_timeout_minutes
-            .max(1),
-    ) * 60_000;
+    let configured_idle_minutes = load_settings_for_queue(app)
+        .gamdl_idle_timeout_minutes
+        .max(1);
+    // GAMDL 4.x prints nothing while an item downloads: one result line
+    // when it finishes, and no progress lines at all when its output is
+    // not a terminal. Every minute of a long item (a 4K music video, a
+    // slow connection) is therefore "idle" to this watchdog, and the
+    // normal limit would kill healthy downloads part-way. Until 4.x can
+    // report progress in a form MeedyaDL can read (follow-up 5 in the 4.0
+    // audit), its limit is at least 30 minutes. 3.x is unchanged.
+    let idle_minutes = if crate::services::gamdl_capabilities::detected_cli_generation()
+        == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
+    {
+        configured_idle_minutes.max(GAMDL_V4_MIN_IDLE_MINUTES)
+    } else {
+        configured_idle_minutes
+    };
+    let idle_limit_ms = u64::from(idle_minutes) * 60_000;
 
     // Cancellation polling loop: alternate between checking for user cancellation
     // and checking if the GAMDL process has exited naturally.

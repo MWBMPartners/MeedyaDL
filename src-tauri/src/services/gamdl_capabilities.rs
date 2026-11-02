@@ -1492,7 +1492,12 @@ pub const HIGHEST_DRIVABLE_MAJOR: u32 = 3;
 /// number at all.
 #[must_use]
 pub fn major_version_of(version: &str) -> Option<u32> {
-    let first = version.trim().split('.').next()?;
+    // A version may start with an "epoch" (`1!4.0.0`), which pip accepts
+    // and orders before everything else. Read the release after it, so
+    // `0!4.0.0` is still major 4 rather than slipping past the refusal.
+    let trimmed = version.trim();
+    let release = trimmed.split_once('!').map_or(trimmed, |(_, rest)| rest);
+    let first = release.split('.').next()?;
     let digits: String = first.chars().take_while(char::is_ascii_digit).collect();
     if digits.is_empty() {
         return None;
@@ -3198,6 +3203,8 @@ mod tests {
         assert_eq!(major_version_of("4.0.0a0"), Some(4));
         assert_eq!(major_version_of("4rc1"), Some(4));
         assert_eq!(major_version_of(" 4.1 "), Some(4));
+        assert_eq!(major_version_of("0!4.0.0"), Some(4));
+        assert_eq!(major_version_of("1!3.9.1"), Some(3));
         assert_eq!(major_version_of("v4.0"), None);
         assert_eq!(major_version_of(""), None);
     }

@@ -152,7 +152,8 @@ static TRACK_INFO_V2_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 ///
 /// A skip reported by the downloader carries a path and no reason; a skip
 /// caused by an error carries a reason in brackets and no path, and so
-/// does not match (it is still read as information further down).
+/// does not match (it is read as information further down; the run then
+/// produces no new file for that item, which the queue already reports).
 ///
 /// Capture groups: 1 the title, 2 the outcome, 3 the path. The title is
 /// matched lazily so a title containing ": " still leaves the outcome
@@ -178,7 +179,8 @@ static V4_RESULT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 /// - `✗ label: message` — an error, either in the end-of-run error list
 ///   or a command-line problem; becomes `Error`;
 /// - `✓ Authenticated`, `! …` notices, `Errors (N):` and the
-///   `Finished: …` summary — information, so `ProcessingStep`;
+///   `Finished: …` summary — information, so `Unknown` (shown, nothing
+///   else; see the comment in the body for why not `ProcessingStep`);
 /// - `No supported media found at this URL.` — an error (4.x exits 1).
 pub fn parse_gamdl_v4_line(trimmed: &str) -> Option<GamdlOutputEvent> {
     if let Some(captures) = V4_RESULT_REGEX.captures(trimmed) {
@@ -192,8 +194,8 @@ pub fn parse_gamdl_v4_line(trimmed: &str) -> Option<GamdlOutputEvent> {
     // not the error. Treating it as one would make it the message the
     // queue shows, in place of the real cause printed just before it.
     if trimmed == "✗ Run 'gamdl rip --help' to see available options." {
-        return Some(GamdlOutputEvent::ProcessingStep {
-            step: trimmed.to_string(),
+        return Some(GamdlOutputEvent::Unknown {
+            raw: trimmed.to_string(),
         });
     }
     if let Some(rest) = trimmed.strip_prefix('✗') {
@@ -201,14 +203,20 @@ pub fn parse_gamdl_v4_line(trimmed: &str) -> Option<GamdlOutputEvent> {
             message: rest.trim().to_string(),
         });
     }
+    // Information only, returned as `Unknown` so it is shown in the log
+    // and changes nothing else. NOT `ProcessingStep`: that event moves the
+    // item into its "post-processing" state and switches the stall
+    // watchdog off for the rest of the run, and `✓ Authenticated` is the
+    // first thing 4.x prints — so a stalled 4.x download would never have
+    // been stopped (found in review round 2, 2 Nov 2026).
     if trimmed.starts_with('✓')
         || trimmed.starts_with('↷')
         || trimmed.starts_with("! ")
         || trimmed.starts_with("Finished: ")
         || (trimmed.starts_with("Errors (") && trimmed.ends_with("):"))
     {
-        return Some(GamdlOutputEvent::ProcessingStep {
-            step: trimmed.to_string(),
+        return Some(GamdlOutputEvent::Unknown {
+            raw: trimmed.to_string(),
         });
     }
     if trimmed == "No supported media found at this URL." {
@@ -4003,12 +4011,12 @@ mod gamdl_v4_output_tests {
         // The hint after a command-line error is not the error.
         assert!(matches!(
             parse_gamdl_output("✗ Run 'gamdl rip --help' to see available options."),
-            GamdlOutputEvent::ProcessingStep { .. }
+            GamdlOutputEvent::Unknown { .. }
         ));
         // A skip caused by an error: a reason, no path — information.
         assert!(matches!(
             parse_gamdl_output("↷ X: skipped (Media is not streamable)"),
-            GamdlOutputEvent::ProcessingStep { .. }
+            GamdlOutputEvent::Unknown { .. }
         ));
     }
 
@@ -4018,8 +4026,11 @@ mod gamdl_v4_output_tests {
         let line = "Finished: 12 downloaded, 0 overwritten, 0 skipped, 0 failed, 0 finalization failures (12 discovered)";
         assert!(matches!(
             parse_gamdl_output(line),
-            GamdlOutputEvent::ProcessingStep { .. }
+            GamdlOutputEvent::Unknown { .. }
         ));
+        // Information lines must not be `ProcessingStep`: that event
+        // switches the stall watchdog off for the rest of the run, and
+        // `✓ Authenticated` is the first line every 4.x run prints.
         for info in [
             "✓ Authenticated",
             "! An active Apple Music subscription was not confirmed",
@@ -4028,7 +4039,7 @@ mod gamdl_v4_output_tests {
             assert!(
                 matches!(
                     parse_gamdl_output(info),
-                    GamdlOutputEvent::ProcessingStep { .. }
+                    GamdlOutputEvent::Unknown { .. }
                 ),
                 "{info}"
             );
