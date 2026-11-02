@@ -86,6 +86,7 @@
     "brace-expansion": "^5.0.12",
     "fast-uri": "^3.1.8",
     "ip-address": "^10.4.0",
+    "minimatch": "11.0.3",
     "nanoid": "^3.3.17",
     "undici": "^7.30.0",
     "@tailwindcss/typography": {
