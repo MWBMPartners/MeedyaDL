@@ -6,9 +6,28 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 🐛 Bug Fixes
+
+- **(security)** Clear zip/minimatch alerts and unbreak Linux release builds (main) (#1398)
+
+- tauri-plugin-updater 2.14.0 -> 2.14.1, which moves the updater from
+    zip 4 to zip 9, so zip 4.6.1 (Dependabot #64-#66, RUSTSEC-2026-0429)
+    leaves the build; the three deny.toml exceptions for it are removed.
+    MeedyaDL's own zip stays at 9.1.2.
+  - minimatch forced to 11.0.3 (Dependabot #63); used only by the code
+    checkers.
+  - Linux release jobs pinned to ubuntu-24.04 (GitHub moved ubuntu-latest
+    to 26.04, which breaks the ARM setup and would raise the minimum Linux
+    the app runs on).
+  - dependabot.yml: @tauri-apps/cli is not raised past 2.12.2 on alpha,
+    beta and release-candidate (2.12.3+ cannot package pre-release
+    versions as .rpm).
+
+
 ### 📚 Documentation
 
 - **(security)** Update supported versions to 1.10.13 [skip ci]
+- Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 
