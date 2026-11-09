@@ -3,7 +3,7 @@
 **Last updated:** 2026-11-09 — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.87** · `beta` **1.9.4-beta.19** · `release-candidate` **1.0.0-rc.46** — read from each branch's `package.json` on 2 Nov.
+**Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.88** · `beta` **1.9.4-beta.20** · `release-candidate` **1.0.0-rc.47** — read from each branch's `package.json` on 9 Nov.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -24,7 +24,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 Why the originals failed: each moved only one half of the shell and notification plugins (version-sync check), plus GitHub download outages (cargo-deny download cut off, CodeQL 504). zip is now 9.2.2 on every channel (the open question from 2 Nov is settled by Dependabot offering it).
 
-**What is running and how it is watched:** the pre-release builds the merges started (alpha.88, beta.20, rc.47) and main's push checks, watched by a timed check-in from this session (dies with the session — if you pick this up, check the Actions page). Four branches of the closed Dependabot PRs are left (`dependabot/cargo/src-tauri/{alpha,beta}/…`, `dependabot/npm_and_yarn/{alpha,release-candidate}/…`): deleting them is blocked from this session; their changes are all merged, so they can be deleted by hand.
+**Nothing is running.** The builds the merges started all passed: alpha.88, beta.20 and rc.47 are published (not drafts) with 7 Linux files each, and the latest CI (and CodeQL where it runs) on all four branches is green, as are main's Channel Security Audit, Release Please and Forward-port runs. The changes from all four closed Dependabot branches were checked line by line against their target branches (each change reverse-applies cleanly, and the versions read directly match). Four branches of those closed PRs are left (`dependabot/cargo/src-tauri/{alpha,beta}/…`, `dependabot/npm_and_yarn/{alpha,release-candidate}/…`); deleting them is blocked from this session, so the maintainer was asked to delete them by hand.
 
 Not independently reviewed: Codex is not available in this session.
 
