@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-11-02 (afternoon) — see ★★★★ LATEST below
+**Last updated:** 2026-11-09 — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
 **Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.87** · `beta` **1.9.4-beta.19** · `release-candidate` **1.0.0-rc.46** — read from each branch's `package.json` on 2 Nov.
@@ -11,7 +11,25 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-11-02: GAMDL 4.0 preparation; release 1.10.14 published
+## ★★★★ LATEST — 2026-11-09: dependency PRs combined on all four channels; new SQLite notice accepted (#1413)
+
+| # | Task | Issue / PR | Status | Notes |
+|---|---|---|---|---|
+| 1 | Combine #1405 + #1406 for `alpha` | #1414 | In review (CI running) | Originals closed with a pointer. Merge order: alpha → beta → rc → main. |
+| 2 | Combine #1411 + #1412 for `beta` | #1415 | In review (CI running) | |
+| 3 | Combine #1408 + #1410 for `release-candidate` | #1416 | In review (CI running) | |
+| 4 | Combine #1407 + #1409 for `main` | #1417 | In review (CI running) | Stable branch; chore(deps) only, so no release is cut by it alone. |
+| 5 | New notice RUSTSEC-2026-0459 (old SQLite inside browser cookie import) | #1413 | Accepted for now on all four branches + `work-in-progress` (`f775451f`) | `rookie 0.5.6` → `rusqlite 0.31` → `libsqlite3-sys 0.28`; rookie unreleased since Nov 2024, so no update reaches the fix. Local-only (needs write access to the browser profile). Proper fix in #1413. Not added to project 6 (no tool for it here). |
+
+Why the originals failed: each moved only one half of the shell and notification plugins (version-sync check), plus GitHub download outages (cargo-deny download cut off, CodeQL 504). zip is now 9.2.2 on every channel (the open question from 2 Nov is settled by Dependabot offering it).
+
+**What is running and how it is watched:** CI on #1414–#1417. This session is subscribed to all four PRs and has a timed check-in (`trig_018fvHbVUZ5CBjqeWfqtVsGg`, 11:06 UTC). Both die with the session — if you pick this up, re-check the four PRs by hand. Branch deletion through the API is blocked here; Dependabot is removing its own branches for the closed originals.
+
+Not independently reviewed: Codex is not available in this session.
+
+---
+
+## ★★★★ Previous — 2026-11-02: GAMDL 4.0 preparation; release 1.10.14 published
 
 | # | Task | Issue / PR | Status | Notes |
 |---|---|---|---|---|
