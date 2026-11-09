@@ -15,15 +15,16 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 | # | Task | Issue / PR | Status | Notes |
 |---|---|---|---|---|
-| 1 | Combine #1405 + #1406 for `alpha` | #1414 | In review (CI running) | Originals closed with a pointer. Merge order: alpha → beta → rc → main. |
-| 2 | Combine #1411 + #1412 for `beta` | #1415 | In review (CI running) | |
-| 3 | Combine #1408 + #1410 for `release-candidate` | #1416 | In review (CI running) | |
-| 4 | Combine #1407 + #1409 for `main` | #1417 | In review (CI running) | Stable branch; chore(deps) only, so no release is cut by it alone. |
+| 1 | Combine #1405 + #1406 for `alpha` | #1414 | Done (`30493d3e`) | Originals closed with a pointer. Merged in order alpha → beta → rc → main. |
+| 2 | Combine #1411 + #1412 for `beta` | #1415 | Done (`17e5913c`) | |
+| 3 | Combine #1408 + #1410 for `release-candidate` | #1416 | Done (`3df8ccb3`) | |
+| 4 | Combine #1407 + #1409 for `main` | #1417 | Done (`8b6a8fa6`) | Stable branch; chore(deps) only, so no release is cut by it alone. |
+| 6 | GitHub retired the macos-14 runner ("configuration 'macos-14-arm64-us-default' is not supported"), so `Backend (macos-14)` was cancelled before starting on every PR | in #1414–#1417 + `work-in-progress` `c58f644b` | Done | `ci.yml` backend matrix now `macos-latest`; the Homebrew shim step covers what the pin was for. Passed on all four PRs. Release builds already used `macos-latest`. |
 | 5 | New notice RUSTSEC-2026-0459 (old SQLite inside browser cookie import) | #1413 | Accepted for now on all four branches + `work-in-progress` (`f775451f`) | `rookie 0.5.6` → `rusqlite 0.31` → `libsqlite3-sys 0.28`; rookie unreleased since Nov 2024, so no update reaches the fix. Local-only (needs write access to the browser profile). Proper fix in #1413. Not added to project 6 (no tool for it here). |
 
 Why the originals failed: each moved only one half of the shell and notification plugins (version-sync check), plus GitHub download outages (cargo-deny download cut off, CodeQL 504). zip is now 9.2.2 on every channel (the open question from 2 Nov is settled by Dependabot offering it).
 
-**What is running and how it is watched:** CI on #1414–#1417. This session is subscribed to all four PRs and has a timed check-in (`trig_018fvHbVUZ5CBjqeWfqtVsGg`, 11:06 UTC). Both die with the session — if you pick this up, re-check the four PRs by hand. Branch deletion through the API is blocked here; Dependabot is removing its own branches for the closed originals.
+**What is running and how it is watched:** the pre-release builds the merges started (alpha.88, beta.20, rc.47) and main's push checks, watched by a timed check-in from this session (dies with the session — if you pick this up, check the Actions page). Four branches of the closed Dependabot PRs are left (`dependabot/cargo/src-tauri/{alpha,beta}/…`, `dependabot/npm_and_yarn/{alpha,release-candidate}/…`): deleting them is blocked from this session; their changes are all merged, so they can be deleted by hand.
 
 Not independently reviewed: Codex is not available in this session.
 
