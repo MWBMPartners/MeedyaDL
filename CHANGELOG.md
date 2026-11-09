@@ -6,6 +6,13 @@ This changelog is automatically generated from [conventional commits](https://ww
 
 ## [Unreleased]
 
+### 📚 Documentation
+
+- **(security)** Update supported versions to 1.10.14 [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+## [1.10.14] - 2026-11-02
+
 ### 🐛 Bug Fixes
 
 - **(security)** Clear zip/minimatch alerts and unbreak Linux release builds (main) (#1398)
@@ -31,7 +38,6 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
-- **(security)** Update supported versions to 1.10.14 [skip ci]
 
 ## [1.10.13] - 2026-10-26
 
