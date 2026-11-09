@@ -130,6 +130,17 @@ ignore = [
     "RUSTSEC-2026-0370", # zvariant — unmaintained (merged into zbus 6); via zbus 3 (rookie) and zbus 5 (Tauri notification/opener plugins)
     "RUSTSEC-2026-0371", # zbus_names — unmaintained (merged into zbus 6); same parents
     "RUSTSEC-2026-0372", # zvariant_derive — unmaintained (merged into zbus 6); same parents
+    # RUSTSEC-2026-0459 -- libsqlite3-sys 0.28.0 bundles SQLite older than
+    # 3.54.0, which can hand back leftover memory when it opens a database
+    # together with a crafted `-wal` log file. It reaches us only through
+    # rookie 0.5.6 (browser cookie import) -> rusqlite 0.31. rookie has had
+    # no release since Nov 2024 and pins rusqlite ^0.31, so the fixed
+    # libsqlite3-sys 0.39 cannot be reached by updating. The only files it
+    # opens are the browser's own cookie store; planting crafted ones there
+    # needs write access to the browser profile, which already exposes the
+    # cookies. Not reachable from the network or from anything we download.
+    # Remove this entry when #1413 (replace or update rookie) lands.
+    "RUSTSEC-2026-0459", # libsqlite3-sys 0.28 via rookie -> rusqlite 0.31 -- local-only, see #1413
 ]
 
 # ============================================================
