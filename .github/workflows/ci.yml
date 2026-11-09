@@ -216,16 +216,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # macos-14 pinned (not macos-latest) because the macos-15 runner image
-        # rotated in mid-2026 ships a Homebrew `cargo` shim at
-        # `/opt/homebrew/bin/cargo` that proxies to `rustup-init` when rustup
-        # isn't fully initialised. With the current `dtolnay/rust-toolchain`
-        # pin, that shim wins the PATH race and `cargo check` resolves to
-        # `rustup-init`, failing with `error: unexpected argument 'check'
-        # found`. Pinning the previous LTS image bypasses the shim.
-        # Revisit when `dtolnay/rust-toolchain` (or a successor action) ships
-        # a version that handles the new image layout.
-        os: [ubuntu-latest, macos-14, windows-latest]
+        # macOS uses the current image. It used to be pinned to macos-14 to
+        # dodge Homebrew's `cargo` shim on newer images, but GitHub stopped
+        # offering macos-14 in Nov 2026 ("The configuration
+        # 'macos-14-arm64-us-default' is not supported"), which cancelled
+        # this job before it started on every pull request. The shim is
+        # handled by the "Remove Homebrew rustup shims (macOS)" step below,
+        # and release.yml already builds on macos-latest.
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       # Step 1: Check out the repository code.
