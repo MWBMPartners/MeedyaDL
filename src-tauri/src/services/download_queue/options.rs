@@ -310,16 +310,6 @@ pub(crate) fn merge_options(
             }
             Err(e) => {
                 log::warn!("Output path rejected: {e}");
-                // GAMDL 4.x only: hand the rejected folder on so the 4.x
-                // builder refuses the download naming it. Left empty, it
-                // would read as "no folder set" and quietly use the usual
-                // Music folder instead (review, 12 Nov 2026). The builder
-                // checks it again and never sends it. 3.x is unchanged.
-                if super::gamdl_capabilities::detected_cli_generation()
-                    == super::gamdl_capabilities::GamdlCliGeneration::V4
-                {
-                    options.output_path = Some(settings.output_path.clone());
-                }
             }
         }
     }

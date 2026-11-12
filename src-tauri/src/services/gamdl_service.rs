@@ -680,6 +680,25 @@ fn build_gamdl_command(
     if super::gamdl_capabilities::detected_cli_generation()
         == super::gamdl_capabilities::GamdlCliGeneration::V4
     {
+        // A download folder MeedyaDL rejects (a ".." step) leaves the
+        // options with no folder, which the 4.x builder would read as
+        // "blank" and fill with the usual Music folder without a word.
+        // Decided here, when the download starts and the installed version
+        // is known — not when the item was queued, when it may not have
+        // been checked yet (review round 3, 12 Nov 2026).
+        if options.output_path.is_none() {
+            if let Ok(settings) = crate::services::config_service::load_settings(app) {
+                let folder = settings.output_path.trim();
+                if !folder.is_empty()
+                    && crate::services::config_service::validate_path_safe(folder).is_err()
+                {
+                    return Err(format!(
+                        "The download folder \"{folder}\" cannot be used, because it contains \"..\". \
+                         Choose a folder in Settings, then try again."
+                    ));
+                }
+            }
+        }
         return build_gamdl_v4_command(&python_bin, urls, options);
     }
 
