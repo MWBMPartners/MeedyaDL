@@ -1403,12 +1403,13 @@ impl GamdlOptions {
 // GAMDL 4.0 command line (prepared ahead of release)
 // ============================================================
 //
-// Written against the upstream `4.0` branch as it stood on 2 Nov 2026
-// (`gamdl/cli/options.py`, version string `4.0.0a0`). 4.0 is not
-// released, so this is a head start, not finished support: it is used only
-// when the installed GAMDL reports a major version of 4 or more, and the
-// install path refuses 4.x until `HIGHEST_DRIVABLE_MAJOR` is raised. Every
-// 3.x download keeps using `to_cli_args` above, unchanged.
+// First written against the upstream `4.0` branch (2 Nov 2026), then
+// corrected for the released GAMDL 4.0.0 (12 Nov 2026, `gamdl/cli/options.py`
+// at tag `v4.0.0`), whose option parser was given this builder's output and
+// read it as intended. Not yet finished support: it is used only when the
+// installed GAMDL reports a major version of 4 or more, and the install path
+// refuses 4.x until `HIGHEST_DRIVABLE_MAJOR` is raised. Every 3.x download
+// keeps using `to_cli_args` above, unchanged.
 //
 // Full option-by-option comparison: `.github/audits/gamdl-v4.0-preview-audit.md`.
 
@@ -1468,6 +1469,9 @@ const GAMDL_V4_SONG_CODECS: &[&str] = &[
     "atmos",
     "ac3",
     "alac",
+    // Released 4.0.0 splits ALAC into two named tiers as well.
+    "alac-lossless",
+    "alac-hires",
 ];
 
 /// Translates a 3.x `--exclude-tags` name to its 4.0 name, or `None` when
@@ -1699,8 +1703,20 @@ impl GamdlOptions {
                 push(&mut args, "--exclude-tags", names.join(","));
             }
         }
+        // Lyrics files (released 4.0.0): `--no-lyrics-file` turns the
+        // separate file off; otherwise `--lyrics-file-format` picks it. The
+        // release added `ttml` back, which is what all of MeedyaDL's own
+        // lyrics formats are built from (Enhanced LRC, WebVTT, styled SRT,
+        // ASS, Lyricsfile). Lyrics inside the music file stay 4.0's default
+        // (plain text); MeedyaDL writes its own there later.
         if self.no_synced_lyrics == Some(true) {
-            args.push("--no-lyrics".to_string());
+            args.push("--no-lyrics-file".to_string());
+        } else if let Some(ref format) = self.synced_lyrics_format {
+            push(
+                &mut args,
+                "--lyrics-file-format",
+                format.to_cli_string().to_string(),
+            );
         }
 
         // --- Where files go ---
@@ -1710,8 +1726,10 @@ impl GamdlOptions {
         if let Some(ref path) = self.temp_path {
             push(&mut args, "--temp-path", path.clone());
         }
+        // An on/off switch in the released 4.0.0 (the branch had
+        // `--overwrite skip|replace|error`).
         if self.overwrite == Some(true) {
-            push(&mut args, "--overwrite", "replace".to_string());
+            args.push("--overwrite".to_string());
         }
         if let Some(truncate) = self.truncate.filter(|t| *t > 0) {
             push(&mut args, "--truncate", truncate.to_string());
@@ -1753,6 +1771,18 @@ impl GamdlOptions {
         // Its progress display is drawn for a terminal; the per-item
         // result lines are what MeedyaDL reads.
         args.push("--no-progress".to_string());
+        // Released 4.0.0 keeps its own download database, ON by default,
+        // and skips anything it has recorded as already downloaded.
+        // MeedyaDL keeps its own history and deliberately runs GAMDL again
+        // over albums it has already fetched (filling gaps, the
+        // extra-format copies, re-downloads), so GAMDL's database would
+        // quietly turn those runs into "skipped".
+        args.push("--no-database".to_string());
+        // An unexpected failure would otherwise add an "Exception
+        // tracebacks" section whose `✗ <title>` lines have no message,
+        // which MeedyaDL cannot tell apart from a real error line. The
+        // error list still names the error's type in brackets.
+        args.push("--no-tracebacks".to_string());
 
         args
     }
@@ -2504,8 +2534,8 @@ mod tests {
 mod gamdl_v4_args_tests {
     use super::*;
 
-    /// Every option name `rip` accepts on the 4.0 branch
-    /// (`gamdl/cli/options.py`, `RipOptions`). Anything the builder
+    /// Every option name `rip` accepts in the released GAMDL 4.0.0
+    /// (`gamdl/cli/options.py`, `RipOptions`, tag `v4.0.0`). Anything the builder
     /// sends that is not on this list would end the run before anything
     /// downloads, so every test below checks against it.
     const V4_RIP_OPTIONS: &[&str] = &[
@@ -2514,7 +2544,8 @@ mod gamdl_v4_args_tests {
         "--output-dir",
         "--temp-path",
         "--overwrite",
-        "--concurrency",
+        "--no-overwrite",
+        "--segment-concurrency",
         "--concurrent-downloads",
         "--song-codec",
         "--song-codec-priority",
@@ -2532,17 +2563,20 @@ mod gamdl_v4_args_tests {
         "--no-tag",
         "--tag",
         "--exclude-tags",
-        "--no-lyrics",
+        "--no-lyrics-file",
+        "--lyrics-file-format",
+        "--embedded-lyrics-format",
         "--save-playlist",
         "--no-save-playlist",
         "--fail-fast",
         "--database",
         "--no-database",
         "--database-path",
+        "--save-metadata",
+        "--no-save-metadata",
         "--no-progress",
         "--max-visible-tracks",
-        "--debug",
-        "--no-debug",
+        "--no-tracebacks",
         "--auth-mode",
         "--cookies-path",
         "--wrapper-url",
@@ -2648,7 +2682,13 @@ mod gamdl_v4_args_tests {
         assert_eq!(value_of(&args, "--output-dir"), Some("/Music"));
         assert_eq!(value_of(&args, "--max-height"), Some("2160"));
         assert_eq!(value_of(&args, "--music-video-container"), Some("mp4"));
-        assert_eq!(value_of(&args, "--overwrite"), Some("replace"));
+        // A plain switch in the released 4.0.0, with no value after it.
+        let i = args
+            .iter()
+            .position(|a| a == "--overwrite")
+            .expect("--overwrite sent");
+        assert!(args.get(i + 1).is_none_or(|next| next.starts_with("--")));
+        assert_eq!(value_of(&args, "--lyrics-file-format"), Some("ttml"));
         assert_eq!(value_of(&args, "--device-path"), Some("/d/device.wvd"));
         assert_eq!(value_of(&args, "--auth-mode"), Some("wrapper"));
         assert_eq!(value_of(&args, "--wrapper-url"), Some("http://192.168.1.5"));
@@ -2689,6 +2729,23 @@ mod gamdl_v4_args_tests {
         let args = GamdlOptions::default().to_cli_args_v4();
         assert_eq!(value_of(&args, "--auth-mode"), Some("cookies"));
         assert!(args.iter().any(|a| a == "--no-progress"));
+        // GAMDL's own download database would turn MeedyaDL's deliberate
+        // re-runs into "skipped"; tracebacks would add error-shaped lines
+        // with no message.
+        assert!(args.iter().any(|a| a == "--no-database"));
+        assert!(args.iter().any(|a| a == "--no-tracebacks"));
+    }
+
+    #[test]
+    fn no_lyrics_file_wins_over_a_format() {
+        let opts = GamdlOptions {
+            no_synced_lyrics: Some(true),
+            synced_lyrics_format: Some(LyricsFormat::Ttml),
+            ..GamdlOptions::default()
+        };
+        let args = opts.to_cli_args_v4();
+        assert!(args.iter().any(|a| a == "--no-lyrics-file"));
+        assert!(!args.iter().any(|a| a == "--lyrics-file-format"));
     }
 
     #[test]

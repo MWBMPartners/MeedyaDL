@@ -170,7 +170,7 @@ static V4_RESULT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 ///
 /// 4.x prints a small, fixed set of human-readable lines instead of log
 /// records (`gamdl/cli/output.py`, `progress.py` and
-/// `commands/runner.py` on the 4.0 branch):
+/// `commands/runner.py` in GAMDL 4.0.0):
 ///
 /// - `✓ / ↷ title: outcome → path` — one per item; becomes `Complete`
 ///   with the path, including for a file skipped because it is already
@@ -255,6 +255,25 @@ const GAMDL_V4_FIXED_ERRORS: &[&str] = &[
     "Authentication failed",
     "Apple Music rate limit reached",
     "Unable to acquire decryption key",
+    // Added or reworded in the released 4.0.0 (`cli/errors.py`).
+    "Unable to acquire or process decryption key",
+    "Supply either a CDM or a device path",
+    "PlayReady requires a device path or CDM",
+    "Required DRM backend or default device is not available",
+    "PlayReady backend not installed",
+    "Widevine backend not installed",
+    "DRM backend configuration failed",
+    "No usable DRM initialization data for selected backend",
+    "DRM initialization metadata invalid",
+    "Apple Music or wrapper request failed",
+    "Unexpected Apple Music or wrapper API response",
+    "Only completed HLS media playlists are supported",
+    "Selected HLS playlist contains no media segments",
+    "AES-128 HLS transport decryption is not supported",
+    "HLS discontinuities are not supported",
+    "HLS gap segments are not supported",
+    "Invalid HLS manifest",
+    "Media metadata could not be resolved",
     "Network request failed",
     "Media saved, but couldn't",
     "Output already exists",
@@ -292,7 +311,20 @@ pub fn gamdl_v4_error_core(message: &str) -> &str {
     // the last ": " before it is where the title ends (review round 6).
     if let Some(i) = message.rfind(": ") {
         let tail = &message[i + 2..];
-        if let Some(word) = tail.strip_suffix(" failed") {
+        // Released 4.0.0 adds the error's type in brackets after an
+        // unexpected error (`ApiResponse failed (GamdlApiResponseError)`).
+        let bare = match tail.rsplit_once(" (") {
+            Some((head, rest))
+                if rest.ends_with(')')
+                    && rest[..rest.len() - 1]
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric()) =>
+            {
+                head
+            }
+            _ => tail,
+        };
+        if let Some(word) = bare.strip_suffix(" failed") {
             if !word.is_empty() && word.chars().all(|c| c.is_ascii_alphabetic()) {
                 return tail;
             }
@@ -4078,9 +4110,10 @@ mod tests {
 mod gamdl_v4_output_tests {
     use super::{parse_gamdl_output, GamdlOutputEvent};
 
-    // Line shapes copied from the GAMDL 4.0 branch's own output code
+    // Line shapes copied from GAMDL 4.0's own output code
     // (`cli/progress.py::RipProgress.finish`, `cli/commands/runner.py`,
-    // `cli/output.py`). 4.0 is unreleased; if a release changes them,
+    // `cli/output.py`), first from the 4.0 branch and re-checked against
+    // the released 4.0.0 (unchanged). If a later release changes them,
     // these are the lines to update.
 
     fn path_of(line: &str) -> String {
@@ -4237,6 +4270,23 @@ mod gamdl_v4_outcome_tests {
             "network"
         );
         assert_eq!(gamdl_v4_error_core("Cookie Jar: Drm failed"), "Drm failed");
+        // Released 4.0.0 names the type of an unexpected error in brackets.
+        assert_eq!(
+            gamdl_v4_error_core("Connection: ApiResponse failed (GamdlApiResponseError)"),
+            "ApiResponse failed (GamdlApiResponseError)"
+        );
+        assert_ne!(
+            super::classify_error(gamdl_v4_error_core(
+                "Connection: ApiResponse failed (GamdlApiResponseError)"
+            )),
+            "network"
+        );
+        assert_eq!(
+            gamdl_v4_error_core(
+                "Login: Unable to acquire or process decryption key (DrmLicenseError)"
+            ),
+            "Unable to acquire or process decryption key (DrmLicenseError)"
+        );
         assert_ne!(
             super::classify_error(gamdl_v4_error_core("Cookie Jar: Drm failed")),
             "auth"

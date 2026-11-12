@@ -791,6 +791,18 @@ pub(crate) fn gamdl_v4_args(
                 .to_string(),
         );
     }
+    // Released 4.0.0 asks, on first use, where to save music, and when
+    // nobody can answer (as here) it stops with an error before
+    // downloading. So the folder must always be given.
+    if options
+        .output_path
+        .as_deref()
+        .is_none_or(|p| p.trim().is_empty())
+    {
+        return Err(
+            "No download folder is set. Choose one in Settings, then try again.".to_string(),
+        );
+    }
     let mut args = vec![
         "-c".to_string(),
         GAMDL_V4_LAUNCHER.to_string(),
@@ -1035,10 +1047,17 @@ mod gamdl_v4_command_tests {
     use super::{gamdl_v4_args, GAMDL_V4_LAUNCHER};
     use crate::models::gamdl_options::GamdlOptions;
 
+    fn with_folder() -> GamdlOptions {
+        GamdlOptions {
+            output_path: Some("/Music".into()),
+            ..GamdlOptions::default()
+        }
+    }
+
     #[test]
     fn launcher_then_group_option_then_rip_then_links_last() {
         let urls = vec!["https://music.apple.com/us/album/x/1".to_string()];
-        let args = gamdl_v4_args(&urls, &GamdlOptions::default()).unwrap();
+        let args = gamdl_v4_args(&urls, &with_folder()).unwrap();
         assert_eq!(&args[..4], ["-c", GAMDL_V4_LAUNCHER, "--no-config", "rip"]);
         assert_eq!(args.last().unwrap(), &urls[0]);
         // Never the 3.x way of starting it, which 4.x cannot do.
@@ -1052,7 +1071,7 @@ mod gamdl_v4_command_tests {
         let urls = vec!["https://music.apple.com/us/album/x/1".to_string()];
         let opts = GamdlOptions {
             synced_lyrics_only: Some(true),
-            ..GamdlOptions::default()
+            ..with_folder()
         };
         let err = gamdl_v4_args(&urls, &opts).unwrap_err();
         assert!(err.contains("lyrics on their own"), "{err}");
@@ -1061,12 +1080,28 @@ mod gamdl_v4_command_tests {
     #[test]
     fn a_link_that_could_read_as_an_option_is_refused() {
         let urls = vec!["--output-dir=/tmp".to_string()];
-        assert!(gamdl_v4_args(&urls, &GamdlOptions::default()).is_err());
+        assert!(gamdl_v4_args(&urls, &with_folder()).is_err());
+    }
+
+    #[test]
+    fn a_download_with_no_folder_is_refused_before_starting() {
+        // 4.0.0 would otherwise stop asking where to save, with nobody to
+        // answer.
+        let urls = vec!["https://music.apple.com/us/album/x/1".to_string()];
+        for folder in [None, Some(String::new()), Some("  ".to_string())] {
+            let opts = GamdlOptions {
+                output_path: folder,
+                ..GamdlOptions::default()
+            };
+            assert!(gamdl_v4_args(&urls, &opts)
+                .unwrap_err()
+                .contains("download folder"));
+        }
     }
 
     #[test]
     fn launcher_calls_the_published_entry_point() {
-        // `pyproject.toml` on the 4.0 branch: gamdl = "gamdl.cli.main:main".
+        // `pyproject.toml` in GAMDL 4.0.0: gamdl = "gamdl.cli.main:main".
         assert!(GAMDL_V4_LAUNCHER.contains("from gamdl.cli.main import main"));
         assert!(GAMDL_V4_LAUNCHER.contains("sys.exit(main())"));
     }

@@ -1471,9 +1471,10 @@ pub enum GamdlCliGeneration {
 /// run.
 ///
 /// **This is the switch that turns GAMDL 4 support on.** The command
-/// builder for 4.x is written and tested against the unreleased 4.0 code,
-/// but it has never driven a real download, because there is no 4.0
-/// release to drive yet. Until somebody has done that, an install of 4.x
+/// builder for 4.x is written for, and its commands checked against, the
+/// released GAMDL 4.0.0 (12 Nov 2026), but it has never driven a real
+/// download (that needs an Apple Music account, and the follow-ups in the
+/// 4.0 audit are still open). Until somebody has done that, an install of 4.x
 /// is refused (see `gamdl_service::refuse_unsupported_target`) and the
 /// Updates page does not offer it — otherwise the day 4.0 appears on the
 /// package index, anybody who clicked the "Untested" upgrade would end up
