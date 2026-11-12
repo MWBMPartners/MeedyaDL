@@ -686,16 +686,28 @@ fn build_gamdl_command(
         // Decided here, when the download starts and the installed version
         // is known — not when the item was queued, when it may not have
         // been checked yet (review round 3, 12 Nov 2026).
+        let from_saved_setting;
+        let mut options = options;
         if options.output_path.is_none() {
             if let Ok(settings) = crate::services::config_service::load_settings(app) {
                 let folder = settings.output_path.trim();
-                if !folder.is_empty()
-                    && crate::services::config_service::validate_path_safe(folder).is_err()
-                {
-                    return Err(format!(
-                        "The download folder \"{folder}\" cannot be used, because it contains \"..\". \
-                         Choose a folder in Settings, then try again."
-                    ));
+                if !folder.is_empty() {
+                    if crate::services::config_service::validate_path_safe(folder).is_err() {
+                        return Err(format!(
+                            "The download folder \"{folder}\" cannot be used, because it contains \"..\". \
+                             Choose a folder in Settings, then try again."
+                        ));
+                    }
+                    // A folder saved after the item was queued: use it, as
+                    // 3.x does (it reads the folder from the settings file
+                    // MeedyaDL rewrites on every save). Without this, 4.x
+                    // would fall back to the usual Music folder instead
+                    // (review round 4, 12 Nov 2026).
+                    from_saved_setting = GamdlOptions {
+                        output_path: Some(folder.to_string()),
+                        ..options.clone()
+                    };
+                    options = &from_saved_setting;
                 }
             }
         }
