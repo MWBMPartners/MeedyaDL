@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-11-09 — see ★★★★ LATEST below
+**Last updated:** 2026-11-12 — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.88** · `beta` **1.9.4-beta.20** · `release-candidate` **1.0.0-rc.47** — read from each branch's `package.json` on 9 Nov.
+**Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.88** · `beta` **1.9.4-beta.20** · `release-candidate` **1.0.0-rc.47** — read from each branch's `package.json` on 12 Nov.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,19 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-11-09: dependency PRs combined on all four channels; new SQLite notice accepted (#1413)
+## ★★★★ LATEST — 2026-11-12: GAMDL 4.0.0 released — preparation brought in line
+
+| # | Task | Issue / PR | Status | Notes |
+|---|---|---|---|---|
+| 1 | Re-check the GAMDL 4 preparation against the released 4.0.0 (tag `v4.0.0`, `b2684344`; 49 commits after the branch first read) | #1404 | **In review** (`352b5f64`) | Fixed: `--overwrite` is now a plain switch; lyrics files via `--lyrics-file-format` (`.ttml` is back) / `--no-lyrics-file`; `--no-database` (4.0's own database is on by default); download folder always sent, refused if unset; `--no-tracebacks`; new fixed error messages and the bracketed error type; `alac-lossless`/`alac-hires`. **Checked against a real `gamdl[widevine]==4.0.0` install** (scratch venv): GAMDL's parser read MeedyaDL's full commands as intended; real runs stopped only at sign-in and wrote nothing to GAMDL's home folder. No real download possible here (no Apple Music account). 4.x still refused. |
+
+**Decision pending (maintainer):** switch GAMDL 4 support on? Recommendation: not yet — first a real download on at least one machine, and the open follow-ups in `.github/audits/gamdl-v4.0-preview-audit.md` (artwork without MusicKit, progress, Settings screen, docs, platform ceilings — 4.0 has no 32-bit ARM Linux package and may lift the Windows-on-ARM hold).
+
+**Running and how it is watched:** a fresh Claude Opus review agent on `352b5f64` (Codex not available here); this session is notified when it ends.
+
+---
+
+## ★★★★ Previous — 2026-11-09: dependency PRs combined on all four channels; new SQLite notice accepted (#1413)
 
 | # | Task | Issue / PR | Status | Notes |
 |---|---|---|---|---|
