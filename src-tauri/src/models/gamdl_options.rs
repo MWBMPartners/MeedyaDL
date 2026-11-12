@@ -1562,15 +1562,20 @@ impl GamdlOptions {
     /// - renamed: `--output-path` → `--output-dir`; `--music-video-resolution`
     ///   → `--max-height` (a number); `--music-video-remux-format` →
     ///   `--music-video-container`; `--wvd-path` / `--prd-path` →
-    ///   `--device-path`; `--no-synced-lyrics` → `--no-lyrics`;
-    ///   `--use-wrapper` → `--auth-mode wrapper`; `--overwrite` →
-    ///   `--overwrite replace`;
+    ///   `--device-path`; `--no-synced-lyrics` → `--no-lyrics-file`;
+    ///   `--synced-lyrics-format` → `--lyrics-file-format`;
+    ///   `--use-wrapper` → `--auth-mode wrapper`; `--overwrite` stays
+    ///   `--overwrite`, a plain switch with NO value after it in the
+    ///   released 4.0.0 (a value would be read as an extra link);
     /// - always sent: `--auth-mode` (with none, 4.0 opens an interactive
-    ///   sign-in wizard, which has nobody to answer it here), and
-    ///   `--no-progress` (its progress display is for a terminal);
+    ///   sign-in wizard, which has nobody to answer it here),
+    ///   `--no-progress` (its progress display is for a terminal),
+    ///   `--no-database` (its own download database would skip MeedyaDL's
+    ///   deliberate re-runs) and `--no-tracebacks` (its traceback section
+    ///   has message-less error lines); the caller also always sends
+    ///   `--output-dir`;
     /// - not sent, because 4.0 has no such option: the four helper
     ///   program paths (it starts no outside program), `--cover-size`,
-    ///   `--synced-lyrics-format` (it only writes `.lrc` or `.txt`),
     ///   `--synced-lyrics-only` (no lyrics-only mode), `--use-album-date`,
     ///   `--date-tag-template`, `--download-mode`, `--log-level`,
     ///   `--no-exceptions`, `--wrapper-m3u8-ip`, `--wrapper-account-url`,

@@ -5667,7 +5667,13 @@ fn classify_error_for_installed_gamdl(error_msg: &str) -> &'static str {
     if crate::services::gamdl_capabilities::detected_cli_generation()
         == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
     {
-        process::classify_error(process::gamdl_v4_error_core(error_msg))
+        let core = process::gamdl_v4_error_core(error_msg);
+        // A broken unlocking set-up fails every format the same way, so it
+        // must not be read as a codec problem (which retries each format).
+        if process::is_gamdl_v4_drm_setup_error(core) {
+            return "unknown";
+        }
+        process::classify_error(core)
     } else {
         process::classify_error(error_msg)
     }

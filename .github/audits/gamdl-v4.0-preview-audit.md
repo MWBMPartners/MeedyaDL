@@ -17,7 +17,8 @@
 | `--overwrite` is an on/off switch (`--overwrite/--no-overwrite`); the branch had `--overwrite skip\|replace\|error` | MeedyaDL's `--overwrite replace` would have been read as a second **link** called "replace" (found by running it) | sends `--overwrite` alone |
 | Lyrics files: `--no-lyrics` became `--no-lyrics-file`; new `--lyrics-file-format lrc\|enhanced-lrc\|srt\|ttml\|text` and `--embedded-lyrics-format` | **`.ttml` lyrics files are back**, so MeedyaDL's own lyrics steps (Enhanced LRC, WebVTT, styled SRT, ASS, Lyricsfile) have their source again | sends `--lyrics-file-format` from the setting (TTML when Enhanced LRC is on, as for 3.x); `--no-lyrics-file` when lyrics files are off |
 | GAMDL's own download database is **on by default** and skips anything it recorded as downloaded | MeedyaDL's deliberate re-runs (gap-fill, extra-format copies, re-downloads) would quietly become "skipped" | always sends `--no-database` |
-| With no save folder given and nobody at a keyboard, it stops ("Output directory is not configured") | a download with no folder set would fail inside GAMDL | always sends `--output-dir`; refuses to start, with a plain message, when no folder is set |
+| With no save folder given and nobody at a keyboard, it stops ("Output directory is not configured") | a download with no folder set would fail inside GAMDL | always sends `--output-dir`; a blank setting (MeedyaDL's default) becomes its usual Music folder, as for 3.x |
+| A broken unlocking set-up ("Required DRM backend or default device is not available", "DRM backend configuration failed", …) fails the whole run | the word "drm" read as a codec problem would retry every format in vain | on 4.x these are recognised and not retried format by format |
 | An "Exception tracebacks (N)" section after unexpected failures, with `✗ <title>` lines that carry no message | would be read as errors made only of a song title | sends `--no-tracebacks`; the error list still names the error's type |
 | Unexpected errors gain ` (TypeName)` after the message; several new fixed messages (DRM set-up, HLS limits, HTTP status) | the song-title stripping missed them | fixed-message list extended; bracketed type allowed for |
 | ALAC also as `alac-lossless` and `alac-hires`; default codec now `aac` (HLS) | none — MeedyaDL always sends its own codec list; plain `alac` is still accepted | accepted-codec list extended |
@@ -43,8 +44,9 @@ installed from PyPI into a throwaway Python 3.13 environment here):
 **Packages:** PyPI has 4.0.0 for macOS (universal), Windows x64 and ARM64,
 and Linux x64 and ARM64 — **none for 32-bit ARM Linux**, which therefore stays
 on its 3.x ceiling. The Widevine extra needs `pywidevine`, `pycryptodome`,
-`protobuf` and others, **not `cryptography`**, and all of those publish
-Windows ARM64 builds. The `cryptography` range that holds Windows on ARM at
+`protobuf` and others, **not `cryptography`**: `pycryptodome` and `PyYAML`
+publish Windows ARM64 builds, and the rest (`protobuf`, `pymp4`,
+`construct`, `Unidecode`) are pure Python, so they install there too. The `cryptography` range that holds Windows on ARM at
 3.8.5 comes from `pyplayready`, which 4.0 made optional. So **4.0 can probably
 be installed on Windows ARM64** without PlayReady — but the per-platform
 ceiling (`windows-aarch64 = "3.8.5"`) would currently block it. Settle this

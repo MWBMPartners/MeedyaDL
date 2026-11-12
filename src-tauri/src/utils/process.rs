@@ -289,6 +289,34 @@ const GAMDL_V4_FORMAT_UNAVAILABLE: &[&str] = &[
     "Video rendition has no separate audio HLS track",
 ];
 
+/// GAMDL 4.x messages that mean "the way of unlocking tracks is not set up"
+/// (`cli/errors.py` in 4.0.0, `DrmConfigurationError` / `DrmMetadataError`).
+/// They fail the whole run the same way whatever format is asked for.
+const GAMDL_V4_DRM_SETUP_ERRORS: &[&str] = &[
+    "Supply either a CDM or a device path",
+    "PlayReady requires a device path or CDM",
+    "Required DRM backend or default device is not available",
+    "PlayReady backend not installed",
+    "Widevine backend not installed",
+    "DRM backend configuration failed",
+    "No usable DRM initialization data for selected backend",
+    "DRM initialization metadata invalid",
+];
+
+/// Is this GAMDL 4.x error (already stripped by [`gamdl_v4_error_core`]) a
+/// problem with how unlocking is set up, rather than with the format asked
+/// for?
+///
+/// `classify_error` reads the word "drm" as a codec problem, which sends the
+/// queue through every format in the fallback chain — each run failing at
+/// the same set-up step (found in review, 12 Nov 2026).
+#[must_use]
+pub fn is_gamdl_v4_drm_setup_error(core: &str) -> bool {
+    GAMDL_V4_DRM_SETUP_ERRORS
+        .iter()
+        .any(|m| core.starts_with(m))
+}
+
 /// The fixed part of a GAMDL 4.x error, without the song title in front
 /// of it, or the whole message when it is not one of 4.x's shapes.
 ///
@@ -4291,6 +4319,17 @@ mod gamdl_v4_outcome_tests {
             super::classify_error(gamdl_v4_error_core("Cookie Jar: Drm failed")),
             "auth"
         );
+        // A broken unlocking set-up is recognised, so it is not retried
+        // format by format.
+        assert!(super::is_gamdl_v4_drm_setup_error(gamdl_v4_error_core(
+            "Session: Required DRM backend or default device is not available"
+        )));
+        assert!(super::is_gamdl_v4_drm_setup_error(gamdl_v4_error_core(
+            "Song: DRM backend configuration failed (DrmConfigurationError)"
+        )));
+        assert!(!super::is_gamdl_v4_drm_setup_error(gamdl_v4_error_core(
+            "Song: Requested codec or stream unavailable"
+        )));
         // Not a 4.x shape: unchanged.
         assert_eq!(
             gamdl_v4_error_core("ERROR: cookie expired"),

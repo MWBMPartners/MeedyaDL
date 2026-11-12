@@ -793,16 +793,31 @@ pub(crate) fn gamdl_v4_args(
     }
     // Released 4.0.0 asks, on first use, where to save music, and when
     // nobody can answer (as here) it stops with an error before
-    // downloading. So the folder must always be given.
-    if options
+    // downloading. So the folder must always be given. A blank setting is
+    // MeedyaDL's normal default and means its usual Music folder
+    // (`get_default_output_path`, the same one the pre-download checks
+    // approve), so it is filled in rather than refused (review, 12 Nov
+    // 2026: refusing it would have refused every download on a default
+    // install).
+    let filled;
+    let options = if options
         .output_path
         .as_deref()
         .is_none_or(|p| p.trim().is_empty())
     {
-        return Err(
-            "No download folder is set. Choose one in Settings, then try again.".to_string(),
-        );
-    }
+        let default = super::config_service::get_default_output_path().map_err(|_| {
+            "No download folder is set and the usual Music folder could not be found. \
+             Choose one in Settings, then try again."
+                .to_string()
+        })?;
+        filled = GamdlOptions {
+            output_path: Some(default),
+            ..options.clone()
+        };
+        &filled
+    } else {
+        options
+    };
     let mut args = vec![
         "-c".to_string(),
         GAMDL_V4_LAUNCHER.to_string(),
@@ -1084,18 +1099,19 @@ mod gamdl_v4_command_tests {
     }
 
     #[test]
-    fn a_download_with_no_folder_is_refused_before_starting() {
-        // 4.0.0 would otherwise stop asking where to save, with nobody to
-        // answer.
+    fn a_blank_folder_means_the_usual_music_folder() {
+        // Blank is MeedyaDL's default setting. 4.0.0 must still be given a
+        // folder (it would otherwise stop to ask), so the usual one is sent.
         let urls = vec!["https://music.apple.com/us/album/x/1".to_string()];
+        let expected = crate::services::config_service::get_default_output_path().unwrap();
         for folder in [None, Some(String::new()), Some("  ".to_string())] {
             let opts = GamdlOptions {
                 output_path: folder,
                 ..GamdlOptions::default()
             };
-            assert!(gamdl_v4_args(&urls, &opts)
-                .unwrap_err()
-                .contains("download folder"));
+            let args = gamdl_v4_args(&urls, &opts).unwrap();
+            let i = args.iter().position(|a| a == "--output-dir").unwrap();
+            assert_eq!(args[i + 1], expected);
         }
     }
 
