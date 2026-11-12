@@ -290,7 +290,7 @@ const GAMDL_V4_FORMAT_UNAVAILABLE: &[&str] = &[
 ];
 
 /// GAMDL 4.x messages that mean "the way of unlocking tracks is not set up"
-/// (`cli/errors.py` in 4.0.0, `DrmConfigurationError` / `DrmMetadataError`).
+/// (`cli/errors.py` in 4.0.0, `DrmConfigurationError`).
 /// They fail the whole run the same way whatever format is asked for.
 const GAMDL_V4_DRM_SETUP_ERRORS: &[&str] = &[
     "Supply either a CDM or a device path",
@@ -299,8 +299,11 @@ const GAMDL_V4_DRM_SETUP_ERRORS: &[&str] = &[
     "PlayReady backend not installed",
     "Widevine backend not installed",
     "DRM backend configuration failed",
-    "No usable DRM initialization data for selected backend",
-    "DRM initialization metadata invalid",
+    // Deliberately NOT here: "No usable DRM initialization data for
+    // selected backend" and "DRM initialization metadata invalid". Those
+    // come from `DrmMetadataError`, raised for one stream's unlocking data;
+    // another format's stream may be fine, so they stay codec problems and
+    // the format fallback still runs (review round 2, 12 Nov 2026).
 ];
 
 /// Is this GAMDL 4.x error (already stripped by [`gamdl_v4_error_core`]) a
@@ -4329,6 +4332,11 @@ mod gamdl_v4_outcome_tests {
         )));
         assert!(!super::is_gamdl_v4_drm_setup_error(gamdl_v4_error_core(
             "Song: Requested codec or stream unavailable"
+        )));
+        // One stream's unlocking data, not the set-up: another format may
+        // work, so the format fallback must still run.
+        assert!(!super::is_gamdl_v4_drm_setup_error(gamdl_v4_error_core(
+            "Song: DRM initialization metadata invalid (DrmMetadataError)"
         )));
         // Not a 4.x shape: unchanged.
         assert_eq!(

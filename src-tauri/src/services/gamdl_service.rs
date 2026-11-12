@@ -799,6 +799,20 @@ pub(crate) fn gamdl_v4_args(
     // approve), so it is filled in rather than refused (review, 12 Nov
     // 2026: refusing it would have refused every download on a default
     // install).
+    // A folder MeedyaDL itself rejects (a ".." step) is refused, naming it,
+    // rather than swapped for the default without a word.
+    if let Some(folder) = options
+        .output_path
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+    {
+        if super::config_service::validate_path_safe(folder).is_err() {
+            return Err(format!(
+                "The download folder \"{folder}\" cannot be used, because it contains \"..\". \
+                 Choose a folder in Settings, then try again."
+            ));
+        }
+    }
     let filled;
     let options = if options
         .output_path
@@ -1096,6 +1110,17 @@ mod gamdl_v4_command_tests {
     fn a_link_that_could_read_as_an_option_is_refused() {
         let urls = vec!["--output-dir=/tmp".to_string()];
         assert!(gamdl_v4_args(&urls, &with_folder()).is_err());
+    }
+
+    #[test]
+    fn a_folder_with_a_parent_step_is_refused_naming_it() {
+        let urls = vec!["https://music.apple.com/us/album/x/1".to_string()];
+        let opts = GamdlOptions {
+            output_path: Some("/Volumes/X/../Music".into()),
+            ..GamdlOptions::default()
+        };
+        let err = gamdl_v4_args(&urls, &opts).unwrap_err();
+        assert!(err.contains("/Volumes/X/../Music"), "{err}");
     }
 
     #[test]
