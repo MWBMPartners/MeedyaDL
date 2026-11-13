@@ -1,6 +1,6 @@
 ---
-name: GAMDL 4.0 preparation (dormant until switched on)
-description: GAMDL 4.0 is a rewrite; MeedyaDL refuses 4.x and carries a ready-but-unused 4.x command builder. Raising HIGHEST_DRIVABLE_MAJOR is the switch.
+name: GAMDL 4.0 support (switched on 13 Nov 2026, opt-in and untested)
+description: GAMDL 4.0 is a rewrite; MeedyaDL drives it through a separate 4.x path. HIGHEST_DRIVABLE_MAJOR is 4 since 13 Nov 2026, but 4.0.0 is only an opt-in Untested upgrade until real downloads are tested.
 type: project
 ---
 On 2 Nov 2026 the unreleased upstream GAMDL `4.0` branch (commit `0c884ecc`, version `4.0.0a0`) was read file by file. It is a rewrite: no `python -m gamdl` (no `__main__`), downloading is the `rip` subcommand, YAML settings instead of `config.ini`, renamed options, `rich` text output, no helper programs, Widevine moved to an optional `gamdl[widevine]` extra, artwork saved per track, lyrics only `.lrc`/`.txt` (no `.ttml`).
@@ -15,6 +15,8 @@ On 2 Nov 2026 the unreleased upstream GAMDL `4.0` branch (commit `0c884ecc`, ver
 
 **Release 4.0.0 (12 Nov 2026):** the preparation was aligned with the released 4.0.0 (49 commits after the branch first read) and checked against a real `gamdl[widevine]==4.0.0` install: plain `--overwrite` switch; `--lyrics-file-format` (TTML back) / `--no-lyrics-file`; always `--no-database` and `--no-tracebacks`; download folder always sent (blank → default Music folder, saved-later folder followed, ".." refused at spawn time); DRM set-up errors kept out of the format fallback. Reviewed in 6 Claude rounds (Codex unavailable), last clean. Switch still off — needs a real download first.
 
-**Why:** without the refusal, the "Untested" upgrade button would install 4.0 the day it is published and every download would fail on the first line.
+**Switched on (13 Nov 2026, maintainer's request, so alpha has a build to test):** `HIGHEST_DRIVABLE_MAJOR = 4` (GAMDL 5 still refused). Decisions: (1) opt-in only — `tool-versions.toml` still says 3.9.1, so 4.0.0 shows as "Untested" and routine installs stay on 3.x; (2) Linux ARMv7 and Windows on ARM stay held by their platform ceilings; (3) PlayReady on 4.x falls back to Widevine with an activity-log line (`plan_drm_backend_on_gamdl_4`), and `play_ready_drm` is false on 4.x. `routine_install_spec` keeps an opted-in 4.x on Install/Reinstall (it used to drop back to 3.x). No settings migration is needed: settings become options per download and 4.x runs with `--no-config`. `get_gamdl_capabilities` gained `gamdl_v4`; `GamdlFourNote` (`src/components/settings/GamdlFourNote.tsx`) marks the settings 4.x does not use (cover art saving/size/raw format, Synced Lyrics Only, Download/Remux Mode, mp4decrypt/MP4Box/N_m3u8DL-RE). Help: `help/tools.md` → "Trying GAMDL 4". Next: real downloads on each platform, then add 4.0 to the tested window.
 
-**How to apply:** when 4.0 is released, re-diff the release against the audit (`.github/audits/gamdl-v4.0-preview-audit.md`), work through its follow-up list (lyrics `.ttml`, artwork, progress, PlayReady extra, settings screen, docs), test on real machines, then raise the switch to 4 and update its test. Do not raise it on code reading alone.
+**Why the switch stayed off until then:** without the refusal, the "Untested" upgrade button would install 4.0 the day it is published and every download would fail on the first line.
+
+**How to apply:** when 4.0 is released, re-diff the release against the audit (`.github/audits/gamdl-v4.0-preview-audit.md`), work through its follow-up list (lyrics `.ttml`, artwork, progress, PlayReady extra, settings screen, docs), test on real machines, then add 4.0 to the tested window in `tool-versions.toml` (which makes it the routine install). Do not do that on code reading alone.

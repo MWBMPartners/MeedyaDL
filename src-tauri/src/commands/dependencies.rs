@@ -610,6 +610,11 @@ pub struct GamdlCapabilities {
     /// outright rather than ignoring it, so offering it there would only
     /// produce downloads that stop before they start.
     pub play_ready_drm: bool,
+    /// Whether the installed GAMDL is a 4.x release (13 Nov 2026). GAMDL
+    /// 4 is started and configured differently and ignores some settings;
+    /// the Settings screens use this to say so beside those settings
+    /// rather than leave them silently doing nothing.
+    pub gamdl_v4: bool,
 }
 
 /// Returns the currently active GAMDL capability flags (#853).
@@ -625,7 +630,10 @@ pub struct GamdlCapabilities {
 /// `src/lib/tauri-commands.ts`.
 #[tauri::command]
 pub fn get_gamdl_capabilities() -> GamdlCapabilities {
-    use crate::services::gamdl_capabilities::{supports, GamdlFeature};
+    use crate::services::gamdl_capabilities::{
+        detected_cli_generation, supports, GamdlCliGeneration, GamdlFeature,
+    };
+    let gamdl_v4 = detected_cli_generation() == GamdlCliGeneration::V4;
     GamdlCapabilities {
         wrapper_v2: supports(GamdlFeature::WrapperUrl),
         native_muxing: supports(GamdlFeature::NativeMuxing),
@@ -636,7 +644,11 @@ pub fn get_gamdl_capabilities() -> GamdlCapabilities {
         native_codec_priority: supports(GamdlFeature::NativeCodecPriority),
         ffmpeg_path: supports(GamdlFeature::FFmpegPath),
         assets_api_unlocks_lossy_codecs: supports(GamdlFeature::AssetsApiUnlocksLossyCodecs),
-        play_ready_drm: supports(GamdlFeature::PlayReadyDrmBackend),
+        // On GAMDL 4.x MeedyaDL does not use PlayReady yet (it needs an
+        // extra package MeedyaDL does not install), so the choice is not
+        // offered there; see `plan_drm_backend_on_gamdl_4`.
+        play_ready_drm: supports(GamdlFeature::PlayReadyDrmBackend) && !gamdl_v4,
+        gamdl_v4,
     }
 }
 

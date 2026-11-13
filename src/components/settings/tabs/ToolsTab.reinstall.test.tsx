@@ -45,6 +45,9 @@ import type { DependencyStatus } from '@/types';
  */
 vi.mock('@/lib/tauri-commands', () => ({
   installGamdlVersion: vi.fn(),
+  // The GAMDL 4 tool notes ask which GAMDL is installed; a never-settling
+  // answer keeps the defaults (GAMDL 3), which is what these tests expect.
+  getGamdlCapabilities: vi.fn(() => new Promise(() => {})),
   getGamdlSupportWindow: vi.fn(),
   createBackup: vi.fn(),
   listBackups: vi.fn().mockResolvedValue([]),

@@ -52,6 +52,7 @@ const DEFAULT_CAPABILITIES: GamdlCapabilities = {
   // Conservative default: don't offer a PlayReady choice until the
   // probe confirms the installed GAMDL actually understands it (#1189).
   play_ready_drm: false,
+  gamdl_v4: false,
 };
 
 export interface UseGamdlCapabilitiesResult {

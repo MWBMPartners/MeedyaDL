@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-11-12 — see ★★★★ LATEST below
+**Last updated:** 2026-11-13 — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
 **Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.88** · `beta` **1.9.4-beta.20** · `release-candidate` **1.0.0-rc.47** — read from each branch's `package.json` on 12 Nov.
@@ -11,7 +11,25 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-11-12: GAMDL 4.0.0 released — preparation brought in line
+## ★★★★ LATEST — 2026-11-13: GAMDL 4.0.0 support switched on (opt-in, untested), settings sweep, help
+
+The maintainer asked (13 Nov) to switch GAMDL 4.0.0 on so it can be tried in alpha, to sweep the settings for GAMDL 4 and migrations from 3.x, and to update the help.
+
+| # | Task | Issue / PR | Status | Notes |
+|---|---|---|---|---|
+| 1 | Switch on GAMDL 4: `HIGHEST_DRIVABLE_MAJOR = 4`; Install/Reinstall keeps a chosen 4.x (`routine_install_spec`); PlayReady on 4.x falls back to Widevine and says so | #1404 | In review (commit below) | Opt-in only: `tool-versions.toml` still says 3.9.1, so 4.0.0 shows as "Untested". ARMv7 and Windows on ARM stay held. A GAMDL 5 is refused. |
+| 2 | Settings sweep | #1404 | In review | No migration needed: settings become options per download, and 4.x runs with `--no-config` so the old `config.ini` is never read. New `gamdl_v4` capability + `GamdlFourNote` beside settings 4.x does not use (cover saving/size/raw format, Synced Lyrics Only, Download/Remux Mode, three helper tools, PlayReady). |
+| 3 | Help + README + audit + notes | #1404 | In review | `help/tools.md` → "Trying GAMDL 4"; troubleshooting entry; README GAMDL notes; audit "Support switched on" section (follow-ups 8, 9 done; 10 switch done). |
+
+**Checks run:** `cargo test --lib` 2247 passed, clippy clean, `npm run type-check`, eslint, vitest 1036 passed, all audit checks.
+
+**Review:** Codex unavailable in this session; independent review by fresh Claude agents (results recorded in the commit range / #1404). A Codex review is still owed.
+
+**Still not done (and why 4.0.0 is not the default):** no real download has been run on GAMDL 4 on any platform (audit follow-up 1). Testing in alpha is the next step.
+
+---
+
+## ★★★★ Previous — 2026-11-12: GAMDL 4.0.0 released — preparation brought in line
 
 | # | Task | Issue / PR | Status | Notes |
 |---|---|---|---|---|

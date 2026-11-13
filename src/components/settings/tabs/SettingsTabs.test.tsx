@@ -140,6 +140,7 @@ vi.mock('@/lib/tauri-commands', () => ({
     ffmpeg_path: false,
     assets_api_unlocks_lossy_codecs: false,
     play_ready_drm: false,
+    gamdl_v4: false,
   }),
 }));
 

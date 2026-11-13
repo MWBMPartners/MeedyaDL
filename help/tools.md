@@ -27,6 +27,26 @@ Part of the GPAC toolkit. Used for MP4 muxing and remuxing operations.
 ### MediaInfo
 Used to accurately detect the codec of a downloaded file, so the app can tell what quality it actually got.
 
+## Trying GAMDL 4
+
+GAMDL 4.0.0, a rewrite of GAMDL, came out on 12 November 2026. MeedyaDL can use it, but it is **not yet tested on real downloads**, so it is not installed unless you ask for it. MeedyaDL keeps recommending GAMDL 3.9.1.
+
+**How to try it.** When MeedyaDL checks for updates, the **Updates** page offers GAMDL 4.0.0 with an amber **Untested** label. Press **Upgrade** on that row to install it. To go back, choose 3.9.1 under **Settings > Tools > GAMDL Version Management**. Pressing **Reinstall** or the ordinary **Upgrade** later keeps whichever GAMDL 4 version you chose; it does not quietly move you back to GAMDL 3.
+
+**Not every computer can use it.** On Linux on 32-bit ARM (for example an older Raspberry Pi), GAMDL 4 has no installable package. On Windows on ARM, MeedyaDL stays on GAMDL 3.8.5 for now. On both, the Updates page says GAMDL 4 cannot be installed there, and MeedyaDL will not install it.
+
+**Your settings carry over.** Nothing needs converting: MeedyaDL turns your settings into instructions for GAMDL each time a download starts, in whichever form the installed GAMDL understands. A few settings work differently, or not at all, with GAMDL 4, and **Settings** says so beside each one:
+
+- **Cover art.** GAMDL 4 would save a picture beside every song, so MeedyaDL saves one album picture itself instead, when it can get the album's details from Apple Music. The **Cover Size** setting is not used, and the "original file" format choice becomes JPEG.
+- **Synced Lyrics Only.** GAMDL 4 cannot download lyrics on their own, so downloads will not start while this is on. Turn it off to download as usual.
+- **Download Mode** and **Remux Mode** (Settings > Advanced) are not used; GAMDL 4 fetches and puts files together itself.
+- **PlayReady** is not used with GAMDL 4 yet. Downloads use the built-in Widevine unlocking instead, and the Activity Log says so.
+- **mp4decrypt**, **MP4Box** and **N_m3u8DL-RE** are not used by GAMDL 4. Keep them installed if you might go back to GAMDL 3. MeedyaDL itself still uses FFmpeg and MediaInfo.
+
+**Your download history is safe.** GAMDL 4 can keep its own list of what it has downloaded and skip anything on it. MeedyaDL switches that list off, so re-downloading an album, or filling in a missing format, still works.
+
+If something goes wrong with GAMDL 4, please [report it](troubleshooting.md#reporting-a-bug) and go back to 3.9.1 meanwhile.
+
 ## Installation & Management
 
 Tools are automatically downloaded during first-time setup. After setup, go to **Settings > Tools** to:

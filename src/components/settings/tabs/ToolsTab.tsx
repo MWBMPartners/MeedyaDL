@@ -87,6 +87,11 @@ import { Button, ExpandChevron, IconButton, Input, LoadingSpinner, FilePickerBut
 
 import { useState } from 'react';
 import { GAMDL_INSTALL_FAILED, explainError, showError } from '@/lib/errorMessages';
+import { GamdlFourNote } from '@/components/settings/GamdlFourNote';
+import { useGamdlCapabilities } from '@/hooks/useGamdlCapabilities';
+
+/** Tools GAMDL 4 no longer uses; MeedyaDL itself still uses FFmpeg and MediaInfo. */
+const NOT_USED_BY_GAMDL_FOUR = new Set(['mp4decrypt', 'N_m3u8DL-RE', 'MP4Box']);
 
 /**
  * Maps tool names from the dependency store to their corresponding
@@ -123,6 +128,7 @@ const TOOL_PATH_DESCRIPTIONS: Record<string, string> = {
 export function ToolsTab() {
   // --- Dependency store ---
   const python = useDependencyStore((s) => s.python);
+  const { capabilities: gamdlCaps } = useGamdlCapabilities();
   const gamdl = useDependencyStore((s) => s.gamdl);
   const tools = useDependencyStore((s) => s.tools);
   const isChecking = useDependencyStore((s) => s.isChecking);
@@ -569,6 +575,10 @@ export function ToolsTab() {
                   {isExpanded && pathKey && (
                     <div className="px-3 pb-3 pt-0 border-t border-border-light">
                       <p className="text-xs text-content-secondary mt-2 mb-2">{description}</p>
+                      <GamdlFourNote show={gamdlCaps.gamdl_v4 && NOT_USED_BY_GAMDL_FOUR.has(tool.name)}>
+                        not used; GAMDL 4 does this work itself. Keep it installed if you might go
+                        back to GAMDL 3.
+                      </GamdlFourNote>
                       <FilePickerButton
                         label="Your Own Copy"
                         description="Choose a copy of this tool that you installed yourself. Leave empty to use the copy MeedyaDL installs."

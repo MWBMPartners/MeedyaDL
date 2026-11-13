@@ -4620,6 +4620,20 @@
     // ----------------------------------------------------------
 
     #[test]
+    fn on_gamdl_4_playready_falls_back_and_says_why() {
+        // GAMDL 4.x would stop the whole run without its PlayReady extra,
+        // which MeedyaDL does not install.
+        let mut settings = AppSettings::default();
+        assert_eq!(plan_drm_backend_on_gamdl_4(&settings), DrmPlan::LeaveToGamdl);
+        settings.drm_backend = crate::models::settings::DrmBackend::PlayReady;
+        settings.prd_path = "/d/device.prd".into();
+        let DrmPlan::FallBackToBuiltIn { reason } = plan_drm_backend_on_gamdl_4(&settings) else {
+            panic!("PlayReady must not be used with GAMDL 4");
+        };
+        assert!(reason.contains("GAMDL 4"), "{reason}");
+    }
+
+    #[test]
     fn drm_plan_says_nothing_when_the_user_has_not_chosen_playready() {
         // The ordinary case, and the one that matters most: somebody who
         // never touches this setting must get the exact command line they

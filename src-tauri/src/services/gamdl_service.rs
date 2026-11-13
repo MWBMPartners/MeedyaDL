@@ -157,10 +157,10 @@ pub fn refuse_unsupported_target(target: &str, platform_id: &str) -> Result<(), 
     // `gamdl_capabilities::HIGHEST_DRIVABLE_MAJOR`).
     if super::gamdl_capabilities::is_beyond_drivable_major(target) {
         return Err(format!(
-            "MeedyaDL will not install GAMDL {target} yet. GAMDL {major} is a rewrite that is \
-             started and set up differently, and this version of MeedyaDL cannot work with it \
-             — every download would fail. A MeedyaDL update will add support for it. Until \
-             then, the GAMDL you have keeps working.",
+            "MeedyaDL will not install GAMDL {target} yet. GAMDL {major} is a new major version \
+             that this version of MeedyaDL does not know how to work with, so downloads would \
+             most likely fail. A MeedyaDL update will add support for it. Until then, the GAMDL \
+             you have keeps working.",
             major = super::gamdl_capabilities::major_version_of(target).unwrap_or_default(),
         ));
     }
@@ -193,6 +193,28 @@ pub fn refuse_unsupported_target(target: &str, platform_id: &str) -> Result<(), 
     }
 
     Ok(())
+}
+
+/// The pip version spec for the plain "Install GAMDL" route (setup wizard,
+/// Tools screen), which names no version.
+///
+/// Normally the tested range (`pip_version_spec`). But if the GAMDL
+/// already installed is a newer major version a person chose on purpose —
+/// today, a GAMDL 4.x they opted into as an "Untested" upgrade — the tested
+/// range (3.x) would quietly move them back down. So that version is
+/// reinstalled instead, provided it is still one this build accepts.
+/// Pure, so it can be tested.
+#[must_use]
+pub fn routine_install_spec(installed: Option<&str>, platform_id: &str) -> String {
+    use super::gamdl_capabilities::{cli_generation_of, pip_target_spec, GamdlCliGeneration};
+    if let Some(v) = installed.map(str::trim).filter(|v| !v.is_empty()) {
+        if cli_generation_of(v) == GamdlCliGeneration::V4
+            && refuse_unsupported_target(v, platform_id).is_ok()
+        {
+            return pip_target_spec(v);
+        }
+    }
+    super::gamdl_capabilities::pip_version_spec()
 }
 
 /// Builds the pip version spec for an explicit-target GAMDL install
@@ -301,7 +323,10 @@ pub async fn install_gamdl(
     // machine cannot build, or on one we know to be broken.
     let pip_spec = match target_version {
         Some(v) => explicit_target_pip_spec(v, super::gamdl_capabilities::current_platform_id())?,
-        None => super::gamdl_capabilities::pip_version_spec(),
+        None => routine_install_spec(
+            super::gamdl_capabilities::detected_version().as_deref(),
+            super::gamdl_capabilities::current_platform_id(),
+        ),
     };
     log::info!("Installing GAMDL with version spec: {pip_spec}");
     let output = Command::new(&python_bin)
@@ -1476,6 +1501,22 @@ mod tests {
     }
 
     #[test]
+    fn a_plain_reinstall_keeps_a_gamdl_4_that_was_chosen() {
+        // Someone who opted into 4.0.0 and presses Install/Reinstall must
+        // not be moved back to 3.x without being asked.
+        assert_eq!(
+            routine_install_spec(Some("4.0.0"), "macos"),
+            "gamdl[widevine]==4.0.0"
+        );
+        // 3.x, nothing installed, or a platform that cannot take 4.x: the
+        // ordinary tested range.
+        let tested = crate::services::gamdl_capabilities::pip_version_spec();
+        assert_eq!(routine_install_spec(Some("3.9.1"), "macos"), tested);
+        assert_eq!(routine_install_spec(None, "macos"), tested);
+        assert_eq!(routine_install_spec(Some("4.0.0"), "linux-armv7"), tested);
+    }
+
+    #[test]
     fn only_a_plain_version_is_accepted_as_a_target() {
         // Spellings pip would read as a version (some of them as 4.0)
         // but that are not a plain version number.
@@ -1494,22 +1535,20 @@ mod tests {
     #[test]
     fn latest_skips_a_major_release_this_build_cannot_use() {
         let json = serde_json::json!({
-            "info": {"version": "4.0.0"},
+            "info": {"version": "5.0.0"},
             "releases": {
-                "3.8.5": [{"yanked": false}],
-                "3.9": [{"yanked": false}],
-                "3.9.1": [{"yanked": false}],
-                "3.9.2": [{"yanked": true}],
-                "3.10.0rc1": [{"yanked": false}],
-                "3.10": [],
                 "4.0.0": [{"yanked": false}],
-                "4.0.1": [{"yanked": false}]
+                "4.0.1": [{"yanked": false}],
+                "4.0.2": [{"yanked": true}],
+                "4.1.0rc1": [{"yanked": false}],
+                "4.1": [],
+                "5.0.0": [{"yanked": false}],
+                "5.0.1": [{"yanked": false}]
             }
         });
-        // 3.9.2 is withdrawn, 3.10.0rc1 is a pre-release, 3.10 has no
-        // files, and 4.x cannot be used: 3.9.1 is the answer. Numeric
-        // order, not text order ("3.10" > "3.9" in numbers, not in text).
-        assert_eq!(newest_drivable_release(&json).as_deref(), Some("3.9.1"));
+        // 4.0.2 is withdrawn, 4.1.0rc1 is a pre-release, 4.1 has no
+        // files, and 5.x cannot be used: 4.0.1 is the answer.
+        assert_eq!(newest_drivable_release(&json).as_deref(), Some("4.0.1"));
         let json = serde_json::json!({"releases": {"3.9": [{}], "3.10.1": [{}]}});
         assert_eq!(newest_drivable_release(&json).as_deref(), Some("3.10.1"));
         assert_eq!(newest_drivable_release(&serde_json::json!({})), None);
@@ -1521,11 +1560,13 @@ mod tests {
         // would leave every download failing. Refused on every platform,
         // for finished releases and pre-releases alike, with a reason a
         // person can act on.
+        // GAMDL 4 support is switched on (13 Nov 2026); a GAMDL 5 is what
+        // this build cannot start.
         for platform_id in ["macos", "windows-x86_64", "windows-aarch64", "linux-armv7"] {
-            for target in ["4.0.0", "4.0", " 4.1.2 ", "4.0.0a0", "0!4.0.0"] {
+            for target in ["5.0.0", "5.0", " 5.1.2 ", "5.0.0a0", "0!5.0.0"] {
                 let err = refuse_unsupported_target(target, platform_id)
-                    .expect_err("GAMDL 4 must be refused until support is switched on");
-                assert!(err.contains("GAMDL 4"), "{platform_id} {target}: {err}");
+                    .expect_err("a major version above the switch must be refused");
+                assert!(err.contains("GAMDL 5"), "{platform_id} {target}: {err}");
                 assert!(
                     err.contains("keeps working"),
                     "{platform_id} {target}: {err}"

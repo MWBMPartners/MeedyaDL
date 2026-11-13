@@ -136,6 +136,13 @@ MeedyaDL relies on external tools such as **FFmpeg** and **mp4decrypt** to proce
 
 > **Already have these tools?** MeedyaDL now recognises tools you installed yourself with a package manager — Homebrew, MacPorts, apt, dnf, pipx, Scoop or snap — and reuses them in place instead of downloading a duplicate copy. The setup wizard shows a **Homebrew** / **System** badge next to a reused tool. MeedyaDL does not check a reused copy for updates or try to update it — that stays with the package manager that installed it (for example `brew upgrade ffmpeg`), so the two never fight over it. If a tool you installed via Homebrew still shows as missing, make sure it's a recent enough version (see the version requirements) and re-open the setup wizard.
 
+#### Downloads fail after trying GAMDL 4
+
+GAMDL 4 is offered as an **Untested** upgrade, so problems are possible.
+
+- **Downloads will not start, with a message about lyrics:** **Synced Lyrics Only** (Settings > Lyrics) cannot work with GAMDL 4. Turn it off.
+- **Anything else:** go back to GAMDL 3.9.1 from **Settings > Tools > GAMDL Version Management**, and please report what happened. See [Trying GAMDL 4](tools.md#trying-gamdl-4).
+
 #### Python stopped working after upgrading or changing your system Python
 
 If you set MeedyaDL up to reuse a Python already on your system (rather than downloading its own copy), and you later upgrade or move that Python — for example running `brew upgrade python` — the shared environment MeedyaDL built can break, because it points back at the exact interpreter that just moved.

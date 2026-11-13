@@ -566,6 +566,9 @@ export interface GamdlCapabilities {
    * shows the "Unlocking Method" section at all; see `AdvancedTab.tsx`.
    */
   play_ready_drm: boolean;
+  /** The installed GAMDL is a 4.x release, which ignores some settings
+   * (each says so beside it). */
+  gamdl_v4: boolean;
 }
 export function getGamdlCapabilities(): Promise<GamdlCapabilities> {
   return invoke<GamdlCapabilities>('get_gamdl_capabilities');

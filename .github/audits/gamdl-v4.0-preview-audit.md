@@ -1,5 +1,5 @@
 <!-- Copyright (c) 2024-2026 MeedyaSuite. MIT licence. -->
-# GAMDL 4.0 Audit — PREPARED AND CHECKED AGAINST THE RELEASE (4.x still refused until support is switched on)
+# GAMDL 4.0 Audit — SUPPORT SWITCHED ON (13 Nov 2026) as an opt-in, untested upgrade
 
 > **Updated 12 Nov 2026 for the released GAMDL 4.0.0** (tag `v4.0.0`, commit
 > `b2684344`, on PyPI). The release section directly below says what changed
@@ -7,6 +7,43 @@
 > in MeedyaDL because of it, and what was checked against a real 4.0.0
 > install. The rest of the document is the original preview audit, with rows
 > and follow-ups corrected where the release changed them.
+
+## Support switched on (13 Nov 2026)
+
+The maintainer asked for 4.0.0 to be switched on so there is a build to test
+in alpha. What changed, and the three decisions taken:
+
+- `HIGHEST_DRIVABLE_MAJOR` is now 4 (`gamdl_capabilities.rs`); a GAMDL 5
+  is still refused.
+- **Decision 1 — opt-in only.** `tool-versions.toml` still names 3.9.1 as
+  both tested ceiling and recommended version, so the Updates page offers
+  4.0.0 with the "Untested" label and routine installs stay on 3.x. 4.0.0
+  becomes the default only after follow-up 1 (real downloads) is done.
+- **Decision 2 — held-back platforms stay held.** Linux ARMv7 (no 4.0.0
+  package) and Windows on ARM (3.8.5 ceiling) cannot install 4.x; their
+  per-platform ceilings already refuse it, and the Updates page says so.
+  Follow-up 11 stays open for Windows on ARM.
+- **Decision 3 — PlayReady falls back.** On 4.x, `plan_drm_backend_on_gamdl_4`
+  always uses the built-in Widevine unlocking and, if PlayReady was chosen,
+  says so in the activity log. Settings > Advanced hides the PlayReady
+  choice on 4.x (`play_ready_drm` is false there) and, for someone who had
+  already chosen it, shows a GAMDL 4 note. Follow-up 2 stays open.
+- **Reinstall keeps a chosen 4.x.** The plain Install/Reinstall/"Upgrade
+  tested" path (`install_gamdl(None)`) used to ask pip for the tested 3.x
+  range, which would silently move an opted-in tester back to 3.9.1. It now
+  goes through `routine_install_spec`, which keeps the installed 4.x version
+  (with the Widevine extra) when this platform may have it.
+- **Settings sweep (follow-up 8 done).** No stored setting needs migrating:
+  MeedyaDL turns settings into GAMDL options on every download, and 4.x runs
+  with `--no-config`, so the 3.x `config.ini` is never read by 4.x. A new
+  `gamdl_v4` flag on `get_gamdl_capabilities` drives one-line notes
+  (`GamdlFourNote`) beside the settings 4.x does not use: Save Cover Art,
+  the "raw" cover format, Cover Size, Synced Lyrics Only (blocks downloads
+  on 4.x), Download Mode, Remux Mode, and the mp4decrypt / MP4Box /
+  N_m3u8DL-RE tool entries. `use_album_date` and the date template have no
+  control on screen, so they need no note.
+- **Help (follow-up 9 done).** `help/tools.md` → "Trying GAMDL 4", a
+  troubleshooting entry, and the README's GAMDL notes.
 
 ## Released 4.0.0 compared with the branch first read (`0c884ecc` → `v4.0.0`, 49 commits)
 
@@ -186,13 +223,17 @@ installed GAMDL's major version is 4 or more, and installing one is refused.
 7. **Output detection.** 4.0's result lines carry full paths, which is
    better than 3.x; check `find_album_directory` and the "finished with no
    output" check behave when results arrive two at a time.
-8. **Settings screen**: options that 4.0 dropped (lyrics format, cover size,
+8. **Done 13 Nov 2026** (see "Support switched on"). **Settings screen**: options that 4.0 dropped (lyrics format, cover size,
    remux mode, album date, date template) should be greyed out with a note
    when 4.x is installed, the same way older-version options are today.
-9. **Help pages and README**: the supported-versions table, the tools page
+9. **Done 13 Nov 2026.** **Help pages and README**: the supported-versions table, the tools page
    (4.x needs none of the four helper programs, though MeedyaDL's own
    enrichment still uses FFmpeg and MediaInfo), and the lyrics page.
-10. **Then** raise `HIGHEST_DRIVABLE_MAJOR` to 4, update its test, add 4.0
+10. **Switch done 13 Nov 2026; the rest waits for follow-up 1.** The switch
+    is 4 and an explicit 4.x install asks for the Widevine extra. Adding 4.0
+    to the tested window in `tool-versions.toml` (which also makes routine
+    installs choose it) is deliberately left until real downloads pass.
+    Original text: **Then** raise `HIGHEST_DRIVABLE_MAJOR` to 4, update its test, add 4.0
     to the tested window in `tool-versions.toml`, and teach
     `pip_version_spec` to ask for the Widevine extra on a 4.x range.
 11. **Platform ceilings for 4.x** (new with the release): 32-bit ARM Linux

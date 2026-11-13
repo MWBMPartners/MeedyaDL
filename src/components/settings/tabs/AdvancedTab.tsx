@@ -129,6 +129,7 @@ import {
   FilePickerButton,
   TextButton,
 } from '@/components/common';
+import { GamdlFourNote } from '@/components/settings/GamdlFourNote';
 
 // TypeScript union types for download and remux mode values.
 import type {
@@ -352,6 +353,7 @@ export function AdvancedTab() {
     // the probe confirms the installed GAMDL actually understands
     // PlayReady (#1189).
     play_ready_drm: false,
+    gamdl_v4: false,
   });
   /**
    * Whether the very first `getGamdlCapabilities()` call (below) has
@@ -538,6 +540,9 @@ export function AdvancedTab() {
           value={downloadMode.value}
           onChange={(e) => downloadMode.set(e.target.value as DownloadMode)}
         />
+        <GamdlFourNote show={gamdlCaps.gamdl_v4}>
+          not used; GAMDL 4 fetches audio and video itself.
+        </GamdlFourNote>
         <Select
           label="Remux Mode"
           description="Which helper program puts a music video's picture, sound and subtitles together into one file (remuxing). MP4Box keeps subtitles and captions more reliably."
@@ -545,6 +550,9 @@ export function AdvancedTab() {
           value={remuxMode.value}
           onChange={(e) => remuxMode.set(e.target.value as RemuxMode)}
         />
+        <GamdlFourNote show={gamdlCaps.gamdl_v4}>
+          not used; GAMDL 4 puts music videos together itself.
+        </GamdlFourNote>
         <Select
           label="Stop a Stalled Download After"
           description="If the download tool shows no sign of progress for this many minutes, MeedyaDL stops it so the queue can move on. The timer pauses while a finished download is being decrypted and packaged, so a slow save to a network drive is not cut short."
@@ -946,9 +954,9 @@ export function AdvancedTab() {
           {drmBackendIsStale && (
             <div className="p-3 rounded-platform-lg bg-status-warning-bg border border-status-warning">
               <p className="text-xs text-status-warning-text">
-                PlayReady is selected, but the installed GAMDL is older than the version that
-                understands it (3.9). Downloads are using the built-in Widevine unlocking instead
-                for now. Upgrade GAMDL in Settings &gt; Tools to use PlayReady again.
+                {gamdlCaps.gamdl_v4
+                  ? 'PlayReady is selected, but MeedyaDL does not use PlayReady with GAMDL 4 yet. Downloads are using the built-in Widevine unlocking instead for now.'
+                  : 'PlayReady is selected, but the installed GAMDL is older than the version that understands it (3.9). Downloads are using the built-in Widevine unlocking instead for now. Upgrade GAMDL in Settings > Tools to use PlayReady again.'}
               </p>
             </div>
           )}

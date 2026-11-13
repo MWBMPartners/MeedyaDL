@@ -92,6 +92,16 @@ pub(crate) fn plan_drm_backend(
 /// The same decision, reading the two facts it needs from the machine:
 /// which GAMDL is installed, and whether the device file is really there.
 pub(crate) fn plan_drm_backend_for_now(settings: &AppSettings) -> DrmPlan {
+    // GAMDL 4.x needs an extra package for PlayReady that MeedyaDL does not
+    // install (it does not install on Windows on ARM), and without it GAMDL
+    // 4 stops the whole run. So on 4.x a PlayReady choice falls back to the
+    // built-in (Widevine) unlocking and says so — the same outcome as the
+    // 4.x command builder, which never passes PlayReady on.
+    if crate::services::gamdl_capabilities::detected_cli_generation()
+        == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
+    {
+        return plan_drm_backend_on_gamdl_4(settings);
+    }
     let understands = crate::services::gamdl_capabilities::supports(
         crate::services::gamdl_capabilities::GamdlFeature::PlayReadyDrmBackend,
     );
@@ -100,6 +110,18 @@ pub(crate) fn plan_drm_backend_for_now(settings: &AppSettings) -> DrmPlan {
         !path.is_empty() && std::path::Path::new(path).is_file()
     };
     plan_drm_backend(settings, understands, exists)
+}
+
+/// The PlayReady decision when GAMDL 4.x is installed. Pure, for testing.
+pub(crate) fn plan_drm_backend_on_gamdl_4(settings: &AppSettings) -> DrmPlan {
+    if settings.drm_backend != DrmBackend::PlayReady {
+        return DrmPlan::LeaveToGamdl;
+    }
+    DrmPlan::FallBackToBuiltIn {
+        reason: "PlayReady is switched on, but MeedyaDL does not use it with GAMDL 4 yet. This \
+                 download used the built-in unlocking instead."
+            .to_string(),
+    }
 }
 
 // ============================================================

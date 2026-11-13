@@ -1470,19 +1470,24 @@ pub enum GamdlCliGeneration {
 /// The highest GAMDL major version this MeedyaDL build will install and
 /// run.
 ///
-/// **This is the switch that turns GAMDL 4 support on.** The command
-/// builder for 4.x is written for, and its commands checked against, the
-/// released GAMDL 4.0.0 (12 Nov 2026), but it has never driven a real
-/// download (that needs an Apple Music account, and the follow-ups in the
-/// 4.0 audit are still open). Until somebody has done that, an install of 4.x
-/// is refused (see `gamdl_service::refuse_unsupported_target`) and the
-/// Updates page does not offer it — otherwise the day 4.0 appears on the
-/// package index, anybody who clicked the "Untested" upgrade would end up
-/// with a GAMDL MeedyaDL cannot start, and every download would fail.
+/// **This is the switch for GAMDL 4 support, switched on 13 Nov 2026** at
+/// the maintainer's request, so 4.0.0 can be tried in alpha builds. The
+/// command builder for 4.x was written for, and its commands checked
+/// against, the released GAMDL 4.0.0, but had not driven a real download
+/// before this (there was no Apple Music account to test with).
 ///
-/// Raising this to 4 is the last step of adding 4.x support, after the
-/// checks listed in the 4.0 audit have been run on a real release.
-pub const HIGHEST_DRIVABLE_MAJOR: u32 = 3;
+/// What switching it on does NOT do: make 4.x the tested or recommended
+/// version. `tool-versions.toml` still names 3.9.1, so new installs and
+/// routine updates stay on 3.x, and 4.0.0 is offered on the Updates page
+/// as an "Untested" upgrade a person chooses. Platforms with their own
+/// lower ceiling (32-bit ARM Linux, Windows on ARM) still cannot install
+/// it.
+///
+/// A major version above this is still refused at install and not offered
+/// (see `gamdl_service::refuse_unsupported_target`): a GAMDL 5 would be
+/// unknown to this build, and installing it would most likely leave every
+/// download failing.
+pub const HIGHEST_DRIVABLE_MAJOR: u32 = 4;
 
 /// The major version number of `version`, read from its leading digits.
 ///
@@ -3263,13 +3268,15 @@ mod tests {
     }
 
     #[test]
-    fn four_is_beyond_what_this_build_drives() {
-        // Fails loudly the day the switch is raised, so whoever raises it
-        // has to update this test (and so read why it was 3).
-        assert_eq!(HIGHEST_DRIVABLE_MAJOR, 3);
-        assert!(is_beyond_drivable_major("4.0.0"));
-        assert!(is_beyond_drivable_major("4.0.0a0"));
+    fn five_is_beyond_what_this_build_drives() {
+        // Fails loudly the day the switch moves, so whoever moves it has to
+        // update this test (and so read why it is where it is).
+        assert_eq!(HIGHEST_DRIVABLE_MAJOR, 4);
+        assert!(!is_beyond_drivable_major("4.0.0"));
+        assert!(!is_beyond_drivable_major("4.0.0a0"));
         assert!(!is_beyond_drivable_major("3.9.1"));
+        assert!(is_beyond_drivable_major("5.0.0"));
+        assert!(is_beyond_drivable_major("5.0.0a1"));
         assert!(!is_beyond_drivable_major("garbage"));
     }
 

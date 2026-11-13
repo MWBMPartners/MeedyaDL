@@ -133,7 +133,9 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
   - GAMDL 3.9 also added a second way of unlocking copy-protected tracks, called PlayReady, which needs a device file you supply yourself. MeedyaDL offers it in Settings > Advanced, but **only when GAMDL 3.9 or newer is installed**, and leaves it switched off. (One deliberate exception: if you have already switched it on and later go back to an older GAMDL, the setting stays visible with a note explaining that it is not being used — a setting that is switched on but invisible is worse than one you can see and understand.) See [`.github/audits/gamdl-v3.9-v3.9.1-audit.md`](.github/audits/gamdl-v3.9-v3.9.1-audit.md).
 - **CLI/INI emission**: `services::gamdl_capabilities` is consulted at every subprocess spawn and every `config.ini` write, so MeedyaDL never emits a flag (e.g. `--fetch-extra-tags`) the installed GAMDL release can't understand.
 
-If you're running MeedyaDL in production and GAMDL ships a new major (e.g. v4.0), please open an issue before upgrading so we can validate and bump the ceiling.
+- **GAMDL 4.0.0 can be tried, but is not yet tested** (switched on 13 Nov 2026). GAMDL 4 is a rewrite, and MeedyaDL has a separate way of driving it, checked against a real 4.0.0 install but not yet against real downloads. It is offered as an "Untested" upgrade on the Updates page and installed only when you choose it; the recommended version stays 3.9.1. It cannot be installed on Linux ARMv7 (no package) or Windows on ARM (held at 3.8.5); the Updates page says so. Your settings carry over without conversion; the few that GAMDL 4 does not use are marked in Settings. See [`help/tools.md`](help/tools.md) → *Trying GAMDL 4* and [`.github/audits/gamdl-v4.0-preview-audit.md`](.github/audits/gamdl-v4.0-preview-audit.md). A GAMDL 5 would be refused until MeedyaDL learns it.
+
+If you're running MeedyaDL in production and GAMDL ships a new major version, please open an issue before upgrading so we can validate it.
 
 ---
 

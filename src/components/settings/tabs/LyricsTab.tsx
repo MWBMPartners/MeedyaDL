@@ -50,6 +50,8 @@ import { useAsyncTask } from '@/hooks/useAsyncTask';
 
 // Shared form component: Toggle for boolean switches.
 import { Button, Checkbox, InlineError, Toggle, SettingsSection } from '@/components/common';
+import { GamdlFourNote } from '@/components/settings/GamdlFourNote';
+import { useGamdlCapabilities } from '@/hooks/useGamdlCapabilities';
 import { explainError } from '@/lib/errorMessages';
 
 // IPC wrapper for the word-level lyrics connectivity probe (#934).
@@ -93,6 +95,7 @@ export function LyricsTab() {
   const keepSidecar = useSettingsField('keep_lyrics_sidecar');
   const noSynced = useSettingsField('no_synced_lyrics');
   const syncedOnly = useSettingsField('synced_lyrics_only');
+  const { capabilities: gamdlCaps } = useGamdlCapabilities();
 
   // Word-level lyrics connectivity test (#934) — lets the user verify
   // syllable-lyrics credentials without waiting for a full download.
@@ -350,6 +353,10 @@ export function LyricsTab() {
             checked={syncedOnly.value}
             onChange={syncedOnly.set}
           />
+          <GamdlFourNote show={gamdlCaps.gamdl_v4 && syncedOnly.value}>
+            GAMDL 4 cannot download lyrics on their own, so downloads will not start while this is
+            on. Turn it off to download as usual.
+          </GamdlFourNote>
       </SettingsSection>
     </div>
   );

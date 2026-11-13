@@ -64,6 +64,8 @@ import { useUiStore } from '@/stores/uiStore';
 // Shared form components: Select for format dropdown, Toggle for the save switch,
 // Input for the size number field.
 import { Select, Toggle, Input, SettingsSection, TextButton } from '@/components/common';
+import { GamdlFourNote } from '@/components/settings/GamdlFourNote';
+import { useGamdlCapabilities } from '@/hooks/useGamdlCapabilities';
 
 // TypeScript union types for cover settings.
 import type { CoverFormat, CoverArtName, AnimatedArtworkResolution } from '@/types';
@@ -108,6 +110,8 @@ const ANIMATED_ARTWORK_RESOLUTION_OPTIONS = [
 export function CoverArtTab() {
   // Per-field Zustand bindings (audit v2 #6).
   const saveCover = useSettingsField('save_cover');
+  const { capabilities: gamdlCaps } = useGamdlCapabilities();
+  const gamdlFour = gamdlCaps.gamdl_v4;
   const coverFormat = useSettingsField('cover_format');
   const coverSize = useSettingsField('cover_size');
   const coverArtName = useSettingsField('cover_art_name');
@@ -184,6 +188,10 @@ export function CoverArtTab() {
             checked={saveCover.value}
             onChange={saveCover.set}
           />
+          <GamdlFourNote show={gamdlFour}>
+            GAMDL 4 would save a picture beside every song, so MeedyaDL saves one album picture
+            itself instead, when it can get the album's details from Apple Music.
+          </GamdlFourNote>
 
           {/* Cover format (only shown when save_cover is enabled) */}
           {saveCover.value && (
@@ -195,6 +203,10 @@ export function CoverArtTab() {
                 value={coverFormat.value}
                 onChange={(e) => coverFormat.set(e.target.value as CoverFormat)}
               />
+              <GamdlFourNote show={gamdlFour && coverFormat.value === 'raw'}>
+                the original-file choice is not available, so the picture inside each song is a
+                JPEG.
+              </GamdlFourNote>
 
               {/* Cover size -- numeric input, validated on blur (Fix 11,
                   a11y audit -- see the long comment above coverSizeDraft
@@ -219,6 +231,9 @@ export function CoverArtTab() {
                 }}
                 onBlur={handleCoverSizeBlur}
               />
+              <GamdlFourNote show={gamdlFour}>
+                this size is not used; GAMDL 4 picks the size itself.
+              </GamdlFourNote>
 
               {/* Cover art filename */}
               <Select
