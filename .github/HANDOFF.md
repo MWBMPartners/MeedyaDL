@@ -17,13 +17,22 @@ The maintainer asked (13 Nov) to switch GAMDL 4.0.0 on so it can be tried in alp
 
 | # | Task | Issue / PR | Status | Notes |
 |---|---|---|---|---|
-| 1 | Switch on GAMDL 4: `HIGHEST_DRIVABLE_MAJOR = 4`; Install/Reinstall keeps a chosen 4.x (`routine_install_spec`); PlayReady on 4.x falls back to Widevine and says so | #1404 | In review (commit below) | Opt-in only: `tool-versions.toml` still says 3.9.1; 4.0.0 is installed from Settings > Tools > GAMDL Version Management; the update check stays within the installed major version (review round 1 fix). ARMv7 and Windows on ARM stay held. A GAMDL 5 is refused. |
-| 2 | Settings sweep | #1404 | In review | No migration needed: settings become options per download, and 4.x runs with `--no-config` so the old `config.ini` is never read. New `gamdl_v4` capability + `GamdlFourNote` beside settings 4.x does not use (cover saving/size/raw format, Synced Lyrics Only, Download/Remux Mode, three helper tools, PlayReady). |
-| 3 | Help + README + audit + notes | #1404 | In review | `help/tools.md` → "Trying GAMDL 4"; troubleshooting entry; README GAMDL notes; audit "Support switched on" section (follow-ups 8, 9 done; 10 switch done). |
+| 1 | Switch on GAMDL 4: `HIGHEST_DRIVABLE_MAJOR = 4`; Install/Reinstall keeps a chosen 4.x (`routine_install_spec`); PlayReady on 4.x falls back to Widevine and says so | #1404 | **Done — reviewed clean** (`de2a0696`, `e30f121e`, `3d70f575`, + comment tidy) | Opt-in only: `tool-versions.toml` still says 3.9.1; 4.0.0 is installed from Settings > Tools > GAMDL Version Management; the update check stays within the installed major version (review round 1 fix). ARMv7 and Windows on ARM stay held. A GAMDL 5 is refused. |
+| 2 | Settings sweep | #1404 | **Done — reviewed clean** | No migration needed: settings become options per download, and 4.x runs with `--no-config` so the old `config.ini` is never read. New `gamdl_v4` capability + `GamdlFourNote` beside settings 4.x does not use (cover saving/size/raw format, Synced Lyrics Only, Download/Remux Mode, three helper tools, PlayReady). |
+| 3 | Help + README + audit + notes | #1404 | **Done — reviewed clean** | `help/tools.md` → "Trying GAMDL 4"; troubleshooting entry; README GAMDL notes; audit "Support switched on" section (follow-ups 8, 9 done; 10 switch done). |
 
 **Checks run:** `cargo test --lib` 2247 passed, clippy clean, `npm run type-check`, eslint, vitest 1036 passed, all audit checks.
 
-**Review:** Codex unavailable in this session; independent review by fresh Claude agents (results recorded in the commit range / #1404). A Codex review is still owed.
+**Review:** Codex unavailable in this session, so three rounds by fresh Claude Opus agents (none of which built it):
+- **Round 1:** one real defect. Once 4.0.0 was allowed, the update check offered PyPI's 4.0.0 to everyone on 3.x and hid every 3.x update. Fixed in `e30f121e` with `update_major_ceiling`; GAMDL 4 is now installed on purpose from Settings > Tools > GAMDL Version Management. The same round found three doc mismatches and three minor points, all fixed.
+- **Round 2:** no real defect. Fixed its README and notes points, and made a failed version check fall back to the remembered version (`3d70f575`).
+- **Round 3:** clean. Its four minor comment and wording points were tidied afterwards, and Cover Format now stays visible on GAMDL 4.
+
+**A Codex review is still owed.**
+
+**Known and accepted:**
+- A GAMDL 4 pre-release typed in by hand compares equal to the finished release.
+- The GAMDL 4 notes refresh only when a settings screen is reopened.
 
 **Still not done (and why 4.0.0 is not the default):** no real download has been run on GAMDL 4 on any platform (audit follow-up 1). Testing in alpha is the next step.
 

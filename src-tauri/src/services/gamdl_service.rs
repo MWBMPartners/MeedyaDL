@@ -150,10 +150,11 @@ pub fn refuse_unsupported_target(target: &str, platform_id: &str) -> Result<(), 
         ));
     }
 
-    // A new major release that this build cannot start yet — today, any
-    // GAMDL 4.x. Checked first because nothing else about such a release
-    // matters: it would install fine and then every download would fail,
-    // since 4.x is started and configured in a different way (see
+    // A new major release that this build cannot start yet — since GAMDL
+    // 4 was switched on (13 Nov 2026), any GAMDL 5 or later. Checked first
+    // because nothing else about such a release matters: it would install
+    // fine and then every download would fail, since a new major version
+    // is started and configured differently (see
     // `gamdl_capabilities::HIGHEST_DRIVABLE_MAJOR`).
     if super::gamdl_capabilities::is_beyond_drivable_major(target) {
         return Err(format!(
@@ -258,9 +259,10 @@ fn explicit_target_pip_spec(target: &str, platform_id: &str) -> Result<String, S
 /// * `app` - The Tauri app handle
 /// * `target_version` - When `Some`, pin pip to install exactly this
 ///   version (e.g. an above-ceiling "Untested" upgrade the user has
-///   explicitly opted into). When `None`, use the bounded support-window
-///   spec — pip resolves to the newest release inside
-///   `[minimum, maximum_tested]`. See [`super::gamdl_capabilities::pip_target_spec`]
+///   explicitly opted into). When `None`, use [`routine_install_spec`]:
+///   normally the bounded support-window spec (pip resolves to the newest
+///   release inside `[minimum, maximum_tested]`), but an installed GAMDL 4
+///   someone chose is reinstalled as is. See [`super::gamdl_capabilities::pip_target_spec`]
 ///   for the rationale on explicit targeting.
 ///
 /// # Errors
@@ -293,8 +295,9 @@ pub async fn install_gamdl(
     }
 
     // Pip spec selection:
-    // * `target_version = None` → bounded support-window spec
-    //   (e.g. `gamdl>=2.9.1,<=3.3`). This is the routine path used by
+    // * `target_version = None` → `routine_install_spec`: the bounded
+    //   support-window spec (e.g. `gamdl>=2.9.1,<=3.3`), or the installed
+    //   GAMDL 4 if someone chose one. This is the routine path used by
     //   the setup wizard and by `Upgrade` clicks on tested updates.
     //   `--upgrade` + the bounded spec means "pick the newest release
     //   inside the tested range, even if an older one is installed".

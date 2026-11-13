@@ -195,7 +195,10 @@ export function CoverArtTab() {
           </GamdlFourNote>
 
           {/* Cover format (only shown when save_cover is enabled) */}
-          {saveCover.value && (
+          {/* On GAMDL 4 the switch above has no effect, but the format
+              below still decides the picture inside each song, so it
+              stays visible there. */}
+          {(saveCover.value || gamdlFour) && (
             <>
               <Select
                 label="Cover Format"
