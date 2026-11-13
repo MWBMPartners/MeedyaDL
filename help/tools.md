@@ -31,17 +31,17 @@ Used to accurately detect the codec of a downloaded file, so the app can tell wh
 
 GAMDL 4.0.0, a rewrite of GAMDL, came out on 12 November 2026. MeedyaDL can use it, but it is **not yet tested on real downloads**, so it is not installed unless you ask for it. MeedyaDL keeps recommending GAMDL 3.9.1.
 
-**How to try it.** When MeedyaDL checks for updates, the **Updates** page offers GAMDL 4.0.0 with an amber **Untested** label. Press **Upgrade** on that row to install it. To go back, choose 3.9.1 under **Settings > Tools > GAMDL Version Management**. Pressing **Reinstall** or the ordinary **Upgrade** later keeps whichever GAMDL 4 version you chose; it does not quietly move you back to GAMDL 3.
+**How to try it.** Go to **Settings > Tools > GAMDL Version Management**, type `4.0.0` under **Advanced: install specific version**, and press **Install**. To go back, press **Install recommended** in the same place. While you are on GAMDL 3, the **Updates** page keeps offering GAMDL 3 updates only, so nobody is moved to GAMDL 4 by accident. Once you are on GAMDL 4, it offers GAMDL 4 updates, and running the setup wizard again keeps the GAMDL 4 version you chose rather than moving you back.
 
-**Not every computer can use it.** On Linux on 32-bit ARM (for example an older Raspberry Pi), GAMDL 4 has no installable package. On Windows on ARM, MeedyaDL stays on GAMDL 3.8.5 for now. On both, the Updates page says GAMDL 4 cannot be installed there, and MeedyaDL will not install it.
+**Not every computer can use it.** On Linux on 32-bit ARM (for example an older Raspberry Pi), GAMDL 4 has no installable package. On Windows on ARM, MeedyaDL stays on GAMDL 3.8.5 for now. On both, MeedyaDL will not install GAMDL 4 and says why.
 
 **Your settings carry over.** Nothing needs converting: MeedyaDL turns your settings into instructions for GAMDL each time a download starts, in whichever form the installed GAMDL understands. A few settings work differently, or not at all, with GAMDL 4, and **Settings** says so beside each one:
 
-- **Cover art.** GAMDL 4 would save a picture beside every song, so MeedyaDL saves one album picture itself instead, when it can get the album's details from Apple Music. The **Cover Size** setting is not used, and the "original file" format choice becomes JPEG.
+- **Cover art.** GAMDL 4 would save a picture beside every song, so MeedyaDL saves one album picture itself instead, when it can get the album's details from Apple Music; the **Save Cover Art** switch has no effect. The **Cover Size** setting is not used, and the "original file" format choice gives a JPEG picture inside each song.
 - **Synced Lyrics Only.** GAMDL 4 cannot download lyrics on their own, so downloads will not start while this is on. Turn it off to download as usual.
 - **Download Mode** and **Remux Mode** (Settings > Advanced) are not used; GAMDL 4 fetches and puts files together itself.
 - **PlayReady** is not used with GAMDL 4 yet. Downloads use the built-in Widevine unlocking instead, and the Activity Log says so.
-- **mp4decrypt**, **MP4Box** and **N_m3u8DL-RE** are not used by GAMDL 4. Keep them installed if you might go back to GAMDL 3. MeedyaDL itself still uses FFmpeg and MediaInfo.
+- **mp4decrypt**, **MP4Box** and **N_m3u8DL-RE** are not used for Apple Music downloads with GAMDL 4. Keep them installed if you might go back to GAMDL 3. MeedyaDL itself still uses FFmpeg and MediaInfo.
 
 **Your download history is safe.** GAMDL 4 can keep its own list of what it has downloaded and skip anything on it. MeedyaDL switches that list off, so re-downloading an album, or filling in a missing format, still works.
 

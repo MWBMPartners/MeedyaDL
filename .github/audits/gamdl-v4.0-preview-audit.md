@@ -16,20 +16,25 @@ in alpha. What changed, and the three decisions taken:
 - `HIGHEST_DRIVABLE_MAJOR` is now 4 (`gamdl_capabilities.rs`); a GAMDL 5
   is still refused.
 - **Decision 1 — opt-in only.** `tool-versions.toml` still names 3.9.1 as
-  both tested ceiling and recommended version, so the Updates page offers
-  4.0.0 with the "Untested" label and routine installs stay on 3.x. 4.0.0
-  becomes the default only after follow-up 1 (real downloads) is done.
+  both tested ceiling and recommended version, so routine installs stay
+  on 3.x. 4.0.0 is installed on purpose from Settings > Tools > GAMDL
+  Version Management. The update check stays within the major version the
+  person is on (`update_major_ceiling`: the tested major, or a higher one
+  already installed), so 3.x users are offered 3.x updates only. (The
+  first version of this change offered PyPI's 4.0.0 as "latest" to
+  everyone, which hid every 3.x update; an independent review caught it.)
+  4.0.0 becomes the default only after follow-up 1 (real downloads).
 - **Decision 2 — held-back platforms stay held.** Linux ARMv7 (no 4.0.0
   package) and Windows on ARM (3.8.5 ceiling) cannot install 4.x; their
-  per-platform ceilings already refuse it, and the Updates page says so.
+  per-platform ceilings already refuse it.
   Follow-up 11 stays open for Windows on ARM.
 - **Decision 3 — PlayReady falls back.** On 4.x, `plan_drm_backend_on_gamdl_4`
   always uses the built-in Widevine unlocking and, if PlayReady was chosen,
   says so in the activity log. Settings > Advanced hides the PlayReady
   choice on 4.x (`play_ready_drm` is false there) and, for someone who had
   already chosen it, shows a GAMDL 4 note. Follow-up 2 stays open.
-- **Reinstall keeps a chosen 4.x.** The plain Install/Reinstall/"Upgrade
-  tested" path (`install_gamdl(None)`) used to ask pip for the tested 3.x
+- **Installing again keeps a chosen 4.x.** The plain install path (setup
+  wizard) (`install_gamdl(None)`) used to ask pip for the tested 3.x
   range, which would silently move an opted-in tester back to 3.9.1. It now
   goes through `routine_install_spec`, which keeps the installed 4.x version
   (with the Widevine extra) when this platform may have it.

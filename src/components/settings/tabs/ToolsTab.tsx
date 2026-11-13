@@ -576,8 +576,8 @@ export function ToolsTab() {
                     <div className="px-3 pb-3 pt-0 border-t border-border-light">
                       <p className="text-xs text-content-secondary mt-2 mb-2">{description}</p>
                       <GamdlFourNote show={gamdlCaps.gamdl_v4 && NOT_USED_BY_GAMDL_FOUR.has(tool.name)}>
-                        not used; GAMDL 4 does this work itself. Keep it installed if you might go
-                        back to GAMDL 3.
+                        Apple Music downloads do not use this tool; GAMDL 4 does this work itself.
+                        Keep it installed if you might go back to GAMDL 3.
                       </GamdlFourNote>
                       <FilePickerButton
                         label="Your Own Copy"

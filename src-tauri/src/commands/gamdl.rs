@@ -2294,7 +2294,8 @@ pub async fn get_queue_status(queue: State<'_, QueueHandle>) -> Result<QueueStat
 pub async fn check_gamdl_update() -> Result<String, String> {
     // Delegates to the gamdl_service which handles the HTTP request and
     // JSON parsing of the PyPI API response.
-    crate::services::gamdl_service::check_latest_gamdl_version().await
+    let installed = crate::services::gamdl_capabilities::detected_version();
+    crate::services::gamdl_service::check_latest_gamdl_version(installed.as_deref()).await
 }
 
 /// Exports the current download queue to a `.meedyadl` file.

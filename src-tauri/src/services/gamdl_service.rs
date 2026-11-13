@@ -323,10 +323,21 @@ pub async fn install_gamdl(
     // machine cannot build, or on one we know to be broken.
     let pip_spec = match target_version {
         Some(v) => explicit_target_pip_spec(v, super::gamdl_capabilities::current_platform_id())?,
-        None => routine_install_spec(
-            super::gamdl_capabilities::detected_version().as_deref(),
-            super::gamdl_capabilities::current_platform_id(),
-        ),
+        None => {
+            // Ask the installed GAMDL directly rather than trusting the
+            // remembered version alone: that is only filled in once a
+            // version check has run, and if it were empty here a GAMDL 4
+            // someone chose would be "reinstalled" as the tested 3.x
+            // range, which `--upgrade` would then move them back to.
+            let installed = match get_gamdl_version(app).await {
+                Ok(Some(v)) => Some(v),
+                _ => super::gamdl_capabilities::detected_version(),
+            };
+            routine_install_spec(
+                installed.as_deref(),
+                super::gamdl_capabilities::current_platform_id(),
+            )
+        }
     };
     log::info!("Installing GAMDL with version spec: {pip_spec}");
     let output = Command::new(&python_bin)
@@ -1302,7 +1313,7 @@ pub fn is_version_at_least(version: &str, minimum: &str) -> bool {
 /// # Returns
 /// * `Ok(version)` - The latest version on `PyPI` (e.g., "2.8.4")
 /// * `Err(message)` - If the `PyPI` API request failed
-pub async fn check_latest_gamdl_version() -> Result<String, String> {
+pub async fn check_latest_gamdl_version(installed: Option<&str>) -> Result<String, String> {
     // Query the PyPI JSON API for the GAMDL package.
     // The PyPI JSON API returns package metadata including the latest version.
     // API format: https://pypi.org/pypi/{package}/json
@@ -1343,17 +1354,21 @@ pub async fn check_latest_gamdl_version() -> Result<String, String> {
         .map(std::string::ToString::to_string)
         .ok_or_else(|| "Could not find version in PyPI response".to_string())?;
 
-    // Once GAMDL 4 is published, PyPI's "latest" is a release this build
-    // cannot start. Reporting it would hide every 3.x update behind it —
-    // the update check compares only against this one version, so a
-    // person on a 3.x release with a known fault would never again be
-    // offered the 3.x fix. So "latest" here means the newest release this
-    // build can actually use. See `gamdl_capabilities::HIGHEST_DRIVABLE_MAJOR`.
-    if super::gamdl_capabilities::is_beyond_drivable_major(&newest) {
-        return newest_drivable_release(&json).ok_or_else(|| {
+    // The update check compares the installed GAMDL against this one
+    // version, so whatever is reported here is what the person is offered.
+    // PyPI's "latest" can be a new major version, and offering it would
+    // hide every update to the major version the person is on: someone on
+    // a 3.x release with a known fault would be offered only an untested
+    // GAMDL 4, never the 3.x fix. So "latest" here is the newest release
+    // in the newest major version the person should be offered
+    // (`update_major_ceiling`): the tested one, or the one they already
+    // chose. A newer major version that is not tested yet is installed
+    // only on purpose, from Settings > Tools > GAMDL Version Management.
+    let ceiling = update_major_ceiling(installed);
+    if super::gamdl_capabilities::major_version_of(&newest).is_none_or(|m| m > ceiling) {
+        return newest_release_up_to_major(&json, ceiling).ok_or_else(|| {
             format!(
-                "The newest GAMDL on PyPI is {newest}, which this version of MeedyaDL cannot use, \
-                 and no usable earlier release was found"
+                "The newest GAMDL on PyPI is {newest}, and no earlier release usable here was found"
             )
         });
     }
@@ -1367,11 +1382,34 @@ pub async fn check_latest_gamdl_version() -> Result<String, String> {
 /// Pure, so it can be tested without the network.
 #[must_use]
 pub fn newest_drivable_release(json: &serde_json::Value) -> Option<String> {
-    use super::gamdl_capabilities::{is_beyond_drivable_major, numeric_version};
+    newest_release_up_to_major(json, super::gamdl_capabilities::HIGHEST_DRIVABLE_MAJOR)
+}
+
+/// The newest major version of GAMDL the update check should offer.
+///
+/// The major version of the tested ceiling (`tool-versions.toml`), or the
+/// installed major version if that is higher — someone who chose GAMDL 4
+/// on purpose keeps being offered GAMDL 4 updates — but never above what
+/// this build can drive. Pure, so it can be tested.
+#[must_use]
+pub fn update_major_ceiling(installed: Option<&str>) -> u32 {
+    use super::gamdl_capabilities::{major_version_of, support_window, HIGHEST_DRIVABLE_MAJOR};
+    let tested =
+        major_version_of(&support_window().maximum_tested).unwrap_or(HIGHEST_DRIVABLE_MAJOR);
+    let chosen = installed.and_then(major_version_of).unwrap_or(0);
+    tested.max(chosen).min(HIGHEST_DRIVABLE_MAJOR)
+}
+
+/// The newest finished release whose major version is at most
+/// `max_major`, ignoring pre-releases and releases whose files have all
+/// been withdrawn. Pure, so it can be tested without the network.
+#[must_use]
+pub fn newest_release_up_to_major(json: &serde_json::Value, max_major: u32) -> Option<String> {
+    use super::gamdl_capabilities::{major_version_of, numeric_version};
     let releases = json["releases"].as_object()?;
     releases
         .iter()
-        .filter(|(version, _)| !is_beyond_drivable_major(version))
+        .filter(|(version, _)| major_version_of(version).is_some_and(|m| m <= max_major))
         .filter(|(_, files)| {
             files.as_array().is_some_and(|f| {
                 f.iter()
@@ -1552,6 +1590,37 @@ mod tests {
         let json = serde_json::json!({"releases": {"3.9": [{}], "3.10.1": [{}]}});
         assert_eq!(newest_drivable_release(&json).as_deref(), Some("3.10.1"));
         assert_eq!(newest_drivable_release(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn the_update_check_stays_on_the_major_version_a_person_is_on() {
+        // tool-versions.toml names a 3.x ceiling: someone on 3.x (or with
+        // nothing installed) is offered 3.x updates, not an untested 4.x.
+        assert_eq!(update_major_ceiling(Some("3.8.5")), 3);
+        assert_eq!(update_major_ceiling(Some("3.9")), 3);
+        assert_eq!(update_major_ceiling(None), 3);
+        assert_eq!(update_major_ceiling(Some("not a version")), 3);
+        // Someone who chose GAMDL 4 keeps getting GAMDL 4 updates.
+        assert_eq!(update_major_ceiling(Some("4.0.0")), 4);
+        // Never above what this build can drive.
+        assert_eq!(update_major_ceiling(Some("5.0.0")), 4);
+        let json = serde_json::json!({
+            "info": {"version": "4.0.1"},
+            "releases": {
+                "3.9.1": [{"yanked": false}],
+                "3.9.2": [{"yanked": false}],
+                "4.0.0": [{"yanked": false}],
+                "4.0.1": [{"yanked": false}]
+            }
+        });
+        assert_eq!(
+            newest_release_up_to_major(&json, 3).as_deref(),
+            Some("3.9.2")
+        );
+        assert_eq!(
+            newest_release_up_to_major(&json, 4).as_deref(),
+            Some("4.0.1")
+        );
     }
 
     #[test]

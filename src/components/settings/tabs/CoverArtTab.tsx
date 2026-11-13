@@ -189,8 +189,9 @@ export function CoverArtTab() {
             onChange={saveCover.set}
           />
           <GamdlFourNote show={gamdlFour}>
-            GAMDL 4 would save a picture beside every song, so MeedyaDL saves one album picture
-            itself instead, when it can get the album's details from Apple Music.
+            this switch has no effect. GAMDL 4 would save a picture beside every song, so MeedyaDL
+            saves one album picture itself instead, when it can get the album's details from Apple
+            Music.
           </GamdlFourNote>
 
           {/* Cover format (only shown when save_cover is enabled) */}

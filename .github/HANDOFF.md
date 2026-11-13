@@ -17,7 +17,7 @@ The maintainer asked (13 Nov) to switch GAMDL 4.0.0 on so it can be tried in alp
 
 | # | Task | Issue / PR | Status | Notes |
 |---|---|---|---|---|
-| 1 | Switch on GAMDL 4: `HIGHEST_DRIVABLE_MAJOR = 4`; Install/Reinstall keeps a chosen 4.x (`routine_install_spec`); PlayReady on 4.x falls back to Widevine and says so | #1404 | In review (commit below) | Opt-in only: `tool-versions.toml` still says 3.9.1, so 4.0.0 shows as "Untested". ARMv7 and Windows on ARM stay held. A GAMDL 5 is refused. |
+| 1 | Switch on GAMDL 4: `HIGHEST_DRIVABLE_MAJOR = 4`; Install/Reinstall keeps a chosen 4.x (`routine_install_spec`); PlayReady on 4.x falls back to Widevine and says so | #1404 | In review (commit below) | Opt-in only: `tool-versions.toml` still says 3.9.1; 4.0.0 is installed from Settings > Tools > GAMDL Version Management; the update check stays within the installed major version (review round 1 fix). ARMv7 and Windows on ARM stay held. A GAMDL 5 is refused. |
 | 2 | Settings sweep | #1404 | In review | No migration needed: settings become options per download, and 4.x runs with `--no-config` so the old `config.ini` is never read. New `gamdl_v4` capability + `GamdlFourNote` beside settings 4.x does not use (cover saving/size/raw format, Synced Lyrics Only, Download/Remux Mode, three helper tools, PlayReady). |
 | 3 | Help + README + audit + notes | #1404 | In review | `help/tools.md` → "Trying GAMDL 4"; troubleshooting entry; README GAMDL notes; audit "Support switched on" section (follow-ups 8, 9 done; 10 switch done). |
 

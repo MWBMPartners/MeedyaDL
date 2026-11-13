@@ -1350,7 +1350,9 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
     // Get the latest version from PyPI JSON API.
     // Queries https://pypi.org/pypi/gamdl/json and extracts info.version.
     // Returns None if the request failed (network error, PyPI down, etc.).
-    let latest = gamdl_service::check_latest_gamdl_version().await.ok();
+    let latest = gamdl_service::check_latest_gamdl_version(current.as_deref())
+        .await
+        .ok();
 
     // Determine if an update is available:
     // - If both current and latest are known: compare versions (latest > current)
@@ -1368,11 +1370,11 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
     // newly released GAMDL versions until we'd audited them; surfacing
     // them with a warning badge is the better default.
     //
-    // `latest` is never from a major version this build cannot start
-    // (GAMDL 4.x for now): `check_latest_gamdl_version` reports the
-    // newest usable release instead, so 3.x updates keep being offered
-    // after 4.0 is published. The check below is a second line, in case
-    // that ever changes.
+    // `latest` stays within the major version the person should be
+    // offered (`gamdl_service::update_major_ceiling`): 3.x for someone on
+    // 3.x, 4.x only for someone who already chose GAMDL 4, never a major
+    // version this build cannot start. The check below is a second line
+    // for the last of those, in case that ever changes.
     let is_compatible = latest.as_ref().is_some_and(|v| {
         is_gamdl_compatible(v) && !gamdl_capabilities::is_beyond_drivable_major(v)
     });

@@ -997,7 +997,7 @@ export function AdvancedTab() {
                 before this setting existed. This note exists so that
                 behaviour is visible rather than a silent surprise.
               */}
-              {!prdPath.value && (
+              {!prdPath.value && !gamdlCaps.gamdl_v4 && (
                 <div className="p-3 rounded-platform-lg bg-status-warning-bg border border-status-warning">
                   <p className="text-xs text-status-warning-text">
                     No PlayReady device file chosen yet. Downloads will keep using the built-in

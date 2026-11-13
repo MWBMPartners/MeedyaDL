@@ -138,7 +138,7 @@ MeedyaDL relies on external tools such as **FFmpeg** and **mp4decrypt** to proce
 
 #### Downloads fail after trying GAMDL 4
 
-GAMDL 4 is offered as an **Untested** upgrade, so problems are possible.
+GAMDL 4 is not yet tested on real downloads, so problems are possible.
 
 - **Downloads will not start, with a message about lyrics:** **Synced Lyrics Only** (Settings > Lyrics) cannot work with GAMDL 4. Turn it off.
 - **Anything else:** go back to GAMDL 3.9.1 from **Settings > Tools > GAMDL Version Management**, and please report what happened. See [Trying GAMDL 4](tools.md#trying-gamdl-4).
