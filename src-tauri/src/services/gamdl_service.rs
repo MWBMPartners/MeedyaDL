@@ -688,8 +688,17 @@ fn build_gamdl_command(
         // been checked yet (review round 3, 12 Nov 2026).
         let from_saved_setting;
         let mut options = options;
-        if options.output_path.is_none() {
-            if let Ok(settings) = crate::services::config_service::load_settings(app) {
+        // Blank includes a setting made only of spaces (review round 5).
+        if options
+            .output_path
+            .as_deref()
+            .is_none_or(|p| p.trim().is_empty())
+        {
+            let saved = crate::services::config_service::load_settings(app);
+            if let Err(ref e) = saved {
+                log::warn!("Could not read settings for the download folder: {e}");
+            }
+            if let Ok(settings) = saved {
                 let folder = settings.output_path.trim();
                 if !folder.is_empty() {
                     if crate::services::config_service::validate_path_safe(folder).is_err() {
