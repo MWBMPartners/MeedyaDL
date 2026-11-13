@@ -15,11 +15,13 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 | # | Task | Issue / PR | Status | Notes |
 |---|---|---|---|---|
-| 1 | Re-check the GAMDL 4 preparation against the released 4.0.0 (tag `v4.0.0`, `b2684344`; 49 commits after the branch first read) | #1404 | **In review** (`352b5f64`) | Fixed: `--overwrite` is now a plain switch; lyrics files via `--lyrics-file-format` (`.ttml` is back) / `--no-lyrics-file`; `--no-database` (4.0's own database is on by default); download folder always sent, refused if unset; `--no-tracebacks`; new fixed error messages and the bracketed error type; `alac-lossless`/`alac-hires`. **Checked against a real `gamdl[widevine]==4.0.0` install** (scratch venv): GAMDL's parser read MeedyaDL's full commands as intended; real runs stopped only at sign-in and wrote nothing to GAMDL's home folder. No real download possible here (no Apple Music account). 4.x still refused. |
+| 1 | Re-check the GAMDL 4 preparation against the released 4.0.0 (tag `v4.0.0`, `b2684344`; 49 commits after the branch first read) | #1404 | **Done — reviewed clean** (`352b5f64`, `aa70576f`, `a7007978`, `3138d3dd`, `b3464460`, `369a3394`) | Fixed: `--overwrite` is a plain switch; lyrics files via `--lyrics-file-format` (`.ttml` is back) / `--no-lyrics-file`; `--no-database` (4.0's own database is on by default); download folder always sent (blank → usual Music folder; a folder saved after queueing is followed; a ".." folder refused naming it, decided when the download starts); `--no-tracebacks`; new fixed error messages and the bracketed error type; DRM set-up errors kept out of the format fallback; `alac-lossless`/`alac-hires`. **Checked against a real `gamdl[widevine]==4.0.0` install** (scratch venv): GAMDL's parser read MeedyaDL's full commands as intended; real runs stopped only at sign-in and wrote nothing to GAMDL's home folder. No real download possible here (no Apple Music account). 4.x still refused. Review: 6 rounds of fresh Claude Opus agents (Codex not available here); round 5 clean, round 6 checks the last small change. |
 
 **Decision pending (maintainer):** switch GAMDL 4 support on? Recommendation: not yet — first a real download on at least one machine, and the open follow-ups in `.github/audits/gamdl-v4.0-preview-audit.md` (artwork without MusicKit, progress, Settings screen, docs, platform ceilings — 4.0 has no 32-bit ARM Linux package and may lift the Windows-on-ARM hold).
 
-**Running and how it is watched:** a fresh Claude Opus review agent on `352b5f64` (Codex not available here); this session is notified when it ends.
+**Suggested separately (not started):** close the older 3.x gap where a ".." download folder is rejected but still written into GAMDL's config.ini (found in review round 4).
+
+**Codex review still owed** for all of #1 when Codex is available.
 
 ---
 
