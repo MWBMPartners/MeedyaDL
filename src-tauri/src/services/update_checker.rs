@@ -1345,7 +1345,13 @@ fn gamdl_update_description(
 async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
     // Get the currently installed GAMDL version via `pip show gamdl`.
     // Returns None if GAMDL is not installed (Python not found, or package not installed).
-    let current = gamdl_service::get_gamdl_version(app).await.unwrap_or(None);
+    // If asking fails (rather than finding nothing installed), fall back to
+    // the version remembered from the last check: treating a GAMDL 4 user
+    // as having nothing installed would offer them the tested 3.x release.
+    let current = match gamdl_service::get_gamdl_version(app).await {
+        Ok(v) => v,
+        Err(_) => crate::services::gamdl_capabilities::detected_version(),
+    };
 
     // Get the latest version from PyPI JSON API.
     // Queries https://pypi.org/pypi/gamdl/json and extracts info.version.

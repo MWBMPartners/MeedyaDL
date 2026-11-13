@@ -2279,8 +2279,8 @@ pub async fn get_queue_status(queue: State<'_, QueueHandle>) -> Result<QueueStat
 /// version is available. Queries the `PyPI` JSON API at:
 ///   <https://pypi.org/pypi/gamdl/json>
 ///
-/// This command takes no parameters because it only needs network access.
-/// It does not require the `AppHandle` or `State` since it doesn't access
+/// It takes the `AppHandle` to ask the installed GAMDL its version. It
+/// does not require `State` since it doesn't access
 /// any local state or managed resources.
 ///
 /// # Returns
@@ -2291,10 +2291,16 @@ pub async fn get_queue_status(queue: State<'_, QueueHandle>) -> Result<QueueStat
 /// Returns an error if the HTTP request to `PyPI` fails (network timeout,
 /// DNS failure) or if the JSON response cannot be parsed.
 #[tauri::command]
-pub async fn check_gamdl_update() -> Result<String, String> {
+pub async fn check_gamdl_update(app: AppHandle) -> Result<String, String> {
     // Delegates to the gamdl_service which handles the HTTP request and
-    // JSON parsing of the PyPI API response.
-    let installed = crate::services::gamdl_capabilities::detected_version();
+    // JSON parsing of the PyPI API response. The installed version decides
+    // which major version is offered, so it is asked for directly (the
+    // remembered one is empty until a version check has run), falling back
+    // to the remembered one if asking fails.
+    let installed = match crate::services::gamdl_service::get_gamdl_version(&app).await {
+        Ok(v) => v,
+        Err(_) => crate::services::gamdl_capabilities::detected_version(),
+    };
     crate::services::gamdl_service::check_latest_gamdl_version(installed.as_deref()).await
 }
 
