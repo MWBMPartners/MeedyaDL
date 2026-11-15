@@ -1,5 +1,5 @@
 <!-- Copyright (c) 2024-2026 MeedyaSuite. MIT licence. -->
-# GAMDL 4.0 Audit — SUPPORT SWITCHED ON (13 Nov 2026) as an opt-in, untested upgrade
+# GAMDL 4.0 Audit — SUPPORT SWITCHED ON (13 Nov 2026) as an opt-in, untested upgrade; 4.0.1 checked (15 Nov 2026)
 
 > **Updated 12 Nov 2026 for the released GAMDL 4.0.0** (tag `v4.0.0`, commit
 > `b2684344`, on PyPI). The release section directly below says what changed
@@ -7,6 +7,36 @@
 > in MeedyaDL because of it, and what was checked against a real 4.0.0
 > install. The rest of the document is the original preview audit, with rows
 > and follow-ups corrected where the release changed them.
+
+## GAMDL 4.0.1 (released 14 Nov 2026), checked 15 Nov 2026
+
+Read from the full `v4.0.0..v4.0.1` source diff (7 commits, 30 files), not the
+release notes alone, and checked against a real `gamdl[widevine]==4.0.1`
+install. The release notes call it fixes; it also brings back three options.
+
+**Packages and requirements:** identical to 4.0.0 — `cp310-abi3` packages for
+macOS (universal), Windows x64 and ARM64, Linux x64 and aarch64, plus the
+source package; still none for 32-bit ARM Linux. The required packages, and the
+two optional extras, did not change.
+
+**What changed, and what it means for MeedyaDL:**
+
+| Change in 4.0.1 | Effect on MeedyaDL | Done |
+|---|---|---|
+| Files are saved by an ordinary copy and rename instead of hard links (`download/publication.py`, `download/organizer.py`) | **4.0.0 is broken for MeedyaDL.** When a file is saved without overwriting (MeedyaDL's normal case), 4.0.0 copies it beside its destination and then makes a hard link, with no fallback. exFAT and FAT32 drives (most portable drives) and many network shares and cloud folders cannot hold hard links, so every download to them fails. | 4.0.0 added to `KNOWN_BAD_VERSIONS` (refused, fixed in 4.0.1). The advice sentence gained a case for a fix that is above the tested limit but installable on purpose (`fix_is_an_untested_release_this_platform_may_install`), so a 4.0.0 user is told to install 4.0.1 or go back to 3.9.1 — not, falsely, that no working version exists for their computer. A plain reinstall (setup wizard) moves 4.0.0 to 4.0.1 (`routine_install_spec`). |
+| `--embedded-cover-size` and `--file-cover-size` restored (default 1200; `max` = the largest picture Apple has) | MeedyaDL's **Cover Size** setting works again on GAMDL 4. | Sent as `--embedded-cover-size` from 4.0.1 (`GamdlFeature::GamdlFourRestoredOptions`); the "original file" format becomes `max`. `--file-cover-size` is not needed (MeedyaDL does not ask GAMDL 4 to save a picture file). 4.0.0 stops with "No such option", so it is never sent there — confirmed against both real programs. |
+| `--use-album-date` and `--date-tag-template` restored | Both are per-download options MeedyaDL passes to GAMDL 3 when set (no settings screen offers them). | Sent from 4.0.1, under the same check. An empty date form is not sent (4.x refuses it). |
+| Music videos get iTunes tags again (lazily created iTunes client passed to the tag resolver) | Music videos without Apple Music details get their tags from iTunes again, as on 3.9.1 (4.0.0 left them without). | Nothing to change. |
+| Sign-in wizard crash fixed; playlist sync gets the restored options | MeedyaDL never opens the wizard or runs playlist sync. | Nothing to change. |
+| Date tag default `%Y-%m-%dT%H:%M:%SZ` (the 3.x default) | The date inside each file is written in the same form GAMDL 3 used by default (4.0.0 had no setting for it). | Nothing to change. |
+
+**Settings screen:** the "Cover Size is not used" note is gone; the
+"original file" note now says it gives the largest JPEG Apple offers. Help
+(`help/tools.md` → "Trying GAMDL 4") now says to install 4.0.1, and why not
+4.0.0.
+
+**Still the same open item:** no real download has been run on GAMDL 4 on
+any computer (follow-up 1).
 
 ## Support switched on (13 Nov 2026)
 
@@ -228,7 +258,9 @@ installed GAMDL's major version is 4 or more, and installing one is refused.
 7. **Output detection.** 4.0's result lines carry full paths, which is
    better than 3.x; check `find_album_directory` and the "finished with no
    output" check behave when results arrive two at a time.
-8. **Done 13 Nov 2026** (see "Support switched on"). **Settings screen**: options that 4.0 dropped (lyrics format, cover size,
+8. **Done 13 Nov 2026** (see "Support switched on"); cover size, album date
+   and date template came back in 4.0.1 and are passed on from there (15 Nov).
+   **Settings screen**: options that 4.0 dropped (lyrics format, cover size,
    remux mode, album date, date template) should be greyed out with a note
    when 4.x is installed, the same way older-version options are today.
 9. **Done 13 Nov 2026.** **Help pages and README**: the supported-versions table, the tools page

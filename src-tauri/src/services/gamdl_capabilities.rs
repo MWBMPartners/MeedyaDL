@@ -288,6 +288,20 @@ pub const KNOWN_BAD_VERSIONS: &[KnownBadVersion] = &[KnownBadVersion {
              it, and stops when it finds none. Those formats are the last resort in MeedyaDL's \
              fallback chain, so downloads that would otherwise have recovered simply fail.",
     fixed_in: "3.9.1",
+}, KnownBadVersion {
+    // Read in GAMDL 4.0.0's own source (`download/publication.py`,
+    // `download/organizer.py`), 15 Nov 2026. When a file is saved without
+    // overwriting, 4.0.0 copies it beside its destination and then makes a
+    // hard link to it, with no fallback if the drive cannot hold hard
+    // links. exFAT and FAT32 drives (the usual format for portable drives)
+    // and many network shares and cloud folders cannot, so every download
+    // to them fails. 4.0.1 replaced the link with an ordinary copy and
+    // rename ("unsupported hard links" in its release notes).
+    version: "4.0.0",
+    reason: "GAMDL 4.0.0 cannot save downloads to drives that do not support hard links, \
+             which includes most portable drives and many network or cloud folders, so \
+             downloads to them fail.",
+    fixed_in: "4.0.1",
 }];
 
 /// Splits a version string into its first three numbers, or `None` if
@@ -891,7 +905,9 @@ pub fn recommended_upgrade_target_for_platform(
 #[must_use]
 pub fn known_bad_upgrade_target_for_platform(installed: &str, platform_id: &str) -> Option<String> {
     let bad = known_bad_version(installed)?;
-    if is_version_at_least(&effective_maximum_tested(platform_id), bad.fixed_in) {
+    if is_version_at_least(&effective_maximum_tested(platform_id), bad.fixed_in)
+        || fix_is_an_untested_release_this_platform_may_install(bad.fixed_in, platform_id)
+    {
         Some(bad.fixed_in.to_string())
     } else {
         Some(recommended_for_platform(platform_id))
@@ -999,6 +1015,20 @@ pub fn known_bad_advice(reason: &str, fixed_in: &str, installed: &str, platform_
         return format!("{reason} Update to GAMDL {fixed_in} or newer.");
     }
 
+    // Case 1b — the fix is above the tested limit, but this computer may
+    // still install it on purpose, the way the broken release was
+    // installed: today, a GAMDL 4.0.0 someone chose to try, fixed by
+    // 4.0.1. Cases 2 and 3 are for a platform that cannot have the fix at
+    // all, and would tell this person something false ("no version that
+    // works here has been published").
+    if fix_is_an_untested_release_this_platform_may_install(fixed_in, platform_id) {
+        let recommended = recommended_for_platform(platform_id);
+        return format!(
+            "{reason} Install GAMDL {fixed_in}, which fixes this (it is not tested yet either), \
+             or go back to the recommended GAMDL {recommended}."
+        );
+    }
+
     let platform_name = platform_display_name(platform_id);
 
     if !is_version_at_least(&ceiling, installed) {
@@ -1031,6 +1061,33 @@ pub fn known_bad_advice(reason: &str, fixed_in: &str, installed: &str, platform_
 ///
 /// `None` means "we haven't probed yet or GAMDL isn't installed". See the
 /// module-level docs for how unknown versions are handled.
+/// Is `fixed_in` a release above the tested limit that this platform may
+/// still install on purpose?
+///
+/// True for a fix in a newer major version this build can drive (GAMDL 4
+/// since 13 Nov 2026) on a platform that is not held back below it. Such a
+/// release is installed only when someone asks for it, which is how the
+/// broken release it fixes got installed in the first place. False for a
+/// fix this platform cannot install at all, which the other advice
+/// wordings describe.
+#[must_use]
+pub fn fix_is_an_untested_release_this_platform_may_install(
+    fixed_in: &str,
+    platform_id: &str,
+) -> bool {
+    let window = support_window();
+    let above_tested_major = match (
+        major_version_of(fixed_in),
+        major_version_of(&window.maximum_tested),
+    ) {
+        (Some(fix), Some(tested)) => fix > tested,
+        _ => false,
+    };
+    above_tested_major
+        && !is_beyond_drivable_major(fixed_in)
+        && platform_held_back_at(platform_id).is_none()
+}
+
 static DETECTED_VERSION: LazyLock<RwLock<Option<String>>> =
     LazyLock::new(|| RwLock::new(None));
 
@@ -1333,6 +1390,15 @@ pub enum GamdlFeature {
     /// exists, and why the Settings screen hides the choice entirely
     /// unless this is true.
     PlayReadyDrmBackend,
+
+    /// The three GAMDL 3 options that 4.0.0 dropped and 4.0.1 restored:
+    /// `--embedded-cover-size` (the picture inside each file; it also takes
+    /// `max`, the largest picture Apple has — its partner
+    /// `--file-cover-size` is not needed, because MeedyaDL does not ask
+    /// GAMDL 4 to save a picture file), `--use-album-date` and
+    /// `--date-tag-template`. 4.0.0 has none of them and stops on an
+    /// option it does not know, so they are only sent from 4.0.1.
+    GamdlFourRestoredOptions,
 }
 
 impl GamdlFeature {
@@ -1407,6 +1473,7 @@ impl GamdlFeature {
             // for wrapper-less downloads.
             Self::AssetsApiUnlocksLossyCodecs => is_version_at_least(version, "3.8"),
             Self::PlayReadyDrmBackend => is_version_at_least(version, "3.9"),
+            Self::GamdlFourRestoredOptions => is_version_at_least(version, "4.0.1"),
         }
     }
 }
@@ -1686,6 +1753,10 @@ pub fn active_capabilities_summary() -> String {
             "assets_api_unlocks_lossy_codecs",
         ),
         (GamdlFeature::PlayReadyDrmBackend, "play_ready_drm_backend"),
+        (
+            GamdlFeature::GamdlFourRestoredOptions,
+            "gamdl_four_restored_options",
+        ),
     ];
 
     let active: Vec<&str> = all
@@ -2383,6 +2454,54 @@ mod tests {
                 "{newer} understands PlayReady"
             );
         }
+    }
+
+    #[test]
+    fn gamdl_four_restored_options_start_at_4_0_1() {
+        for older in ["3.9.1", "4.0", "4.0.0"] {
+            assert!(
+                !GamdlFeature::GamdlFourRestoredOptions.is_available_on(older),
+                "{older} has none of the options 4.0.1 restored"
+            );
+        }
+        for newer in ["4.0.1", "4.1"] {
+            assert!(GamdlFeature::GamdlFourRestoredOptions.is_available_on(newer));
+        }
+    }
+
+    #[test]
+    fn a_broken_gamdl_4_points_at_the_gamdl_4_fix_where_it_can_be_installed() {
+        // 4.0.0 is refused; its fix, 4.0.1, is above the tested 3.x limit
+        // but installable on purpose. The advice must name it, and must not
+        // claim that no working version exists for this computer.
+        let bad = known_bad_version("4.0.0").expect("4.0.0 is on the list");
+        assert_eq!(bad.fixed_in, "4.0.1");
+        for platform_id in ["macos", "windows-x86_64", "linux-x86_64", "linux-aarch64"] {
+            let advice = known_bad_advice(bad.reason, bad.fixed_in, "4.0.0", platform_id);
+            assert!(
+                advice.contains("Install GAMDL 4.0.1"),
+                "{platform_id}: {advice}"
+            );
+            assert!(
+                !advice.contains("has been published"),
+                "{platform_id}: {advice}"
+            );
+            assert_eq!(
+                known_bad_upgrade_target_for_platform("4.0.0", platform_id).as_deref(),
+                Some("4.0.1")
+            );
+        }
+        // A computer held below GAMDL 4 keeps the existing wording.
+        for platform_id in ["linux-armv7", "windows-aarch64"] {
+            assert!(!fix_is_an_untested_release_this_platform_may_install(
+                "4.0.1",
+                platform_id
+            ));
+        }
+        // A fix inside the tested 3.x line is not this case.
+        assert!(!fix_is_an_untested_release_this_platform_may_install(
+            "3.9.1", "macos"
+        ));
     }
 
     #[test]

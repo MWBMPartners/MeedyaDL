@@ -1574,10 +1574,14 @@ impl GamdlOptions {
     ///   deliberate re-runs) and `--no-tracebacks` (its traceback section
     ///   has message-less error lines); the caller also always sends
     ///   `--output-dir`;
-    /// - not sent, because 4.0 has no such option: the four helper
-    ///   program paths (it starts no outside program), `--cover-size`,
-    ///   `--synced-lyrics-only` (no lyrics-only mode), `--use-album-date`,
-    ///   `--date-tag-template`, `--download-mode`, `--log-level`,
+    /// - `--cover-size` becomes `--embedded-cover-size`, from 4.0.1 only
+    ///   (4.0.0 has no size option); the `raw` cover format becomes the
+    ///   size `max`, the largest picture Apple has; `--use-album-date` and
+    ///   `--date-tag-template` are also sent from 4.0.1 only;
+    /// - not sent, because 4.x has no such option: the four helper
+    ///   program paths (it starts no outside program),
+    ///   `--synced-lyrics-only` (no lyrics-only mode), `--download-mode`,
+    ///   `--log-level`,
     ///   `--no-exceptions`, `--wrapper-m3u8-ip`, `--wrapper-account-url`,
     ///   `--read-urls-as-txt`, `--no-config-file` (replaced by the group's
     ///   `--no-config`, which the caller always adds);
@@ -1681,12 +1685,40 @@ impl GamdlOptions {
         // gets the best available, which is what `best` meant.
 
         // --- Artwork, lyrics, tags ---
-        // `raw` (the original file) is not offered by 4.0; leaving the
-        // option out gets its default, JPEG.
+        // `raw` (the original file) is not offered by 4.x; leaving the
+        // format out gets its default, JPEG.
         match self.cover_format {
             Some(CoverFormat::Jpg) => push(&mut args, "--cover-format", "jpg".to_string()),
             Some(CoverFormat::Png) => push(&mut args, "--cover-format", "png".to_string()),
             Some(CoverFormat::Raw) | None => {}
+        }
+        // Size of the picture inside each file (4.0.1 and later; 4.0.0 has
+        // no such option and would stop on it). `raw` asked GAMDL 3 for the
+        // original picture; the nearest 4.x has is `max`, the largest
+        // picture Apple offers. A size of 0 is not something 4.x accepts,
+        // so it is left to 4.x's default (1200) rather than sent.
+        let restored_in_4_0_1 = crate::services::gamdl_capabilities::supports(
+            crate::services::gamdl_capabilities::GamdlFeature::GamdlFourRestoredOptions,
+        );
+        if restored_in_4_0_1 {
+            if self.cover_format == Some(CoverFormat::Raw) {
+                push(&mut args, "--embedded-cover-size", "max".to_string());
+            } else if let Some(size) = self.cover_size.filter(|s| *s > 0) {
+                push(&mut args, "--embedded-cover-size", size.to_string());
+            }
+            // The album's release date instead of the song's, and the form
+            // the date is written in (both 4.0.1 and later, same as 3.x).
+            // An empty template is refused by 4.x, so it is not sent.
+            if self.use_album_date == Some(true) {
+                args.push("--use-album-date".to_string());
+            }
+            if let Some(template) = self
+                .date_tag_template
+                .as_deref()
+                .filter(|t| !t.trim().is_empty())
+            {
+                push(&mut args, "--date-tag-template", template.to_string());
+            }
         }
         // `all` meant "write no tags at all" in 3.x; 4.0 says that with
         // `--no-tag` and has no `all` tag name, so it is translated rather
@@ -2675,10 +2707,73 @@ mod gamdl_v4_args_tests {
         }
     }
 
+    /// Options GAMDL 4.0.1 added to the 4.0.0 list above (read from the
+    /// released 4.0.1's own option list, 15 Nov 2026).
+    const V4_0_1_ADDED_OPTIONS: &[&str] = &[
+        "--embedded-cover-size",
+        "--file-cover-size",
+        "--use-album-date",
+        "--date-tag-template",
+    ];
+
+    #[test]
+    fn the_options_4_0_1_restored_are_sent_only_from_4_0_1() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+
+        // 4.0.0 stops on an option it does not know: none of them.
+        set_detected_version(Some("4.0.0".to_string()));
+        let args = everything().to_cli_args_v4();
+        assert_only_known_options(&args);
+        for added in V4_0_1_ADDED_OPTIONS {
+            assert!(!args.iter().any(|a| a == added), "{added} sent to 4.0.0");
+        }
+
+        // 4.0.1: the size, the album date and the date form go through.
+        set_detected_version(Some("4.0.1".to_string()));
+        let args = everything().to_cli_args_v4();
+        for a in args.iter().filter(|a| a.starts_with("--")) {
+            assert!(
+                V4_RIP_OPTIONS.contains(&a.as_str()) || V4_0_1_ADDED_OPTIONS.contains(&a.as_str()),
+                "4.0.1 has no option {a}"
+            );
+        }
+        assert_eq!(value_of(&args, "--embedded-cover-size"), Some("3000"));
+        assert!(args.iter().any(|a| a == "--use-album-date"));
+        assert_eq!(value_of(&args, "--date-tag-template"), Some("%Y"));
+
+        // The original-file format asks for the largest picture instead.
+        let raw = GamdlOptions {
+            cover_format: Some(CoverFormat::Raw),
+            ..everything()
+        };
+        assert_eq!(
+            value_of(&raw.to_cli_args_v4(), "--embedded-cover-size"),
+            Some("max")
+        );
+
+        // A size of 0 and an empty date form are left to GAMDL 4's defaults.
+        let blank = GamdlOptions {
+            cover_size: Some(0),
+            date_tag_template: Some("  ".into()),
+            ..everything()
+        };
+        let args = blank.to_cli_args_v4();
+        assert!(!args.iter().any(|a| a == "--embedded-cover-size"));
+        assert!(!args.iter().any(|a| a == "--date-tag-template"));
+
+        set_detected_version(None);
+    }
+
     #[test]
     fn nothing_four_point_zero_would_reject() {
+        // Holds the lock and says 4.0.0 is installed: another test setting
+        // 4.0.1 meanwhile would otherwise add 4.0.1's options here.
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("4.0.0".to_string()));
         assert_only_known_options(&everything().to_cli_args_v4());
         assert_only_known_options(&GamdlOptions::default().to_cli_args_v4());
+        crate::services::gamdl_capabilities::set_detected_version(None);
     }
 
     #[test]
