@@ -1025,7 +1025,7 @@ pub fn known_bad_advice(reason: &str, fixed_in: &str, installed: &str, platform_
         let recommended = recommended_for_platform(platform_id);
         return format!(
             "{reason} Install GAMDL {fixed_in}, which fixes this (it is not tested yet either), \
-             or go back to the recommended GAMDL {recommended}."
+             or use the recommended GAMDL {recommended} instead."
         );
     }
 
@@ -1051,16 +1051,6 @@ pub fn known_bad_advice(reason: &str, fixed_in: &str, installed: &str, platform_
     }
 }
 
-/// Process-global cache of the last detected GAMDL version string.
-///
-/// Populated by [`set_detected_version`] from:
-/// * [`crate::services::gamdl_service::install_gamdl`] after a successful
-///   `pip install --upgrade gamdl`, and
-/// * [`crate::services::gamdl_service::get_gamdl_version`] whenever the
-///   version is probed (startup dependency check, first download, etc.).
-///
-/// `None` means "we haven't probed yet or GAMDL isn't installed". See the
-/// module-level docs for how unknown versions are handled.
 /// Is `fixed_in` a release above the tested limit that this platform may
 /// still install on purpose?
 ///
@@ -1088,6 +1078,16 @@ pub fn fix_is_an_untested_release_this_platform_may_install(
         && platform_held_back_at(platform_id).is_none()
 }
 
+/// Process-global cache of the last detected GAMDL version string.
+///
+/// Populated by [`set_detected_version`] from:
+/// * [`crate::services::gamdl_service::install_gamdl`] after a successful
+///   `pip install --upgrade gamdl`, and
+/// * [`crate::services::gamdl_service::get_gamdl_version`] whenever the
+///   version is probed (startup dependency check, first download, etc.).
+///
+/// `None` means "we haven't probed yet or GAMDL isn't installed". See the
+/// module-level docs for how unknown versions are handled.
 static DETECTED_VERSION: LazyLock<RwLock<Option<String>>> =
     LazyLock::new(|| RwLock::new(None));
 
