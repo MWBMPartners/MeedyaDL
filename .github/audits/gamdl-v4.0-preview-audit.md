@@ -23,17 +23,23 @@ two optional extras, did not change.
 
 | Change in 4.0.1 | Effect on MeedyaDL | Done |
 |---|---|---|
-| Files are saved by an ordinary copy and rename instead of hard links (`download/publication.py`, `download/organizer.py`) | **4.0.0 is broken for MeedyaDL.** When a file is saved without overwriting (MeedyaDL's normal case), 4.0.0 copies it beside its destination and then makes a hard link, with no fallback. exFAT and FAT32 drives (most portable drives) and many network shares and cloud folders cannot hold hard links, so every download to them fails. | 4.0.0 added to `KNOWN_BAD_VERSIONS` (refused, fixed in 4.0.1). The advice sentence gained a case for a fix that is above the tested limit but installable on purpose (`fix_is_an_untested_release_this_platform_may_install`), so a 4.0.0 user is told to install 4.0.1 or go back to 3.9.1 — not, falsely, that no working version exists for their computer. A plain reinstall (setup wizard) moves 4.0.0 to 4.0.1 (`routine_install_spec`). |
-| `--embedded-cover-size` and `--file-cover-size` restored (default 1200; `max` = the largest picture Apple has) | MeedyaDL's **Cover Size** setting works again on GAMDL 4. | Sent as `--embedded-cover-size` from 4.0.1 (`GamdlFeature::GamdlFourRestoredOptions`); the "original file" format becomes `max`. `--file-cover-size` is not needed (MeedyaDL does not ask GAMDL 4 to save a picture file). 4.0.0 stops with "No such option", so it is never sent there — confirmed against both real programs. |
-| `--use-album-date` and `--date-tag-template` restored | Both are per-download options MeedyaDL passes to GAMDL 3 when set (no settings screen offers them). | Sent from 4.0.1, under the same check. An empty date form is not sent (4.x refuses it). |
+| Files are saved by an ordinary copy and rename instead of hard links (`download/publication.py`, `download/organizer.py`) | **4.0.0 is broken for MeedyaDL.** When a file is saved without overwriting (MeedyaDL's normal case), 4.0.0 copies it beside its destination and then makes a hard link, with no fallback. exFAT and FAT32 drives (most portable drives) and many network shares and cloud folders cannot hold hard links, so every download to them fails. | 4.0.0 added to `KNOWN_BAD_VERSIONS` (refused, fixed in 4.0.1). The advice sentence gained a case for a fix that is above the tested limit but installable on purpose (`fix_is_an_untested_release_this_platform_may_install`), so a 4.0.0 user is told to install 4.0.1 or go back to 3.9.1 — not, falsely, that no working version exists for their computer. If GAMDL is ever installed again by the plain route (`install_gamdl(None)` → `routine_install_spec`), 4.0.0 becomes 4.0.1. That route is not reachable from the app while GAMDL is installed (the wizard's GAMDL step and Settings > Tools only offer Install when GAMDL is missing), so in practice a 4.0.0 user moves through the Updates page (4.0.1 offered as untested) or "install specific version". |
+| `--embedded-cover-size` and `--file-cover-size` restored (default 1200; `max` = the largest picture Apple has) | MeedyaDL's **Cover Size** setting works again on GAMDL 4. | Sent as `--embedded-cover-size` from 4.0.1 (`GamdlFeature::GamdlFourRestoredOptions`), always as a number. Not `max`, even for the "original file" format: 4.0.1 raises an error for `max` when an artwork address has no size placeholder (a number just leaves the address alone), and MeedyaDL's default size, 10000, already asks for the largest picture. `--file-cover-size` is not needed (MeedyaDL does not ask GAMDL 4 to save a picture file). 4.0.0 stops with "No such option", so it is never sent there — confirmed against both real programs. |
+| `--use-album-date` and `--date-tag-template` restored | MeedyaDL's option structure has both, but nothing fills them in today: there is no setting, and `merge_options` copies neither from settings or a per-download override, so they are not sent on GAMDL 3 either. | The GAMDL 4 builder sends them from 4.0.1 under the same check if they are ever filled in. An empty date form is not sent (4.x refuses it). |
 | Music videos get iTunes tags again (lazily created iTunes client passed to the tag resolver) | Music videos without Apple Music details get their tags from iTunes again, as on 3.9.1 (4.0.0 left them without). | Nothing to change. |
 | Sign-in wizard crash fixed; playlist sync gets the restored options | MeedyaDL never opens the wizard or runs playlist sync. | Nothing to change. |
 | Date tag default `%Y-%m-%dT%H:%M:%SZ` (the 3.x default) | The date inside each file is written in the same form GAMDL 3 used by default (4.0.0 had no setting for it). | Nothing to change. |
 
 **Settings screen:** the "Cover Size is not used" note is gone; the
-"original file" note now says it gives the largest JPEG Apple offers. Help
-(`help/tools.md` → "Trying GAMDL 4") now says to install 4.0.1, and why not
-4.0.0.
+"original file" note now says it gives a JPEG at the Cover Size (from 4.0.1).
+Help (`help/tools.md` → "Trying GAMDL 4") now says to install 4.0.1, and why
+not 4.0.0.
+
+**Left as is (cosmetic):** typing `4.0.0` under "install specific version" on
+Windows on ARM or 32-bit ARM Linux gets the known-bad wording for a platform
+that cannot have the fix ("no version that works here has been published"),
+the same shape 3.9 already has there, rather than the plainer "held back"
+refusal.
 
 **Still the same open item:** no real download has been run on GAMDL 4 on
 any computer (follow-up 1).

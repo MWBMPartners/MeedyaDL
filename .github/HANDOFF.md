@@ -18,7 +18,7 @@ The maintainer asked for a full check of GAMDL 4.0.1 (14 Nov), and, before that,
 | # | Task | Issue / PR | Status | Notes |
 |---|---|---|---|---|
 | 1 | Dependency refresh on `work-in-progress` (same limits Dependabot uses: no major-version jumps) | — | Committed, CI to confirm | `npm update` + `cargo update`; MeedyaSuite-core components unchanged. npm audit clean; full Rust and frontend tests passed. `cargo deny` not installed here, so CI is its check. |
-| 2 | GAMDL 4.0.1: full source diff + real install | #1404 | In review | 4.0.0 refused (hard-link saving fails on exFAT/FAT32 and many network or cloud folders). Cover size, album date and date format are sent from 4.0.1 only (4.0.0 stops on them — checked against both real programs). Help now says install 4.0.1. Audit section "GAMDL 4.0.1". |
+| 2 | GAMDL 4.0.1: full source diff + real install | #1404 | In review | 4.0.0 refused (hard-link saving fails on exFAT/FAT32 and many network or cloud folders). Cover size (always a number, never `max`), album date and date format are sent from 4.0.1 only (4.0.0 stops on them — checked against both real programs); album date and date format have no setting, so in practice only cover size is sent. Help now says install 4.0.1. Audit section "GAMDL 4.0.1". |
 | 3 | One combined PR `work-in-progress` → `alpha`, closing the Dependabot PRs it replaces | — | Queued (after the 4.0.1 review) | Close each replaced PR only once the combined PR is open and its changes are confirmed on this branch. |
 
 **Review:** Codex is unavailable in this session; fresh Claude agents review instead. A Codex review is still owed for all GAMDL 4 work.

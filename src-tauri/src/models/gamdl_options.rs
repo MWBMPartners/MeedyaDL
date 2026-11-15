@@ -1575,8 +1575,8 @@ impl GamdlOptions {
     ///   has message-less error lines); the caller also always sends
     ///   `--output-dir`;
     /// - `--cover-size` becomes `--embedded-cover-size`, from 4.0.1 only
-    ///   (4.0.0 has no size option); the `raw` cover format becomes the
-    ///   size `max`, the largest picture Apple has; `--use-album-date` and
+    ///   (4.0.0 has no size option), always as a number, never `max`;
+    ///   `--use-album-date` and
     ///   `--date-tag-template` are also sent from 4.0.1 only;
     /// - not sent, because 4.x has no such option: the four helper
     ///   program paths (it starts no outside program),
@@ -1693,17 +1693,20 @@ impl GamdlOptions {
             Some(CoverFormat::Raw) | None => {}
         }
         // Size of the picture inside each file (4.0.1 and later; 4.0.0 has
-        // no such option and would stop on it). `raw` asked GAMDL 3 for the
-        // original picture; the nearest 4.x has is `max`, the largest
-        // picture Apple offers. A size of 0 is not something 4.x accepts,
-        // so it is left to 4.x's default (1200) rather than sent.
+        // no such option and would stop on it). Sent as the number for
+        // every format, `raw` included. 4.x's other choice, `max`, is
+        // deliberately not used: for an artwork address without a size
+        // placeholder it raises an error and the song fails, where a number
+        // just leaves the address as it is (read in 4.0.1's
+        // `media/cover.py`, `get_formatted_url`). MeedyaDL's default size,
+        // 10000, already asks for the largest picture Apple has. A size of
+        // 0 is not something 4.x accepts, so it is left to 4.x's default
+        // (1200) rather than sent.
         let restored_in_4_0_1 = crate::services::gamdl_capabilities::supports(
             crate::services::gamdl_capabilities::GamdlFeature::GamdlFourRestoredOptions,
         );
         if restored_in_4_0_1 {
-            if self.cover_format == Some(CoverFormat::Raw) {
-                push(&mut args, "--embedded-cover-size", "max".to_string());
-            } else if let Some(size) = self.cover_size.filter(|s| *s > 0) {
+            if let Some(size) = self.cover_size.filter(|s| *s > 0) {
                 push(&mut args, "--embedded-cover-size", size.to_string());
             }
             // The album's release date instead of the song's, and the form
@@ -2742,14 +2745,15 @@ mod gamdl_v4_args_tests {
         assert!(args.iter().any(|a| a == "--use-album-date"));
         assert_eq!(value_of(&args, "--date-tag-template"), Some("%Y"));
 
-        // The original-file format asks for the largest picture instead.
+        // The original-file format sends the size number too, never `max`
+        // (which fails a song whose artwork address has no size in it).
         let raw = GamdlOptions {
             cover_format: Some(CoverFormat::Raw),
             ..everything()
         };
         assert_eq!(
             value_of(&raw.to_cli_args_v4(), "--embedded-cover-size"),
-            Some("max")
+            Some("3000")
         );
 
         // A size of 0 and an empty date form are left to GAMDL 4's defaults.

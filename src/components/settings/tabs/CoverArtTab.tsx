@@ -208,8 +208,8 @@ export function CoverArtTab() {
                 onChange={(e) => coverFormat.set(e.target.value as CoverFormat)}
               />
               <GamdlFourNote show={gamdlFour && coverFormat.value === 'raw'}>
-                the original-file choice is not available, so the picture inside each song is the
-                largest JPEG Apple offers.
+                the original-file choice is not available, so the picture inside each song is a
+                JPEG (from GAMDL 4.0.1, at the Cover Size below).
               </GamdlFourNote>
 
               {/* Cover size -- numeric input, validated on blur (Fix 11,

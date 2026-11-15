@@ -1392,8 +1392,7 @@ pub enum GamdlFeature {
     PlayReadyDrmBackend,
 
     /// The three GAMDL 3 options that 4.0.0 dropped and 4.0.1 restored:
-    /// `--embedded-cover-size` (the picture inside each file; it also takes
-    /// `max`, the largest picture Apple has — its partner
+    /// `--embedded-cover-size` (the picture inside each file — its partner
     /// `--file-cover-size` is not needed, because MeedyaDL does not ask
     /// GAMDL 4 to save a picture file), `--use-album-date` and
     /// `--date-tag-template`. 4.0.0 has none of them and stops on an
