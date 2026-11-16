@@ -31,7 +31,8 @@ through `.claude/`; both tools are meant to work by the same rules.
   not create another handoff anywhere else.
 - **Strongest model for thinking, cheapest capable model for building; checking is never done
   by a weaker model than the building** (in Claude Code that means never below Opus). Plan
-  first, one step at a time.
+  first, one step at a time. Gathering facts (fetching, listing, diffing) goes to a cheap
+  model that reports facts only; judging what they mean is the strongest model's job.
 - **Use helper plugins where they fit, including to suggest further fixes, tweaks,
   enhancements and new features** — raised as suggestions, not built unless the maintainer
   says so.

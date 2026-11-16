@@ -71,6 +71,7 @@ and do a piece of work) runs only when the maintainer has opted in. The maintain
 
 | Stage | Model | How |
 | --- | --- | --- |
+| Data collection — fetching, listing, diffing, gathering facts (release notes, source diffs, package lists, issue sweeps) | **Haiku or Sonnet** — Haiku for plain fetch-and-list, Sonnet when the gathering needs reading code to find the right facts | The collector reports facts only, never conclusions; judging what they mean is the next row's job. Added 2026-11-16 at the maintainer's request. |
 | Deep analysis, deep planning, orchestration | **Opus** | **One agent at a time, in sequence — never several in parallel**, because each planning step should see what the previous one established. |
 | Implementation | **Sonnet or Haiku**, whichever fits — Haiku for mechanical edits (renames, formatting, boilerplate), Sonnet for ordinary building | If the implementation is genuinely complex, use **Opus**. |
 | Verification / review | never below **Opus** | Matches the dev-team plugin's own rule, and the cross-system loop in section 5. |

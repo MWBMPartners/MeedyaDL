@@ -216,7 +216,9 @@ export function HistoryPage() {
         const result = await startDownload({ urls: [entry.url] });
         if (!result.download_id) {
           // Nothing was queued (most often: it is already in the queue).
-          // Say so, and leave the history row where it is.
+          // The backend has already dropped the old history row(s) for this
+          // link, so reload to show what is really stored.
+          void loadEntries();
           addToast(result.duplicate_warning ?? 'Already in the queue — nothing added', 'info');
           return;
         }
@@ -226,7 +228,7 @@ export function HistoryPage() {
         showBackendError('MeedyaDL could not add that download to the queue again. Try again in a moment.', err);
       }
     },
-    [addToast],
+    [addToast, loadEntries],
   );
 
   /**
@@ -266,7 +268,9 @@ export function HistoryPage() {
     try {
       const result = await startDownload({ urls: uniqueUrls });
       if (!result.download_id) {
-        // Nothing was queued; keep the failed rows so they can be tried again.
+        // Nothing was queued, but the backend has already dropped the old
+        // history rows for these links, so reload to show what is stored.
+        void loadEntries();
         addToast(result.duplicate_warning ?? 'Already in the queue — nothing added', 'info');
         return;
       }
@@ -283,7 +287,7 @@ export function HistoryPage() {
     } catch (err) {
       showError('MeedyaDL could not retry the failed downloads. Try again in a moment.', err);
     }
-  }, [failedEntries, failedCount, addToast]);
+  }, [failedEntries, failedCount, addToast, loadEntries]);
 
   /**
    * Per-item Delete (#685). Confirms via modal, then removes the entry

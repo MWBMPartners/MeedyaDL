@@ -150,8 +150,10 @@ describe('HistoryPage -- row layout (polish pass M6)', () => {
 });
 
 describe('HistoryPage -- retry that queues nothing (#1235)', () => {
-  it('a single retry that adds nothing says so and keeps the row, instead of "Re-queued"', async () => {
-    vi.mocked(listHistory).mockResolvedValue([makeEntry({ id: 'f', status: 'failed' })]);
+  it('a single retry that adds nothing says so and reloads the list from the backend, instead of "Re-queued"', async () => {
+    vi.mocked(listHistory).mockResolvedValueOnce([makeEntry({ id: 'f', status: 'failed' })]);
+    // After the retry the backend has already removed the row.
+    vi.mocked(listHistory).mockResolvedValue([]);
     vi.mocked(startDownload).mockResolvedValueOnce({
       download_id: '',
       duplicate_warning: 'Already in the queue',
@@ -163,6 +165,7 @@ describe('HistoryPage -- retry that queues nothing (#1235)', () => {
       expect(useUiStore.getState().toasts.some((t) => t.message === 'Already in the queue')).toBe(true),
     );
     expect(useUiStore.getState().toasts.some((t) => /Re-queued/.test(t.message))).toBe(false);
-    expect(screen.getByRole('button', { name: /^retry download$/i })).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('button', { name: /^retry download$/i })).not.toBeInTheDocument());
+    expect(listHistory).toHaveBeenCalledTimes(2);
   });
 });
