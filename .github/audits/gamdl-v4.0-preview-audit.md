@@ -1,5 +1,7 @@
 <!-- Copyright (c) 2024-2026 MeedyaSuite. MIT licence. -->
-# GAMDL 4.0 Audit — SUPPORT SWITCHED ON (13 Nov 2026) as an opt-in, untested upgrade; 4.0.1 checked (15 Nov 2026)
+# GAMDL 4.0 Audit — SUPPORT SWITCHED ON (13 Nov 2026) as an opt-in, untested upgrade; 4.0.1 checked (15 Nov 2026); 4.0.2 checked (16 Nov 2026)
+
+> **GAMDL 4.0.2 (16 Nov 2026):** see [`gamdl-v4.0.2-audit.md`](gamdl-v4.0.2-audit.md). 4.0.1 is now refused and follow-up 4 (saved artwork) is resolved from 4.0.2.
 
 > **Updated 12 Nov 2026 for the released GAMDL 4.0.0** (tag `v4.0.0`, commit
 > `b2684344`, on PyPI). The release section directly below says what changed
@@ -248,6 +250,10 @@ installed GAMDL's major version is 4 or more, and installing one is refused.
    saved cover file at all. Choose: send `--save-cover` in that case and
    tidy the per-track copies into one, or fetch the album picture another
    way. Also decide whether the "save cover art" setting should control it.
+   **Resolved from GAMDL 4.0.2 (16 Nov 2026):** 4.0.2 shares one `Cover`
+   file per album folder again, so `--save-cover` and `--file-cover-size`
+   are sent from there when Save Cover Art is on. Still open on 4.0.0 and
+   4.0.1.
 5. **Progress.** 4.0 reports progress to its own code as events, not as
    text. Without a live percentage the item bar will sit still until each
    track finishes. Options: accept per-track steps, or ask upstream for a

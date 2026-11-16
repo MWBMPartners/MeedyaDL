@@ -392,6 +392,7 @@ export function AdvancedTab() {
     // PlayReady (#1189).
     play_ready_drm: false,
     gamdl_v4: false,
+    gamdl_four_saves_album_cover: false,
   });
   /**
    * Whether the very first `getGamdlCapabilities()` call (below) has

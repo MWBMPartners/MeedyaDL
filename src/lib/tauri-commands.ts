@@ -576,6 +576,9 @@ export interface GamdlCapabilities {
   /** The installed GAMDL is a 4.x release, which ignores some settings
    * (each says so beside it). */
   gamdl_v4: boolean;
+  /** The installed GAMDL 4 saves one shared album picture when asked
+   * (4.0.2 and newer), so "Save Cover Art" works as it does with GAMDL 3. */
+  gamdl_four_saves_album_cover: boolean;
 }
 export function getGamdlCapabilities(): Promise<GamdlCapabilities> {
   return invoke<GamdlCapabilities>('get_gamdl_capabilities');

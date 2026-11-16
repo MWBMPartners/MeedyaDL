@@ -204,7 +204,7 @@ pub fn refuse_unsupported_target(target: &str, platform_id: &str) -> Result<(), 
 /// today, a GAMDL 4.x they opted into as an "Untested" upgrade — the tested
 /// range (3.x) would quietly move them back down. So that version is
 /// reinstalled instead, provided it is still one this build accepts — or,
-/// if it is on the refused list (4.0.0), the release that fixes it (4.0.1).
+/// if it is on the refused list (4.0.0 or 4.0.1), the release that fixes it (4.0.2).
 /// Pure, so it can be tested.
 #[must_use]
 pub fn routine_install_spec(installed: Option<&str>, platform_id: &str) -> String {
@@ -214,7 +214,7 @@ pub fn routine_install_spec(installed: Option<&str>, platform_id: &str) -> Strin
     };
     if let Some(v) = installed.map(str::trim).filter(|v| !v.is_empty()) {
         if cli_generation_of(v) == GamdlCliGeneration::V4 {
-            // A GAMDL 4 on the refused list (4.0.0) moves to the release that
+            // A GAMDL 4 on the refused list (4.0.0 or 4.0.1) moves to the release that
             // fixes it, staying on the GAMDL 4 trial the person chose.
             let target = known_bad_upgrade_target_for_platform(v, platform_id)
                 .unwrap_or_else(|| v.to_string());
@@ -1605,20 +1605,24 @@ mod tests {
         // Someone who opted into 4.0.0 and presses Install/Reinstall must
         // not be moved back to 3.x without being asked.
         assert_eq!(
-            routine_install_spec(Some("4.0.1"), "macos"),
-            "gamdl[widevine]==4.0.1"
+            routine_install_spec(Some("4.0.2"), "macos"),
+            "gamdl[widevine]==4.0.2"
         );
-        // 4.0.0 is refused; installing again moves to its fix, 4.0.1.
-        assert_eq!(
-            routine_install_spec(Some("4.0.0"), "macos"),
-            "gamdl[widevine]==4.0.1"
-        );
+        // 4.0.0 and 4.0.1 are refused; installing again moves to the fix.
+        for refused in ["4.0.0", "4.0.1"] {
+            assert_eq!(
+                routine_install_spec(Some(refused), "macos"),
+                "gamdl[widevine]==4.0.2"
+            );
+            let err = refuse_unsupported_target(refused, "macos").unwrap_err();
+            assert!(err.contains("4.0.2"), "{err}");
+        }
         // 3.x, nothing installed, or a platform that cannot take 4.x: the
         // ordinary tested range.
         let tested = crate::services::gamdl_capabilities::pip_version_spec();
         assert_eq!(routine_install_spec(Some("3.9.1"), "macos"), tested);
         assert_eq!(routine_install_spec(None, "macos"), tested);
-        assert_eq!(routine_install_spec(Some("4.0.1"), "linux-armv7"), tested);
+        assert_eq!(routine_install_spec(Some("4.0.2"), "linux-armv7"), tested);
     }
 
     #[test]

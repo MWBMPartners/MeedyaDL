@@ -301,7 +301,18 @@ pub const KNOWN_BAD_VERSIONS: &[KnownBadVersion] = &[KnownBadVersion {
     reason: "GAMDL 4.0.0 cannot save downloads to drives that do not support hard links, \
              which includes most portable drives and many network or cloud folders, so \
              downloads to them fail.",
-    fixed_in: "4.0.1",
+    fixed_in: "4.0.2",
+}, KnownBadVersion {
+    // Read in GAMDL's own source, 16 Nov 2026 (upstream commits a06ea3cd
+    // and fd725b6c, and the removal of a pass-through test in 4.0.2).
+    // 4.0.1 stopped recognising Apple's generic key address for some
+    // songs, so those songs can be saved still locked (they will not
+    // play) while the run reports them as downloaded. 4.0.2 handles that
+    // address again.
+    version: "4.0.1",
+    reason: "GAMDL 4.0.1 can save some short songs still locked, so they will not play, \
+             while reporting them as downloaded.",
+    fixed_in: "4.0.2",
 }];
 
 /// Splits a version string into its first three numbers, or `None` if
@@ -1017,8 +1028,8 @@ pub fn known_bad_advice(reason: &str, fixed_in: &str, installed: &str, platform_
 
     // Case 1b — the fix is above the tested limit, but this computer may
     // still install it on purpose, the way the broken release was
-    // installed: today, a GAMDL 4.0.0 someone chose to try, fixed by
-    // 4.0.1. Cases 2 and 3 are for a platform that cannot have the fix at
+    // installed: today, a GAMDL 4.0.0 or 4.0.1 someone chose to try, fixed
+    // by 4.0.2. Cases 2 and 3 are for a platform that cannot have the fix at
     // all, and would tell this person something false ("no version that
     // works here has been published").
     if fix_is_an_untested_release_this_platform_may_install(fixed_in, platform_id) {
@@ -1398,6 +1409,14 @@ pub enum GamdlFeature {
     /// `--date-tag-template`. 4.0.0 has none of them and stops on an
     /// option it does not know, so they are only sent from 4.0.1.
     GamdlFourRestoredOptions,
+
+    /// GAMDL 4.0.2 saves a song's cover picture as one shared `Cover`
+    /// file in the album folder again (as GAMDL 3 did), so MeedyaDL's
+    /// "Save Cover Art" setting can be honoured: `--save-cover` and
+    /// `--file-cover-size` are sent from this version. Before 4.0.2 the
+    /// picture was saved per track, so the setting had no effect and is
+    /// not sent.
+    GamdlFourSharedAlbumCover,
 }
 
 impl GamdlFeature {
@@ -1473,6 +1492,7 @@ impl GamdlFeature {
             Self::AssetsApiUnlocksLossyCodecs => is_version_at_least(version, "3.8"),
             Self::PlayReadyDrmBackend => is_version_at_least(version, "3.9"),
             Self::GamdlFourRestoredOptions => is_version_at_least(version, "4.0.1"),
+            Self::GamdlFourSharedAlbumCover => is_version_at_least(version, "4.0.2"),
         }
     }
 }
@@ -2469,26 +2489,38 @@ mod tests {
     }
 
     #[test]
+    fn gamdl_four_shared_album_cover_starts_at_4_0_2() {
+        for older in ["3.9.1", "4.0", "4.0.0", "4.0.1"] {
+            assert!(!GamdlFeature::GamdlFourSharedAlbumCover.is_available_on(older));
+        }
+        for newer in ["4.0.2", "4.1"] {
+            assert!(GamdlFeature::GamdlFourSharedAlbumCover.is_available_on(newer));
+        }
+    }
+
+    #[test]
     fn a_broken_gamdl_4_points_at_the_gamdl_4_fix_where_it_can_be_installed() {
-        // 4.0.0 is refused; its fix, 4.0.1, is above the tested 3.x limit
-        // but installable on purpose. The advice must name it, and must not
-        // claim that no working version exists for this computer.
-        let bad = known_bad_version("4.0.0").expect("4.0.0 is on the list");
-        assert_eq!(bad.fixed_in, "4.0.1");
-        for platform_id in ["macos", "windows-x86_64", "linux-x86_64", "linux-aarch64"] {
-            let advice = known_bad_advice(bad.reason, bad.fixed_in, "4.0.0", platform_id);
-            assert!(
-                advice.contains("Install GAMDL 4.0.1"),
-                "{platform_id}: {advice}"
-            );
-            assert!(
-                !advice.contains("has been published"),
-                "{platform_id}: {advice}"
-            );
-            assert_eq!(
-                known_bad_upgrade_target_for_platform("4.0.0", platform_id).as_deref(),
-                Some("4.0.1")
-            );
+        // 4.0.0 and 4.0.1 are refused; their fix, 4.0.2, is above the
+        // tested 3.x limit but installable on purpose. The advice must
+        // name it, and must not claim that no working version exists.
+        for installed in ["4.0.0", "4.0.1"] {
+            let bad = known_bad_version(installed).expect("on the list");
+            assert_eq!(bad.fixed_in, "4.0.2");
+            for platform_id in ["macos", "windows-x86_64", "linux-x86_64", "linux-aarch64"] {
+                let advice = known_bad_advice(bad.reason, bad.fixed_in, installed, platform_id);
+                assert!(
+                    advice.contains("Install GAMDL 4.0.2"),
+                    "{platform_id}: {advice}"
+                );
+                assert!(
+                    !advice.contains("has been published"),
+                    "{platform_id}: {advice}"
+                );
+                assert_eq!(
+                    known_bad_upgrade_target_for_platform(installed, platform_id).as_deref(),
+                    Some("4.0.2")
+                );
+            }
         }
         // A computer held below GAMDL 4 keeps the existing wording.
         for platform_id in ["linux-armv7", "windows-aarch64"] {

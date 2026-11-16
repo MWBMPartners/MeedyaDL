@@ -137,6 +137,7 @@ const ALL_CAPS_FALSE: GamdlCapabilities = {
   wrapper_decrypt_host_port: false,
   play_ready_drm: false,
   gamdl_v4: false,
+  gamdl_four_saves_album_cover: false,
 };
 
 beforeEach(() => {

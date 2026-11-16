@@ -621,6 +621,11 @@ pub struct GamdlCapabilities {
     /// the Settings screens use this to say so beside those settings
     /// rather than leave them silently doing nothing.
     pub gamdl_v4: bool,
+    /// Whether the installed GAMDL saves one shared album cover picture
+    /// when asked (4.0.2 and newer). Before that, GAMDL 4 saves a picture
+    /// beside every song, so "Save Cover Art" is not passed on and the
+    /// Settings screen says it has no effect.
+    pub gamdl_four_saves_album_cover: bool,
 }
 
 /// Returns the currently active GAMDL capability flags (#853).
@@ -656,6 +661,7 @@ pub fn get_gamdl_capabilities() -> GamdlCapabilities {
         play_ready_drm: supports(GamdlFeature::PlayReadyDrmBackend) && !gamdl_v4,
         wrapper_decrypt_host_port: supports(GamdlFeature::WrapperDecryptHostPort),
         gamdl_v4,
+        gamdl_four_saves_album_cover: supports(GamdlFeature::GamdlFourSharedAlbumCover),
     }
 }
 

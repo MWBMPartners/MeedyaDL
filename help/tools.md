@@ -58,12 +58,12 @@ GAMDL 4 is a rewrite of GAMDL. MeedyaDL can use it, but it has **not been tested
 **How to try it.**
 
 1. Go to **Settings > Tools > GAMDL Version Management**.
-2. Type `4.0.1` under **Advanced: install specific version** and press **Install**.
+2. Type `4.0.2` (or the newest GAMDL 4 version the **Updates** page offers) under **Advanced: install specific version** and press **Install**.
 3. To go back, press **Install recommended** in the same place.
 
 While you are on GAMDL 3, the **Updates** page offers GAMDL 3 updates only, so nobody is moved to GAMDL 4 by accident. Once you are on GAMDL 4, it offers GAMDL 4 updates, marked **Untested**.
 
-**Use 4.0.1, not 4.0.0.** GAMDL 4.0.0 cannot save downloads to drives that do not support "hard links". That includes most portable drives and many network or cloud folders, so downloads to them fail. 4.0.1 fixes this, and MeedyaDL will not install 4.0.0. If you already have it, **Settings > Tools** marks it with a known problem. Install 4.0.1 from the **Updates** page or from the same **Advanced: install specific version** box.
+**Use 4.0.2, not 4.0.0 or 4.0.1.** GAMDL 4.0.0 cannot save downloads to drives that do not support "hard links". That includes most portable drives and many network or cloud folders, so downloads to them fail. GAMDL 4.0.1 can save some short songs in a way that means they will not play, while still reporting them as downloaded. 4.0.2 fixes both, and MeedyaDL will not install 4.0.0 or 4.0.1. If you already have one of them, **Settings > Tools** marks it with a known problem. Install 4.0.2 from the **Updates** page or from the same **Advanced: install specific version** box.
 
 **Not every computer can use it.** On Linux on 32-bit ARM (for example an older Raspberry Pi), GAMDL 4 has no package to install. On Windows on ARM, MeedyaDL stays on GAMDL 3.8.5 for now. On both, MeedyaDL will not install GAMDL 4 and tells you why.
 
@@ -72,7 +72,7 @@ While you are on GAMDL 3, the **Updates** page offers GAMDL 3 updates only, so n
 <details>
 <summary>More detail: what changes with GAMDL 4</summary>
 
-- **Cover art.** GAMDL 4 would save a picture beside every song. MeedyaDL saves one album picture itself instead, when it can get the album's details from Apple Music, so the **Save Cover Art** switch has no effect. **Cover Size** sets the size of the picture inside each song, as with GAMDL 3. The "original file" format choice gives a JPEG picture at that size.
+- **Cover art.** From GAMDL 4.0.2, **Save Cover Art** works as it does with GAMDL 3: one album picture is saved in the album's folder. With GAMDL 4.0.0 and 4.0.1 the **Save Cover Art** switch has no effect, because they would save a picture beside every song. MeedyaDL saves one album picture itself instead, when it can get the album's details from Apple Music. **Cover Size** sets the size of the picture inside each song, as with GAMDL 3. The "original file" format choice gives a JPEG picture at that size.
 - **Synced Lyrics Only.** GAMDL 4 cannot download lyrics on their own, so downloads will not start while this is on. Turn it off to download as usual.
 - **Download Mode** and **Remux Mode** (Settings > Advanced) are not used. GAMDL 4 handles those steps itself.
 - **Unlocking Method** (Settings > Advanced) is not used with GAMDL 4 yet. The default is used instead, and the Activity Log says so.

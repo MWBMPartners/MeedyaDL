@@ -1587,15 +1587,18 @@ impl GamdlOptions {
     ///   `--no-exceptions`, `--wrapper-m3u8-ip`, `--wrapper-account-url`,
     ///   `--read-urls-as-txt`, `--no-config-file` (replaced by the group's
     ///   `--no-config`, which the caller always adds);
-    /// - deliberately not sent: `--save-cover`. 4.0 saves one picture
-    ///   per TRACK, named after the track, instead of one `Cover.jpg` per
-    ///   album, so asking for it would scatter a copy beside every song.
-    ///   MeedyaDL's own cover step writes the album picture instead — but
-    ///   only when it has the album's details from Apple Music, which
-    ///   needs MusicKit credentials and does not happen for library
-    ///   links. Without them a 4.x download has no saved cover file (the
-    ///   picture inside each track is unaffected). Follow-up 4 in the 4.0
-    ///   audit; settle it before support is switched on;
+    /// - `--save-cover` (and its size, `--file-cover-size`) are sent from
+    ///   4.0.2 only, and only when "Save Cover Art" is on. GAMDL 4.0.0
+    ///   and 4.0.1 save one picture per TRACK, named after the track,
+    ///   instead of one `Cover.jpg` per album, so asking for it would
+    ///   scatter a copy beside every song; 4.0.2 shares one `Cover` file
+    ///   per album folder again, as GAMDL 3 did (music videos keep a
+    ///   picture named after the video). On 4.0.0 and 4.0.1 MeedyaDL's own
+    ///   cover step writes the album picture instead — but only when it
+    ///   has the album's details from Apple Music, which needs MusicKit
+    ///   credentials and does not happen for library links; without them
+    ///   there is no saved cover file there (the picture inside each
+    ///   track is unaffected);
     /// - not sent: PlayReady (see below) — 4.x downloads use Widevine;
     /// - `all` in the tags to leave out becomes `--no-tag`.
     ///
@@ -1725,6 +1728,22 @@ impl GamdlOptions {
                 .filter(|t| !t.trim().is_empty())
             {
                 push(&mut args, "--date-tag-template", template.to_string());
+            }
+        }
+        // Saved cover picture (4.0.2 and later, where it is one shared
+        // `Cover` file per album folder again). Earlier 4.x saves one per
+        // track, so nothing is sent there. The size is a number, never
+        // `max`, for the same reason as the embedded size above, and
+        // `--file-cover-size` is also new in 4.0.1, so it needs both gates.
+        if crate::services::gamdl_capabilities::supports(
+            crate::services::gamdl_capabilities::GamdlFeature::GamdlFourSharedAlbumCover,
+        ) && self.save_cover == Some(true)
+        {
+            args.push("--save-cover".to_string());
+            if restored_in_4_0_1 {
+                if let Some(size) = self.cover_size.filter(|s| *s > 0) {
+                    push(&mut args, "--file-cover-size", size.to_string());
+                }
             }
         }
         // `all` meant "write no tags at all" in 3.x; 4.0 says that with
@@ -2791,6 +2810,52 @@ mod gamdl_v4_args_tests {
     }
 
     #[test]
+    fn the_saved_cover_is_sent_only_from_4_0_2() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+
+        for old in ["4.0.0", "4.0.1"] {
+            set_detected_version(Some(old.to_string()));
+            let args = everything().to_cli_args_v4();
+            assert!(!args.iter().any(|a| a == "--save-cover"), "sent to {old}");
+            assert!(!args.iter().any(|a| a == "--file-cover-size"));
+        }
+
+        set_detected_version(Some("4.0.2".to_string()));
+        let args = everything().to_cli_args_v4();
+        for a in args.iter().filter(|a| a.starts_with("--")) {
+            assert!(
+                V4_RIP_OPTIONS.contains(&a.as_str()) || V4_0_1_ADDED_OPTIONS.contains(&a.as_str()),
+                "4.0.2 has no option {a}"
+            );
+        }
+        assert!(args.iter().any(|a| a == "--save-cover"));
+        assert_eq!(value_of(&args, "--file-cover-size"), Some("3000"));
+        assert_eq!(value_of(&args, "--embedded-cover-size"), Some("3000"));
+
+        // Off or unset: neither is sent.
+        for save in [Some(false), None] {
+            let args = GamdlOptions {
+                save_cover: save,
+                ..everything()
+            }
+            .to_cli_args_v4();
+            assert!(!args.iter().any(|a| a == "--save-cover"));
+            assert!(!args.iter().any(|a| a == "--file-cover-size"));
+        }
+        // A size of 0 is left to GAMDL's default.
+        let args = GamdlOptions {
+            cover_size: Some(0),
+            ..everything()
+        }
+        .to_cli_args_v4();
+        assert!(args.iter().any(|a| a == "--save-cover"));
+        assert!(!args.iter().any(|a| a == "--file-cover-size"));
+
+        set_detected_version(None);
+    }
+
+    #[test]
     fn nothing_four_point_zero_would_reject() {
         // Holds the lock and says 4.0.0 is installed: another test setting
         // 4.0.1 meanwhile would otherwise add 4.0.1's options here.
@@ -2904,6 +2969,11 @@ mod gamdl_v4_args_tests {
 
     #[test]
     fn values_four_point_zero_cannot_take_are_left_out() {
+        // Holds the capability lock and names its version: from 4.0.2
+        // `--save-cover` IS sent, so a test running alongside that sets
+        // 4.0.2 would otherwise make this one fail at random.
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("4.0.1".to_string()));
         let opts = GamdlOptions {
             cover_format: Some(CoverFormat::Raw),
             uploaded_video_quality: Some("best".into()),
@@ -2927,6 +2997,7 @@ mod gamdl_v4_args_tests {
                 "{absent} should not be sent"
             );
         }
+        crate::services::gamdl_capabilities::set_detected_version(None);
     }
 
     #[test]

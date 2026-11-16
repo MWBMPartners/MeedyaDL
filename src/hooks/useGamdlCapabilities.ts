@@ -54,6 +54,7 @@ const DEFAULT_CAPABILITIES: GamdlCapabilities = {
   // probe confirms the installed GAMDL actually understands it (#1189).
   play_ready_drm: false,
   gamdl_v4: false,
+  gamdl_four_saves_album_cover: false,
 };
 
 export interface UseGamdlCapabilitiesResult {
