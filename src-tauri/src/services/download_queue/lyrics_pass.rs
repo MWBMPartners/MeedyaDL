@@ -365,7 +365,14 @@ pub(crate) fn files_step_1b_wrote_beside(
 /// below it. Shallow on purpose: when the album folder falls back to the
 /// whole download folder, a deep walk would read every file in the library.
 pub(crate) fn video_files_in_depth1(dir: &Path) -> Vec<PathBuf> {
-    crate::utils::fs_walk::walk_dir_depth(dir, 1, |path| {
+    video_files_to_depth(dir, 1)
+}
+
+/// The music videos in `dir` down to `depth` folder levels, skipping
+/// file-system sidecars. The one filter [`video_files_in_depth1`] and the
+/// pre-run list ([`videos_before_run`]) share.
+pub(crate) fn video_files_to_depth(dir: &Path, depth: u32) -> Vec<PathBuf> {
+    crate::utils::fs_walk::walk_dir_depth(dir, depth, |path| {
         if !path.is_file() || crate::utils::fs_safe::is_filesystem_sidecar(path) {
             return None;
         }
@@ -375,6 +382,42 @@ pub(crate) fn video_files_in_depth1(dir: &Path) -> Vec<PathBuf> {
             .any(|x| ext.eq_ignore_ascii_case(x))
             .then(|| path.to_path_buf())
     })
+}
+
+/// A path in a form that compares equal however it was spelled: resolved
+/// when the file exists, as given otherwise.
+fn comparable(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+/// The music videos already in the download folder, taken when the PRIMARY
+/// run starts (the same moment as the audio-file count), so a video that
+/// appears afterwards can be told from one that was already there without
+/// relying on file times (a folder on a machine whose clock lags writes
+/// times in the past). Deep enough to reach `Artist/Album/` folders.
+pub(crate) fn videos_before_run(download_folder: &Path) -> std::collections::HashSet<PathBuf> {
+    video_files_to_depth(download_folder, 10)
+        .iter()
+        .map(|p| comparable(p))
+        .collect()
+}
+
+/// This download's music videos among `current` (the videos in the album
+/// folder now). With the pre-run list (`before`), every video not in it is
+/// this download's; a video that was already there still counts when it was
+/// written after the start (a re-download over it), by file time. Without
+/// the list (it could not be taken), the file-time rule decides alone.
+pub(crate) fn this_downloads_videos(
+    current: &[PathBuf],
+    before: Option<&std::collections::HashSet<PathBuf>>,
+    since: Option<std::time::SystemTime>,
+) -> Vec<PathBuf> {
+    let by_time = fresh_at_snapshot(current, since);
+    current
+        .iter()
+        .filter(|p| by_time.contains(*p) || before.is_some_and(|set| !set.contains(&comparable(p))))
+        .cloned()
+        .collect()
 }
 
 // ============================================================
@@ -2491,5 +2534,49 @@ mod tests {
             ..plain
         };
         assert!(!file_templates_allow_fixed_folder(&single));
+    }
+
+    #[test]
+    fn a_video_on_a_lagging_clock_is_still_this_downloads_by_the_pre_run_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let older = dir.path().join("Older.m4v");
+        std::fs::write(&older, b"x").unwrap();
+        let long_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(&older)
+            .unwrap()
+            .set_modified(long_ago)
+            .unwrap();
+        let before = videos_before_run(dir.path());
+        assert!(before.contains(&std::fs::canonicalize(&older).unwrap()));
+        // The new video's file time lags: it was "written" long before the
+        // download started.
+        let new = dir.path().join("New.m4v");
+        std::fs::write(&new, b"y").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&new)
+            .unwrap()
+            .set_modified(long_ago)
+            .unwrap();
+        let since = Some(std::time::SystemTime::now());
+        let now = video_files_in_depth1(dir.path());
+        assert_eq!(now.len(), 2);
+        let mine = this_downloads_videos(&now, Some(&before), since);
+        assert_eq!(mine, vec![new.clone()]);
+        // Without the list the time rule alone decides, as before.
+        assert!(this_downloads_videos(&now, None, since).is_empty());
+    }
+
+    #[test]
+    fn a_video_rewritten_by_this_download_counts_even_if_it_was_already_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let video = dir.path().join("V.m4v");
+        std::fs::write(&video, b"x").unwrap();
+        let before = videos_before_run(dir.path());
+        let since = Some(std::time::SystemTime::now() - std::time::Duration::from_secs(60));
+        let mine = this_downloads_videos(std::slice::from_ref(&video), Some(&before), since);
+        assert_eq!(mine, vec![video]);
     }
 }

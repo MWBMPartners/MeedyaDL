@@ -676,6 +676,30 @@ pub(crate) fn run_main_files_own(
     summary
 }
 
+/// Takes the main download's unfinished-lyrics list (if enrichment left
+/// one) and finishes those files. Needs no extra copy and no recorded
+/// scope: the files are unfinished either way. Does nothing, and leaves the
+/// list in place, when `stop` already says stop (abort, cancel, shutdown).
+pub(crate) fn recover_pending(
+    pending: Option<&Arc<StdMutex<Option<Vec<PathBuf>>>>>,
+    settings: &AppSettings,
+    lyrics_artist: Option<&str>,
+    default_title: Option<&str>,
+    stop: &dyn Fn() -> bool,
+) -> Option<Summary> {
+    if stop() {
+        return None;
+    }
+    let files = pending?.lock().ok()?.take()?;
+    Some(run_main_files_own(
+        settings,
+        &files,
+        lyrics_artist,
+        default_title,
+        stop,
+    ))
+}
+
 /// The activity-log line for [`run_main_files_own`], or `None` when it
 /// finished nothing.
 pub(crate) fn recovery_line(r: &Summary) -> Option<String> {
@@ -1669,6 +1693,27 @@ mod tests {
             Some("Lyrics finished for 1 song of the main download that were left unfinished.")
         );
         assert_eq!(recovery_line(&Summary::default()), None);
+    }
+
+    #[test]
+    fn pending_main_lyrics_are_recovered_without_any_extra_copy_or_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("01 Main.m4a");
+        minimal_m4a(&main, 1, 1, false);
+        std::fs::write(dir.path().join("01 Main.ttml"), WORD_TTML).unwrap();
+        let pending = Arc::new(StdMutex::new(Some(vec![main])));
+        // A stop leaves the list in place and writes nothing.
+        assert!(recover_pending(Some(&pending), &all_on(), None, None, &|| true).is_none());
+        assert!(pending.lock().unwrap().is_some());
+        assert!(!dir.path().join("01 Main.lrc").exists());
+        // Without a stop the files are finished and the list is taken.
+        let r = recover_pending(Some(&pending), &all_on(), None, None, &|| false).unwrap();
+        assert_eq!(r.own, 1);
+        assert!(dir.path().join("01 Main.lrc").exists());
+        assert!(pending.lock().unwrap().is_none());
+        // Nothing pending (or no handle at all): nothing to do.
+        assert!(recover_pending(Some(&pending), &all_on(), None, None, &|| false).is_none());
+        assert!(recover_pending(None, &all_on(), None, None, &|| false).is_none());
     }
 
     #[test]

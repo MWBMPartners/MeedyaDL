@@ -387,6 +387,23 @@ pub(crate) fn main_lyrics_targets(
         .collect()
 }
 
+/// The provisional list of the lyrics steps' files, known as soon as the
+/// download's snapshot is taken (before Step 1b and the tag rewrite): the
+/// music files written since the start, and the fresh videos. Replaced by
+/// the exact list ([`main_lyrics_targets`]) once it is worked out.
+pub(crate) fn provisional_main_targets(
+    primary_files: &[PathBuf],
+    fresh_files: &std::collections::HashSet<PathBuf>,
+    fresh_videos: &[PathBuf],
+) -> Vec<PathBuf> {
+    let fresh: Vec<PathBuf> = primary_files
+        .iter()
+        .filter(|p| fresh_files.contains(*p))
+        .cloned()
+        .collect();
+    main_lyrics_targets(&fresh, fresh_videos, &[])
+}
+
 /// How well the listed files are covered by lyrics: `(files with a
 /// `.ttml`, `.lrc` or `.srt` beside them, music files, video files)`.
 /// Only the listed files are looked at, so an older file in the same folder
@@ -802,6 +819,22 @@ mod tests {
             list,
             vec![p("/m/a.m4a"), p("/m/b.m4a"), p("/m/c.m4a"), p("/m/v.m4v")]
         );
+    }
+
+    #[test]
+    fn the_provisional_list_holds_only_fresh_files_and_videos() {
+        let p = |s: &str| PathBuf::from(s);
+        let fresh: std::collections::HashSet<PathBuf> = [p("/m/new.m4a")].into_iter().collect();
+        let list = provisional_main_targets(
+            &[p("/m/new.m4a"), p("/m/old.m4a")],
+            &fresh,
+            &[p("/m/v.m4v")],
+        );
+        assert_eq!(list, vec![p("/m/new.m4a"), p("/m/v.m4v")]);
+        // A music-video-only download has a list before Step 2 too.
+        let only_video =
+            provisional_main_targets(&[], &std::collections::HashSet::new(), &[p("/m/v.m4v")]);
+        assert_eq!(only_video, vec![p("/m/v.m4v")]);
     }
 
     #[test]

@@ -1032,6 +1032,20 @@ pub fn process_queue(
                 .map(count_audio_files_in_directory)
                 .unwrap_or(0);
 
+            // The music videos already in the download folder, taken at the
+            // same moment, so enrichment can tell this download's videos
+            // from older ones without trusting file times (#1441). `None`
+            // when the folder is unknown or the walk failed.
+            let videos_before_run: Option<std::collections::HashSet<std::path::PathBuf>> =
+                match primary_download_folder.clone() {
+                    Some(folder) => tokio::task::spawn_blocking(move || {
+                        super::lyrics_pass::videos_before_run(std::path::Path::new(&folder))
+                    })
+                    .await
+                    .ok(),
+                    None => None,
+                };
+
             // Run the GAMDL download with real-time event forwarding.
             // This function handles subprocess spawning, output parsing,
             // and cancellation polling. See run_download_with_events() below.
@@ -1933,6 +1947,7 @@ pub fn process_queue(
                         let enrich_gate = companion_gate;
                         let enrich_advisory_scope = advisory_scope.clone();
                         let enrich_pending_main = pending_main_lyrics.clone();
+                        let enrich_videos_before = videos_before_run.clone();
                         Some(tokio::spawn(async move {
                             // Owned by this task from its first line, so any
                             // return, panic or abort below drops it and lets
@@ -2257,16 +2272,29 @@ pub fn process_queue(
                             // lyrics steps need them too, and must not mistake an
                             // older video in a shared folder for this download's.
                             let fresh_videos: Vec<std::path::PathBuf> =
-                                super::lyrics_pass::fresh_at_snapshot(
+                                super::lyrics_pass::this_downloads_videos(
                                     &super::lyrics_pass::video_files_in_depth1(
                                         std::path::Path::new(&album_dir),
                                     ),
+                                    enrich_videos_before.as_ref(),
                                     chrono::DateTime::parse_from_rfc3339(&enrich_started_at)
                                         .ok()
                                         .map(std::time::SystemTime::from),
-                                )
-                                .into_iter()
-                                .collect();
+                                );
+                            // As early as this download's files can be known:
+                            // a provisional list of the lyrics steps' files,
+                            // so that if enrichment stops before Step 2 (its
+                            // deadline) the extra-copy task or the completion
+                            // task still gives them lyrics. Replaced by the
+                            // exact list below, and cleared before the
+                            // renames.
+                            if let Ok(mut pending) = enrich_pending_main.lock() {
+                                *pending = Some(super::lyrics_steps::provisional_main_targets(
+                                    &primary_files,
+                                    &fresh_files,
+                                    &fresh_videos,
+                                ));
+                            }
                             let primary_suffix = enrich_primary_suffix;
                             // The folder that holds the primary files, for the
                             // companions (album and song links only — other
@@ -2593,6 +2621,10 @@ pub fn process_queue(
                                     &fresh_videos,
                                     &step_1b_wrote,
                                 );
+                            // The exact list replaces the provisional one.
+                            if let Ok(mut pending) = enrich_pending_main.lock() {
+                                *pending = Some(lyrics_targets.clone());
+                            }
                             let split = super::lyrics_pass::split_this_downloads_formats(
                                 &this_download_paths,
                                 &file_codecs,
@@ -2866,12 +2898,9 @@ pub fn process_queue(
                                 return;
                             }
 
-                            // From here until Step 2g is done, these files are
-                            // "unfinished": if enrichment stops early, the
-                            // extra-copy task finishes their lyrics.
-                            if let Ok(mut pending) = enrich_pending_main.lock() {
-                                *pending = Some(lyrics_targets.clone());
-                            }
+                            // `pending_main_lyrics` has held these files since
+                            // they were known (above); it is cleared after
+                            // Step 2g, before the renames.
                             set_label(
                                 "Converting lyrics (Enhanced LRC)...",
                                 ProgressStage::LyricsConversion.weight(),
@@ -4472,6 +4501,8 @@ pub fn process_queue(
                         // Step 1 above) by move (#1021).
                         let completion_is_apple_music = is_apple_music;
                         let completion_advisory_scope = advisory_scope.clone();
+                        let completion_pending_main = pending_main_lyrics.clone();
+                        let completion_shutdown = shutdown_clone.clone();
                         tokio::spawn(async move {
                             // Wait for enrichment to finish with a timeout (#461).
                             // If enrichment hangs (e.g., deadlock, unresponsive API),
@@ -4571,6 +4602,48 @@ pub fn process_queue(
                                     let _ = handle.await;
                                 }
                             }
+                            // No extra-copy task exists to finish the main
+                            // files' lyrics (no extra formats planned) while
+                            // enrichment stopped before it was done with them
+                            // (its deadline, an early return): finish them
+                            // here. With an extra-copy task, that task does it
+                            // (`companions.rs`). Stops for cancel and shutdown.
+                            if companion_handle.is_none() {
+                                let keep_going = !completion_shutdown.is_triggered()
+                                    && completion_queue
+                                        .lock()
+                                        .await
+                                        .should_keep_working_on(&completion_dl_id);
+                                if keep_going {
+                                    let settings = load_settings_for_queue(&completion_app);
+                                    let stop_queue = completion_queue.clone();
+                                    let stop_id = completion_dl_id.clone();
+                                    let stop_shutdown = completion_shutdown.clone();
+                                    let stop = move || {
+                                        stop_shutdown.is_triggered()
+                                            || stop_queue
+                                                .try_lock()
+                                                .is_ok_and(|q| !q.should_keep_working_on(&stop_id))
+                                    };
+                                    if let Some(line) = super::companion_lyrics::recover_pending(
+                                        Some(&completion_pending_main),
+                                        &settings,
+                                        None,
+                                        None,
+                                        &stop,
+                                    )
+                                    .as_ref()
+                                    .and_then(super::companion_lyrics::recovery_line)
+                                    {
+                                        emit_download_log(
+                                            &completion_app,
+                                            &completion_dl_id,
+                                            &line,
+                                        );
+                                    }
+                                }
+                            }
+
                             // Wait for companion downloads with a timeout that
                             // scales with the planned tier count (each tier is
                             // a full GAMDL re-download). Reusing the

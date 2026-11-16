@@ -3855,6 +3855,41 @@ pub(crate) fn spawn_companion_downloads(
             // library once per successful tier, doubling/tripling wasted
             // work on big libraries. TTML files don't change between tiers,
             // so converting them once is correct.
+            // Finish the main download's own lyrics first, if enrichment
+            // stopped before it was done with them (its deadline, an early
+            // return). This does not depend on an extra copy having been
+            // made: the main files are unfinished either way. It still
+            // stops for abort, cancel and shutdown (`stop`, and the checks
+            // right here).
+            let settings = load_settings_for_queue(&comp_app);
+            let stop_aborted = aborted_for_task.clone();
+            let stop_shutdown = comp_shutdown.clone();
+            let stop_queue = comp_queue.clone();
+            let stop_dl_id = comp_dl_id.clone();
+            // Also stops when the item is cancelled mid-run. A queue that
+            // is busy right now is not waited for: the next step asks
+            // again.
+            let stop = move || {
+                stop_aborted.load(Ordering::Relaxed)
+                    || stop_shutdown.is_triggered()
+                    || stop_queue
+                        .try_lock()
+                        .is_ok_and(|q| !q.should_keep_working_on(&stop_dl_id))
+            };
+            if comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
+                if let Some(line) = super::companion_lyrics::recover_pending(
+                    pending_main_handle.as_ref(),
+                    &settings,
+                    lyricsfile_artist.as_deref(),
+                    lyricsfile_default_title.as_deref(),
+                    &stop,
+                )
+                .as_ref()
+                .and_then(super::companion_lyrics::recovery_line)
+                {
+                    emit_download_log(&comp_app, &comp_dl_id, &line);
+                }
+            }
             if any_tier_produced_files && !aborted_for_task.load(Ordering::Relaxed) {
                 let Some(output_dir) = comp_base_opts.output_path.as_deref() else {
                     return;
@@ -3892,42 +3927,10 @@ pub(crate) fn spawn_companion_downloads(
                     log::info!("Extra copy lyrics skipped — {comp_dl_id} was cancelled");
                     return;
                 }
-                let settings = load_settings_for_queue(&comp_app);
                 let output_dir = std::path::PathBuf::from(output_dir);
-                let stop_aborted = aborted_for_task.clone();
-                let stop_shutdown = comp_shutdown.clone();
-                let stop_queue = comp_queue.clone();
-                let stop_dl_id = comp_dl_id.clone();
-                // Also stops when the item is cancelled mid-run. A queue that
-                // is busy right now is not waited for: the next step asks
-                // again.
-                let stop = move || {
-                    stop_aborted.load(Ordering::Relaxed)
-                        || stop_shutdown.is_triggered()
-                        || stop_queue
-                            .try_lock()
-                            .is_ok_and(|q| !q.should_keep_working_on(&stop_dl_id))
-                };
                 let (scope, since) = if let Some(scope) = recorded_scope {
                     (scope, gate_opened_at.unwrap_or(tiers_started_at))
                 } else {
-                    // Finish the main download's own lyrics first, if
-                    // enrichment stopped before it was done with them.
-                    let pending = pending_main_handle
-                        .as_ref()
-                        .and_then(|h| h.lock().ok().and_then(|g| g.clone()));
-                    if let Some(files) = pending {
-                        let recovered = super::companion_lyrics::run_main_files_own(
-                            &settings,
-                            &files,
-                            lyricsfile_artist.as_deref(),
-                            lyricsfile_default_title.as_deref(),
-                            &stop,
-                        );
-                        if let Some(line) = super::companion_lyrics::recovery_line(&recovered) {
-                            emit_download_log(&comp_app, &comp_dl_id, &line);
-                        }
-                    }
                     let Some(dir_after) = super::companion_lyrics::resolve_album_folder(
                         &output_dir,
                         companion_album_dir.as_deref(),
