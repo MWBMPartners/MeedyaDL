@@ -148,11 +148,11 @@ Extra copies are made before the next item in the queue starts. If a format is n
 
 ### File Names
 
-Each file's name shows the format it really contains, so copies of the same song never overwrite each other. Standard AAC files keep a plain name. All versions go in the same album folder.
+MeedyaDL adds a short tag to file names, such as `[Dolby Atmos]` or `[Lossless]`, so copies of the same song in different formats never overwrite each other. Some files, such as standard AAC, have no tag. All versions go in the same album folder.
 
 - Dolby Atmos: `01 Song Title [Dolby Atmos].m4a`
 - ALAC (lossless): `01 Song Title [Lossless].m4a`
-- Standard AAC: plain name, `01 Song Title.m4a`
+- AAC Legacy: `01 Song Title [AAC Legacy].m4a`
 
 Example, with "Atmos → Lossless + Lossy; ALAC → Lossy" and a Dolby Atmos download:
 
@@ -160,14 +160,14 @@ Example, with "Atmos → Lossless + Lossy; ALAC → Lossy" and a Dolby Atmos dow
 Artist/Album/
   01 Song Title [Dolby Atmos].m4a   ← Main copy (spatial audio)
   01 Song Title [Lossless].m4a      ← ALAC copy
-  01 Song Title.m4a                 ← AAC copy (plain name)
+  01 Song Title [AAC Legacy].m4a    ← AAC copy (the tag depends on the AAC type)
 ```
 
-The tag always matches what is really in the file. MeedyaDL checks each file after it downloads, so a file that came back as ALAC when you asked for Atmos is named `[Lossless]`, not `[Dolby Atmos]`.
+MeedyaDL checks each main file after it downloads, so a file that came back as ALAC when you asked for Atmos is named `[Lossless]`, not `[Dolby Atmos]`. The exact tags can vary with your settings, so use them as a guide rather than a guarantee.
 
 ### Custom Mode
 
-With **Custom…** you see a list of tick boxes, one per format. Every format you tick is downloaded as its own extra copy, even if it is the same as your main format. Each copy's name shows its format. For example, with Atmos, ALAC and AAC ticked, AAC files are plain, ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]`.
+With **Custom…** you see a list of tick boxes, one per format. Every format you tick is downloaded as its own extra copy, even if it is the same as your main format. The copies get tags in their names, such as `[Lossless]` or `[Dolby Atmos]`, so they sit side by side in the album folder.
 
 Choose Custom for a mix the other modes don't cover, such as AAC Binaural and ALAC alongside Atmos, or every format for a full archive.
 
