@@ -81,6 +81,15 @@ jobs:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
           queries: security-and-quality
+          # src-tauri/vendor/ holds third-party crates copied in unchanged
+          # apart from a dependency version (rookie, #1413). They are not
+          # our code to scan: rookie, for example, holds the fixed values
+          # Chrome itself uses to protect cookies on Linux, which only raise
+          # "hard-coded cryptographic value" alerts nobody can act on.
+          # Excluding it was the maintainer's decision (16 Nov 2026).
+          config: |
+            paths-ignore:
+              - src-tauri/vendor/**
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@d4b3ca9fa7f69d38bfcd667bdc45bc373d16277e # v4
