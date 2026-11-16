@@ -2872,6 +2872,10 @@ pub(crate) struct CompanionHold {
     /// early; the companion task then finishes their lyrics itself
     /// (`companion_lyrics::run_main_files_own`).
     pub pending_main_lyrics: Arc<StdMutex<Option<Vec<std::path::PathBuf>>>>,
+    /// The writing jobs enrichment may have left running when it was
+    /// abandoned; the catch-up waits for them to end
+    /// (`lyrics_steps::wait_to_catch_up`).
+    pub in_flight_writes: super::lyrics_steps::InFlightWrites,
 }
 
 /// Plans and starts the companion downloads for one finished primary
@@ -3069,10 +3073,12 @@ pub(crate) fn spawn_companion_downloads(
             // not finish (see `CompanionHold::pending_main_lyrics`).
             let mut pending_main_handle: Option<Arc<StdMutex<Option<Vec<std::path::PathBuf>>>>> =
                 None;
+            let mut in_flight_handle: Option<super::lyrics_steps::InFlightWrites> = None;
             let mut gate_opened_at: Option<std::time::SystemTime> = None;
             if let Some(hold) = held_until {
                 lyrics_scope_handle = Some(hold.advisory_scope.clone());
                 pending_main_handle = Some(hold.pending_main_lyrics.clone());
+                in_flight_handle = Some(hold.in_flight_writes.clone());
                 let mut waiter = hold.waiter;
                 let state = super::lyrics_pass::wait_for_companion_gate(&mut waiter, || {
                     let queue = comp_queue.clone();
@@ -3877,17 +3883,58 @@ pub(crate) fn spawn_companion_downloads(
                         .is_ok_and(|q| !q.should_keep_working_on(&stop_dl_id))
             };
             if comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
-                if let Some(line) = super::companion_lyrics::recover_pending(
-                    pending_main_handle.as_ref(),
-                    &settings,
-                    lyricsfile_artist.as_deref(),
-                    lyricsfile_default_title.as_deref(),
-                    &stop,
-                )
-                .as_ref()
-                .and_then(super::companion_lyrics::recovery_line)
-                {
-                    emit_download_log(&comp_app, &comp_dl_id, &line);
+                // Wait for any writing job an abandoned enrichment left
+                // running, so the two never write the same file at once.
+                let wait = match in_flight_handle.as_ref() {
+                    Some(in_flight) => {
+                        super::lyrics_steps::wait_to_catch_up(
+                            pending_main_handle.as_ref(),
+                            in_flight,
+                            super::lyrics_steps::CATCH_UP_WAIT,
+                        )
+                        .await
+                    }
+                    None => super::lyrics_steps::CatchUpWait::NothingPending,
+                };
+                match wait {
+                    super::lyrics_steps::CatchUpWait::TimedOut => {
+                        log::debug!(
+                            "Lyrics catch-up skipped for {comp_dl_id}: a writing job was still running"
+                        );
+                    }
+                    other => {
+                        // Held until the catch-up has finished writing.
+                        let _hold = other;
+                        let (queue_artist, queue_album) = {
+                            let q = comp_queue.lock().await;
+                            q.items
+                                .iter()
+                                .find(|i| i.status.id == comp_dl_id)
+                                .map(|i| {
+                                    (i.status.artist_name.clone(), i.status.album_name.clone())
+                                })
+                                .unwrap_or((None, None))
+                        };
+                        let (names_artist, names_title) =
+                            super::lyrics_steps::lyricsfile_names_for_catch_up(
+                                lyricsfile_artist.as_deref(),
+                                lyricsfile_default_title.as_deref(),
+                                queue_artist.as_deref(),
+                                queue_album.as_deref(),
+                            );
+                        if let Some(line) = super::companion_lyrics::recover_pending(
+                            pending_main_handle.as_ref(),
+                            &settings,
+                            names_artist.as_deref(),
+                            names_title.as_deref(),
+                            &stop,
+                        )
+                        .as_ref()
+                        .and_then(super::companion_lyrics::recovery_line)
+                        {
+                            emit_download_log(&comp_app, &comp_dl_id, &line);
+                        }
+                    }
                 }
             }
             if any_tier_produced_files && !aborted_for_task.load(Ordering::Relaxed) {
@@ -3963,6 +4010,14 @@ pub(crate) fn spawn_companion_downloads(
                 // which could keep writing files after the final rename pass
                 // began. Done in this task, the completion task's wait covers
                 // it (#663), and the stop check is asked before every step.
+                // The names the album details gave; when they were never set,
+                // the queue item's own names stand in.
+                let (copy_artist, copy_title) = super::lyrics_steps::lyricsfile_names_for_catch_up(
+                    lyricsfile_artist.as_deref(),
+                    lyricsfile_default_title.as_deref(),
+                    artist_hint.as_deref(),
+                    album_hint.as_deref(),
+                );
                 let summary = super::companion_lyrics::run(
                     &settings,
                     &scope,
@@ -3971,8 +4026,8 @@ pub(crate) fn spawn_companion_downloads(
                     album_hint.as_deref(),
                     since,
                     &album_tracks,
-                    lyricsfile_artist.as_deref(),
-                    lyricsfile_default_title.as_deref(),
+                    copy_artist.as_deref(),
+                    copy_title.as_deref(),
                     &stop,
                 );
                 if let Some(line) = super::companion_lyrics::summary_line(&summary) {

@@ -1903,12 +1903,19 @@ pub fn process_queue(
                     let advisory_scope: Arc<StdMutex<Option<super::lyrics_pass::AdvisoryScope>>> =
                         Arc::new(StdMutex::new(None));
                     // The main download's files whose lyrics steps (Steps 2 to
-                    // 2g) have started but not finished: set right before Step
-                    // 2, cleared after Step 2g. If enrichment ends early with
-                    // it still set, the extra-copy task finishes the job
+                    // 2g) have not finished: set at the snapshot (a provisional
+                    // list, replaced by the exact one before Step 2), cleared
+                    // after Step 2g. If enrichment ends early with it still
+                    // set, either the extra-copy task or, failing that, the
+                    // completion task finishes the job
                     // (`companion_lyrics::run_main_files_own`, #1441).
                     let pending_main_lyrics: Arc<StdMutex<Option<Vec<std::path::PathBuf>>>> =
                         Arc::new(StdMutex::new(None));
+                    // The file-writing jobs enrichment has running on blocking
+                    // threads between the snapshot and the end of Step 2g.
+                    // They cannot be stopped by aborting enrichment, so the
+                    // catch-up waits for them (`lyrics_steps::InFlightWrites`).
+                    let in_flight_writes = super::lyrics_steps::new_in_flight_writes();
                     let enrichment_handle = if let Some(output_dir) =
                         output_path_for_artwork.clone()
                     {
@@ -1947,6 +1954,7 @@ pub fn process_queue(
                         let enrich_gate = companion_gate;
                         let enrich_advisory_scope = advisory_scope.clone();
                         let enrich_pending_main = pending_main_lyrics.clone();
+                        let enrich_in_flight = in_flight_writes.clone();
                         let enrich_videos_before = videos_before_run.clone();
                         Some(tokio::spawn(async move {
                             // Owned by this task from its first line, so any
@@ -2514,6 +2522,7 @@ pub fn process_queue(
                                     // above: never ask again here.
                                     is_library || album_metadata.is_none(),
                                     Some(&primary_files),
+                                    Some(&enrich_in_flight),
                                 )
                                 .await
                                 {
@@ -2930,12 +2939,15 @@ pub fn process_queue(
                                 // The function is pure sync I/O (std::fs + mp4ameta Tag)
                                 // that would starve tokio on slow FUSE mounts.
                                 let lrc_files = lyrics_targets.clone();
-                                match tokio::task::spawn_blocking(move || {
-                                    super::lyrics_steps::enhanced_lrc_for_files(
-                                        &lrc_files,
-                                        enrich_settings.keep_lyrics_sidecar,
-                                    )
-                                })
+                                match super::lyrics_steps::run_blocking_held(
+                                    &enrich_in_flight,
+                                    move || {
+                                        super::lyrics_steps::enhanced_lrc_for_files(
+                                            &lrc_files,
+                                            enrich_settings.keep_lyrics_sidecar,
+                                        )
+                                    },
+                                )
                                 .await
                                 .unwrap_or_else(|e| Err(format!("LRC task panicked: {e}")))
                                 {
@@ -3010,9 +3022,10 @@ pub fn process_queue(
                                     "Generating WebVTT subtitles...",
                                 );
                                 let vtt_files = lyrics_targets.clone();
-                                match tokio::task::spawn_blocking(move || {
-                                    super::lyrics_steps::webvtt_for_files(&vtt_files)
-                                })
+                                match super::lyrics_steps::run_blocking_held(
+                                    &enrich_in_flight,
+                                    move || super::lyrics_steps::webvtt_for_files(&vtt_files),
+                                )
                                 .await
                                 .unwrap_or_else(|e| Err(format!("VTT task panicked: {e}")))
                                 {
@@ -3066,9 +3079,10 @@ pub fn process_queue(
                                     "Generating rich SRT subtitles from TTML...",
                                 );
                                 let srt_files = lyrics_targets.clone();
-                                match tokio::task::spawn_blocking(move || {
-                                    super::lyrics_steps::rich_srt_for_files(&srt_files)
-                                })
+                                match super::lyrics_steps::run_blocking_held(
+                                    &enrich_in_flight,
+                                    move || super::lyrics_steps::rich_srt_for_files(&srt_files),
+                                )
                                 .await
                                 .unwrap_or_else(|e| Err(format!("Rich SRT task panicked: {e}")))
                                 {
@@ -3117,9 +3131,12 @@ pub fn process_queue(
                                     "Embedding subtitles in media files...",
                                 );
                                 let embed_files = lyrics_targets.clone();
-                                match tokio::task::spawn_blocking(move || {
-                                    super::lyrics_steps::embed_subtitles_for_files(&embed_files)
-                                })
+                                match super::lyrics_steps::run_blocking_held(
+                                    &enrich_in_flight,
+                                    move || {
+                                        super::lyrics_steps::embed_subtitles_for_files(&embed_files)
+                                    },
+                                )
                                 .await
                                 .unwrap_or_else(|e| {
                                     Err(format!("Subtitle embed task panicked: {e}"))
@@ -3162,9 +3179,10 @@ pub fn process_queue(
                                     "Generating ASS subtitles...",
                                 );
                                 let ass_files = lyrics_targets.clone();
-                                match tokio::task::spawn_blocking(move || {
-                                    super::lyrics_steps::ass_for_files(&ass_files)
-                                })
+                                match super::lyrics_steps::run_blocking_held(
+                                    &enrich_in_flight,
+                                    move || super::lyrics_steps::ass_for_files(&ass_files),
+                                )
                                 .await
                                 .unwrap_or_else(|e| Err(format!("ASS task panicked: {e}")))
                                 {
@@ -3231,13 +3249,16 @@ pub fn process_queue(
                                     .as_ref()
                                     .and_then(|m| m.artist_name.clone())
                                     .unwrap_or_else(|| "Unknown Artist".to_string());
-                                match tokio::task::spawn_blocking(move || {
-                                    super::lyrics_steps::lyricsfile_for_files(
-                                        &lf_files,
-                                        &lf_default_title,
-                                        &lf_default_artist,
-                                    )
-                                })
+                                match super::lyrics_steps::run_blocking_held(
+                                    &enrich_in_flight,
+                                    move || {
+                                        super::lyrics_steps::lyricsfile_for_files(
+                                            &lf_files,
+                                            &lf_default_title,
+                                            &lf_default_artist,
+                                        )
+                                    },
+                                )
                                 .await
                                 .unwrap_or_else(|e| Err(format!("Lyricsfile task panicked: {e}")))
                                 {
@@ -4475,6 +4496,7 @@ pub fn process_queue(
                             download_root: primary_download_folder.clone(),
                             advisory_scope: advisory_scope.clone(),
                             pending_main_lyrics: pending_main_lyrics.clone(),
+                            in_flight_writes: in_flight_writes.clone(),
                         }),
                         PrimaryNaming::of(&download_options, primary_appended_suffix),
                     );
@@ -4502,6 +4524,7 @@ pub fn process_queue(
                         let completion_is_apple_music = is_apple_music;
                         let completion_advisory_scope = advisory_scope.clone();
                         let completion_pending_main = pending_main_lyrics.clone();
+                        let completion_in_flight = in_flight_writes.clone();
                         let completion_shutdown = shutdown_clone.clone();
                         tokio::spawn(async move {
                             // Wait for enrichment to finish with a timeout (#461).
@@ -4602,48 +4625,6 @@ pub fn process_queue(
                                     let _ = handle.await;
                                 }
                             }
-                            // No extra-copy task exists to finish the main
-                            // files' lyrics (no extra formats planned) while
-                            // enrichment stopped before it was done with them
-                            // (its deadline, an early return): finish them
-                            // here. With an extra-copy task, that task does it
-                            // (`companions.rs`). Stops for cancel and shutdown.
-                            if companion_handle.is_none() {
-                                let keep_going = !completion_shutdown.is_triggered()
-                                    && completion_queue
-                                        .lock()
-                                        .await
-                                        .should_keep_working_on(&completion_dl_id);
-                                if keep_going {
-                                    let settings = load_settings_for_queue(&completion_app);
-                                    let stop_queue = completion_queue.clone();
-                                    let stop_id = completion_dl_id.clone();
-                                    let stop_shutdown = completion_shutdown.clone();
-                                    let stop = move || {
-                                        stop_shutdown.is_triggered()
-                                            || stop_queue
-                                                .try_lock()
-                                                .is_ok_and(|q| !q.should_keep_working_on(&stop_id))
-                                    };
-                                    if let Some(line) = super::companion_lyrics::recover_pending(
-                                        Some(&completion_pending_main),
-                                        &settings,
-                                        None,
-                                        None,
-                                        &stop,
-                                    )
-                                    .as_ref()
-                                    .and_then(super::companion_lyrics::recovery_line)
-                                    {
-                                        emit_download_log(
-                                            &completion_app,
-                                            &completion_dl_id,
-                                            &line,
-                                        );
-                                    }
-                                }
-                            }
-
                             // Wait for companion downloads with a timeout that
                             // scales with the planned tier count (each tier is
                             // a full GAMDL re-download). Reusing the
@@ -4740,6 +4721,92 @@ pub fn process_queue(
                                     // destructor. `&mut handle.handle` awaits the
                                     // same underlying task without taking it apart.
                                     let _ = (&mut handle.handle).await;
+                                }
+                            }
+
+                            // Catch-up for the main files' lyrics (#1441). If
+                            // enrichment stopped before it was done with them
+                            // (its deadline, an early return) and nothing has
+                            // finished them yet, finish them here. This runs
+                            // after the extra-copy wait whether or not an
+                            // extra-copy task existed, so it is not lost when
+                            // that task was cut off by its own deadline; the
+                            // list is taken once, so a task that already did
+                            // the job leaves nothing to do. First waits (up to
+                            // five minutes) for any writing job the abandoned
+                            // enrichment left running. Stops for cancel and
+                            // shutdown.
+                            {
+                                let keep_going = !completion_shutdown.is_triggered()
+                                    && completion_queue
+                                        .lock()
+                                        .await
+                                        .should_keep_working_on(&completion_dl_id);
+                                if keep_going {
+                                    let wait = super::lyrics_steps::wait_to_catch_up(
+                                        Some(&completion_pending_main),
+                                        &completion_in_flight,
+                                        super::lyrics_steps::CATCH_UP_WAIT,
+                                    )
+                                    .await;
+                                    match wait {
+                                        super::lyrics_steps::CatchUpWait::TimedOut => {
+                                            log::debug!(
+                                                "Lyrics catch-up skipped for {completion_dl_id}: a writing job was still running"
+                                            );
+                                        }
+                                        other => {
+                                            // Held until the catch-up has finished.
+                                            let _hold = other;
+                                            let (queue_artist, queue_album) = {
+                                                let q = completion_queue.lock().await;
+                                                q.items
+                                                    .iter()
+                                                    .find(|i| i.status.id == completion_dl_id)
+                                                    .map(|i| {
+                                                        (
+                                                            i.status.artist_name.clone(),
+                                                            i.status.album_name.clone(),
+                                                        )
+                                                    })
+                                                    .unwrap_or((None, None))
+                                            };
+                                            let (names_artist, names_title) =
+                                                super::lyrics_steps::lyricsfile_names_for_catch_up(
+                                                    None,
+                                                    None,
+                                                    queue_artist.as_deref(),
+                                                    queue_album.as_deref(),
+                                                );
+                                            let settings = load_settings_for_queue(&completion_app);
+                                            let stop_queue = completion_queue.clone();
+                                            let stop_id = completion_dl_id.clone();
+                                            let stop_shutdown = completion_shutdown.clone();
+                                            let stop = move || {
+                                                stop_shutdown.is_triggered()
+                                                    || stop_queue.try_lock().is_ok_and(|q| {
+                                                        !q.should_keep_working_on(&stop_id)
+                                                    })
+                                            };
+                                            if let Some(line) =
+                                                super::companion_lyrics::recover_pending(
+                                                    Some(&completion_pending_main),
+                                                    &settings,
+                                                    names_artist.as_deref(),
+                                                    names_title.as_deref(),
+                                                    &stop,
+                                                )
+                                                .as_ref()
+                                                .and_then(super::companion_lyrics::recovery_line)
+                                            {
+                                                emit_download_log(
+                                                    &completion_app,
+                                                    &completion_dl_id,
+                                                    &line,
+                                                );
+                                            }
+                                        }
+                                    }
                                 }
                             }
 

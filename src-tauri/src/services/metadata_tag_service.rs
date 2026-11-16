@@ -365,6 +365,7 @@ pub async fn apply_enriched_metadata_tags(
     content_advisory_in_filenames: bool,
     is_library: bool,
     deferred_primary_files: Option<&[PathBuf]>,
+    in_flight_writes: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
 ) -> Result<EnrichedTagsResult, String> {
     // Collect the M4A files to tag. When the renames are deferred, only the
     // primary download's own files are tagged: by the time this runs the
@@ -467,6 +468,7 @@ pub async fn apply_enriched_metadata_tags(
             mediainfo_path.as_ref(),
             album_metadata.as_ref(),
             event_context,
+            in_flight_writes,
         )
         .await
         {
@@ -758,6 +760,7 @@ pub(crate) fn album_names_match(file_name: &str, api_name: &str) -> bool {
 ///
 /// See:
 /// https://docs.rs/mp4ameta/latest/mp4ameta/struct.Tag.html
+#[allow(clippy::too_many_arguments)]
 async fn enrich_single_file(
     file_path: &Path,
     requested_codec: &SongCodec,
@@ -766,6 +769,7 @@ async fn enrich_single_file(
     mediainfo_path: Option<&PathBuf>,
     album_metadata: Option<&AlbumMetadata>,
     event_context: Option<(&tauri::AppHandle, &str)>,
+    in_flight_writes: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
 ) -> Result<(SongCodec, bool), String> {
     // Try MediaInfo first (more accurate for Atmos/AC3 detection), then ffprobe as fallback.
     let mediainfo_result = if let Some(mi_path) = mediainfo_path {
@@ -916,7 +920,15 @@ async fn enrich_single_file(
     // seconds on slow FUSE mounts (CloudMounter, NFS, etc.).
     // Whether the file's album matched the Apple Music album (so the
     // file is this album's track) — returned to the caller.
+    // A shared hold on the caller's in-flight tracker, taken BEFORE the job
+    // starts and moved into it: aborting the caller cannot stop this closure,
+    // and a task that finishes the lyrics afterwards waits for the hold.
+    let in_flight_hold = match in_flight_writes {
+        Some(tracker) => Some(tracker.clone().read_owned().await),
+        None => None,
+    };
     let album_matched = tokio::task::spawn_blocking(move || {
+        let _in_flight_hold = in_flight_hold;
         let mut album_matched = false;
         // Open the M4A file for reading/writing
         let mut tag = Tag::read_from_path(&tag_path).map_err(|e| {

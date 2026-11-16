@@ -641,6 +641,18 @@ pub(crate) fn run_main_files_own(
     default_title: Option<&str>,
     stop: &dyn Fn() -> bool,
 ) -> Summary {
+    // No artist known at all: leave the Lyricsfile step out. A `.lyrics`
+    // file is kept once written, so a placeholder name would stay for good.
+    let without_lyricsfile;
+    let settings = if settings.generate_lyricsfile && lyrics_artist.is_none() {
+        without_lyricsfile = AppSettings {
+            generate_lyricsfile: false,
+            ..settings.clone()
+        };
+        &without_lyricsfile
+    } else {
+        settings
+    };
     if !any_conversion_switched_on(settings) {
         return Summary::default();
     }
@@ -1714,6 +1726,29 @@ mod tests {
         // Nothing pending (or no handle at all): nothing to do.
         assert!(recover_pending(Some(&pending), &all_on(), None, None, &|| false).is_none());
         assert!(recover_pending(None, &all_on(), None, None, &|| false).is_none());
+    }
+
+    #[test]
+    fn catch_up_writes_no_lyricsfile_when_no_artist_is_known() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("01 Main.m4a");
+        minimal_m4a(&main, 1, 1, false);
+        std::fs::write(dir.path().join("01 Main.ttml"), WORD_TTML).unwrap();
+        // No artist: the other steps run, the Lyricsfile step does not.
+        let r = run_main_files_own(&all_on(), std::slice::from_ref(&main), None, None, &|| {
+            false
+        });
+        assert_eq!(r.own, 1);
+        assert!(dir.path().join("01 Main.lrc").exists());
+        assert!(!dir.path().join("01 Main.lyrics").exists());
+        // With an artist it is written, under that artist's name.
+        let r = run_main_files_own(&all_on(), &[main], Some("Real Artist"), Some("T"), &|| {
+            false
+        });
+        assert_eq!(r.total, 1);
+        let text = std::fs::read_to_string(dir.path().join("01 Main.lyrics")).unwrap();
+        assert!(text.contains("Real Artist"));
+        assert!(!text.contains("Unknown Artist"));
     }
 
     #[test]

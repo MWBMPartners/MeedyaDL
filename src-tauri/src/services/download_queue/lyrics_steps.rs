@@ -22,6 +22,8 @@
 // `StepInput::replace_existing`; the main download's own steps never do.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
 
 // ============================================================
 // What is next to a music file
@@ -432,6 +434,104 @@ pub(crate) fn lyrics_coverage(targets: &[PathBuf]) -> (usize, usize, usize) {
         }
     }
     (with_lyrics, audio, video)
+}
+
+// ============================================================
+// Writes still running when enrichment is abandoned (#1441)
+// ============================================================
+
+/// Counts the file-writing jobs enrichment has handed to a blocking thread
+/// between its snapshot of the main download's files and the end of Step 2g.
+/// Each such job holds a SHARED (read) hold for as long as it runs. A task
+/// that wants to finish the lyrics itself after enrichment was abandoned
+/// (its deadline) takes the EXCLUSIVE (write) hold first, so it never writes
+/// the same files at the same time as a job the abandoned task left running:
+/// aborting a task cannot stop a blocking closure that has already started.
+pub(crate) type InFlightWrites = Arc<tokio::sync::RwLock<()>>;
+
+/// A fresh, empty tracker.
+pub(crate) fn new_in_flight_writes() -> InFlightWrites {
+    Arc::new(tokio::sync::RwLock::new(()))
+}
+
+/// Runs `job` on a blocking thread while holding a shared hold on
+/// `in_flight`. The hold is taken BEFORE the job is handed over and moves
+/// into it, so it lasts until the job really ends, even if the caller is
+/// abandoned in the meantime.
+pub(crate) async fn run_blocking_held<T, F>(
+    in_flight: &InFlightWrites,
+    job: F,
+) -> Result<T, tokio::task::JoinError>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let held = in_flight.clone().read_owned().await;
+    tokio::task::spawn_blocking(move || {
+        let _held = held;
+        job()
+    })
+    .await
+}
+
+/// How long a catch-up waits for abandoned writing jobs to end before it
+/// gives up rather than race them.
+pub(crate) const CATCH_UP_WAIT: Duration = Duration::from_secs(5 * 60);
+
+/// What [`wait_to_catch_up`] found.
+pub(crate) enum CatchUpWait {
+    /// Nothing is waiting to be finished.
+    NothingPending,
+    /// Every writing job has ended; keep this while writing.
+    #[allow(dead_code)] // kept for its Drop: it is the hold itself
+    Ready(tokio::sync::OwnedRwLockWriteGuard<()>),
+    /// A writing job was still running after the wait: skip the catch-up.
+    TimedOut,
+}
+
+/// Waits (at most `limit`) until no abandoned writing job is running, if the
+/// main download has files whose lyrics are still unfinished. The returned
+/// hold must be kept until the catch-up has finished writing.
+pub(crate) async fn wait_to_catch_up(
+    pending: Option<&Arc<StdMutex<Option<Vec<PathBuf>>>>>,
+    in_flight: &InFlightWrites,
+    limit: Duration,
+) -> CatchUpWait {
+    let has_pending = pending
+        .and_then(|p| p.lock().ok().map(|g| g.is_some()))
+        .unwrap_or(false);
+    if !has_pending {
+        return CatchUpWait::NothingPending;
+    }
+    match tokio::time::timeout(limit, in_flight.clone().write_owned()).await {
+        Ok(guard) => CatchUpWait::Ready(guard),
+        Err(_) => CatchUpWait::TimedOut,
+    }
+}
+
+/// The artist and title the Lyricsfile step writes for a catch-up. The
+/// details from enrichment win; otherwise the names MeedyaDL already holds
+/// for the queue item stand in (the album name for the title). Never a
+/// placeholder: a `.lyrics` file is kept once written, so a made-up name
+/// would stay for good. `None` for the artist means "write none".
+pub(crate) fn lyricsfile_names_for_catch_up(
+    gate_artist: Option<&str>,
+    gate_title: Option<&str>,
+    queue_artist: Option<&str>,
+    queue_album: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    let pick = |a: Option<&str>, b: Option<&str>| {
+        [a, b]
+            .into_iter()
+            .flatten()
+            .map(str::trim)
+            .find(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    (
+        pick(gate_artist, queue_artist),
+        pick(gate_title, queue_album),
+    )
 }
 
 // ============================================================
@@ -928,6 +1028,73 @@ mod tests {
             std::fs::read_to_string(dir.path().join("01 A.vtt")).unwrap(),
             "mine"
         );
+    }
+
+    // ---- 8. the catch-up waits for abandoned writing jobs (#1441) ----
+
+    fn pending_with(files: Vec<PathBuf>) -> Arc<StdMutex<Option<Vec<PathBuf>>>> {
+        Arc::new(StdMutex::new(Some(files)))
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn catch_up_waits_for_a_writing_job_the_abandoned_task_left_running() {
+        let in_flight = new_in_flight_writes();
+        let pending = pending_with(vec![PathBuf::from("a.m4a")]);
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<()>();
+        // The task that started the job is abandoned straight away; the job
+        // keeps running on its blocking thread.
+        let tracker = in_flight.clone();
+        let task = tokio::spawn(async move {
+            run_blocking_held(&tracker, move || {
+                started_tx.send(()).unwrap();
+                release_rx.recv().unwrap();
+            })
+            .await
+        });
+        started_rx.recv().unwrap();
+        task.abort();
+        let _ = task.await;
+        // While the job still runs, the catch-up must not go ahead.
+        let early = wait_to_catch_up(Some(&pending), &in_flight, Duration::from_millis(100)).await;
+        assert!(matches!(early, CatchUpWait::TimedOut));
+        // Once it ends, the catch-up may.
+        release_tx.send(()).unwrap();
+        let late = wait_to_catch_up(Some(&pending), &in_flight, Duration::from_secs(10)).await;
+        assert!(matches!(late, CatchUpWait::Ready(_)));
+    }
+
+    #[tokio::test]
+    async fn catch_up_has_nothing_to_wait_for_without_a_pending_list() {
+        let in_flight = new_in_flight_writes();
+        let _busy = in_flight.clone().read_owned().await;
+        let none = Arc::new(StdMutex::new(None));
+        assert!(matches!(
+            wait_to_catch_up(Some(&none), &in_flight, Duration::from_millis(10)).await,
+            CatchUpWait::NothingPending
+        ));
+        assert!(matches!(
+            wait_to_catch_up(None, &in_flight, Duration::from_millis(10)).await,
+            CatchUpWait::NothingPending
+        ));
+    }
+
+    #[test]
+    fn catch_up_names_prefer_enrichments_then_the_queue_item_never_a_placeholder() {
+        let n = |a, b, c, d| lyricsfile_names_for_catch_up(a, b, c, d);
+        assert_eq!(
+            n(Some("A"), Some("T"), Some("QA"), Some("QB")),
+            (Some("A".into()), Some("T".into()))
+        );
+        assert_eq!(
+            n(None, None, Some("QA"), Some("QB")),
+            (Some("QA".into()), Some("QB".into()))
+        );
+        assert_eq!(
+            n(Some("  "), None, Some("QA"), None),
+            (Some("QA".into()), None)
+        );
+        assert_eq!(n(None, None, None, None), (None, None));
     }
 
     // ---- 7. nothing here deletes ----
