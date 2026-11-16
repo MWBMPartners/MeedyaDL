@@ -6098,7 +6098,7 @@ async fn a_tiers_format_tags_reach_only_that_tiers_new_files() {
     let tagged = super::companions::tag_tier_additions(
         &before,
         &after,
-        Some(dir.path()),
+        &[dir.path()],
         &SongCodec::Alac,
         "test",
     )
@@ -6142,7 +6142,7 @@ async fn a_tier_does_not_tag_new_files_outside_the_album_folder() {
     let tagged = super::companions::tag_tier_additions(
         &before,
         &after,
-        Some(&album),
+        &[album.as_path()],
         &SongCodec::Alac,
         "test",
     )
@@ -6382,7 +6382,7 @@ async fn copies_in_the_renamed_folder_and_its_disc_folders_are_tagged() {
     let tagged = super::companions::tag_tier_additions(
         &before,
         &after,
-        Some(folder.as_path()),
+        &[folder.as_path()],
         &SongCodec::Alac,
         "test",
     )
@@ -6409,11 +6409,61 @@ async fn with_no_known_folder_the_before_after_set_is_tagged() {
     let tagged = super::companions::tag_tier_additions(
         &before,
         &after,
-        Some(folder.as_path()),
+        &[folder.as_path()],
         &SongCodec::Alac,
         "test",
     )
     .await;
     assert_eq!(tagged, 1);
     assert_ne!(std::fs::read(&copy).unwrap(), c0);
+}
+
+/// Review finding: copies saved outside the recorded folder (the predicted
+/// folder) are tagged too, and a copy outside both is not.
+#[tokio::test]
+async fn copies_in_the_predicted_folder_outside_the_recorded_one_are_tagged() {
+    use crate::services::metadata_tag_service::test_support::minimal_m4a;
+    let root = tempfile::tempdir().unwrap();
+    let recorded = root.path().join("Artist").join("Album [Explicit]");
+    let predicted = root.path().join("Artist").join("Album");
+    let stranger = root.path().join("Other").join("Thing");
+    for d in [&recorded, &predicted, &stranger] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let before = std::collections::BTreeSet::new();
+    let (a, b, c) = (
+        recorded.join("01 A [Lossless].m4a"),
+        predicted.join("02 B [Lossless].m4a"),
+        stranger.join("01 C [Lossless].m4a"),
+    );
+    minimal_m4a(&a, 1, 1, false);
+    minimal_m4a(&b, 2, 1, false);
+    minimal_m4a(&c, 1, 1, false);
+    let after = super::lyrics_pass::audio_files_in(root.path());
+    let (a0, b0, c0) = (
+        std::fs::read(&a).unwrap(),
+        std::fs::read(&b).unwrap(),
+        std::fs::read(&c).unwrap(),
+    );
+    let folders = super::companions::tier_tag_folders(
+        root.path(),
+        &recorded,
+        &before,
+        &after,
+        Some("Artist"),
+        Some("Album"),
+    );
+    assert_eq!(folders, vec![recorded.clone(), predicted.clone()]);
+    let within: Vec<&std::path::Path> = folders.iter().map(|p| p.as_path()).collect();
+    let tagged =
+        super::companions::tag_tier_additions(&before, &after, &within, &SongCodec::Alac, "test")
+            .await;
+    assert_eq!(tagged, 2);
+    assert_ne!(std::fs::read(&a).unwrap(), a0);
+    assert_ne!(std::fs::read(&b).unwrap(), b0);
+    assert_eq!(std::fs::read(&c).unwrap(), c0);
+    assert_eq!(
+        super::companions::tier_files_outside(&before, &after, &within),
+        vec![c]
+    );
 }

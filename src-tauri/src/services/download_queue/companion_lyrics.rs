@@ -519,7 +519,7 @@ pub(crate) fn this_downloads_copies(
 /// The folder the extra copies were saved in, when it is NOT inside the
 /// main download's album folder (the predicted-suffix folder case); `None`
 /// otherwise.
-fn resolve_extra_dir(
+pub(crate) fn resolve_extra_dir(
     output_dir: &Path,
     artist_hint: Option<&str>,
     album_hint: Option<&str>,
@@ -706,10 +706,63 @@ pub(crate) fn run_main_files_own(
     summary
 }
 
+/// Holds the files of a locked catch-up that are not finished yet. If the
+/// catch-up's future is dropped part-way (the extra-copy task is aborted
+/// while it waits for a file's lock), dropping this puts the unfinished
+/// files back on the shared "pending" list, merged with anything already
+/// there, so the completion task's own catch-up still finds them. A file is
+/// only taken off with [`PendingRestore::done`], after its writing has
+/// finished. The files are put back even when the catch-up was stopped by
+/// cancel or quit: the completion task's catch-up checks those itself, so
+/// a leftover list is harmless.
+pub(crate) struct PendingRestore {
+    pending: Option<Arc<StdMutex<Option<Vec<PathBuf>>>>>,
+    remaining: Vec<PathBuf>,
+}
+
+impl PendingRestore {
+    fn new(pending: Option<Arc<StdMutex<Option<Vec<PathBuf>>>>>, files: &[PathBuf]) -> Self {
+        Self {
+            pending,
+            remaining: files.to_vec(),
+        }
+    }
+
+    /// Notes that `file` is completely finished (or is not a file any more).
+    fn done(&mut self, file: &Path) {
+        self.remaining.retain(|p| p != file);
+    }
+}
+
+impl Drop for PendingRestore {
+    fn drop(&mut self) {
+        if self.remaining.is_empty() {
+            return;
+        }
+        let Some(pending) = self.pending.as_ref() else {
+            return;
+        };
+        let rest = std::mem::take(&mut self.remaining);
+        // A poisoned lock still holds a usable list.
+        let mut guard = pending.lock().unwrap_or_else(|e| e.into_inner());
+        match guard.as_mut() {
+            Some(existing) => {
+                for p in rest {
+                    if !existing.contains(&p) {
+                        existing.push(p);
+                    }
+                }
+            }
+            None => *guard = Some(rest),
+        }
+    }
+}
+
 /// Same as the plain version, but takes the app-wide write lock for each
 /// file (see `utils::file_locks`) before that file's steps, and holds it
 /// only for that file. The lock is taken here, in the loop, never inside
-/// the steps that write.
+/// the steps that write. Each file is marked finished in `restore` only
+/// after its steps are done, so a dropped future leaves the rest recoverable.
 pub(crate) async fn run_main_files_own_locked(
     locks: &Arc<FileWriteLocks>,
     settings: &AppSettings,
@@ -717,10 +770,15 @@ pub(crate) async fn run_main_files_own_locked(
     lyrics_artist: Option<&str>,
     default_title: Option<&str>,
     stop: &(dyn Fn() -> bool + Sync),
+    restore: &mut PendingRestore,
 ) -> Summary {
     let settings = &settings_for_main_files(settings, lyrics_artist);
     if !any_conversion_switched_on(settings) {
+        restore.remaining.clear();
         return Summary::default();
+    }
+    for p in files.iter().filter(|p| !p.is_file()) {
+        restore.done(p);
     }
     let files: Vec<&PathBuf> = files.iter().filter(|p| p.is_file()).collect();
     let mut summary = Summary {
@@ -742,6 +800,9 @@ pub(crate) async fn run_main_files_own_locked(
             default_title,
             stop,
         );
+        if !matches!(outcome, CopyOutcome::Stopped) {
+            restore.done(file);
+        }
         if tally_main(&mut summary, outcome) {
             return summary;
         }
@@ -784,6 +845,8 @@ pub(crate) fn recover_pending(
 }
 
 /// [`recover_pending`] for the app: takes the app-wide write lock per file.
+/// If this future is dropped while waiting for a file's lock, the files not
+/// yet finished go back on `pending` (see [`PendingRestore`]).
 pub(crate) async fn recover_pending_locked(
     locks: &Arc<FileWriteLocks>,
     pending: Option<&Arc<StdMutex<Option<Vec<PathBuf>>>>>,
@@ -793,9 +856,18 @@ pub(crate) async fn recover_pending_locked(
     stop: &(dyn Fn() -> bool + Sync),
 ) -> Option<Summary> {
     let files = take_pending(pending, stop)?;
+    let mut restore = PendingRestore::new(pending.cloned(), &files);
     Some(
-        run_main_files_own_locked(locks, settings, &files, lyrics_artist, default_title, stop)
-            .await,
+        run_main_files_own_locked(
+            locks,
+            settings,
+            &files,
+            lyrics_artist,
+            default_title,
+            stop,
+            &mut restore,
+        )
+        .await,
     )
 }
 
@@ -1931,6 +2003,46 @@ mod tests {
         // Nothing pending (or no handle at all): nothing to do.
         assert!(recover_pending(Some(&pending), &all_on(), None, None, &|| false).is_none());
         assert!(recover_pending(None, &all_on(), None, None, &|| false).is_none());
+    }
+
+    /// If the locked catch-up is dropped while waiting for a file's lock (the
+    /// extra-copy task aborted at its deadline), the files not yet finished
+    /// go back on the pending list; the finished one does not.
+    #[tokio::test]
+    async fn dropped_locked_catch_up_returns_unfinished_files_to_pending() {
+        let dir = tempfile::tempdir().unwrap();
+        let mk = |name: &str| {
+            let f = dir.path().join(format!("{name}.m4a"));
+            minimal_m4a(&f, 1, 1, false);
+            std::fs::write(dir.path().join(format!("{name}.ttml")), WORD_TTML).unwrap();
+            f
+        };
+        let (a, b, c) = (mk("01 A"), mk("02 B"), mk("03 C"));
+        let pending = Arc::new(StdMutex::new(Some(vec![a.clone(), b.clone(), c.clone()])));
+        let locks = Arc::new(FileWriteLocks::new());
+        // Another task holds b's lock for the whole test.
+        let held = locks.lock(&b).await;
+        let settings = all_on();
+        let fut = recover_pending_locked(&locks, Some(&pending), &settings, None, None, &|| false);
+        let waited = tokio::time::timeout(Duration::from_millis(500), fut).await;
+        assert!(waited.is_err(), "the catch-up should still be waiting on b");
+        // a was finished before the wait; the future is now dropped.
+        assert!(dir.path().join("01 A.lrc").exists());
+        assert!(!dir.path().join("02 B.lrc").exists());
+        let left = pending.lock().unwrap().clone().expect("remainder put back");
+        assert_eq!(left, vec![b.clone(), c.clone()]);
+        // A later catch-up (the completion task's) finishes them.
+        drop(held);
+        let r = tokio::time::timeout(
+            Duration::from_secs(10),
+            recover_pending_locked(&locks, Some(&pending), &settings, None, None, &|| false),
+        )
+        .await
+        .expect("no hang")
+        .expect("a list was there");
+        assert_eq!(r.own, 2);
+        assert!(dir.path().join("03 C.lrc").exists());
+        assert!(pending.lock().unwrap().is_none());
     }
 
     #[test]

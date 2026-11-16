@@ -826,20 +826,61 @@ pub(crate) fn tier_tag_folder(
         .to_path_buf()
 }
 
+/// The folders a tier's new copies may be tagged in: the known download
+/// folder, plus the folder the artist and album names point at when some new
+/// copy landed outside the known one (the predicted-suffix folder case the
+/// lyrics step handles with `resolve_extra_dir`). The name lookup only runs
+/// when a new file really is outside the known folder.
+pub(crate) fn tier_tag_folders(
+    output_dir: &std::path::Path,
+    tag_folder: &std::path::Path,
+    before: &std::collections::BTreeSet<std::path::PathBuf>,
+    after: &std::collections::BTreeSet<std::path::PathBuf>,
+    artist_hint: Option<&str>,
+    album_hint: Option<&str>,
+) -> Vec<std::path::PathBuf> {
+    let mut folders = vec![tag_folder.to_path_buf()];
+    if !tier_files_outside(before, after, &[tag_folder]).is_empty() {
+        if let Some(extra) = super::companion_lyrics::resolve_extra_dir(
+            output_dir,
+            artist_hint,
+            album_hint,
+            tag_folder,
+        ) {
+            folders.push(extra);
+        }
+    }
+    folders
+}
+
+/// The files a tier added that lie outside every folder in `within`, so
+/// would get no format tags.
+pub(crate) fn tier_files_outside(
+    before: &std::collections::BTreeSet<std::path::PathBuf>,
+    after: &std::collections::BTreeSet<std::path::PathBuf>,
+    within: &[&std::path::Path],
+) -> Vec<std::path::PathBuf> {
+    tier_new_m4a(before, after)
+        .into_iter()
+        .filter(|f| !within.iter().any(|dir| f.starts_with(dir)))
+        .collect()
+}
+
 /// Writes an extra-format tier's format tags to the files that tier added
-/// (see [`tier_new_m4a`]), each under the app-wide write lock. With
-/// `within`, files outside that folder are left out. Returns how many files
-/// were tagged. Failures are only logged.
+/// (see [`tier_new_m4a`]), each under the app-wide write lock. Files outside
+/// every folder in `within` are left out (an empty list leaves out
+/// everything); see [`tier_files_outside`]. Returns how many files were
+/// tagged. Failures are only logged.
 pub(crate) async fn tag_tier_additions(
     before: &std::collections::BTreeSet<std::path::PathBuf>,
     after: &std::collections::BTreeSet<std::path::PathBuf>,
-    within: Option<&std::path::Path>,
+    within: &[&std::path::Path],
     codec: &SongCodec,
     dl_id: &str,
 ) -> usize {
     let mut tagged = 0usize;
     for new_file in tier_new_m4a(before, after) {
-        if within.is_some_and(|dir| !new_file.starts_with(dir)) {
+        if !within.iter().any(|dir| new_file.starts_with(dir)) {
             continue;
         }
         let _guard = crate::utils::file_locks::global().lock(&new_file).await;
@@ -3844,14 +3885,6 @@ pub(crate) fn spawn_companion_downloads(
                                 // previously-completed items. Now scope to
                                 // the current item's resolved album dir via
                                 // the same hints the lyrics conversion uses.
-                                let tag_pass_target = find_album_directory(
-                                    std::path::Path::new(output_dir),
-                                    artist_hint.as_deref(),
-                                    album_hint.as_deref(),
-                                )
-                                .unwrap_or_else(|| output_dir.clone());
-                                // Used for the log line only; it does not decide
-                                // which files are tagged (see `tier_tag_folder`).
                                 // **Only the files THIS tier added** get its format
                                 // tags (#1442). The folder-wide pass used to write
                                 // this tier's tags (for example "lossless") into the
@@ -3872,10 +3905,25 @@ pub(crate) fn spawn_companion_downloads(
                                     recorded_dir.as_deref(),
                                     companion_album_dir.as_deref(),
                                 );
+                                // Copies can also land outside the recorded
+                                // folder (the predicted-suffix folder case the
+                                // lyrics step handles with `resolve_extra_dir`).
+                                // That name lookup only runs when some new file
+                                // really is outside the known folder.
+                                let tag_folders = tier_tag_folders(
+                                    std::path::Path::new(output_dir),
+                                    &tag_folder,
+                                    &before_tier,
+                                    &after_tier,
+                                    artist_hint.as_deref(),
+                                    album_hint.as_deref(),
+                                );
+                                let within: Vec<&std::path::Path> =
+                                    tag_folders.iter().map(|p| p.as_path()).collect();
                                 let tagged = tag_tier_additions(
                                     &before_tier,
                                     &after_tier,
-                                    Some(tag_folder.as_path()),
+                                    &within,
                                     codec,
                                     &comp_dl_id,
                                 )
@@ -3885,8 +3933,22 @@ pub(crate) fn spawn_companion_downloads(
                                         "Tagged {} companion file(s) with {} metadata in {} for {}",
                                         tagged,
                                         stream_codec,
-                                        tag_pass_target,
+                                        tag_folder.display(),
                                         comp_dl_id
+                                    );
+                                }
+                                let left_out =
+                                    tier_files_outside(&before_tier, &after_tier, &within);
+                                if tagged == 0 && !left_out.is_empty() {
+                                    log::debug!(
+                                        "Extra copies not tagged for {comp_dl_id} (outside {:?}): {:?}",
+                                        within,
+                                        left_out
+                                    );
+                                    emit_download_log(
+                                        &comp_app,
+                                        &comp_dl_id,
+                                        "The format details of the extra copies could not be added, because they were saved outside the album folder.",
                                     );
                                 }
 
@@ -3994,13 +4056,14 @@ pub(crate) fn spawn_companion_downloads(
                         .try_lock()
                         .is_ok_and(|q| !q.should_keep_working_on(&stop_dl_id))
             };
-            // The catch-up's own stop check leaves out the deadline flag:
-            // `recover_pending` takes the whole list before it starts, so a
-            // deadline landing part-way would drop the files not yet reached
-            // and the completion task's own catch-up would find nothing left.
-            // The completion task waits for this task after an abort anyway,
-            // so it simply waits for the catch-up to finish. Cancel and quit
-            // still stop it.
+            // The catch-up's own stop check leaves out the deadline flag, so a
+            // deadline does not end it between two files. If the task is
+            // aborted while the catch-up waits for a file's lock, the
+            // catch-up takes the whole list first but puts the files it had
+            // not finished back on `pending_main_lyrics` as it is dropped
+            // (`PendingRestore`), so the completion task's own catch-up still
+            // finds them. Cancel and quit also stop it between files, and
+            // leave the remainder on the list for the same reason.
             let catch_up_shutdown = comp_shutdown.clone();
             let catch_up_queue = comp_queue.clone();
             let catch_up_dl_id = comp_dl_id.clone();
