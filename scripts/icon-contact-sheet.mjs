@@ -45,7 +45,6 @@ import {
   ICONS_DIR,
   renderTileSmall,
   renderTileMedium,
-  renderMasterDownscale,
 } from './generate-app-icons.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -129,10 +128,6 @@ async function magnify(buffer, size) {
     .resize(size * MAGNIFY, size * MAGNIFY, { kernel: 'nearest' })
     .png()
     .toBuffer();
-}
-
-async function toDataUri(buffer) {
-  return `data:image/png;base64,${buffer.toString('base64')}`;
 }
 
 async function buildContactSheet(oldIcons, newIcons) {
