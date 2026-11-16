@@ -148,7 +148,7 @@ Extra copies are made before the next item in the queue starts. If a format is n
 
 ### File Names
 
-MeedyaDL adds a short tag to file names, such as `[Dolby Atmos]` or `[Lossless]`, so copies of the same song in different formats never overwrite each other. Some files, such as standard AAC, have no tag. All versions go in the same album folder.
+MeedyaDL adds a short tag to file names, such as `[Dolby Atmos]` or `[Lossless]`, so copies of the same song in different formats can sit side by side. Some files, such as standard AAC, have no tag. All versions go in the same album folder.
 
 - Dolby Atmos: `01 Song Title [Dolby Atmos].m4a`
 - ALAC (lossless): `01 Song Title [Lossless].m4a`
@@ -160,14 +160,14 @@ Example, with "Atmos → Lossless + Lossy; ALAC → Lossy" and a Dolby Atmos dow
 Artist/Album/
   01 Song Title [Dolby Atmos].m4a   ← Main copy (spatial audio)
   01 Song Title [Lossless].m4a      ← ALAC copy
-  01 Song Title [AAC Legacy].m4a    ← AAC copy (the tag depends on the AAC type)
+  01 Song Title [AAC Legacy].m4a    ← AAC copy (the tag, if any, depends on the AAC type and your settings)
 ```
 
 MeedyaDL checks each main file after it downloads, so a file that came back as ALAC when you asked for Atmos is named `[Lossless]`, not `[Dolby Atmos]`. The exact tags can vary with your settings, so use them as a guide rather than a guarantee.
 
 ### Custom Mode
 
-With **Custom…** you see a list of tick boxes, one per format. Every format you tick is downloaded as its own extra copy, even if it is the same as your main format. The copies get tags in their names, such as `[Lossless]` or `[Dolby Atmos]`, so they sit side by side in the album folder.
+With **Custom…** you see a list of tick boxes, one per format. Every format you tick is downloaded as its own extra copy, even if it is the same as your main format. Most copies get a tag in their names, such as `[Lossless]` or `[Dolby Atmos]`, so they can sit side by side in the album folder. Some, such as standard AAC, have none.
 
 Choose Custom for a mix the other modes don't cover, such as AAC Binaural and ALAC alongside Atmos, or every format for a full archive.
 
