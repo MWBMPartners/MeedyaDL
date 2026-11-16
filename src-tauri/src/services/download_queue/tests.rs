@@ -2793,7 +2793,7 @@
         ];
         // Not a mixed album: the item's own links.
         assert_eq!(
-            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[]),
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[]),
             AttemptLinks::All
         );
         // Mixed: only track 1 is requested (track 2 is already ALAC),
@@ -2808,22 +2808,25 @@
                 &album,
                 &primary,
                 &tracks,
-                &[SongCodec::Atmos, SongCodec::Alac]
+                &[SongCodec::Atmos, SongCodec::Alac],
+                &[]
             ),
             AttemptLinks::Only {
                 links: vec!["https://music.apple.com/us/album/_/1440857781?i=11".to_string()],
                 unmapped: 1,
                 unreadable: 1,
+                already_there: 0,
                 details_available: true,
             }
         );
         // No album song details at all (no developer key).
         assert_eq!(
-            attempt_links(&SongCodec::Alac, true, &album, &primary, &[], &[]),
+            attempt_links(&SongCodec::Alac, true, &album, &primary, &[], &[], &[]),
             AttemptLinks::Only {
                 links: vec![],
                 unmapped: 2,
                 unreadable: 0,
+                already_there: 0,
                 details_available: false,
             }
         );
@@ -2831,7 +2834,7 @@
         // a plain reason.
         let playlist = vec!["https://music.apple.com/us/playlist/x/pl.u-GgA567VCXX".to_string()];
         assert_eq!(
-            attempt_links(&SongCodec::Alac, true, &playlist, &primary, &tracks, &[]),
+            attempt_links(&SongCodec::Alac, true, &playlist, &primary, &tracks, &[], &[]),
             AttemptLinks::Skip(
                 "Extra copies in Lossless (ALAC) were not made for this playlist, because some of its songs are already in that format."
                     .to_string()
@@ -2840,7 +2843,7 @@
         // A single song link is not split either.
         let song = vec!["https://music.apple.com/us/album/x/1440857781?i=11".to_string()];
         assert!(matches!(
-            attempt_links(&SongCodec::Alac, true, &song, &primary, &tracks, &[]),
+            attempt_links(&SongCodec::Alac, true, &song, &primary, &tracks, &[], &[]),
             AttemptLinks::Skip(_)
         ));
     }
@@ -2919,7 +2922,8 @@
                 &album,
                 &split.tracks,
                 &[],
-                &split.unplaceable
+                &split.unplaceable,
+                &[]
             ),
             AttemptLinks::All
         );
@@ -2948,11 +2952,74 @@
         );
     }
 
+    /// The overwrite setting reaches GAMDL on the command line only: the
+    /// primary run says `--overwrite`, a companion run (overwrite forced
+    /// off) says nothing — and config.ini never says it either, because
+    /// GAMDL 3 cannot cancel an INI `overwrite = true` from the command line.
+    #[test]
+    fn overwrite_is_on_the_primary_command_line_and_never_on_a_companions() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.9.1".to_string()));
+        let mut settings = test_settings();
+        settings.overwrite = true;
+        let primary = merge_options(None, &settings, None);
+        assert!(primary.to_cli_args().iter().any(|a| a == "--overwrite"));
+        let mut companion = primary.clone();
+        companion.overwrite = Some(false);
+        assert!(!companion.to_cli_args().iter().any(|a| a == "--overwrite"));
+        crate::services::gamdl_capabilities::set_detected_version(None);
+    }
+
     /// Every companion run forces overwrite off, on every path.
     #[test]
     fn companions_never_overwrite() {
         let src = include_str!("companions.rs");
         assert!(src.contains("opts.overwrite = Some(false);"));
+    }
+
+    /// On a re-download of a rated album, copies already in the folder carry
+    /// the advisory label (`01 Song [Explicit] [Lossless]`) that GAMDL's own
+    /// name check does not know about: only the songs without a copy are
+    /// requested, and when every song has one nothing is requested.
+    #[test]
+    fn labelled_copies_already_there_are_not_downloaded_again() {
+        let album = vec!["https://music.apple.com/us/album/x/1440857781".to_string()];
+        let primary = vec![(SongCodec::Atmos, 1, 1), (SongCodec::Atmos, 1, 2)];
+        let tracks = vec![(1, 1, "11".to_string()), (1, 2, "12".to_string())];
+        // Track 1 already has its labelled ALAC copy: only track 2 is asked.
+        assert_eq!(
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[(1, 1)]),
+            AttemptLinks::Only {
+                links: vec!["https://music.apple.com/us/album/_/1440857781?i=12".to_string()],
+                unmapped: 0,
+                unreadable: 0,
+                already_there: 1,
+                details_available: true,
+            }
+        );
+        // Every song has its copy: nothing requested, nothing to report as
+        // missing (the tier counts as done).
+        assert_eq!(
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[(1, 1), (1, 2)]),
+            AttemptLinks::Only {
+                links: vec![],
+                unmapped: 0,
+                unreadable: 0,
+                already_there: 2,
+                details_available: true,
+            }
+        );
+        // Without song details the normal request runs (GAMDL's own check).
+        assert_eq!(
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &[], &[], &[(1, 1)]),
+            AttemptLinks::All
+        );
+        // A plain (AAC) attempt never looks for existing copies: the caller
+        // passes none, and the normal request runs.
+        assert_eq!(
+            attempt_links(&SongCodec::Aac, false, &album, &primary, &tracks, &[], &[]),
+            AttemptLinks::All
+        );
     }
 
     /// This download's own mixed album still asks per track.
@@ -2980,6 +3047,7 @@
                 &album,
                 &[(SongCodec::Atmos, 1, 1), (SongCodec::Alac, 1, 2)],
                 &[(1, 1, "11".to_string()), (1, 2, "12".to_string())],
+                &[],
                 &[]
             ),
             AttemptLinks::Only { ref links, .. } if links.len() == 1

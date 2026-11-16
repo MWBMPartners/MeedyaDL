@@ -1511,7 +1511,8 @@ fn ini_cover_section(lines: &mut Vec<String>, settings: &AppSettings) {
     lines.push(format!("cover_size = {}", settings.cover_size));
 }
 
-/// Appends output/path INI key-value pairs (`output_path`, `temp_path`, overwrite, truncate).
+/// Appends output/path INI key-value pairs (`output_path`, `temp_path`, truncate).
+/// `overwrite` is never written: it is a command-line-only option (see below).
 fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Output directory for downloaded files. Only written if non-empty.
     // A folder MeedyaDL refuses (a ".." step) is left out: GAMDL 3 reads
@@ -1538,10 +1539,14 @@ fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
     } else {
         lines.push(format!("temp_path = {}", sanitize_ini_value(&settings.temp_path)));
     }
-    // Boolean flag: when true, existing files are overwritten without prompting.
-    if settings.overwrite {
-        lines.push("overwrite = true".to_string());
-    }
+    // `overwrite` is deliberately NOT written here (16 Nov 2026). GAMDL 3
+    // reads this file as defaults and has no `--no-overwrite` to cancel
+    // one, so `overwrite = true` here made EVERY run overwrite — including
+    // the extra-format copies, the gap-fill and the Library re-download,
+    // which must never replace a file. The command line is the only place
+    // it is said: runs that should overwrite get `--overwrite` from their
+    // own options (`GamdlOptions.overwrite`, set from the setting by
+    // `merge_options` and by the other runs that honour it).
     // Truncate file/folder names to this many characters (avoids filesystem limits).
     if let Some(truncate) = settings.truncate {
         lines.push(format!("truncate = {truncate}"));
@@ -2395,11 +2400,13 @@ mod tests {
     }
 
     #[test]
-    fn ini_includes_overwrite_when_true() {
+    fn ini_never_contains_overwrite() {
+        // GAMDL 3 cannot cancel an INI `overwrite = true` from the command
+        // line, so it is said on the command line only.
         let mut settings = default_settings();
         settings.overwrite = true;
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("overwrite = true"));
+        assert!(!ini.contains("overwrite"));
     }
 
     // ----------------------------------------------------------
@@ -2727,7 +2734,7 @@ mod tests {
         let ini = settings_to_ini(&settings);
         // All booleans must have " = true"
         assert!(ini.contains("save_cover = true"));
-        assert!(ini.contains("overwrite = true"));
+        assert!(!ini.contains("overwrite"));
         assert!(ini.contains("no_synced_lyrics = true"));
         assert!(ini.contains("use_wrapper = true"));
         // No bare keys (lines that are just the key with no " = ")

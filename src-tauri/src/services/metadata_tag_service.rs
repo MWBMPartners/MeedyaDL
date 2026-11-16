@@ -542,9 +542,11 @@ pub struct EnrichedTagsResult {
 /// and subtitle file with the same name along (`.ttml`, `.lrc`, `.srt`,
 /// `.vtt`, `.ass`, `.lyrics`).
 ///
-/// Only the files in `primary_files` are touched. Copies in other formats
-/// that arrived in the meantime are left to the final advisory pass after
-/// they finish (`apply_advisory_suffixes_from_tags`), as before.
+/// Only the files in `primary_files` (THIS download's own files) are
+/// touched. The extra-format copies start only after these renames and get
+/// the final advisory pass after they finish
+/// ([`apply_advisory_suffixes_to_files`], scoped to this download's files
+/// and the copies made after the renames).
 ///
 /// Returns what happened to each file, in the same order (a file that no
 /// longer exists is left out); [`renames_complete`] says whether every

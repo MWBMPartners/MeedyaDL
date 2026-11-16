@@ -484,17 +484,26 @@ pub(crate) enum AttemptLinks {
         unmapped: usize,
         /// Songs whose disc/track number could not be read.
         unreadable: usize,
+        /// Songs not requested because their copy in this format is
+        /// already in the folder (possibly with an advisory label).
+        already_there: usize,
         details_available: bool,
     },
     /// Not run, with the plain reason for the activity log.
     Skip(String),
 }
 
-/// Works out the links for one attempt: the item's links, or — on a mixed
-/// album — per-track song links for the tracks not already in `codec`.
-/// Anything other than a single album link (a playlist, an artist, several
-/// links) cannot be split by track, so that format's copies are skipped
-/// with a plain reason.
+/// Works out the links for one attempt: the item's links, or per-track
+/// song links — on a mixed album, for the tracks not already in `codec`;
+/// and whenever some of this download's tracks already have a copy in this
+/// format in the folder (`existing_copies`, e.g. a labelled copy from an
+/// earlier run), for the others only.
+///
+/// A mixed album that is not a single album link (a playlist, an artist,
+/// several links) cannot be split by track, so that format's copies are
+/// skipped with a plain reason. Existing copies alone never cause a skip:
+/// without a single album link or song details the normal request runs,
+/// and GAMDL's own name check applies.
 pub(crate) fn attempt_links(
     codec: &SongCodec,
     only_other_tracks: bool,
@@ -502,8 +511,16 @@ pub(crate) fn attempt_links(
     primary_tracks: &[(SongCodec, u32, u32)],
     album_tracks: &[(u32, u32, String)],
     unplaceable: &[SongCodec],
+    existing_copies: &[(u32, u32)],
 ) -> AttemptLinks {
-    if !only_other_tracks {
+    // This download's tracks that already have their copy.
+    let mut already_there: Vec<(u32, u32)> = Vec::new();
+    for (c, d, t) in primary_tracks {
+        if c != codec && existing_copies.contains(&(*d, *t)) && !already_there.contains(&(*d, *t)) {
+            already_there.push((*d, *t));
+        }
+    }
+    if !only_other_tracks && already_there.is_empty() {
         return AttemptLinks::All;
     }
     let name = plain_codec_name(codec);
@@ -512,7 +529,14 @@ pub(crate) fn attempt_links(
         .filter_map(|u| apple_music_api::parse_apple_music_url(u))
         .collect();
     let album = match parsed.as_slice() {
-        [p] if p.content_type == "album" && p.song_id.is_none() && item_urls.len() == 1 => p,
+        [p] if p.content_type == "album"
+            && p.song_id.is_none()
+            && item_urls.len() == 1
+            && (only_other_tracks || !album_tracks.is_empty()) =>
+        {
+            p
+        }
+        _ if !only_other_tracks => return AttemptLinks::All,
         _ => {
             let what = if parsed.iter().any(|p| p.content_type == "playlist") {
                 "this playlist"
@@ -530,6 +554,7 @@ pub(crate) fn attempt_links(
         album_tracks,
         &album.storefront,
         &album.album_id,
+        &already_there,
     );
     // Songs whose numbers could not be read cannot be requested on their
     // own; those not already in this format are left out too.
@@ -538,6 +563,7 @@ pub(crate) fn attempt_links(
         links,
         unmapped: unmapped.len(),
         unreadable: unplaceable_elsewhere,
+        already_there: already_there.len(),
         details_available: !album_tracks.is_empty(),
     }
 }
@@ -1711,6 +1737,9 @@ pub(crate) async fn download_music_video_by_url(
 
     let opts = crate::models::gamdl_options::GamdlOptions {
         output_path: crate::services::config_service::usable_download_folder(&settings.output_path),
+        // The overwrite setting, on the command line (config.ini no longer
+        // carries it; this run used to inherit it from there).
+        overwrite: Some(settings.overwrite),
         music_video_resolution: Some(settings.default_video_resolution.clone()),
         music_video_codec_priority: Some(settings.video_codec_priority_cli()),
         music_video_remux_format: Some(settings.default_video_remux_format.clone()),
@@ -2963,6 +2992,7 @@ pub(crate) fn spawn_companion_downloads(
             let mut primary_codecs: Vec<SongCodec> = Vec::new();
             let mut primary_tracks: Vec<(SongCodec, u32, u32)> = Vec::new();
             let mut album_tracks: Vec<(u32, u32, String)> = Vec::new();
+            let mut companion_album_dir: Option<std::path::PathBuf> = None;
             let mut unplaceable: Vec<SongCodec> = Vec::new();
             if let Some(hold) = held_until {
                 let mut waiter = hold.waiter;
@@ -2981,6 +3011,7 @@ pub(crate) fn spawn_companion_downloads(
                 primary_codecs.clone_from(&state.primary_codecs);
                 primary_tracks.clone_from(&state.primary_tracks);
                 album_tracks.clone_from(&state.album_tracks);
+                companion_album_dir = state.album_dir.as_deref().map(std::path::PathBuf::from);
                 unplaceable.clone_from(&state.unplaceable);
                 if !state.renames_done {
                     // The primary files may still have their plain names
@@ -3189,8 +3220,27 @@ pub(crate) fn spawn_companion_downloads(
                     if plan.apply_suffix {
                         apply_codec_suffix(&mut opts);
                     }
-                    // A mixed album (see `AttemptPlan::only_other_tracks`):
-                    // ask only for the tracks not already in this format.
+                    // Copies in this format already in the album folder from
+                    // an earlier run — possibly carrying an advisory label
+                    // GAMDL's own name check does not know about. Only for a
+                    // suffixed attempt; a plain one (standard AAC) relies on
+                    // GAMDL's check.
+                    let existing_copies: Vec<(u32, u32)> = match (
+                        companion_album_dir.as_deref(),
+                        codec_suffix(codec).filter(|s| plan.apply_suffix && !s.is_empty()),
+                    ) {
+                        (Some(dir), Some(suffix)) => super::lyrics_pass::tracks_with_existing_copy(
+                            dir,
+                            suffix,
+                            |p| {
+                                let n = super::lyrics_pass::read_audio_numbers(p, false, None);
+                                n.disc.zip(n.track)
+                            },
+                        ),
+                        _ => Vec::new(),
+                    };
+                    // A mixed album (see `AttemptPlan::only_other_tracks`),
+                    // or copies already there: ask only for the rest.
                     let attempt_urls: Vec<String> = match attempt_links(
                         codec,
                         plan.only_other_tracks,
@@ -3198,6 +3248,7 @@ pub(crate) fn spawn_companion_downloads(
                         &primary_tracks,
                         &album_tracks,
                         &unplaceable,
+                        &existing_copies,
                     ) {
                         AttemptLinks::All => comp_urls.clone(),
                         AttemptLinks::Skip(reason) => {
@@ -3208,8 +3259,21 @@ pub(crate) fn spawn_companion_downloads(
                             links,
                             unmapped,
                             unreadable,
+                            already_there: present,
                             details_available,
                         } => {
+                            if let Some(line) = already_there_line(codec, present) {
+                                emit_download_log(&comp_app, &comp_dl_id, &line);
+                            }
+                            // Every song already has its copy: the tier is done.
+                            if links.is_empty() && present > 0 && unmapped == 0 && unreadable == 0 {
+                                tier_succeeded = true;
+                                if let Ok(mut progress) = progress_for_task.lock() {
+                                    progress.completed_tiers.insert(tier_idx);
+                                    progress.current_tier = None;
+                                }
+                                break;
+                            }
                             for line in mixed_album_lines(
                                 codec,
                                 links.len(),
@@ -3409,6 +3473,23 @@ pub(crate) fn spawn_companion_downloads(
                                 .map(std::path::Path::new)
                                 .map(count_audio_files_in_directory)
                                 .unwrap_or(0);
+                            if post_run_audio_count <= pre_run_audio_count
+                                && already_there.load(Ordering::Relaxed) > 0
+                            {
+                                // No new files, but GAMDL said the copies were
+                                // already there: the tier is satisfied (the
+                                // "already there" line has been written).
+                                {
+                                    let mut q = comp_queue.lock().await;
+                                    q.clear_processing_label(&supervisor_dl);
+                                }
+                                tier_succeeded = true;
+                                if let Ok(mut progress) = progress_for_task.lock() {
+                                    progress.completed_tiers.insert(tier_idx);
+                                    progress.current_tier = None;
+                                }
+                                break;
+                            }
                             if post_run_audio_count <= pre_run_audio_count {
                                 // No new files landed — the codec wasn't
                                 // available for any track in this URL set.

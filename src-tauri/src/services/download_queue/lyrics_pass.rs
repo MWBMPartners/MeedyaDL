@@ -1018,21 +1018,24 @@ pub(crate) fn protection_codecs(
     codecs
 }
 
-/// Song links for an extra-format copy on a mixed album: one per track of
-/// THIS download whose primary file is NOT already in `codec`, built from
-/// the album's song IDs (`album_tracks`: disc, track, song ID). Returns the
-/// links and the tracks that could not be matched to a song ID.
+/// Song links for an extra-format copy: one per track of THIS download
+/// whose primary file is NOT already in `codec` and that has no copy in
+/// the folder already (`existing_copies`), built from the album's song IDs
+/// (`album_tracks`: disc, track, song ID). Returns the links and the tracks
+/// that could not be matched to a song ID.
 pub(crate) fn other_track_links(
     codec: &SongCodec,
     primary_tracks: &[(SongCodec, u32, u32)],
     album_tracks: &[(u32, u32, String)],
     storefront: &str,
     album_id: &str,
+    existing_copies: &[(u32, u32)],
 ) -> (Vec<String>, Vec<(u32, u32)>) {
     let already: Vec<(u32, u32)> = primary_tracks
         .iter()
         .filter(|(c, _, _)| c == codec)
         .map(|(_, d, t)| (*d, *t))
+        .chain(existing_copies.iter().copied())
         .collect();
     let mut wanted: Vec<(u32, u32)> = Vec::new();
     for (_, d, t) in primary_tracks {
@@ -1055,6 +1058,39 @@ pub(crate) fn other_track_links(
         }
     }
     (links, unmapped)
+}
+
+/// The tracks (disc, track) that already have a copy in the attempt's
+/// format in `dir`: an .m4a whose name ENDS with that format's suffix
+/// (`suffix`, e.g. `[Lossless]`) — so an advisory label before it, as in
+/// `01 Song [Explicit] [Lossless]`, still counts — read by `numbers` (tags,
+/// else name). GAMDL itself only checks the exact name it would write
+/// (`01 Song [Lossless]`), so a labelled copy from an earlier run would be
+/// downloaded again and kept as a numbered duplicate.
+pub(crate) fn tracks_with_existing_copy(
+    dir: &Path,
+    suffix: &str,
+    numbers: impl Fn(&Path) -> Option<(u32, u32)>,
+) -> Vec<(u32, u32)> {
+    if suffix.is_empty() {
+        return Vec::new();
+    }
+    let tail = format!(" {suffix}");
+    let mut found = Vec::new();
+    for file in metadata_tag_service::collect_m4a_files(&dir.to_string_lossy()) {
+        let ends = file
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|s| s.ends_with(&tail));
+        if ends {
+            if let Some(dt) = numbers(&file) {
+                if !found.contains(&dt) {
+                    found.push(dt);
+                }
+            }
+        }
+    }
+    found
 }
 
 /// How the pass ended, for its summary line.
@@ -1530,7 +1566,8 @@ mod tests {
             (SongCodec::Atmos, 1, 3),
         ];
         let album = vec![(1, 1, "101".to_string()), (1, 2, "102".to_string())];
-        let (links, unmapped) = other_track_links(&SongCodec::Alac, &primary, &album, "gb", "999");
+        let (links, unmapped) =
+            other_track_links(&SongCodec::Alac, &primary, &album, "gb", "999", &[]);
         assert_eq!(
             links,
             vec!["https://music.apple.com/gb/album/_/999?i=101".to_string()]
@@ -1596,6 +1633,26 @@ mod tests {
         // The stale file feeds nothing.
         assert_eq!(split.tracks, vec![(SongCodec::Atmos, 1, 1)]);
         assert_eq!(split.unplaceable, vec![SongCodec::Atmos]);
+    }
+
+    #[test]
+    fn a_labelled_copy_from_an_earlier_run_counts_as_already_there() {
+        use crate::services::metadata_tag_service::test_support::minimal_m4a;
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        minimal_m4a(&d.join("01 Song [Explicit] [Lossless].m4a"), 1, 1, true);
+        minimal_m4a(&d.join("02 Other [Dolby Atmos].m4a"), 2, 1, false);
+        minimal_m4a(&d.join("03 Third.m4a"), 3, 1, false);
+        let numbers = |p: &Path| {
+            let n = read_audio_numbers(p, false, None);
+            n.disc.zip(n.track)
+        };
+        assert_eq!(
+            tracks_with_existing_copy(d, "[Lossless]", numbers),
+            vec![(1, 1)]
+        );
+        // An empty suffix (standard AAC) is left to GAMDL's own name check.
+        assert!(tracks_with_existing_copy(d, "", numbers).is_empty());
     }
 
     #[test]
