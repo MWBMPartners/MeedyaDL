@@ -1026,8 +1026,8 @@ fn match_copy(
 }
 
 /// Works out which files are this download's new copies. Writes nothing.
-/// Empty when no conversion is switched on (the folder is then not even
-/// looked at).
+/// Empty when no conversion is switched on and separate lyric files are not
+/// kept (the folder is then not even looked at).
 pub(crate) fn plan_copies(
     settings: &AppSettings,
     scope: &AdvisoryScope,
@@ -1072,8 +1072,9 @@ pub(crate) fn plan_copies(
             {
                 return None;
             }
-            // The copy's own `.ttml` must be one this download wrote, never an
-            // older leftover in the folder.
+            // The upgrade source must be a `.ttml` this download wrote, never an
+            // older leftover in the folder. A copy with no `.ttml` is never a
+            // source: its `.lrc`/`.srt` could be leftovers nothing can check.
             if !copy_ttml_is_this_runs(scope, copy, since) {
                 return None;
             }
@@ -1090,13 +1091,14 @@ pub(crate) fn plan_copies(
     }
 }
 
-/// Whether the extra copy's `.ttml`, if it has one, was written by this run:
+/// Whether the extra copy has a `.ttml` and it was written by this run
+/// (`false` when it has none):
 /// inside the album folder, not in the snapshot taken before the copies
 /// started; elsewhere, by file time.
 fn copy_ttml_is_this_runs(scope: &AdvisoryScope, copy: &Path, since: SystemTime) -> bool {
     let ttml = copy.with_extension("ttml");
     if !ttml.exists() {
-        return true;
+        return false;
     }
     if ttml.starts_with(&scope.dir) {
         !scope.ttml_before_companions.contains(&ttml)
@@ -2936,6 +2938,22 @@ mod tests {
         let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
         assert_eq!(s.main_upgraded, 0);
         assert!(!main.with_extension("ttml").exists());
+    }
+
+    #[test]
+    fn a_copy_with_only_a_leftover_lrc_is_never_an_upgrade_source() {
+        let (dir, scope, main) = album();
+        let copy = add_copy(dir.path());
+        // No `.ttml` beside the copy, only an older `.lrc` nothing can check.
+        std::fs::write(copy.with_extension("lrc"), "[00:01.00]Old line\n").unwrap();
+        let scope = AdvisoryScope {
+            download_started_at: Some(started()),
+            ttml_before_companions: ttml_files_in(dir.path()),
+            ..scope
+        };
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 0);
+        assert!(!main.with_extension("lrc").exists());
     }
 
     #[test]
