@@ -711,6 +711,19 @@ pub(crate) fn audio_files_in(dir: &Path) -> std::collections::BTreeSet<PathBuf> 
     .collect()
 }
 
+/// Every `.ttml` lyrics file under `dir` (same depth as `audio_files_in`).
+pub(crate) fn ttml_files_in(dir: &Path) -> std::collections::BTreeSet<PathBuf> {
+    crate::utils::fs_walk::walk_dir_depth(dir, 10, |path| {
+        if !path.is_file() || crate::utils::fs_safe::is_filesystem_sidecar(path) {
+            return None;
+        }
+        let ext = path.extension().and_then(|e| e.to_str())?;
+        ext.eq_ignore_ascii_case("ttml").then(|| path.to_path_buf())
+    })
+    .into_iter()
+    .collect()
+}
+
 /// How many paths in `after` were not in `before`.
 pub(crate) fn new_audio_files(
     before: &std::collections::BTreeSet<PathBuf>,
@@ -970,6 +983,11 @@ pub(crate) struct AdvisoryScope {
     pub this_download: Vec<PathBuf>,
     /// Every audio file in `dir` just before the companions started.
     pub before_companions: std::collections::BTreeSet<PathBuf>,
+    /// Every `.ttml` file in `dir` at the same moment. It lets the lyrics
+    /// step tell a `.ttml` an extra copy's download wrote from one that was
+    /// already there, by whether it is listed here, not by its file time:
+    /// a network or cloud folder can keep a clock that lags this computer's.
+    pub ttml_before_companions: std::collections::BTreeSet<PathBuf>,
 }
 
 /// The files the final advisory pass handles: this download's files that
@@ -1943,6 +1961,7 @@ mod tests {
             dir: dir.path().to_path_buf(),
             this_download: vec![mine.clone()],
             before_companions: audio_files_in(dir.path()),
+            ttml_before_companions: ttml_files_in(dir.path()),
         };
         // A companion copy arrives afterwards.
         let copy = dir.path().join("01 A [Lossless].m4a");

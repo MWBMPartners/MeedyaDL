@@ -3304,6 +3304,12 @@ pub fn process_queue(
                                     before_companions: super::lyrics_pass::audio_files_in(
                                         std::path::Path::new(&album_dir),
                                     ),
+                                    // Taken at the same moment, so a `.ttml`
+                                    // the extra copies write is told from an
+                                    // older one without using file times.
+                                    ttml_before_companions: super::lyrics_pass::ttml_files_in(
+                                        std::path::Path::new(&album_dir),
+                                    ),
                                 });
                             }
                             // The same artist and fallback title the Lyricsfile

@@ -360,7 +360,10 @@ fn quality_of_texts(t: &LyricTexts) -> LyricsQuality {
 }
 
 /// Whether a file was written at or after `since` (two seconds of slack
-/// for file systems that store times coarsely).
+/// for file systems that store times coarsely). Used only for copies saved
+/// OUTSIDE the album folder, where no snapshot of the folder was taken, so
+/// file times are all there is to go on. (A folder whose clock lags this
+/// computer's can fool it; inside the album folder the snapshot is used.)
 fn written_since(path: &Path, since: SystemTime) -> bool {
     let since = since.checked_sub(Duration::from_secs(2)).unwrap_or(since);
     std::fs::metadata(path)
@@ -380,6 +383,9 @@ enum CopyOutcome {
     Unchanged,
     /// Nothing to use.
     Nothing,
+    /// A stop (cancel, quit or deadline) cut this copy's steps short. It is
+    /// not counted as done, whatever files were written before the stop.
+    Stopped,
 }
 
 /// Writes a file and says whether it worked (a failure is only logged).
@@ -395,26 +401,37 @@ fn write_file(path: &Path, content: impl AsRef<[u8]>) -> bool {
 
 /// Gives one copy its lyrics and subtitle files. `primary_audio` is the
 /// main download's file of the same song (at its final name), when one was
-/// matched. `since` is when the extra-format downloads started, to tell a
-/// `.ttml` written by this run from an older one.
+/// matched. `written_by_this_run` says whether a `.ttml` already on disk
+/// was written by this run of the extra-format downloads (not an older one).
 ///
 /// Follows enrichment's Steps 2, 2c, 2d, 2e, 2f and 2g, in that order and
 /// under the same switches. Failures are only logged (debug), never raised.
 ///
 /// `stop` is asked before each step, so a cancel, quit or deadline ends the
 /// work between steps rather than only between copies. The copy counts as
-/// having got lyrics only if a file was really written or embedded.
+/// having got lyrics only if a file was really written or embedded. If a
+/// stop actually skipped a step, the result is `CopyOutcome::Stopped`.
 /// `artist` and `default_title` are what the main download's Lyricsfile
 /// step uses (the album artist and the album's first song name).
 fn process_copy(
     copy: &Path,
     primary_audio: Option<&Path>,
     s: &AppSettings,
-    since: SystemTime,
+    written_by_this_run: &dyn Fn(&Path) -> bool,
     artist: Option<&str>,
     default_title: Option<&str>,
-    stop: &dyn Fn() -> bool,
+    stop_requested: &dyn Fn() -> bool,
 ) -> CopyOutcome {
+    // Remember whether a stop really skipped a step: `stop` is only asked
+    // when the step would otherwise run.
+    let cut_short = std::cell::Cell::new(false);
+    let stop = || {
+        let yes = stop_requested();
+        if yes {
+            cut_short.set(true);
+        }
+        yes
+    };
     let mut did_work = false;
     let keep = s.keep_lyrics_sidecar;
     let own_texts = read_lyric_texts(copy);
@@ -436,7 +453,7 @@ fn process_copy(
         if let Some(ttml) = &texts.ttml {
             let target = copy.with_extension("ttml");
             let exists = target.exists();
-            if may_write_ttml(keep, exists, exists && written_since(&target, since)) {
+            if may_write_ttml(keep, exists, exists && written_by_this_run(&target)) {
                 did_work |= write_file(&target, ttml);
             }
         } else {
@@ -578,7 +595,9 @@ fn process_copy(
         }
     }
 
-    if !did_work {
+    if cut_short.get() {
+        CopyOutcome::Stopped
+    } else if !did_work {
         CopyOutcome::Unchanged
     } else if from_main {
         CopyOutcome::FromMain {
@@ -698,11 +717,21 @@ pub(crate) fn run_copies(
         let outside = !copy.starts_with(&scope.dir);
         let primary = match_primary(&evidence, &primaries, single_disc, outside)
             .map(|i| primaries[i].path.clone());
+        // Inside the album folder a `.ttml` is this run's if it was not in
+        // the snapshot taken before the extra copies started. Outside it
+        // there is no snapshot, so file times decide.
+        let written_by_this_run = |target: &Path| {
+            if target.starts_with(&scope.dir) {
+                !scope.ttml_before_companions.contains(target)
+            } else {
+                written_since(target, since)
+            }
+        };
         match process_copy(
             copy,
             primary.as_deref(),
             settings,
-            since,
+            &written_by_this_run,
             lyrics_artist,
             default_title,
             stop,
@@ -716,12 +745,13 @@ pub(crate) fn run_copies(
             CopyOutcome::Own => summary.own += 1,
             CopyOutcome::Unchanged => summary.unchanged += 1,
             CopyOutcome::Nothing => summary.none += 1,
+            // A stop cut this copy short: report it, and do not count the
+            // copy as done.
+            CopyOutcome::Stopped => {
+                summary.stopped = true;
+                return summary;
+            }
         }
-    }
-    // A stop between the steps of the last copy ends the loop normally, so
-    // ask once more: the summary must say the work stopped early.
-    if stop() {
-        summary.stopped = true;
     }
     summary
 }
@@ -764,6 +794,7 @@ pub(crate) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::download_queue::lyrics_pass::ttml_files_in;
     use crate::services::metadata_tag_service::test_support::minimal_m4a;
     use std::collections::BTreeSet;
 
@@ -816,6 +847,7 @@ mod tests {
             dir: dir.path().to_path_buf(),
             this_download: vec![main.clone()],
             before_companions: audio_files_in(dir.path()),
+            ttml_before_companions: ttml_files_in(dir.path()),
         };
         (dir, scope, main)
     }
@@ -1101,12 +1133,16 @@ mod tests {
         for ext in ["vtt", "ass", "lyrics"] {
             std::fs::write(copy.with_extension(ext), "mine").unwrap();
         }
-        // An older .ttml: the run started in the future, so it is not
-        // "written by this run" and must not be replaced.
+        // An older .ttml: it was in the folder before the extra copies
+        // started, so it is not "written by this run" and must not be
+        // replaced.
         std::fs::write(copy.with_extension("ttml"), LINE_TTML).unwrap();
-        let later = SystemTime::now() + Duration::from_secs(3600);
+        let scope = AdvisoryScope {
+            ttml_before_companions: ttml_files_in(dir.path()),
+            ..scope
+        };
 
-        run_copies(&all_on(), &scope, None, later, &[], None, None, &|| false);
+        run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
         for ext in ["vtt", "ass", "lyrics"] {
             assert_eq!(
                 std::fs::read_to_string(copy.with_extension(ext)).unwrap(),
@@ -1146,6 +1182,7 @@ mod tests {
         let before: BTreeSet<PathBuf> = audio_files_in(dir.path());
         let scope = AdvisoryScope {
             before_companions: before,
+            ttml_before_companions: ttml_files_in(dir.path()),
             ..scope
         };
         let main_bytes = std::fs::read(&main).unwrap();
@@ -1258,11 +1295,13 @@ mod tests {
         std::fs::write(copy.with_extension("ttml"), LINE_TTML).unwrap();
         std::fs::write(copy.with_extension("lyrics"), "mine").unwrap();
         // The main download's ttml is better but an older ttml of the copy
-        // (not written by this run) is left alone, so nothing is written.
-        let long_ago = SystemTime::now() + Duration::from_secs(3600);
-        let s = run_copies(&settings, &scope, None, long_ago, &[], None, None, &|| {
-            false
-        });
+        // (already there before the extra copies started) is left alone, so
+        // nothing is written.
+        let scope = AdvisoryScope {
+            ttml_before_companions: ttml_files_in(dir.path()),
+            ..scope
+        };
+        let s = run_copies(&settings, &scope, None, past(), &[], None, None, &|| false);
         assert_eq!((s.from_main, s.own, s.unchanged), (0, 0, 1));
         assert_eq!(summary_line(&s), None);
         let some = Summary {
@@ -1312,6 +1351,51 @@ mod tests {
         assert!(
             summary.stopped,
             "a stop inside the last copy must be reported"
+        );
+        // The interrupted copy is not counted as done, so the line cannot
+        // say "1 of 1 done" about work that was cut short.
+        assert_eq!(summary.from_main + summary.own + summary.unchanged, 0);
+        assert_eq!(
+            summary_line(&summary).unwrap(),
+            "Adding lyrics to the extra copies stopped early (0 of 1 done)."
+        );
+    }
+
+    #[test]
+    fn a_stop_after_the_last_copy_finished_is_not_reported_as_stopped() {
+        let (dir, scope, main) = album();
+        std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
+        let copy = add_copy(dir.path());
+        // The Lyricsfile is the last thing written. The stop only turns
+        // "yes" once it exists, so it arrives when nothing is left to cut.
+        let last = copy.with_extension("lyrics");
+        let summary = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| {
+            last.exists()
+        });
+        assert!(last.is_file(), "every step ran");
+        assert!(!summary.stopped, "nothing was interrupted");
+        assert_eq!(summary.from_main, 1);
+        assert!(!summary_line(&summary).unwrap().contains("stopped"));
+    }
+
+    #[test]
+    fn a_ttml_is_this_runs_by_the_snapshot_not_by_file_time() {
+        let (dir, scope, main) = album();
+        std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
+        let copy = add_copy(dir.path());
+        // The copy's `.ttml` was already there before the extra copies
+        // started, and the run "started" an hour in the past, so by file
+        // time alone it would look new and be replaced. The snapshot says
+        // it is older, so it must stay.
+        std::fs::write(copy.with_extension("ttml"), LINE_TTML).unwrap();
+        let scope = AdvisoryScope {
+            ttml_before_companions: ttml_files_in(dir.path()),
+            ..scope
+        };
+        run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(
+            std::fs::read_to_string(copy.with_extension("ttml")).unwrap(),
+            LINE_TTML
         );
     }
 
