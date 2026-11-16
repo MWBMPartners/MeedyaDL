@@ -532,9 +532,9 @@ pub async fn check_wrapper_health(wrapper_url: &str) -> Option<PreflightWarning>
 pub async fn check_wrapper_decrypt_health(
     wrapper_decrypt_ip: &str,
 ) -> Option<PreflightWarning> {
-    let (host, port_str) = match wrapper_decrypt_ip.rsplit_once(':') {
-        Some((h, p)) if !h.is_empty() && !p.is_empty() => (h, p),
-        _ => {
+    let (host, port_str) = match crate::utils::wrapper_address::split_decrypt_address(wrapper_decrypt_ip) {
+        Some((h, p)) => (h, p),
+        None => {
             return Some(PreflightWarning {
                 check: PreflightCheck::WrapperDecrypt,
                 message: format!(
@@ -555,7 +555,7 @@ pub async fn check_wrapper_decrypt_health(
         }
     };
 
-    let connect = tokio::net::TcpStream::connect((host, port));
+    let connect = tokio::net::TcpStream::connect((host.as_str(), port));
     match tokio::time::timeout(std::time::Duration::from_secs(3), connect).await {
         Ok(Ok(_stream)) => None,
         Ok(Err(err)) => Some(PreflightWarning {

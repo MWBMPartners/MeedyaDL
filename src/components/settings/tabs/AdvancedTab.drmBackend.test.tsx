@@ -39,7 +39,7 @@
  * @see src/lib/tauri-commands.ts -- `GamdlCapabilities.play_ready_drm`
  */
 
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, act } from '@testing-library/react';
 
 import { AdvancedTab } from './AdvancedTab';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -264,22 +264,27 @@ describe('AdvancedTab -- Wrapper Decryption Address on GAMDL 3.8.2+ (#1433)', ()
     expect(screen.queryByLabelText('Wrapper Decryption Address')).not.toBeInTheDocument();
   });
 
-  it('is shown, pre-filled from the Wrapper URL, and can be reset after an override', async () => {
+  it('is shown with the worked-out address as placeholder, writes nothing on opening, keeps an override, and resets to blank', async () => {
     useSettingsStore.setState({
+      isDirty: false,
       settings: {
         ...useSettingsStore.getState().settings,
         use_wrapper: true,
         wrapper_url: 'http://192.168.1.20:80',
-        wrapper_decrypt_ip: '127.0.0.1:10020',
+        wrapper_decrypt_ip: '',
       },
     });
     await openWrapper({ wrapper_v2: true, wrapper_decrypt_host_port: true });
     const field = screen.getByLabelText('Wrapper Decryption Address') as HTMLInputElement;
-    await waitFor(() => expect(field.value).toBe('192.168.1.20:10020'));
+    expect(field.value).toBe('');
+    expect(field.placeholder).toBe('192.168.1.20:10020');
+    expect(useSettingsStore.getState().isDirty).toBe(false);
+    expect(screen.queryByText('Use the address from the Wrapper URL')).not.toBeInTheDocument();
 
-    fireEvent.change(field, { target: { value: 'mybox:4444' } });
-    expect(useSettingsStore.getState().settings.wrapper_decrypt_ip).toBe('mybox:4444');
+    // A person can set the local address even with a remote Wrapper URL.
+    fireEvent.change(field, { target: { value: '127.0.0.1:10020' } });
+    expect(useSettingsStore.getState().settings.wrapper_decrypt_ip).toBe('127.0.0.1:10020');
     fireEvent.click(screen.getByText('Use the address from the Wrapper URL'));
-    expect(useSettingsStore.getState().settings.wrapper_decrypt_ip).toBe('192.168.1.20:10020');
+    expect(useSettingsStore.getState().settings.wrapper_decrypt_ip).toBe('');
   });
 });

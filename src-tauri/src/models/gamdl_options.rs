@@ -1138,11 +1138,13 @@ impl GamdlOptions {
             // entirely rather than emitting a partial/broken flag.
             if supports(GamdlFeature::WrapperDecryptHostPort) {
                 if let Some(ref addr) = self.wrapper_decrypt_ip {
-                    if let Some((host, port)) = addr.rsplit_once(':') {
+                    if let Some((host, port)) =
+                        crate::utils::wrapper_address::split_decrypt_address(addr)
+                    {
                         args.push("--wrapper-decrypt-host".to_string());
-                        args.push(host.to_string());
+                        args.push(host);
                         args.push("--wrapper-decrypt-port".to_string());
-                        args.push(port.to_string());
+                        args.push(port);
                     }
                 }
             }
@@ -1616,13 +1618,15 @@ impl GamdlOptions {
                 push(&mut args, "--wrapper-url", url.clone());
             }
             if let Some(ref addr) = self.wrapper_decrypt_ip {
-                if let Some((host, port)) = addr.rsplit_once(':') {
+                if let Some((host, port)) =
+                    crate::utils::wrapper_address::split_decrypt_address(addr)
+                {
                     // 4.0 checks the port is a number from 1 to 65535 and
                     // refuses the run otherwise; leave its default in
                     // place rather than send one it would refuse.
                     if port.parse::<u16>().is_ok_and(|p| p > 0) && !host.is_empty() {
-                        push(&mut args, "--wrapper-decrypt-host", host.to_string());
-                        push(&mut args, "--wrapper-decrypt-port", port.to_string());
+                        push(&mut args, "--wrapper-decrypt-host", host);
+                        push(&mut args, "--wrapper-decrypt-port", port);
                     }
                 }
             }
@@ -2149,6 +2153,23 @@ mod tests {
         assert!(args.contains(&"--wrapper-decrypt-port".to_string()));
         assert!(args.contains(&"10020".to_string()));
         assert!(!args.contains(&"--wrapper-decrypt-ip".to_string()));
+    }
+
+    #[test]
+    fn wrapper_v2_decrypt_host_port_strips_ipv6_brackets() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(Some("3.8.2".to_string()));
+        let options = GamdlOptions {
+            wrapper_url: Some("http://[::1]".to_string()),
+            wrapper_decrypt_ip: Some("[::1]:10020".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        set_detected_version(None);
+        let at = args.iter().position(|a| a == "--wrapper-decrypt-host").unwrap();
+        assert_eq!(args[at + 1], "::1");
+        assert_eq!(args[at + 3], "10020");
     }
 
     #[test]

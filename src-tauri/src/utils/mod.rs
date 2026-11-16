@@ -198,3 +198,7 @@ pub mod version;
 /// crate's traits is in this one file, so a change to its API is a change
 /// here only.
 pub mod language;
+
+/// The wrapper's decryption address: automatic or typed, and splitting it
+/// into host and port (#1433).
+pub mod wrapper_address;

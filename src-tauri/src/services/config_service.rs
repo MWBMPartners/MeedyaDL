@@ -336,6 +336,20 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 12;
     }
 
+    // v12 -> v13: the wrapper decryption address becomes AUTOMATIC when
+    // empty (#1433): it is then worked out from the wrapper address in use
+    // plus the standard port. The old default `127.0.0.1:10020` was what
+    // every untouched install stored; for a local wrapper the automatic
+    // value is the very same address, so clearing it changes nothing for
+    // them, and for a remote wrapper it now follows the wrapper address.
+    // Any other value was typed by the person and is kept.
+    if settings.settings_version == 12 {
+        if settings.wrapper_decrypt_ip.trim() == "127.0.0.1:10020" {
+            settings.wrapper_decrypt_ip = String::new();
+        }
+        settings.settings_version = 13;
+    }
+
     if old_version != settings.settings_version {
         log::info!(
             "Migrated settings from v{old_version} to v{}",
@@ -1788,9 +1802,16 @@ fn ini_advanced_section(lines: &mut Vec<String>, settings: &AppSettings) {
             // colon is skipped cleanly rather than writing a partial
             // key pair.
             if supports(GamdlFeature::WrapperDecryptHostPort) {
-                if let Some((host, port)) = settings.wrapper_decrypt_ip.rsplit_once(':') {
-                    lines.push(format!("wrapper_decrypt_host = {}", sanitize_ini_value(host)));
-                    lines.push(format!("wrapper_decrypt_port = {}", sanitize_ini_value(port)));
+                if let Some((host, port)) = crate::utils::wrapper_address::split_decrypt_address(
+                    &crate::utils::wrapper_address::effective_decrypt_address(
+                        &settings.wrapper_decrypt_ip,
+                        &settings.wrapper_url,
+                        &settings.wrapper_account_url,
+                        true,
+                    ),
+                ) {
+                    lines.push(format!("wrapper_decrypt_host = {}", sanitize_ini_value(&host)));
+                    lines.push(format!("wrapper_decrypt_port = {}", sanitize_ini_value(&port)));
                 }
             }
         } else {
@@ -1809,7 +1830,12 @@ fn ini_advanced_section(lines: &mut Vec<String>, settings: &AppSettings) {
             // back to its compile-time 127.0.0.1:10020 default).
             lines.push(format!(
                 "wrapper_decrypt_ip = {}",
-                sanitize_ini_value(&settings.wrapper_decrypt_ip)
+                sanitize_ini_value(&crate::utils::wrapper_address::effective_decrypt_address(
+                    &settings.wrapper_decrypt_ip,
+                    &settings.wrapper_url,
+                    &settings.wrapper_account_url,
+                    false,
+                ))
             ));
             // `wrapper_m3u8_ip` was added in GAMDL v3.1. Gating the write
             // keeps the emitted INI self-consistent with the detected
@@ -2979,6 +3005,45 @@ mod tests {
         };
         migrate_settings(&mut s);
         assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v12 → v13 automatic decryption address (#1433)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migrate_v12_to_v13_makes_the_old_default_decrypt_address_automatic() {
+        let mut s = AppSettings {
+            settings_version: 12,
+            wrapper_decrypt_ip: "127.0.0.1:10020".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.wrapper_decrypt_ip, "");
+    }
+
+    #[test]
+    fn migrate_v12_to_v13_keeps_a_typed_decrypt_address() {
+        let mut s = AppSettings {
+            settings_version: 12,
+            wrapper_decrypt_ip: "192.168.1.50:10020".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.wrapper_decrypt_ip, "192.168.1.50:10020");
+    }
+
+    #[test]
+    fn automatic_decrypt_address_follows_the_wrapper_url_in_the_ini() {
+        let _guard = VersionGuard::new(Some("3.8.2"));
+        let mut settings = default_settings();
+        settings.use_wrapper = true;
+        settings.wrapper_url = "http://[::1]:80".to_string();
+        settings.wrapper_decrypt_ip = String::new();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("wrapper_decrypt_host = ::1"));
+        assert!(ini.contains("wrapper_decrypt_port = 10020"));
     }
 
     // ----------------------------------------------------------

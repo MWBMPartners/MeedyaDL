@@ -24,7 +24,10 @@ _HERE = Path(__file__).resolve().parent
 _CHECK = _HERE / "check_capabilities_open_path.py"
 
 
-def run(permissions, description="mentions opener:allow-open-path in prose", strict=True, raw=None):
+GOOD_OPEN = "((mailto:\\w+)|(tel:\\w+)|(https?://\\w+)|(x-apple\\.systempreferences:\\S+)).+"
+
+
+def run(permissions, description="mentions opener:allow-open-path in prose", strict=True, raw=None, open_pattern=GOOD_OPEN):
     with tempfile.TemporaryDirectory() as tmp:
         cap = Path(tmp) / "src-tauri" / "capabilities"
         cap.mkdir(parents=True)
@@ -32,6 +35,8 @@ def run(permissions, description="mentions opener:allow-open-path in prose", str
             {"description": description, "permissions": permissions}, indent=2
         )
         (cap / "default.json").write_text(body, encoding="utf-8")
+        (Path(tmp) / "src-tauri" / "tauri.conf.json").write_text(
+            json.dumps({"plugins": {"shell": {"open": open_pattern}}}), encoding="utf-8")
         args = [sys.executable, str(_CHECK), "--root", tmp] + (["--strict"] if strict else [])
         p = subprocess.run(args, capture_output=True, text=True)
         return p.returncode, p.stdout + p.stderr
@@ -67,6 +72,13 @@ def main() -> int:
 
     code, out = run([], raw="{ not json")
     expect("unreadable file is itself a finding", code == 1 and "•" in out and "###" in out)
+
+    code, out = run([], open_pattern="((mailto:\\w+)|(https?://\\w+)|(file:\\S+)).+")
+    expect("widened shell open (file:) is caught", code == 1 and "file" in out and "tauri.conf.json:0" in out)
+    code, out = run([], open_pattern=".*")
+    expect("shell open with no scheme list is caught", code == 1)
+    code, out = run([], raw="{ not json")
+    expect("unknown line is reported as 0, not 1", "default.json:0" in out and "default.json:1" not in out)
 
     real = subprocess.run([sys.executable, str(_CHECK), "--strict"], capture_output=True, text=True)
     expect("real repository is clean", real.returncode == 0 and "•" not in real.stdout)

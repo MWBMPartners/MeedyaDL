@@ -265,6 +265,8 @@ export function SettingsPage() {
   const isDirty = useSettingsStore((s) => s.isDirty);
   /** True while a load or save operation is in-flight */
   const isLoading = useSettingsStore((s) => s.isLoading);
+  /** True once settings have been read from disk at least once (#1237) */
+  const hasLoaded = useSettingsStore((s) => s.hasLoaded);
   /** Pushes a toast notification to the UI toast queue */
   const addToast = useUiStore((s) => s.addToast);
 
@@ -565,13 +567,29 @@ export function SettingsPage() {
               size="sm"
               icon={<Save size={14} />}
               onClick={handleSave}
-              disabled={!isDirty || isLoading}
+              disabled={!hasLoaded || !isDirty || isLoading}
             >
-              {isDirty ? 'Save Changes' : 'Saved'}
+              {!hasLoaded ? 'Save Changes' : isDirty ? 'Save Changes' : 'Saved'}
             </Button>
           </div>
         }
       />
+
+      {/* Settings could not be read (#1237): Save stays off, because it
+          would overwrite the real settings with placeholders. */}
+      {!hasLoaded && !isLoading && (
+        <div
+          role="alert"
+          className="mx-4 mb-2 flex items-center gap-3 rounded-platform border border-status-warning bg-status-warning-bg p-3 text-sm text-status-warning-text"
+        >
+          <span className="flex-1">
+            Settings could not be loaded, so they cannot be saved. Try again or restart MeedyaDL.
+          </span>
+          <Button variant="secondary" size="sm" onClick={() => void loadSettings()}>
+            Try loading again
+          </Button>
+        </div>
+      )}
 
       {/* ================================================================
           Tab navigation (sidebar) + content area

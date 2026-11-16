@@ -845,7 +845,7 @@ export interface AppSettings {
    * wrapper triangle alongside `wrapper_account_url` + `wrapper_m3u8_ip`).
    * Without this surfaced, remote-wrapper LAN setups silently fail at the
    * decryption stage because GAMDL falls back to its built-in default
-   * (#743). Default: `"127.0.0.1:10020"`.
+   * (#743). Empty means automatic: worked out from the wrapper address (#1433).
    */
   wrapper_decrypt_ip: string;
   /**

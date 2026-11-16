@@ -320,7 +320,12 @@ pub(crate) fn merge_options(
     // version-capability gate is needed. Cookie-mode downloads never hit
     // the decrypt socket, so we only emit when wrapper auth is on.
     if settings.use_wrapper {
-        options.wrapper_decrypt_ip = Some(settings.wrapper_decrypt_ip.clone());
+        options.wrapper_decrypt_ip = Some(crate::utils::wrapper_address::effective_decrypt_address(
+            &settings.wrapper_decrypt_ip,
+            &settings.wrapper_url,
+            &settings.wrapper_account_url,
+            super::gamdl_capabilities::supports(super::gamdl_capabilities::GamdlFeature::WrapperUrl),
+        ));
     }
     options.truncate = settings.truncate;
 

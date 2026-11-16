@@ -165,11 +165,14 @@ export function selectedUiLanguageValue(
 ): string {
   const value = (saved ?? '').trim();
   if (!value) return 'auto';
-  const exact = options.find((o) => o.value === value);
-  if (exact) return exact.value;
-  const primary = value.split(/[-_]/)[0] ?? '';
+  // Only '-' separates subtags; an underscore form is malformed and matches
+  // nothing (MATCH-010). Compared in lower case, as tags are case-insensitive.
+  const primary = value.split('-')[0] ?? '';
   if (!/^[A-Za-z]{2,3}$/.test(primary)) return 'auto';
-  const base = options.find((o) => o.value.toLowerCase() === primary.toLowerCase());
+  const wanted = primary.toLowerCase();
+  const exact = options.find((o) => o.value.toLowerCase() === value.toLowerCase());
+  if (exact) return exact.value;
+  const base = options.find((o) => o.value.toLowerCase() === wanted);
   return base ? base.value : 'auto';
 }
 
@@ -183,7 +186,13 @@ export function selectedUiLanguageValue(
  * which locale folder a given person's language setting actually means.
  */
 export function baseLanguageOf(language: string | undefined): string {
-  return language?.split('-')[0] || 'en';
+  // Language tags are case-insensitive (BCP 47), so the base is lower-cased
+  // here and `DE-at` and `de-AT` both mean `de`. Only '-' separates subtags;
+  // an underscore form is malformed and keeps its underscore, so it matches
+  // no locale (policy MATCH-010). There is no client-side canonicaliser (the
+  // full one is the backend's language command), and for choosing a row of
+  // this list the primary subtag compared in lower case is all that matters.
+  return language?.split('-')[0]?.toLowerCase() || 'en';
 }
 
 /**

@@ -124,12 +124,18 @@ pub fn process_queue(
                 // (`GamdlFeature::WrapperDecryptHostPort`) split decryption
                 // back out onto its own native TCP host/port pair, so the
                 // same probe now also applies to wrapper-v2 on 3.8.2+.
+                let decrypt_address = crate::utils::wrapper_address::effective_decrypt_address(
+                    &settings.wrapper_decrypt_ip,
+                    &settings.wrapper_url,
+                    &settings.wrapper_account_url,
+                    use_wrapper_v2,
+                );
                 let wrapper_decrypt_future = if use_wrapper_v1
                     || (use_wrapper_v2 && supports(GamdlFeature::WrapperDecryptHostPort))
                 {
                     Some(
                         crate::services::health_check_service::check_wrapper_decrypt_health(
-                            &settings.wrapper_decrypt_ip,
+                            &decrypt_address,
                         ),
                     )
                 } else {

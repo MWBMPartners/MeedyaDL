@@ -1771,8 +1771,10 @@ pub struct AppSettings {
     /// alongside `wrapper_account_url` and `wrapper_m3u8_ip`. Without
     /// this exposed, remote-wrapper LAN setups silently fail at the
     /// decryption stage because GAMDL falls back to its compile-time
-    /// default of `127.0.0.1:10020` (issue #743). Default:
-    /// `"127.0.0.1:10020"` (matches upstream GAMDL's default).
+    /// default of `127.0.0.1:10020` (issue #743). Default: empty, which
+    /// means AUTOMATIC: the effective address is the host of the wrapper
+    /// address in use plus port 10020, else `127.0.0.1:10020` (#1433, see
+    /// `utils::wrapper_address`). A non-empty value is the person's own.
     ///
     /// **GAMDL ≥ v3.6 (#853):** unused. The three v1 sockets above
     /// (`wrapper_account_url`, `wrapper_m3u8_ip`, `wrapper_decrypt_ip`)
@@ -2268,17 +2270,21 @@ fn default_wrapper_url() -> String {
     "http://127.0.0.1".to_string()
 }
 
-/// Default wrapper decryption service address — matches upstream
+/// Default wrapper decryption service address: empty, meaning automatic.
+/// The automatic value for a local wrapper matches upstream
 /// GAMDL's `AppleMusicSongInterface.create(wrapper_decrypt_ip=
 /// "127.0.0.1:10020")` and the `WorldObservationLog/wrapper`
 /// service's default decrypt port (10020).
 fn default_wrapper_decrypt_ip() -> String {
-    "127.0.0.1:10020".to_string()
+    // Empty means automatic: worked out from the wrapper address in use
+    // (`utils::wrapper_address`), which is `127.0.0.1:10020` for a local
+    // wrapper (#1433).
+    String::new()
 }
 
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 12;
+pub const CURRENT_SETTINGS_VERSION: u32 = 13;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.

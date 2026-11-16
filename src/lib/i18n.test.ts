@@ -650,4 +650,14 @@ describe('selectedUiLanguageValue (#1267)', () => {
     expect(selectedUiLanguageValue('ja-JP', rows)).toBe('auto');
     expect(selectedUiLanguageValue('???', rows)).toBe('auto');
   });
+  it('treats an underscore form as malformed, matching nothing', () => {
+    expect(selectedUiLanguageValue('de_AT', rows)).toBe('auto');
+  });
+  it('lists the base row of a differently-cased saved tag, and selects it', () => {
+    const opts = uiLanguageOptions('DE-at');
+    expect(opts.map((o) => o.value)).toContain('de');
+    expect(selectedUiLanguageValue('DE-at', opts)).toBe('de');
+    expect(baseLanguageOf('DE-at')).toBe('de');
+    expect(baseLanguageOf('de_AT')).toBe('de_at');
+  });
 });

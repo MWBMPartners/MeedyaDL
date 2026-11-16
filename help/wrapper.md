@@ -49,7 +49,7 @@ Which fields you see depends on your GAMDL version. On GAMDL 3.0 the m3u8 field 
 | 3.6 and newer | **Wrapper URL** | `http://127.0.0.1` |
 | 3.0 to 3.5 | **Wrapper Account URL** | `http://127.0.0.1:30020` |
 | 3.1 to 3.5 | **Wrapper m3u8 Address** | `127.0.0.1:20020` |
-| 3.0 to 3.5 | **Wrapper Decryption Address** | `127.0.0.1:10020` |
+| 3.0 to 3.5 | **Wrapper Decryption Address** | blank (worked out from the Wrapper Account URL, `127.0.0.1:10020` for a local wrapper) |
 
 `127.0.0.1` means "this computer". If your wrapper runs on another computer, put that computer's address in its place.
 
@@ -77,7 +77,7 @@ GAMDL and the newer wrapper must be on matching versions:
 
 If they do not match, MeedyaDL says *"GAMDL and the wrapper-v2 daemon must be upgraded together"*. Update whichever one is behind.
 
-On GAMDL 3.8.2 and newer, Settings also shows a **Wrapper Decryption Address**. MeedyaDL fills it in for you from the Wrapper URL, using the standard port `10020` (for example, a Wrapper URL of `http://192.168.1.20` gives `192.168.1.20:10020`, and a local wrapper gives `127.0.0.1:10020`). It keeps following the Wrapper URL until you type your own value. Change it only if your wrapper listens on a different address or port. To go back to the automatic value, press **Use the address from the Wrapper URL**.
+On GAMDL 3.8.2 and newer, Settings also shows a **Wrapper Decryption Address**. Leave it blank and MeedyaDL works it out from the Wrapper URL: the same computer, with the standard port `10020` (for example, a Wrapper URL of `http://192.168.1.20` gives `192.168.1.20:10020`, and a local wrapper gives `127.0.0.1:10020`). The blank field shows the address it will use. Type your own only if your wrapper listens on a different address or port. To go back to the automatic value, press **Use the address from the Wrapper URL**.
 
 </details>
 
@@ -91,7 +91,7 @@ You can run the wrapper on an always-on machine, such as a home server or a Rasp
 2. Check that another computer on the same network can reach it. Open its address in a browser, or run `curl http://<its-address>` in a terminal.
 3. In MeedyaDL, put that machine's address in the address fields instead of `127.0.0.1`.
 4. With the older wrapper, **change all three addresses**, not just the first one. This is the most common reason a remote wrapper "does not work". If you change only the first, signing in seems to work and then the download fails partway through.
-5. With the newer wrapper, press **Sign in to wrapper** again. On GAMDL 3.8.2 and newer the Wrapper Decryption Address follows the Wrapper URL by itself, so you normally do not need to change it.
+5. With the newer wrapper, press **Sign in to wrapper** again. On GAMDL 3.8.2 and newer, leave the Wrapper Decryption Address blank and it follows the Wrapper URL by itself, so you normally do not need to change it.
 
 ### Keep it on a network you trust
 
@@ -196,7 +196,7 @@ To do that automatically, turn on **Auto-Retry without Wrapper** in **Settings >
 | Wrapper URL | Settings > Advanced > Wrapper | `http://127.0.0.1` | 3.6 and newer |
 | Wrapper Account URL | Settings > Advanced > Wrapper | `http://127.0.0.1:30020` | 3.0 to 3.5 |
 | Wrapper m3u8 Address | Settings > Advanced > Wrapper | `127.0.0.1:20020` | 3.1 to 3.5 |
-| Wrapper Decryption Address | Settings > Advanced > Wrapper | `127.0.0.1:10020` (follows the Wrapper URL) | 3.0 to 3.5, and 3.8.2 and newer |
+| Wrapper Decryption Address | Settings > Advanced > Wrapper | Blank (worked out from the Wrapper URL, `127.0.0.1:10020` for a local wrapper) | 3.0 to 3.5, and 3.8.2 and newer |
 
 See also [Settings](settings.md) and [Troubleshooting](troubleshooting.md).
 

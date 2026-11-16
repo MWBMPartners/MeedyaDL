@@ -37,10 +37,14 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 import sys
 from pathlib import Path
 
 ALLOWED_NOTIFICATION = "notification:allow-is-permission-granted"
+# Schemes the WebView may ask the system to open (`plugins.shell.open`):
+# web, mail, phone, and the macOS settings deep link the app uses.
+ALLOWED_OPEN_SCHEMES = {"http", "https", "mailto", "tel", "x-apple.systempreferences"}
 # Permissions that let the page open an arbitrary file or folder.
 FORBIDDEN_OPEN = ("opener:allow-open-path", "opener:default")
 
@@ -83,7 +87,36 @@ def _line_of(text: str, name: str) -> int:
     idx = text.find(f'"{name}"', start)
     if idx < 0:
         idx = text.find(f'"{name}"')
-    return text.count("\n", 0, max(idx, 0)) + 1
+    if idx < 0:
+        return 0  # unknown line: say 0 rather than pointing at line 1
+    return text.count("\n", 0, idx) + 1
+
+
+def check_shell_open(root: Path) -> list[str]:
+    """Report if `plugins.shell.open` allows more than web/mail/phone links."""
+    conf = root / "src-tauri" / "tauri.conf.json"
+    rel = "src-tauri/tauri.conf.json"
+    try:
+        data = json.loads(conf.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as err:
+        return [f"  • {rel}:0 — could not be read ({err}); shell open pattern not checked"]
+    pattern = (((data.get("plugins") or {}).get("shell") or {}).get("open")
+               if isinstance(data, dict) else None)
+    if pattern is True:
+        return [f"  • {rel}:0 — `plugins.shell.open` is `true`, which lets the page open any address or file"]
+    if not isinstance(pattern, str):
+        return []  # nothing is opened through the plugin
+    found = re.findall(r"(?:^|[(|])([A-Za-z][\w\\.+-]*\??):", pattern)
+    schemes = {s.replace("\\", "").replace("?", "").lower() for s in found}
+    if not schemes:
+        return [f"  • {rel}:0 — `plugins.shell.open` has no recognisable scheme list; widened or unreadable pattern"]
+    extra = sorted(schemes - ALLOWED_OPEN_SCHEMES)
+    if extra:
+        return [
+            f"  • {rel}:0 — `plugins.shell.open` allows more than web, mail, phone and settings links: "
+            + ", ".join(extra)
+        ]
+    return []
 
 
 def check(root: Path) -> list[str]:
@@ -93,20 +126,21 @@ def check(root: Path) -> list[str]:
     if not files:
         findings.append(
             f"  • {cap_dir.relative_to(root) if cap_dir.is_relative_to(root) else cap_dir}"
-            ":1 — no capability files found, so nothing could be checked"
+            ":0 — no capability files found, so nothing could be checked"
         )
         return findings
+    findings.extend(check_shell_open(root))
     for path in files:
         rel = path.relative_to(root)
         try:
             text = path.read_text(encoding="utf-8")
             data = json.loads(text)
         except (OSError, ValueError) as err:
-            findings.append(f"  • {rel}:1 — could not be read as JSON ({err}); not checked")
+            findings.append(f"  • {rel}:0 — could not be read as JSON ({err}); not checked")
             continue
         perms = data.get("permissions") if isinstance(data, dict) else None
         if not isinstance(perms, list):
-            findings.append(f"  • {rel}:1 — has no `permissions` list; not checked")
+            findings.append(f"  • {rel}:0 — has no `permissions` list; not checked")
             continue
         for entry in perms:
             name = _identifier(entry)
