@@ -225,7 +225,8 @@ describe('MvGapFillModal', () => {
       );
       expect(screen.getByText(/Download the updated version/)).toBeInTheDocument();
       expect(screen.queryByText(/Re-download gaps/)).not.toBeInTheDocument();
-      expect(screen.getByText(/keep their\s+old version/)).toBeInTheDocument();
+      expect(screen.getByText(/not downloaded again in their\s+updated version/)).toBeInTheDocument();
+      expect(screen.queryByText(/never replaced/)).not.toBeInTheDocument();
       expect(screen.getByText('Include music videos in this download?')).toBeInTheDocument();
     });
 

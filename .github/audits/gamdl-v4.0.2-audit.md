@@ -39,6 +39,7 @@ The same refresh is what the word-level lyrics pass (16 Nov 2026) relies on, del
 - A re-run walks the format chain again, so it can make fallback-format copies the first run did not make.
 - On a whole-album request, songs outside the album's expected list can be counted as "not offered in this format".
 - A folder or files renamed after the first download (`[Explicit]`, `[Clean]`, a format label) are not recognised by the download, which writes the plain names; the Library page warns that a second copy may be added. Rebuilding the re-download around renamed files is #1437.
+- Same cause, other effects (also #1437): on an updated-album re-download with Overwrite on, in the default Atmos-plus-Lossless mode the updated Atmos download writes the plain name the Lossless extra copy has, so that copy is replaced and then fetched again; and a re-download filling a missing format can make no copy when a file of another format already has the plain name (GAMDL skips it as "already exists").
 
 ## Follow-ups (real machine)
 
