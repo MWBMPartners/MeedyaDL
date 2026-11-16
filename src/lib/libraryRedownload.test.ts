@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 import {
   GAPS_ONLY_NOTE,
   UPDATE_NEEDS_OVERWRITE,
+  shouldWarnAboutSecondCopy,
   buildLibraryRedownloadRequest,
   decideLibraryRedownload,
 } from './libraryRedownload';
@@ -53,5 +54,21 @@ describe('decideLibraryRedownload', () => {
       kind: 'explain',
       message: UPDATE_NEEDS_OVERWRITE,
     });
+  });
+});
+
+describe('shouldWarnAboutSecondCopy', () => {
+  it('warns only when names were changed and something would be queued', () => {
+    expect(shouldWarnAboutSecondCopy({ kind: 'fill_gaps' }, true)).toBe(true);
+    expect(shouldWarnAboutSecondCopy({ kind: 'refresh' }, true)).toBe(true);
+    expect(shouldWarnAboutSecondCopy({ kind: 'fill_gaps' }, false)).toBe(false);
+    expect(
+      shouldWarnAboutSecondCopy({ kind: 'explain', message: UPDATE_NEEDS_OVERWRITE }, true)
+    ).toBe(false);
+  });
+
+  it('never promises that updated songs are replaced when filling gaps', () => {
+    expect(GAPS_ONLY_NOTE).toMatch(/kept, not replaced/);
+    expect(UPDATE_NEEDS_OVERWRITE).toMatch(/Overwrite Existing Files/);
   });
 });

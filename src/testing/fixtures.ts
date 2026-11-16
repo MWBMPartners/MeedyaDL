@@ -140,6 +140,7 @@ export const makeScannedManifest = makeFixture<ScannedManifest>({
   current_codec: 'alac',
   audio_file_count: 9,
   last_modified_date: null,
+  has_labelled_names: false,
 });
 
 /**

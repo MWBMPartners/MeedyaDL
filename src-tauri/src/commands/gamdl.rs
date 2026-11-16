@@ -2814,6 +2814,36 @@ pub struct ScannedManifest {
     /// date, the album may have been updated (mix corrections, remasters,
     /// added tracks, Apple Digital Master certification).
     pub last_modified_date: Option<String>,
+    /// The album folder's name, or one of its audio files' names, carries a
+    /// label MeedyaDL adds after a download (`[Explicit]` / `[Clean]`, or a
+    /// format such as `[Lossless]`). A re-download writes the plain names
+    /// GAMDL uses, so it may add a second copy beside these files; the
+    /// Library page warns before queueing.
+    #[serde(default)]
+    pub has_labelled_names: bool,
+}
+
+/// Whether a name ends with a label MeedyaDL adds after a download: the
+/// advisory `[Explicit]` / `[Clean]`, or a format suffix from the codec
+/// registry (`[Lossless]`, `[Dolby Atmos]`, …).
+fn name_carries_meedyadl_label(name: &str) -> bool {
+    let trimmed = name.trim_end();
+    let mut labels: Vec<&str> = vec!["[Explicit]", "[Clean]"];
+    labels.extend(crate::services::metadata_tag_service::registry_codec_suffixes());
+    labels.iter().any(|l| trimmed.ends_with(&format!(" {l}")))
+}
+
+/// Whether the album folder or any of its audio files carries a MeedyaDL
+/// label ([`name_carries_meedyadl_label`]).
+fn album_has_labelled_names(album_dir: &std::path::Path) -> bool {
+    let folder = album_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if name_carries_meedyadl_label(folder) {
+        return true;
+    }
+    crate::services::metadata_tag_service::collect_m4a_files(&album_dir.to_string_lossy())
+        .iter()
+        .filter_map(|p| p.file_stem().and_then(|s| s.to_str()))
+        .any(name_carries_meedyadl_label)
 }
 
 /// Recursively scan a directory for `manifest.meedyadl` files and return
@@ -2978,6 +3008,7 @@ fn parse_manifest_at_path(path: &std::path::Path) -> Option<ScannedManifest> {
         current_codec,
         audio_file_count,
         last_modified_date: source.and_then(|s| s.last_modified_date.clone()),
+        has_labelled_names: album_has_labelled_names(album_dir),
     })
 }
 
@@ -3505,6 +3536,31 @@ pub fn scan_enrichment_gaps(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn labels_meedyadl_adds_are_recognised_in_names() {
+        assert!(super::name_carries_meedyadl_label("Album [Explicit]"));
+        assert!(super::name_carries_meedyadl_label("01 Song [Dolby Atmos]"));
+        assert!(super::name_carries_meedyadl_label("01 Song [Clean] [Lossless]"));
+        assert!(!super::name_carries_meedyadl_label("Album"));
+        assert!(!super::name_carries_meedyadl_label("01 Song"));
+        // A label in the middle of a title is not one MeedyaDL added.
+        assert!(!super::name_carries_meedyadl_label("[Explicit] Content Live"));
+    }
+
+    #[test]
+    fn an_album_folder_with_labelled_files_is_flagged() {
+        let root = tempfile::tempdir().unwrap();
+        let plain = root.path().join("Album");
+        std::fs::create_dir(&plain).unwrap();
+        std::fs::write(plain.join("01 Song.m4a"), b"a").unwrap();
+        assert!(!super::album_has_labelled_names(&plain));
+        std::fs::write(plain.join("02 Other [Lossless].m4a"), b"b").unwrap();
+        assert!(super::album_has_labelled_names(&plain));
+        let labelled = root.path().join("Album [Explicit]");
+        std::fs::create_dir(&labelled).unwrap();
+        assert!(super::album_has_labelled_names(&labelled));
+    }
+
     use super::*;
 
     /// A bare `spotify:` URI must classify as Spotify — this is the

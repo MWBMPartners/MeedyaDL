@@ -1601,6 +1601,12 @@ export interface ScannedManifest {
   audio_file_count: number;
   /** Apple Music lastModifiedDate from manifest — for content refresh detection (#380) */
   last_modified_date: string | null;
+  /**
+   * The album folder or one of its audio files carries a label MeedyaDL
+   * added after the download ([Explicit]/[Clean], or a format such as
+   * [Lossless]); a re-download may add a second copy, so the page warns.
+   */
+  has_labelled_names: boolean;
 }
 
 /**

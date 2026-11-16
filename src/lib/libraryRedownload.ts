@@ -11,6 +11,8 @@
  *   re-download fills the gaps only and never replaces a file already
  *   there — those carry everything MeedyaDL added after the first download
  *   (tags, lyrics, artwork). Overwrite is always OFF, whatever the setting.
+ *   (Songs already in the folder are kept; if their names were changed
+ *   after the first download, a second copy may be added — the page warns.)
  * - **Only "Content updated"** (Apple Music changed the album): nothing is
  *   missing, so getting the new version means replacing files. That
  *   follows the person's "Overwrite" setting. With it off, nothing is
@@ -41,11 +43,33 @@ export type LibraryRedownloadDecision =
 /** Shown when only an update is available and Overwrite is off. Names the
  * setting exactly as Settings > General shows it. */
 export const UPDATE_NEEDS_OVERWRITE =
-  'The updated version replaces the files you already have only when "Overwrite Existing Files" is on in Settings. Nothing was added to the queue.';
+  'To download the updated version, turn on "Overwrite Existing Files" in Settings. With it off, the songs already in the folder are kept as they are, so nothing was added to the queue.';
 
 /** Shown when a row has gaps and an update. */
 export const GAPS_ONLY_NOTE =
-  'Only the missing songs and copies will be downloaded. Songs Apple Music has updated are not replaced.';
+  'Only what is missing is asked for. Songs already in the folder are kept, not replaced, so songs Apple Music has updated are not downloaded again.';
+
+/** Title, text and button of the warning shown before re-downloading an
+ * album whose folder or files were renamed after the first download. */
+export const SECOND_COPY_WARNING = {
+  title: 'This may add a second copy',
+  description:
+    "This album's folder or files were renamed after the first download (for example with [Explicit] or [Lossless]). Re-downloading it may add a second copy beside the existing files, instead of filling in or replacing them.",
+  confirmLabel: 'Re-download anyway',
+} as const;
+
+/**
+ * Whether to warn, before queueing, that the re-download may add a second
+ * copy: the album's folder or files carry labels MeedyaDL added after the
+ * first download (the download writes the plain names), and something
+ * would actually be queued.
+ */
+export function shouldWarnAboutSecondCopy(
+  decision: LibraryRedownloadDecision,
+  hasLabelledNames: boolean
+): boolean {
+  return hasLabelledNames && decision.kind !== 'explain';
+}
 
 /**
  * Decides what a Library re-download does for one row.

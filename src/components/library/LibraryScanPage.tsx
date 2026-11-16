@@ -67,10 +67,13 @@ import { PageHeader } from '@/components/layout';
 import { Button } from '@/components/common';
 import { FOLDER_SCAN_FAILED, isCancellation, showBackendError, showError } from '@/lib/errorMessages';
 import {
+  SECOND_COPY_WARNING,
   buildLibraryRedownloadRequest,
   decideLibraryRedownload,
+  shouldWarnAboutSecondCopy,
   type LibraryRedownloadDecision,
 } from '@/lib/libraryRedownload';
+import { useConfirmation } from '@/lib/useConfirmation';
 
 /**
  * Human-readable label for a canonical codec-registry ID. Used by
@@ -274,6 +277,18 @@ export function LibraryScanPage() {
    * MvGapFillModal renders for that manifest. Cleared on confirm /
    * cancel. Single-modal-at-a-time keeps the UX flow predictable.
    */
+  /** The row waiting on the "may add a second copy" warning. */
+  const [secondCopyFor, setSecondCopyFor] = useState<ScannedManifest | null>(null);
+  const secondCopyWarning = useConfirmation({
+    title: SECOND_COPY_WARNING.title,
+    description: SECOND_COPY_WARNING.description,
+    confirmLabel: SECOND_COPY_WARNING.confirmLabel,
+    onConfirm: () => {
+      setPendingGapFill(secondCopyFor);
+      setSecondCopyFor(null);
+    },
+    onCancel: () => setSecondCopyFor(null),
+  });
   const [pendingGapFill, setPendingGapFill] = useState<ScannedManifest | null>(
     null
   );
@@ -360,6 +375,13 @@ export function LibraryScanPage() {
     const decision = decisionFor(m);
     if (decision.kind === 'explain') {
       addToast(decision.message, 'info');
+      return;
+    }
+    // Names changed after the first download: the download writes the
+    // plain names, so it may add a second copy. Say so first.
+    if (shouldWarnAboutSecondCopy(decision, m.has_labelled_names)) {
+      setSecondCopyFor(m);
+      secondCopyWarning.open();
       return;
     }
     setPendingGapFill(m);
@@ -497,9 +519,9 @@ export function LibraryScanPage() {
 
       <p className="mb-4 max-w-prose text-sm text-content-secondary">
         Point MeedyaDL at an existing music library to find downloads that are missing tracks, have a higher
-        quality available, or have been updated by Apple Music since you last fetched them. Re-download fills in just
-        the gaps, without replacing anything you already have. An album Apple Music has updated is downloaded again
-        only when “Overwrite Existing Files” is on in Settings.
+        quality available, or have been updated by Apple Music since you last fetched them. Re-download asks only for
+        what is missing and keeps the songs already in the folder. An album Apple Music has updated is downloaded
+        again only when “Overwrite Existing Files” is on in Settings; files with the same names are then replaced.
       </p>
 
       <div className="mb-6 flex items-center gap-3">
@@ -637,7 +659,9 @@ export function LibraryScanPage() {
         onConfirm={handleGapFillConfirm}
         mvCompanionEnabledInSettings={mvCompanionEnabled}
         manifest={pendingGapFill}
+        mode={pendingGapFill && decisionFor(pendingGapFill).kind === 'refresh' ? 'refresh' : 'fill_gaps'}
       />
+      {secondCopyWarning.modal}
 
       {/*
         Phase 5 follow-ups tracked in #717:

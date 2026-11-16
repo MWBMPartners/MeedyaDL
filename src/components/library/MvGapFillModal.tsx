@@ -62,6 +62,13 @@ interface MvGapFillModalProps {
   mvCompanionEnabledInSettings: boolean;
   /** The manifest row being acted on — used for the modal title. */
   manifest: ScannedManifest | null;
+  /**
+   * What the re-download does (`decideLibraryRedownload`): `fill_gaps`
+   * (default) fills in only what is missing; `refresh` downloads Apple
+   * Music's updated version with "Overwrite Existing Files" on. Drives the
+   * wording only.
+   */
+  mode?: 'fill_gaps' | 'refresh';
 }
 
 export function MvGapFillModal({
@@ -70,8 +77,10 @@ export function MvGapFillModal({
   onConfirm,
   mvCompanionEnabledInSettings,
   manifest,
+  mode = 'fill_gaps',
 }: MvGapFillModalProps) {
   if (!manifest) return null;
+  const refresh = mode === 'refresh';
 
   const titleSuffix = manifest.album
     ? ` — ${manifest.album}`
@@ -92,7 +101,7 @@ export function MvGapFillModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={`Re-download gaps${titleSuffix}`}
+      title={`${refresh ? 'Download the updated version' : 'Re-download gaps'}${titleSuffix}`}
       maxWidth="max-w-xl"
     >
       <div className="space-y-4">
@@ -102,7 +111,24 @@ export function MvGapFillModal({
             className="flex-shrink-0 text-accent mt-0.5"
             aria-hidden="true"
           />
-          {mvCompanionEnabledInSettings ? (
+          {refresh ? (
+            <div className="space-y-2">
+              <p>
+                This downloads Apple Music&apos;s updated version of the album.
+                &ldquo;Overwrite Existing Files&rdquo; is on, so files with the
+                same names are replaced.
+              </p>
+              <p>
+                Extra copies in other formats already in the folder keep their
+                old version: they are never replaced.
+              </p>
+              <p>
+                Music video companion is{' '}
+                <strong>{mvCompanionEnabledInSettings ? 'enabled' : 'currently disabled'}</strong>{' '}
+                in your settings.
+              </p>
+            </div>
+          ) : mvCompanionEnabledInSettings ? (
             <p>
               Music video companion is <strong>enabled</strong> in your
               settings. Music videos may be downloaded or updated as
@@ -119,9 +145,13 @@ export function MvGapFillModal({
         </div>
 
         <div className="text-sm text-content-primary font-medium">
-          {mvCompanionEnabledInSettings
-            ? 'Include music videos in this gap-fill?'
-            : 'Include music videos in this gap-fill anyway?'}
+          {refresh
+            ? mvCompanionEnabledInSettings
+              ? 'Include music videos in this download?'
+              : 'Include music videos in this download anyway?'
+            : mvCompanionEnabledInSettings
+              ? 'Include music videos in this gap-fill?'
+              : 'Include music videos in this gap-fill anyway?'}
         </div>
 
         <p className="text-xs text-content-tertiary">

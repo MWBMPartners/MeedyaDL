@@ -34,6 +34,12 @@ The same refresh is what the word-level lyrics pass (16 Nov 2026) relies on, del
 - Whether the TTML refresh really replaces a word-timed file in a companion run is not confirmed.
 - Where the shared `Cover` file lands for a single song, an album and a playlist, and whether the companion run adds a duplicate, is read from source only.
 
+## Known limits of the Library re-download (16 Nov 2026)
+
+- A re-run walks the format chain again, so it can make fallback-format copies the first run did not make.
+- On a whole-album request, songs outside the album's expected list can be counted as "not offered in this format".
+- A folder or files renamed after the first download (`[Explicit]`, `[Clean]`, a format label) are not recognised by the download, which writes the plain names; the Library page warns that a second copy may be added. Rebuilding the re-download around renamed files is #1437.
+
 ## Follow-ups (real machine)
 
 1. A 4.0.1 download of a short song (is it locked?) against the same song on 4.0.2.

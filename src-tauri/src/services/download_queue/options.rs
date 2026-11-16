@@ -661,3 +661,20 @@ pub(crate) fn needs_primary_suffix(
         }
     }
 }
+
+/// The settings the follow-up GAMDL runs of one item use (the lyrics
+/// fallback, music-video copies): the saved settings, with `overwrite`
+/// taken from the item's own options when it has one. A Library "fill the
+/// gaps" re-download sends `overwrite: false`, which must reach these runs
+/// too, not only the main download.
+#[must_use]
+pub(crate) fn settings_for_follow_up_runs(
+    settings: &AppSettings,
+    item_overwrite: Option<bool>,
+) -> AppSettings {
+    let mut s = settings.clone();
+    if let Some(overwrite) = item_overwrite {
+        s.overwrite = overwrite;
+    }
+    s
+}

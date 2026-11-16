@@ -2989,6 +2989,26 @@
         crate::services::gamdl_capabilities::set_detected_version(None);
     }
 
+    /// The follow-up runs (lyrics fallback, music-video copies) build their
+    /// options from `settings.overwrite`; for a "fill the gaps" item that
+    /// must be the item's `false`, never the saved `true`.
+    #[test]
+    fn follow_up_runs_of_a_fill_gaps_item_never_overwrite() {
+        let mut settings = test_settings();
+        settings.overwrite = true;
+        let follow_up = settings_for_follow_up_runs(&settings, Some(false));
+        assert!(!follow_up.overwrite);
+        // Built the way both follow-up runs build theirs.
+        let opts = GamdlOptions {
+            overwrite: Some(follow_up.overwrite),
+            ..GamdlOptions::default()
+        };
+        assert!(!opts.to_cli_args().iter().any(|a| a == "--overwrite"));
+        // An item with no choice of its own follows the setting.
+        assert!(settings_for_follow_up_runs(&settings, None).overwrite);
+        assert!(settings_for_follow_up_runs(&settings, Some(true)).overwrite);
+    }
+
     /// Every companion run forces overwrite off, on every path.
     #[test]
     fn companions_never_overwrite() {

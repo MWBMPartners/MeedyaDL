@@ -210,4 +210,40 @@ describe('MvGapFillModal', () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onConfirm).not.toHaveBeenCalled();
   });
+
+  describe('refresh wording', () => {
+    it('says it downloads the updated version and keeps extra copies', () => {
+      render(
+        <MvGapFillModal
+          open
+          onClose={() => {}}
+          onConfirm={() => {}}
+          mvCompanionEnabledInSettings
+          manifest={baseManifest}
+          mode="refresh"
+        />
+      );
+      expect(screen.getByText(/Download the updated version/)).toBeInTheDocument();
+      expect(screen.queryByText(/Re-download gaps/)).not.toBeInTheDocument();
+      expect(screen.getByText(/keep their\s+old version/)).toBeInTheDocument();
+      expect(screen.getByText('Include music videos in this download?')).toBeInTheDocument();
+    });
+
+    it('maps the buttons the same way as a gap-fill', () => {
+      const onConfirm = vi.fn();
+      render(
+        <MvGapFillModal
+          open
+          onClose={() => {}}
+          onConfirm={onConfirm}
+          mvCompanionEnabledInSettings={false}
+          manifest={baseManifest}
+          mode="refresh"
+        />
+      );
+      expect(screen.getByText('Include music videos in this download anyway?')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Yes — include videos/ }));
+      expect(onConfirm).toHaveBeenCalledWith(true);
+    });
+  });
 });

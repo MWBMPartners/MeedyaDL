@@ -2129,7 +2129,15 @@ pub fn process_queue(
 
                             // Log enrichment settings summary so users can see
                             // which steps will run in the Activity Log.
-                            let enrich_settings = load_settings_for_queue(&enrich_app);
+                            // The item's own overwrite choice wins over the saved
+                            // setting for every follow-up GAMDL run below (the
+                            // lyrics fallback, music-video copies): a Library
+                            // "fill the gaps" re-download says overwrite off and
+                            // must never have a follow-up replace a file.
+                            let enrich_settings = settings_for_follow_up_runs(
+                                &load_settings_for_queue(&enrich_app),
+                                enrich_primary_options.overwrite,
+                            );
                             emit_download_log(
                             &enrich_app,
                             &enrich_dl_id,
