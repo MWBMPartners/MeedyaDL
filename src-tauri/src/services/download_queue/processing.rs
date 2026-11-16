@@ -4889,8 +4889,7 @@ pub fn process_queue(
                             // MeedyaDL's own refusal of the download folder
                             // (#1419) is a settings choice, not a disk fault, and
                             // already says what to do, so it is shown as it is.
-                            let shown = if error_msg
-                                .contains(process::DOWNLOAD_FOLDER_REFUSAL_MARK)
+                            let shown = if error_msg.contains(process::DOWNLOAD_FOLDER_REFUSAL_MARK)
                             {
                                 error_msg.clone()
                             } else {
