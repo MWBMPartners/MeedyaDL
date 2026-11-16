@@ -1615,9 +1615,11 @@ function IntegrityScanSection() {
  *
  * Only rendered when `dev_access_enabled` is true (activated via Konami code).
  * Shows token status, web player token management, and a deactivate button.
- * Its controls change single fields in the page's copy of the settings
- * through `useSettingsField`; like the rest of the Settings screen, they are
- * written to disk only when the person saves.
+ * The GAMDL log-level dropdown changes the page's copy of the settings
+ * (through `useSettingsField`) and is written to disk when the person saves.
+ * The Clear button removes the web player token from the keychain straight
+ * away, and Deactivate turns developer access off and saves that straight
+ * away. The MusicKit fields are only read here.
  */
 function DevToolsSection() {
   // Per-field bindings for the two MusicKit fields read by this

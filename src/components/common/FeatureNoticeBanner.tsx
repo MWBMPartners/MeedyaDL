@@ -125,7 +125,11 @@ interface ResolvedNotice {
   key: string;
   /** Picks the colours and the icon. */
   token: StatusToken;
-  /** Ready to print as plain text (a server message is already clamped; the fallback text is the app's own). */
+  /**
+   * Ready to print as plain text (a server message is already clamped; the
+   * fallback sentence is the app's own, with the flag's label (from the
+   * server) or key filled in).
+   */
   message: string;
 }
 

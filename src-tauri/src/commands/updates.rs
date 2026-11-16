@@ -700,7 +700,8 @@ fn is_first_launch_after_upgrade(previous_version: Option<&str>, current_version
 }
 
 /// Tells the page which version is running now, which one ran last time, and
-/// whether this is an unfinished (alpha, beta, release candidate, or anything before 1.0) build.
+/// whether this is an unfinished build (any version before 1.0, or one with a
+/// `-` suffix such as alpha, beta or release candidate).
 ///
 /// The page uses it to show the first-launch notice after an upgrade. The
 /// previous version comes from memory because startup has already overwritten

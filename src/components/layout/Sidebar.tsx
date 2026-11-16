@@ -437,8 +437,9 @@ export function Sidebar() {
          *    (Python, GAMDL and every required tool are installed).
          *  - Yellow (`bg-status-warning`) when setup is incomplete.
          *
-         * In expanded mode, the dot is followed by `statusText` ("Ready",
-         * the name of the one missing tool, or "Setup Required"). In
+         * In expanded mode, the dot is followed by `statusText` ("Ready";
+         * "<name> is missing" when exactly one thing is missing; otherwise
+         * "Setup Required"). In
          * collapsed mode, the dot is wrapped in a right-aligned Tooltip.
          *
          * `isReady` is a derived boolean computed from the `missing` list

@@ -162,8 +162,8 @@ export function UpdatesPage() {
     () => activeUpdates.filter((c) => CORE_COMPONENTS.includes(c.name)),
     [activeUpdates]
   );
-  // Engine and tool updates: everything except the app, GAMDL and Python, which
-  // have their own rows.
+  // Engine and tool updates: anything other than the app, GAMDL and Python
+  // (which have their own rows) that names a pip package or a tool to update.
   const engineUpdates = useMemo(
     () =>
       activeUpdates.filter(

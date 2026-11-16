@@ -58,8 +58,9 @@ import { withErrorToast } from '@/lib/withErrorToast';
 export default function SpotifyConsentModal() {
   const show = useUiStore((s) => s.showSpotifyConsent);
   const callback = useUiStore((s) => s.pendingSpotifyConsentCallback);
-  // These three are read once with `getState()` instead of a hook: they are
-  // functions that never change, so this component does not need to re-render for them.
+  // These three are read with `getState()` rather than a hook, so nothing
+  // subscribes to them: they are functions that never change, so the
+  // component does not need to re-render for them.
   // See: https://zustand.docs.pmnd.rs/apis/create
   const setShow = useUiStore.getState().setShowSpotifyConsent;
   const setCallback = useUiStore.getState().setPendingSpotifyConsentCallback;
