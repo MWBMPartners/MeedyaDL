@@ -1032,9 +1032,7 @@ mod tests {
 
         let result = ttml_to_enhanced_lrc(ttml).unwrap();
         assert!(!result.has_word_timing);
-        assert!(result
-            .lrc_content
-            .contains("[00:12.45]Hello world today"));
+        assert!(result.lrc_content.contains("[00:12.45]Hello world today"));
     }
 
     // ----------------------------------------------------------

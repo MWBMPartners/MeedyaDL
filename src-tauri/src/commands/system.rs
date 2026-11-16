@@ -326,15 +326,12 @@ pub async fn notify_system(
 ///
 /// **Frontend caller:** `getNotificationDiagnostics()` in `src/lib/tauri-commands.ts`.
 #[tauri::command]
-pub fn get_notification_diagnostics(
-    app: tauri::AppHandle,
-) -> NotificationDiagnostics {
+pub fn get_notification_diagnostics(app: tauri::AppHandle) -> NotificationDiagnostics {
     // `load_settings` returns `Result<AppSettings, String>`; on a load
     // failure we fall back to the safe defaults so the diagnostics
     // panel still renders something useful (and the user can see that
     // settings.json failed to load via the surfaced error elsewhere).
-    let settings = crate::services::config_service::load_settings(&app)
-        .unwrap_or_default();
+    let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
     NotificationDiagnostics {
         desktop_notifications_enabled: settings.desktop_notifications,
         notification_style: settings.notification_style,
@@ -397,8 +394,7 @@ pub struct NotificationDiagnostics {
 pub async fn run_integrity_scan(
     app: tauri::AppHandle,
 ) -> Result<crate::services::integrity_scan::IntegrityScanReport, String> {
-    let settings =
-        crate::services::config_service::load_settings(&app).unwrap_or_default();
+    let settings = crate::services::config_service::load_settings(&app).unwrap_or_default();
     let output_path = if settings.output_path.is_empty() {
         // Empty output_path means the user is using the default
         // (resolved per-platform at download time). Fall back to the
@@ -421,11 +417,10 @@ pub async fn run_integrity_scan(
     // `spawn_blocking` because the walk is purely synchronous file I/O
     // and can take seconds on big libraries — blocking the runtime
     // would freeze every other IPC for the duration.
-    let report = tokio::task::spawn_blocking(move || {
-        crate::services::integrity_scan::scan(&output_path)
-    })
-    .await
-    .map_err(|e| format!("Integrity scan task panicked: {e}"))?;
+    let report =
+        tokio::task::spawn_blocking(move || crate::services::integrity_scan::scan(&output_path))
+            .await
+            .map_err(|e| format!("Integrity scan task panicked: {e}"))?;
 
     // Activity-log breadcrumb so the user has a record of when they
     // ran the scan and what it found. The full per-issue list goes

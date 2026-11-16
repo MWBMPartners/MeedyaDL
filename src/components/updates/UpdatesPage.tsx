@@ -39,7 +39,13 @@ import { PageHeader } from '@/components/layout';
 import { Button, IconButton, InlineError, TextButton } from '@/components/common';
 import { upgradeGenericComponent } from '@/lib/upgrade-generic-component';
 import type { ComponentUpdate } from '@/types';
-import { GAMDL_UPDATE_FAILED, RESTART_FAILED, UPDATE_FAILED, componentUpdateFailed, showError } from '@/lib/errorMessages';
+import {
+  GAMDL_UPDATE_FAILED,
+  RESTART_FAILED,
+  UPDATE_FAILED,
+  componentUpdateFailed,
+  showError,
+} from '@/lib/errorMessages';
 
 /**
  * Strips the "Choose your download" section and everything after it from
@@ -98,7 +104,6 @@ function NotCheckableNotice({ items }: { items: ComponentUpdate[] }) {
     </div>
   );
 }
-
 
 export function UpdatesPage() {
   const lastResult = useUpdateStore((s) => s.lastResult);
@@ -205,11 +210,19 @@ export function UpdatesPage() {
   const handleDownloadAndInstall = async (tag: string) => {
     try {
       await downloadAndInstallAppUpdate(tag);
-      addToast('Update installed! Restart to apply.', 'success', undefined, undefined, undefined, undefined, {
-        // An important message (#1431): may also be a system notification.
-        kind: 'update_ready',
-        systemBody: 'A MeedyaDL update is installed. Restart MeedyaDL to use it.',
-      });
+      addToast(
+        'Update installed! Restart to apply.',
+        'success',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          // An important message (#1431): may also be a system notification.
+          kind: 'update_ready',
+          systemBody: 'A MeedyaDL update is installed. Restart MeedyaDL to use it.',
+        }
+      );
     } catch (e) {
       showError(UPDATE_FAILED, e);
     }
@@ -288,7 +301,8 @@ export function UpdatesPage() {
                       Running pre-release — stable v{lastResult.rollback_version} available
                     </p>
                     <p className="text-xs text-content-tertiary mt-1">
-                      Roll back to the latest stable release if you experience issues with this pre-release.
+                      Roll back to the latest stable release if you experience issues with this
+                      pre-release.
                     </p>
                   </div>
                   <Button
@@ -297,7 +311,9 @@ export function UpdatesPage() {
                     onClick={async () => {
                       if (lastResult.rollback_tag) {
                         const { open } = await import('@tauri-apps/plugin-shell');
-                        await open(`https://github.com/MWBMPartners/MeedyaDL/releases/tag/${lastResult.rollback_tag}`);
+                        await open(
+                          `https://github.com/MWBMPartners/MeedyaDL/releases/tag/${lastResult.rollback_tag}`
+                        );
                       }
                     }}
                   >
@@ -312,9 +328,7 @@ export function UpdatesPage() {
           <div className="space-y-6">
             <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
               <ArrowUpCircle size={18} className="text-accent" />
-              {activeUpdates.length === 1
-                ? 'Update Available'
-                : 'Updates Available'}
+              {activeUpdates.length === 1 ? 'Update Available' : 'Updates Available'}
             </div>
 
             {/* Engine/tool updates: aggregated card with a bulk action plus
@@ -353,7 +367,10 @@ export function UpdatesPage() {
                       }
 
                       if (failCount === 0) {
-                        addToast(`${successCount} component${successCount > 1 ? 's' : ''} updated successfully`, 'success');
+                        addToast(
+                          `${successCount} component${successCount > 1 ? 's' : ''} updated successfully`,
+                          'success'
+                        );
                       } else if (successCount === 0) {
                         addToast(
                           `MeedyaDL could not install ${failCount === 1 ? 'the update' : `any of the ${failCount} updates`}. Check your internet connection, then try again.`,
@@ -373,7 +390,8 @@ export function UpdatesPage() {
                   </Button>
                 </div>
                 <p className="text-sm text-content-secondary mt-2">
-                  Newer versions of internal components are available. Updating ensures the best compatibility and performance.
+                  Newer versions of internal components are available. Updating ensures the best
+                  compatibility and performance.
                 </p>
 
                 {/* Per-tool row list. Each row's button label reflects the
@@ -391,7 +409,10 @@ export function UpdatesPage() {
                           <span className="font-medium text-content-primary">{update.name}</span>
                           {update.current_version && <span> v{update.current_version}</span>}
                           {update.latest_version && (
-                            <span className="text-accent-hover"> &rarr; v{update.latest_version}</span>
+                            <span className="text-accent-hover">
+                              {' '}
+                              &rarr; v{update.latest_version}
+                            </span>
                           )}
                         </span>
                         {/*
@@ -589,9 +610,10 @@ export function UpdatesPage() {
                  */}
                 {update.is_untested && !update.is_prerelease && !update.no_compatible_wheel && (
                   <p className="text-2xs text-status-warning-text mb-3">
-                    This GAMDL release was published after MeedyaDL&apos;s last compatibility verification.
-                    The upgrade is installable, but compatibility with MeedyaDL&apos;s functionality isn&apos;t
-                    guaranteed — install at your own risk, or wait for the next MeedyaDL version to validate it.
+                    This GAMDL release was published after MeedyaDL&apos;s last compatibility
+                    verification. The upgrade is installable, but compatibility with MeedyaDL&apos;s
+                    functionality isn&apos;t guaranteed — install at your own risk, or wait for the
+                    next MeedyaDL version to validate it.
                   </p>
                 )}
 
@@ -605,9 +627,9 @@ export function UpdatesPage() {
                 {update.no_compatible_wheel && (
                   <p className="text-2xs text-status-warning-text mb-3">
                     Not installable — no compatible wheel has been published for this platform yet.
-                    Installing would fall back to a source build MeedyaDL&apos;s bundled Python runtime
-                    can&apos;t perform. Wait for a future GAMDL release, or a MeedyaDL build with a
-                    matching Python runtime.
+                    Installing would fall back to a source build MeedyaDL&apos;s bundled Python
+                    runtime can&apos;t perform. Wait for a future GAMDL release, or a MeedyaDL build
+                    with a matching Python runtime.
                   </p>
                 )}
 
@@ -659,7 +681,10 @@ export function UpdatesPage() {
                               {...props}
                               href={href}
                               onClick={(e) => {
-                                if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+                                if (
+                                  href &&
+                                  (href.startsWith('http://') || href.startsWith('https://'))
+                                ) {
                                   e.preventDefault();
                                   import('@tauri-apps/plugin-shell')
                                     .then(({ open }) => open(href))

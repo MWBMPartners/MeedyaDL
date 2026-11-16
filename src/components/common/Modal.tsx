@@ -28,7 +28,15 @@
  * @see https://tailwindcss.com/docs/z-index -- z-index stacking context.
  */
 
-import { useEffect, useLayoutEffect, useCallback, useId, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 // Every dialog in the app is built on this shared shell, so translating
 // its one piece of fixed text (the close button) here means every modal
@@ -360,7 +368,9 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
          */}
         {title && (
           <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
-            <h2 id={titleId} className="text-base font-semibold text-content-primary">{title}</h2>
+            <h2 id={titleId} className="text-base font-semibold text-content-primary">
+              {title}
+            </h2>
             {/*
              * Close button -- uses the Lucide X icon at 18px.
              * aria-label="Close" ensures screen readers announce its purpose.

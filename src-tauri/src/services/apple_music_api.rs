@@ -355,12 +355,8 @@ pub struct ItunesLookupResponse {
 /// * `Ok(Some(Vec<ItunesTrackResult>))` — Tracks found
 /// * `Ok(None)` — Album not found or no track results
 /// * `Err(String)` — Network or parse error
-pub async fn fetch_itunes_lookup(
-    album_id: &str,
-) -> Result<Option<Vec<ItunesTrackResult>>, String> {
-    let url = format!(
-        "https://itunes.apple.com/lookup?id={album_id}&entity=song&limit=200"
-    );
+pub async fn fetch_itunes_lookup(album_id: &str) -> Result<Option<Vec<ItunesTrackResult>>, String> {
+    let url = format!("https://itunes.apple.com/lookup?id={album_id}&entity=song&limit=200");
 
     log::debug!("Querying iTunes Lookup API: {url}");
 
@@ -368,7 +364,10 @@ pub async fn fetch_itunes_lookup(
 
     let response = client
         .get(&url)
-        .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str())
+        .header(
+            "User-Agent",
+            crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str(),
+        )
         .send()
         .await
         .map_err(|e| format!("iTunes Lookup API request failed: {e}"))?;
@@ -912,10 +911,7 @@ pub fn clear_webplayer_token_from_keychain() -> Result<(), String> {
 /// Returns true when a web player developer token is stored in the keychain.
 #[must_use]
 pub fn has_webplayer_token() -> bool {
-    get_webplayer_token_from_keychain()
-        .ok()
-        .flatten()
-        .is_some()
+    get_webplayer_token_from_keychain().ok().flatten().is_some()
 }
 
 /// Resolve a MusicKit developer token for premium API features only.
@@ -1001,7 +997,10 @@ fn apply_apple_music_headers(
         .header("Authorization", format!("Bearer {jwt}"))
         .header("Origin", "https://music.apple.com")
         .header("Referer", "https://music.apple.com/")
-        .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str());
+        .header(
+            "User-Agent",
+            crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str(),
+        );
 
     match music_user_token {
         Some(token) => req.header("Music-User-Token", token),
@@ -1204,8 +1203,9 @@ pub async fn fetch_album_metadata(
     // emit, since `as_str()` on an object silently returns None.
     let editorial_video = attributes.get("editorialVideo");
 
-    let artwork_square_url = editorial_video
-        .and_then(|ev| extract_motion_url_chain(ev, &["motionSquareVideo1x1", "motionDetailSquare"]));
+    let artwork_square_url = editorial_video.and_then(|ev| {
+        extract_motion_url_chain(ev, &["motionSquareVideo1x1", "motionDetailSquare"])
+    });
 
     let artwork_tall_url = editorial_video
         .and_then(|ev| extract_motion_url_chain(ev, &["motionTallVideo3x4", "motionDetailTall"]));
@@ -1768,7 +1768,10 @@ pub async fn fetch_music_video_album_linkage(
     let response = client
         .get(&url)
         .header("Authorization", format!("Bearer {jwt}"))
-        .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str())
+        .header(
+            "User-Agent",
+            crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str(),
+        )
         .send()
         .await
         .map_err(|e| format!("MV album linkage lookup failed: {e}"))?;
@@ -1777,7 +1780,9 @@ pub async fn fetch_music_video_album_linkage(
     if !status.is_success() {
         match status.as_u16() {
             404 => {
-                log::debug!("MV {video_id} has no album linkage (404) — falling through to Tier 3/4");
+                log::debug!(
+                    "MV {video_id} has no album linkage (404) — falling through to Tier 3/4"
+                );
                 return Ok(None);
             }
             401 | 403 => {
@@ -1806,19 +1811,21 @@ pub async fn fetch_music_video_album_linkage(
 /// needing live API access. Returns the first linked album when
 /// `relationships.albums.data[]` is non-empty AND the corresponding
 /// entry in `included[]` is resolvable; otherwise `None`.
-fn parse_mv_album_linkage(json: &serde_json::Value) -> Result<Option<MusicVideoAlbumLinkage>, String> {
+fn parse_mv_album_linkage(
+    json: &serde_json::Value,
+) -> Result<Option<MusicVideoAlbumLinkage>, String> {
     // Locate the MV record. `/music-videos/{id}` returns a single
     // `data` object (not an array). Defensive: handle both shapes.
-    let mv = json
-        .get("data")
-        .and_then(|d| {
-            if d.is_array() {
-                d.as_array().and_then(|arr| arr.first())
-            } else {
-                Some(d)
-            }
-        });
-    let Some(mv) = mv else { return Ok(None); };
+    let mv = json.get("data").and_then(|d| {
+        if d.is_array() {
+            d.as_array().and_then(|arr| arr.first())
+        } else {
+            Some(d)
+        }
+    });
+    let Some(mv) = mv else {
+        return Ok(None);
+    };
 
     let album_data = mv
         .get("relationships")
@@ -1826,7 +1833,9 @@ fn parse_mv_album_linkage(json: &serde_json::Value) -> Result<Option<MusicVideoA
         .and_then(|a| a.get("data"))
         .and_then(|d| d.as_array());
 
-    let Some(album_data) = album_data else { return Ok(None); };
+    let Some(album_data) = album_data else {
+        return Ok(None);
+    };
     let Some(first_album_ref) = album_data.first() else {
         return Ok(None);
     };
@@ -1836,7 +1845,9 @@ fn parse_mv_album_linkage(json: &serde_json::Value) -> Result<Option<MusicVideoA
 
     // Look up the full album attributes from `included[]`.
     let included = json.get("included").and_then(|i| i.as_array());
-    let Some(included) = included else { return Ok(None); };
+    let Some(included) = included else {
+        return Ok(None);
+    };
 
     for entry in included {
         if entry.get("type").and_then(|t| t.as_str()) != Some("albums") {
@@ -2099,9 +2110,7 @@ pub fn normalize_apple_music_url(url: &str) -> String {
         super::gamdl_capabilities::GamdlFeature::ClassicalMusicHostRequired,
     ) {
         if let Some(rewritten) = rewrite_classical_legacy_url(url) {
-            log::info!(
-                "Rewrote legacy classical.apple.com URL: {url} → {rewritten}"
-            );
+            log::info!("Rewrote legacy classical.apple.com URL: {url} → {rewritten}");
             rewritten
         } else {
             url.to_string()
@@ -2560,7 +2569,10 @@ pub async fn fetch_artist_albums(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str())
+            .header(
+                "User-Agent",
+                crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str(),
+            )
             .send()
             .await
             .map_err(|e| format!("Artist albums API request failed: {e}"))?;
@@ -2668,9 +2680,7 @@ pub fn classify_album_bucket(
         }
     }
 
-    if album.is_single == Some(true)
-        || album.track_count.is_some_and(|tc| tc <= 6)
-    {
+    if album.is_single == Some(true) || album.track_count.is_some_and(|tc| tc <= 6) {
         return ArtistAutoSelect::SinglesEps;
     }
 
@@ -2746,7 +2756,10 @@ pub async fn fetch_playlist_tracks(
         let response = client
             .get(&url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str())
+            .header(
+                "User-Agent",
+                crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str(),
+            )
             .send()
             .await
             .map_err(|e| format!("Playlist tracks API request failed: {e}"))?;
@@ -3031,10 +3044,17 @@ pub async fn fetch_syllable_lyrics_with_status(
         // fields) without an Origin header; the browser sends it
         // automatically, so a Rust client must set it explicitly. (#936)
         .header("Origin", "https://music.apple.com")
-        .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str())
+        .header(
+            "User-Agent",
+            crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str(),
+        )
         .send()
         .await
-        .map_err(|e| plain(format!("Syllable-lyrics request failed for song {song_id}: {e}")))?;
+        .map_err(|e| {
+            plain(format!(
+                "Syllable-lyrics request failed for song {song_id}: {e}"
+            ))
+        })?;
 
     let status = response.status().as_u16();
     let with_status = |message: String| SyllableLyricsError {
@@ -3230,10 +3250,7 @@ pub async fn fetch_artist_promo_video(
         }
     };
 
-    let video_keys = [
-        "motionArtistFullscreen16x9",
-        "motionArtistWide16x9",
-    ];
+    let video_keys = ["motionArtistFullscreen16x9", "motionArtistWide16x9"];
 
     // Routed through the shared `extract_motion_url_chain` helper (#970)
     // so promo-video parsing tolerates both observed `editorialVideo` shapes
@@ -3246,9 +3263,7 @@ pub async fn fetch_artist_promo_video(
 
     match video_url {
         Some(url) => {
-            log::info!(
-                "Found promo video for artist {artist_name} ({artist_id})"
-            );
+            log::info!("Found promo video for artist {artist_name} ({artist_id})");
             Ok(Some(ArtistPromoVideo {
                 artist_name,
                 video_url: url,
@@ -3344,9 +3359,7 @@ mod tests {
         // Previous single-key extraction would have worked for this case
         // but missed the inverse (only motionSquareVideo1x1 present, see
         // below). The chain must handle both.
-        let ev = json(
-            r#"{"motionDetailSquare": {"video": "https://legacy.com/m.m3u8"}}"#,
-        );
+        let ev = json(r#"{"motionDetailSquare": {"video": "https://legacy.com/m.m3u8"}}"#);
         assert_eq!(
             extract_motion_url_chain(&ev, &["motionSquareVideo1x1", "motionDetailSquare"])
                 .as_deref(),
@@ -3359,9 +3372,8 @@ mod tests {
         // The bug this fix addresses: recent releases sometimes ONLY
         // ship motionSquareVideo1x1 / motionTallVideo3x4. The legacy
         // single-key extractor silently returned None for these.
-        let ev = json(
-            r#"{"motionSquareVideo1x1": {"video": "https://only-preferred.com/m.m3u8"}}"#,
-        );
+        let ev =
+            json(r#"{"motionSquareVideo1x1": {"video": "https://only-preferred.com/m.m3u8"}}"#);
         assert_eq!(
             extract_motion_url_chain(&ev, &["motionSquareVideo1x1", "motionDetailSquare"])
                 .as_deref(),
@@ -3398,9 +3410,7 @@ mod tests {
     #[test]
     fn extract_motion_url_chain_portrait_chain_matches_square_shape() {
         // Symmetry check: portrait uses the same two-key pattern.
-        let ev = json(
-            r#"{"motionTallVideo3x4": {"video": "https://portrait.com/m.m3u8"}}"#,
-        );
+        let ev = json(r#"{"motionTallVideo3x4": {"video": "https://portrait.com/m.m3u8"}}"#);
         assert_eq!(
             extract_motion_url_chain(&ev, &["motionTallVideo3x4", "motionDetailTall"]).as_deref(),
             Some("https://portrait.com/m.m3u8")
@@ -3420,7 +3430,10 @@ mod tests {
     // either branch.
     // ----------------------------------------------------------
 
-    fn syllable_response_with(ttml: serde_json::Value, ttml_loc: serde_json::Value) -> serde_json::Value {
+    fn syllable_response_with(
+        ttml: serde_json::Value,
+        ttml_loc: serde_json::Value,
+    ) -> serde_json::Value {
         serde_json::json!({
             "data": [
                 {
@@ -3531,10 +3544,7 @@ mod tests {
     #[test]
     fn rewrite_storefront_handles_classical_host() {
         assert_eq!(
-            rewrite_url_storefront(
-                "https://classical.music.apple.com/it/album/foo/789",
-                "gb",
-            ),
+            rewrite_url_storefront("https://classical.music.apple.com/it/album/foo/789", "gb",),
             "https://classical.music.apple.com/gb/album/foo/789",
         );
         assert_eq!(
@@ -3647,7 +3657,8 @@ mod tests {
     /// \`/us/\` without a slug.
     #[test]
     fn canonicalise_matches_musicbrainz_super_bowl_pair() {
-        let user_url = "https://music.apple.com/gb/album/super-bowl-lviii-megamix-dj-mix/1729264859";
+        let user_url =
+            "https://music.apple.com/gb/album/super-bowl-lviii-megamix-dj-mix/1729264859";
         let mb_url = "https://music.apple.com/us/album/1729264859";
         assert_eq!(
             canonicalise_apple_music_url(user_url),
@@ -3659,13 +3670,10 @@ mod tests {
     /// Storefront strip: every common storefront produces the same canonical form.
     #[test]
     fn canonicalise_strips_storefront() {
-        let canonical = canonicalise_apple_music_url(
-            "https://music.apple.com/us/album/anti-hero/1649434004",
-        );
+        let canonical =
+            canonicalise_apple_music_url("https://music.apple.com/us/album/anti-hero/1649434004");
         for storefront in &["gb", "de", "fr", "jp", "br", "au", "ca", "mx", "es", "it"] {
-            let url = format!(
-                "https://music.apple.com/{storefront}/album/anti-hero/1649434004",
-            );
+            let url = format!("https://music.apple.com/{storefront}/album/anti-hero/1649434004",);
             assert_eq!(
                 canonicalise_apple_music_url(&url),
                 canonical,
@@ -3697,9 +3705,8 @@ mod tests {
     /// are dropped — the canonical form is the pure path.
     #[test]
     fn canonicalise_strips_query_string() {
-        let with_query = canonicalise_apple_music_url(
-            "https://music.apple.com/us/album/1729264859?l=en-GB",
-        );
+        let with_query =
+            canonicalise_apple_music_url("https://music.apple.com/us/album/1729264859?l=en-GB");
         let without_query =
             canonicalise_apple_music_url("https://music.apple.com/us/album/1729264859");
         assert_eq!(with_query, without_query);
@@ -3733,7 +3740,10 @@ mod tests {
         ];
         for p in permutations {
             let canon = canonicalise_apple_music_url(p).unwrap();
-            assert_eq!(canon, once, "permutation {p:?} must produce the same canonical form");
+            assert_eq!(
+                canon, once,
+                "permutation {p:?} must produce the same canonical form"
+            );
         }
     }
 
@@ -3879,7 +3889,10 @@ mod tests {
         let parsed = parse_apple_music_url(url).expect("?l= query should not block parsing");
         assert_eq!(parsed.storefront, "gb");
         assert_eq!(parsed.album_id, "1844602145");
-        assert!(parsed.song_id.is_none(), "song_id should be None; ?l= is a locale hint");
+        assert!(
+            parsed.song_id.is_none(),
+            "song_id should be None; ?l= is a locale hint"
+        );
     }
 
     #[test]
@@ -3928,7 +3941,8 @@ mod tests {
         // the slug-optional regex must still accept them on the new
         // hostname.
         let url = "https://classical.music.apple.com/us/album/beethoven-9-symphonies/1844602145";
-        let parsed = parse_apple_music_url(url).expect("slugged form on new domain must still parse");
+        let parsed =
+            parse_apple_music_url(url).expect("slugged form on new domain must still parse");
         assert_eq!(parsed.album_id, "1844602145");
     }
 
@@ -3938,7 +3952,8 @@ mod tests {
         // music.apple.com domain, the parser should keep up.
         // Defensive coverage — may or may not exist in the wild yet.
         let url = "https://music.apple.com/us/album/1649434004";
-        let parsed = parse_apple_music_url(url).expect("slugless form on music.apple.com should parse");
+        let parsed =
+            parse_apple_music_url(url).expect("slugless form on music.apple.com should parse");
         assert_eq!(parsed.album_id, "1649434004");
     }
 
@@ -4007,7 +4022,8 @@ mod tests {
 
     #[test]
     fn parse_itunes_legacy_playlist_url() {
-        let url = "https://itunes.apple.com/us/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb";
+        let url =
+            "https://itunes.apple.com/us/playlist/todays-hits/pl.f4d106fed2bd41149aaacabb233eb5eb";
         let result = parse_apple_music_url(url);
         assert!(result.is_some());
         let parsed = result.unwrap();
@@ -4419,7 +4435,10 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv";
     fn rewrite_itunes_album_with_slug_and_plain_id() {
         let url = "https://itunes.apple.com/gb/album/some-slug/1567637891";
         let result = normalize_apple_music_url(url);
-        assert_eq!(result, "https://music.apple.com/gb/album/some-slug/1567637891");
+        assert_eq!(
+            result,
+            "https://music.apple.com/gb/album/some-slug/1567637891"
+        );
     }
 
     /// Acceptance criterion 3: non-geographic + id-prefix + slug-less.
@@ -4558,8 +4577,7 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv";
 
     impl VersionGuard {
         fn new(version: Option<&str>) -> Self {
-            let lock =
-                crate::services::gamdl_capabilities::capability_cache_test_lock();
+            let lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
             let previous = crate::services::gamdl_capabilities::detected_version();
             crate::services::gamdl_capabilities::set_detected_version(
                 version.map(ToString::to_string),
@@ -4587,9 +4605,7 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv";
         // the legacy host silently so the downstream subprocess accepts
         // the URL.
         assert_eq!(
-            normalize_apple_music_url(
-                "https://classical.apple.com/us/album/some-classical/123456"
-            ),
+            normalize_apple_music_url("https://classical.apple.com/us/album/some-classical/123456"),
             "https://classical.music.apple.com/us/album/some-classical/123456",
         );
     }
@@ -4635,11 +4651,13 @@ FJPkH0mNKDTBHi2UUm8qku8mDfB7vmFMjIbzhMqurhYu6/mjzGKIADEv";
         // NOT need a VersionGuard because the helper is pure — the
         // gate is enforced one level up in `normalize_apple_music_url`.
         assert!(rewrite_classical_legacy_url("https://music.apple.com/us/album/foo/123").is_none());
-        assert!(rewrite_classical_legacy_url(
-            "https://classical.music.apple.com/us/album/foo/123"
-        )
-        .is_none());
-        assert!(rewrite_classical_legacy_url("https://itunes.apple.com/us/album/foo/123").is_none());
+        assert!(
+            rewrite_classical_legacy_url("https://classical.music.apple.com/us/album/foo/123")
+                .is_none()
+        );
+        assert!(
+            rewrite_classical_legacy_url("https://itunes.apple.com/us/album/foo/123").is_none()
+        );
         assert!(rewrite_classical_legacy_url("https://example.com").is_none());
     }
 

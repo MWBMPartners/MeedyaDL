@@ -65,7 +65,12 @@ import { MvGapFillModal } from './MvGapFillModal';
 import { LegacyFolderMergeSection } from './LegacyFolderMergeSection';
 import { PageHeader } from '@/components/layout';
 import { Button } from '@/components/common';
-import { FOLDER_SCAN_FAILED, isCancellation, showBackendError, showError } from '@/lib/errorMessages';
+import {
+  FOLDER_SCAN_FAILED,
+  isCancellation,
+  showBackendError,
+  showError,
+} from '@/lib/errorMessages';
 import {
   SECOND_COPY_WARNING,
   buildLibraryRedownloadRequest,
@@ -167,11 +172,7 @@ function DiffBadge({ diff }: { diff: LibraryScanDiff | undefined }) {
  * one so users can correlate "content updated" with their manual
  * re-download decision.
  */
-function FreshnessBadge({
-  freshness,
-}: {
-  freshness: LibraryScanFreshness | undefined;
-}) {
+function FreshnessBadge({ freshness }: { freshness: LibraryScanFreshness | undefined }) {
   if (!freshness || freshness.kind !== 'updated') {
     return null;
   }
@@ -247,9 +248,7 @@ function EnrichmentBadge({ report }: { report: EnrichmentGapReport | undefined }
 
 export function LibraryScanPage() {
   const addToast = useUiStore((s) => s.addToast);
-  const mvCompanionEnabled = useSettingsStore(
-    (s) => s.settings.music_video_companion
-  );
+  const mvCompanionEnabled = useSettingsStore((s) => s.settings.music_video_companion);
   // The saved "Overwrite Existing Files" setting: what the download will
   // actually use for an album that was only updated by Apple Music.
   const overwriteSetting = useSettingsStore((s) => s.savedSettings.overwrite);
@@ -269,9 +268,7 @@ export function LibraryScanPage() {
    * concurrency cap so a 1000-album library doesn't fire 1000
    * concurrent HTTP requests at Apple. Map keyed by `manifest_path`.
    */
-  const [freshness, setFreshness] = useState<
-    Record<string, LibraryScanFreshness>
-  >({});
+  const [freshness, setFreshness] = useState<Record<string, LibraryScanFreshness>>({});
   /**
    * Per-row "Re-download gaps" modal state (#717/5d). When set, the
    * MvGapFillModal renders for that manifest. Cleared on confirm /
@@ -289,9 +286,7 @@ export function LibraryScanPage() {
     },
     onCancel: () => setSecondCopyFor(null),
   });
-  const [pendingGapFill, setPendingGapFill] = useState<ScannedManifest | null>(
-    null
-  );
+  const [pendingGapFill, setPendingGapFill] = useState<ScannedManifest | null>(null);
   /**
    * Per-manifest enrichment-gap reports (#759 Phase 1). Filled in
    * lazily after the scan finishes — each row dispatches its own
@@ -327,10 +322,7 @@ export function LibraryScanPage() {
         const m = manifests[i];
         if (!m || m.urls.length === 0) continue;
         try {
-          const result = await checkLibraryScanFreshness(
-            m.urls[0],
-            m.last_modified_date
-          );
+          const result = await checkLibraryScanFreshness(m.urls[0], m.last_modified_date);
           setFreshness((prev) => ({ ...prev, [m.manifest_path]: result }));
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -410,20 +402,16 @@ export function LibraryScanPage() {
         return;
       }
       const mvNote =
-        override === true
-          ? ' (with music videos)'
-          : override === false
-            ? ' (audio only)'
-            : '';
-      addToast(
-        `Re-download queued for ${manifest.album ?? 'this album'}${mvNote}`,
-        'success'
-      );
+        override === true ? ' (with music videos)' : override === false ? ' (audio only)' : '';
+      addToast(`Re-download queued for ${manifest.album ?? 'this album'}${mvNote}`, 'success');
       if (decision.kind === 'fill_gaps' && decision.note) {
         addToast(decision.note, 'info');
       }
     } catch (err) {
-      showBackendError('MeedyaDL could not add that album to the queue again. Try again in a moment.', err);
+      showBackendError(
+        'MeedyaDL could not add that album to the queue again. Try again in a moment.',
+        err
+      );
     }
   };
 
@@ -435,10 +423,7 @@ export function LibraryScanPage() {
     try {
       const manifests = await scanFolderForManifests();
       setResults(manifests);
-      addToast(
-        `Scan complete — found ${manifests.length} manifest(s)`,
-        'success'
-      );
+      addToast(`Scan complete — found ${manifests.length} manifest(s)`, 'success');
 
       // Phase 5b: dispatch diff IPC for every manifest. Concurrent —
       // the IPC only reads the local disk, it never calls out over the
@@ -514,100 +499,91 @@ export function LibraryScanPage() {
           full explanation used to be the subtitle; it ran to four lines at
           the smallest window and pushed the header's divider down, so it
           now opens the page body instead. */}
-      <PageHeader title="Library Scan" subtitle="Find gaps and updates in music MeedyaDL has already downloaded" />
+      <PageHeader
+        title="Library Scan"
+        subtitle="Find gaps and updates in music MeedyaDL has already downloaded"
+      />
       <div className="p-6">
+        <p className="mb-4 max-w-prose text-sm text-content-secondary">
+          Point MeedyaDL at an existing music library to find downloads that are missing tracks,
+          have a higher quality available, or have been updated by Apple Music since you last
+          fetched them. Re-download asks only for what is missing and keeps the songs already in the
+          folder. An album Apple Music has updated is downloaded again only when “Overwrite Existing
+          Files” is on in Settings; files with the same names are then replaced.
+        </p>
 
-      <p className="mb-4 max-w-prose text-sm text-content-secondary">
-        Point MeedyaDL at an existing music library to find downloads that are missing tracks, have a higher
-        quality available, or have been updated by Apple Music since you last fetched them. Re-download asks only for
-        what is missing and keeps the songs already in the folder. An album Apple Music has updated is downloaded
-        again only when “Overwrite Existing Files” is on in Settings; files with the same names are then replaced.
-      </p>
-
-      <div className="mb-6 flex items-center gap-3">
-        {/* The shared Button (polish pass M17); its spinner replaces the
+        <div className="mb-6 flex items-center gap-3">
+          {/* The shared Button (polish pass M17); its spinner replaces the
             icon while scanning. Fix 5 (a11y audit): the name starts with
             the exact visible words ("Choose folder & scan") so a
             voice-control command matches, with the extra detail after. */}
-        <Button
-          variant="primary"
-          icon={<FolderOpen size={16} />}
-          loading={scanning}
-          onClick={handleScan}
-          aria-label="Choose folder & scan — opens a folder picker and scans it for manifest files"
-        >
-          {scanning ? 'Scanning…' : 'Choose folder & scan'}
-        </Button>
-        {results && (
-          <span className="text-sm text-content-secondary">
-            {results.length} manifest(s) found
-          </span>
-        )}
-      </div>
+          <Button
+            variant="primary"
+            icon={<FolderOpen size={16} />}
+            loading={scanning}
+            onClick={handleScan}
+            aria-label="Choose folder & scan — opens a folder picker and scans it for manifest files"
+          >
+            {scanning ? 'Scanning…' : 'Choose folder & scan'}
+          </Button>
+          {results && (
+            <span className="text-sm text-content-secondary">
+              {results.length} manifest(s) found
+            </span>
+          )}
+        </div>
 
-      {results === null ? (
-        <div className="flex-1 flex items-center justify-center text-content-tertiary text-sm">
-          No scan run yet. Click <em className="mx-1">Choose folder &amp; scan</em>{' '}
-          to begin.
-        </div>
-      ) : results.length === 0 ? (
-        <div className="flex-1 flex items-center justify-center text-content-tertiary text-sm">
-          No <code className="font-mono text-xs">manifest.meedyadl</code> files
-          were found in the selected folder. MeedyaDL only writes manifests
-          for downloads it has performed — third-party downloads aren't
-          recognised.
-        </div>
-      ) : (
-        <div className="border border-border rounded-platform overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-surface-secondary text-content-secondary">
-              <tr>
-                <th className="text-left px-4 py-2 font-medium">Artist</th>
-                <th className="text-left px-4 py-2 font-medium">Album</th>
-                <th className="text-right px-4 py-2 font-medium">Tracks</th>
-                <th className="text-right px-4 py-2 font-medium">Files</th>
-                <th className="text-left px-4 py-2 font-medium">Codec</th>
-                <th className="text-left px-4 py-2 font-medium">Enrichment</th>
-                <th className="text-left px-4 py-2 font-medium">Status</th>
-                <th className="text-left px-4 py-2 font-medium">Last download</th>
-                <th className="text-right px-4 py-2 font-medium">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {results.map((m) => (
-                <tr
-                  key={m.manifest_path}
-                  className="border-t border-border/40 hover:bg-surface-secondary/50"
-                >
-                  <td className="px-4 py-2 truncate max-w-[200px]">
-                    {m.artist ?? '—'}
-                  </td>
-                  <td className="px-4 py-2 truncate max-w-[280px]">
-                    {m.album ?? '—'}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
-                    {m.track_count}
-                  </td>
-                  <td className="px-4 py-2 text-right tabular-nums">
-                    {m.audio_file_count}
-                  </td>
-                  <td className="px-4 py-2 uppercase text-xs text-content-secondary">
-                    {m.current_codec ?? '—'}
-                  </td>
-                  <td className="px-4 py-2">
-                    <EnrichmentBadge report={gaps[m.manifest_path]} />
-                  </td>
-                  <td className="px-4 py-2">
-                    <DiffBadge diff={diffs[m.manifest_path]} />
-                    <FreshnessBadge freshness={freshness[m.manifest_path]} />
-                  </td>
-                  <td className="px-4 py-2 text-xs text-content-tertiary">
-                    {m.downloaded_at
-                      ? new Date(m.downloaded_at).toLocaleDateString()
-                      : '—'}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    {/*
+        {results === null ? (
+          <div className="flex-1 flex items-center justify-center text-content-tertiary text-sm">
+            No scan run yet. Click <em className="mx-1">Choose folder &amp; scan</em> to begin.
+          </div>
+        ) : results.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-content-tertiary text-sm">
+            No <code className="font-mono text-xs">manifest.meedyadl</code> files were found in the
+            selected folder. MeedyaDL only writes manifests for downloads it has performed —
+            third-party downloads aren't recognised.
+          </div>
+        ) : (
+          <div className="border border-border rounded-platform overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-surface-secondary text-content-secondary">
+                <tr>
+                  <th className="text-left px-4 py-2 font-medium">Artist</th>
+                  <th className="text-left px-4 py-2 font-medium">Album</th>
+                  <th className="text-right px-4 py-2 font-medium">Tracks</th>
+                  <th className="text-right px-4 py-2 font-medium">Files</th>
+                  <th className="text-left px-4 py-2 font-medium">Codec</th>
+                  <th className="text-left px-4 py-2 font-medium">Enrichment</th>
+                  <th className="text-left px-4 py-2 font-medium">Status</th>
+                  <th className="text-left px-4 py-2 font-medium">Last download</th>
+                  <th className="text-right px-4 py-2 font-medium">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.map((m) => (
+                  <tr
+                    key={m.manifest_path}
+                    className="border-t border-border/40 hover:bg-surface-secondary/50"
+                  >
+                    <td className="px-4 py-2 truncate max-w-[200px]">{m.artist ?? '—'}</td>
+                    <td className="px-4 py-2 truncate max-w-[280px]">{m.album ?? '—'}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{m.track_count}</td>
+                    <td className="px-4 py-2 text-right tabular-nums">{m.audio_file_count}</td>
+                    <td className="px-4 py-2 uppercase text-xs text-content-secondary">
+                      {m.current_codec ?? '—'}
+                    </td>
+                    <td className="px-4 py-2">
+                      <EnrichmentBadge report={gaps[m.manifest_path]} />
+                    </td>
+                    <td className="px-4 py-2">
+                      <DiffBadge diff={diffs[m.manifest_path]} />
+                      <FreshnessBadge freshness={freshness[m.manifest_path]} />
+                    </td>
+                    <td className="px-4 py-2 text-xs text-content-tertiary">
+                      {m.downloaded_at ? new Date(m.downloaded_at).toLocaleDateString() : '—'}
+                    </td>
+                    <td className="px-4 py-2 text-right">
+                      {/*
                       Re-download action (#717 sub-feature 5f). Three
                       cases enable it:
                       - The disk-vs-manifest diff came back `plan` (at
@@ -626,44 +602,48 @@ export function LibraryScanPage() {
                       Click opens the MV gap-fill modal (5d) which then
                       enqueues with the chosen mv_companion_override (5e).
                     */}
-                    {(diffs[m.manifest_path]?.kind === 'plan' ||
-                      diffs[m.manifest_path]?.kind === 'partial_codecs' ||
-                      freshness[m.manifest_path]?.kind === 'updated') && (
-                      <Button
-                        variant="primary"
-                        size="xs"
-                        icon={<Download size={12} />}
-                        onClick={() => handleRedownloadClick(m)}
-                        aria-label={`Re-download ${m.album ?? 'this album'}`}
-                      >
-                        Re-download
-                      </Button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+                      {(diffs[m.manifest_path]?.kind === 'plan' ||
+                        diffs[m.manifest_path]?.kind === 'partial_codecs' ||
+                        freshness[m.manifest_path]?.kind === 'updated') && (
+                        <Button
+                          variant="primary"
+                          size="xs"
+                          icon={<Download size={12} />}
+                          onClick={() => handleRedownloadClick(m)}
+                          aria-label={`Re-download ${m.album ?? 'this album'}`}
+                        >
+                          Re-download
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
-      {/*
+        {/*
         MV gap-fill confirmation modal (#717/5d). Single instance for
         the page; `pendingGapFill` controls visibility + which manifest
         is being acted on. Branches on the user's global
         `music_video_companion` setting to ask the right question.
       */}
-      <MvGapFillModal
-        open={pendingGapFill !== null}
-        onClose={() => setPendingGapFill(null)}
-        onConfirm={handleGapFillConfirm}
-        mvCompanionEnabledInSettings={mvCompanionEnabled}
-        manifest={pendingGapFill}
-        mode={pendingGapFill && decisionFor(pendingGapFill).kind === 'refresh' ? 'refresh' : 'fill_gaps'}
-      />
-      {secondCopyWarning.modal}
+        <MvGapFillModal
+          open={pendingGapFill !== null}
+          onClose={() => setPendingGapFill(null)}
+          onConfirm={handleGapFillConfirm}
+          mvCompanionEnabledInSettings={mvCompanionEnabled}
+          manifest={pendingGapFill}
+          mode={
+            pendingGapFill && decisionFor(pendingGapFill).kind === 'refresh'
+              ? 'refresh'
+              : 'fill_gaps'
+          }
+        />
+        {secondCopyWarning.modal}
 
-      {/*
+        {/*
         Phase 5 follow-ups tracked in #717:
         - 5b: Smart-retry diff per row (compare manifest tracks vs disk)
         - 5c: lastModifiedDate diff against Apple Music API (content-update detection)
@@ -672,11 +652,11 @@ export function LibraryScanPage() {
         - 5f: "Re-download gaps" action button per row → enqueue with override
       */}
 
-      {/* #789: legacy sibling-folder merge for pre-#528 downloads.
+        {/* #789: legacy sibling-folder merge for pre-#528 downloads.
           Independent of the manifest scan above — owns its own
           folder picker + state because the merge flow runs whether
           or not the user has any .meedyadl manifests. */}
-      <LegacyFolderMergeSection />
+        <LegacyFolderMergeSection />
       </div>
     </div>
   );

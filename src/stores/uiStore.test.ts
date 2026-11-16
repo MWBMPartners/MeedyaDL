@@ -209,7 +209,7 @@ describe('uiStore', () => {
           return copy;
         };
         expect(strip(after as unknown as Record<string, unknown>)).toEqual(
-          strip(before as unknown as Record<string, unknown>),
+          strip(before as unknown as Record<string, unknown>)
         );
       } finally {
         vi.useRealTimers();
@@ -471,11 +471,13 @@ describe('uiStore', () => {
     it('asks the backend with the right kind: general, error, or the one the caller names', async () => {
       useUiStore.getState().addToast('Saved', 'success');
       useUiStore.getState().addToast('Broke', 'error');
-      useUiStore.getState().addToast('Copied link', 'info', 10000, 'clipboard-url', undefined, undefined, {
-        kind: 'clipboard_link',
-        systemTitle: 'Copied link found',
-        systemBody: 'Open MeedyaDL to add it.',
-      });
+      useUiStore
+        .getState()
+        .addToast('Copied link', 'info', 10000, 'clipboard-url', undefined, undefined, {
+          kind: 'clipboard_link',
+          systemTitle: 'Copied link found',
+          systemBody: 'Open MeedyaDL to add it.',
+        });
       await flush();
       expect(commands.notifySystem).toHaveBeenCalledWith('general', 'MeedyaDL', 'Saved');
       expect(commands.notifySystem).toHaveBeenCalledWith(
@@ -499,10 +501,12 @@ describe('uiStore', () => {
     });
 
     it('does not ask at all when the caller says the system half is already decided', async () => {
-      useUiStore.getState().addToast('From the backend', 'success', undefined, undefined, undefined, undefined, {
-        kind: 'download_complete',
-        system: false,
-      });
+      useUiStore
+        .getState()
+        .addToast('From the backend', 'success', undefined, undefined, undefined, undefined, {
+          kind: 'download_complete',
+          system: false,
+        });
       await flush();
       expect(commands.notifySystem).not.toHaveBeenCalled();
       expect(useUiStore.getState().toasts.map((t) => t.message)).toEqual(['From the backend']);
@@ -538,10 +542,12 @@ describe('uiStore', () => {
 
     it('keeps a message the system notification points to until it is dismissed, once sent', async () => {
       vi.mocked(commands.notifySystem).mockResolvedValue({ sent: true, in_app: true });
-      useUiStore.getState().addToast('Copied link', 'info', 10000, 'clipboard-url', undefined, undefined, {
-        kind: 'clipboard_link',
-        keepUntilDismissedIfSent: true,
-      });
+      useUiStore
+        .getState()
+        .addToast('Copied link', 'info', 10000, 'clipboard-url', undefined, undefined, {
+          kind: 'clipboard_link',
+          keepUntilDismissedIfSent: true,
+        });
       await vi.waitFor(() => {
         expect(useUiStore.getState().toasts[0].expiresAt).toBeNull();
       });
@@ -550,10 +556,12 @@ describe('uiStore', () => {
 
     it('lets such a message time out as usual when the system copy was not sent', async () => {
       vi.mocked(commands.notifySystem).mockResolvedValue({ sent: false, in_app: true });
-      useUiStore.getState().addToast('Copied link', 'info', 10000, 'clipboard-url', undefined, undefined, {
-        kind: 'clipboard_link',
-        keepUntilDismissedIfSent: true,
-      });
+      useUiStore
+        .getState()
+        .addToast('Copied link', 'info', 10000, 'clipboard-url', undefined, undefined, {
+          kind: 'clipboard_link',
+          keepUntilDismissedIfSent: true,
+        });
       await flush();
       expect(useUiStore.getState().toasts[0].expiresAt).not.toBeNull();
     });
@@ -576,7 +584,11 @@ describe('uiStore', () => {
 
     it('never changes a saved setting', () => {
       useSettingsStore.setState((state) => ({
-        settings: { ...state.settings, desktop_notifications: false, notification_style: 'native_only' },
+        settings: {
+          ...state.settings,
+          desktop_notifications: false,
+          notification_style: 'native_only',
+        },
       }));
       useUiStore.getState().addToast('Does not rewrite settings', 'info');
       expect(useSettingsStore.getState().settings.notification_style).toBe('native_only');
@@ -660,9 +672,7 @@ describe('uiStore', () => {
       // newest MAX_TOASTS entries remain, still in the order they arrived.
       const messages = toasts.map((t) => t.message);
       expect(messages).not.toContain('Failure 0');
-      expect(messages).toEqual(
-        Array.from({ length: MAX_TOASTS }, (_, i) => `Failure ${i + 1}`),
-      );
+      expect(messages).toEqual(Array.from({ length: MAX_TOASTS }, (_, i) => `Failure ${i + 1}`));
     });
 
     it('drops a message that would go away by itself before a lasting one', () => {

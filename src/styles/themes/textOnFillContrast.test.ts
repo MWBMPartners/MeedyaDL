@@ -255,7 +255,10 @@ describe('every "text sitting on a fill" pairing in the theme CSS clears WCAG AA
     });
 
     it('is symmetric -- "A on B" and "B on A" give the same ratio', () => {
-      expect(contrastRatio('#000000', '#34c759')).toBeCloseTo(contrastRatio('#34c759', '#000000'), 10);
+      expect(contrastRatio('#000000', '#34c759')).toBeCloseTo(
+        contrastRatio('#34c759', '#000000'),
+        10
+      );
     });
   });
 });

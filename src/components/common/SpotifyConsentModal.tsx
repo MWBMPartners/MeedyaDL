@@ -135,29 +135,26 @@ export default function SpotifyConsentModal() {
               Spotify downloads carry an account-ban risk.
             </p>
             <p className="mt-1 text-xs">
-              Spotify's terms of service prohibit automated downloads.
-              Accounts that look like bots have been suspended — including
-              cases reported as recently as late 2025. The risk is real but
-              manageable with the right precautions.
+              Spotify's terms of service prohibit automated downloads. Accounts that look like bots
+              have been suspended — including cases reported as recently as late 2025. The risk is
+              real but manageable with the right precautions.
             </p>
           </div>
         </div>
         <p>
-          MeedyaDL shapes votify's traffic pattern to look more like a slow
-          human listener: a real-time playback-speed throttle, randomised
-          pauses between tracks, and a daily download cap. These defaults
-          are designed to be safe for a hobbyist user. Disabling any of
-          them in the Spotify Settings tab materially increases your risk.
+          MeedyaDL shapes votify's traffic pattern to look more like a slow human listener: a
+          real-time playback-speed throttle, randomised pauses between tracks, and a daily download
+          cap. These defaults are designed to be safe for a hobbyist user. Disabling any of them in
+          the Spotify Settings tab materially increases your risk.
         </p>
         <p>
-          <span className="font-medium text-content-primary">Strongly recommended:</span>{' '}
-          use a throwaway Spotify account, not your primary one. A
-          suspended throwaway is an inconvenience; a suspended primary
-          loses your playlists, follows, and listening history.
+          <span className="font-medium text-content-primary">Strongly recommended:</span> use a
+          throwaway Spotify account, not your primary one. A suspended throwaway is an
+          inconvenience; a suspended primary loses your playlists, follows, and listening history.
         </p>
         <p className="text-xs text-content-tertiary">
-          This consent is recorded once. You can revoke it any time from
-          Settings &gt; Services &gt; Spotify.
+          This consent is recorded once. You can revoke it any time from Settings &gt; Services &gt;
+          Spotify.
         </p>
         <div className="flex justify-end gap-3 pt-2">
           {/* Native <button> for the dismiss action so we can attach a

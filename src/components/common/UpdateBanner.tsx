@@ -76,7 +76,13 @@ import type { ComponentUpdate } from '@/types';
 
 /** Common Button component -- used for the "Upgrade" and "Download & Install" CTAs */
 import { Button } from './Button';
-import { GAMDL_UPDATE_FAILED, RESTART_FAILED, UPDATE_FAILED, componentUpdateFailed, showError } from '@/lib/errorMessages';
+import {
+  GAMDL_UPDATE_FAILED,
+  RESTART_FAILED,
+  UPDATE_FAILED,
+  componentUpdateFailed,
+  showError,
+} from '@/lib/errorMessages';
 
 /**
  * Renders an accent-themed banner showing available updates with
@@ -165,9 +171,7 @@ export function UpdateBanner() {
   // otherwise the banner falls back to a single collapsed message.
   const engineUpdates = useMemo(
     () =>
-      allUpdates.filter(
-        (c) => !CORE_COMPONENTS.includes(c.name) && (c.pip_package || c.tool_id)
-      ),
+      allUpdates.filter((c) => !CORE_COMPONENTS.includes(c.name) && (c.pip_package || c.tool_id)),
     [allUpdates]
   );
   const hasEngineUpdates = engineUpdates.length > 0;
@@ -229,11 +233,19 @@ export function UpdateBanner() {
   const handleDownloadAndInstall = async (tag: string) => {
     try {
       await downloadAndInstallAppUpdate(tag);
-      addToast('Update installed! Restart to apply.', 'success', undefined, undefined, undefined, undefined, {
-        // An important message (#1431): may also be a system notification.
-        kind: 'update_ready',
-        systemBody: 'A MeedyaDL update is installed. Restart MeedyaDL to use it.',
-      });
+      addToast(
+        'Update installed! Restart to apply.',
+        'success',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          // An important message (#1431): may also be a system notification.
+          kind: 'update_ready',
+          systemBody: 'A MeedyaDL update is installed. Restart MeedyaDL to use it.',
+        }
+      );
     } catch (e) {
       showError(UPDATE_FAILED, e);
     }
@@ -548,8 +560,8 @@ export function UpdateBanner() {
               {update.no_compatible_wheel && (
                 <p className="text-2xs text-status-warning-text pl-0.5">
                   Not installable — no compatible wheel has been published for this platform yet.
-                  Upgrading would fail; wait for a future GAMDL release or a MeedyaDL build with
-                  a matching Python runtime.
+                  Upgrading would fail; wait for a future GAMDL release or a MeedyaDL build with a
+                  matching Python runtime.
                 </p>
               )}
             </div>

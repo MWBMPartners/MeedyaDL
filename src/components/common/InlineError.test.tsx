@@ -12,11 +12,13 @@ import { describe, expect, it } from 'vitest';
 import { InlineError } from './InlineError';
 import { explainError } from '@/lib/errorMessages';
 
-const FALLBACK = 'MeedyaDL could not install GAMDL, the tool it downloads with. Check your internet connection, then try again.';
+const FALLBACK =
+  'MeedyaDL could not install GAMDL, the tool it downloads with. Check your internet connection, then try again.';
 
 describe('InlineError with explainError', () => {
   it('shows the plain message, with a technical backend error folded under Details', () => {
-    const raw = 'pip install gamdl failed: ERROR: Could not find a version that satisfies the requirement (os error 2)';
+    const raw =
+      'pip install gamdl failed: ERROR: Could not find a version that satisfies the requirement (os error 2)';
     render(<InlineError {...explainError(FALLBACK, raw)} />);
     expect(screen.getByRole('alert')).toHaveTextContent(FALLBACK);
     const details = screen.getByText('Details').closest('details');
@@ -27,7 +29,8 @@ describe('InlineError with explainError', () => {
   });
 
   it("keeps the backend's own words when they are already a plain sentence", () => {
-    const plain = 'Python 3.10 or newer is needed. Install it, or let MeedyaDL download its own copy.';
+    const plain =
+      'Python 3.10 or newer is needed. Install it, or let MeedyaDL download its own copy.';
     render(<InlineError {...explainError(FALLBACK, new Error(plain))} />);
     expect(screen.getByRole('alert')).toHaveTextContent(plain);
     expect(screen.queryByText('Details')).toBeNull();

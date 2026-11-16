@@ -205,8 +205,10 @@ pub fn remove_entries_for_urls(app: &AppHandle, urls: &[String]) {
         return;
     }
 
-    let incoming: std::collections::HashSet<String> =
-        urls.iter().map(|url| normalize_url_for_history_dedup(url)).collect();
+    let incoming: std::collections::HashSet<String> = urls
+        .iter()
+        .map(|url| normalize_url_for_history_dedup(url))
+        .collect();
     let mut entries = load_history_from_disk(app);
     let original_len = entries.len();
     entries.retain(|entry| !incoming.contains(&normalize_url_for_history_dedup(&entry.url)));

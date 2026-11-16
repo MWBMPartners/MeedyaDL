@@ -83,17 +83,24 @@ import {
   peekProfileBundle,
   importProfile,
 } from '@/lib/tauri-commands';
-import type {
-  ExportProfileOptions,
-  ProfileBundleSummary,
-} from '@/lib/tauri-commands';
+import type { ExportProfileOptions, ProfileBundleSummary } from '@/lib/tauri-commands';
 
 // Shared form control components:
 // - Toggle: renders a labelled on/off switch
 // - FilePickerButton: renders a button that opens the Tauri native file dialog
 // - Select: renders a labelled <select> dropdown
 // - Button: platform-adaptive button with loading/icon support
-import { Toggle, FilePickerButton, Select, Button, Checkbox, Input, InlineError, SettingsSection, Modal } from '@/components/common';
+import {
+  Toggle,
+  FilePickerButton,
+  Select,
+  Button,
+  Checkbox,
+  Input,
+  InlineError,
+  SettingsSection,
+  Modal,
+} from '@/components/common';
 import ChannelSwitchWarning from '@/components/settings/ChannelSwitchWarning';
 import { NotificationSettingsSection } from './NotificationSettingsSection';
 import { PRE_RELEASE_CHANNELS, type UpdateChannel } from '@/types';
@@ -471,8 +478,7 @@ export function GeneralTab() {
    * import; non-null = show the confirmation modal with the
    * section checklist.
    */
-  const [pendingImport, setPendingImport] =
-    useState<ProfileBundleSummary | null>(null);
+  const [pendingImport, setPendingImport] = useState<ProfileBundleSummary | null>(null);
   /**
    * Per-section opt-in for the import confirmation modal. Settings
    * is always 'replace' (we never merge JSON blindly); each
@@ -571,7 +577,10 @@ export function GeneralTab() {
     } catch (err) {
       // No message when the person closed the file picker.
       if (!isCancellation(err)) {
-        showError('MeedyaDL could not save your settings to a file. Choose a folder you can save to, then try again.', err);
+        showError(
+          'MeedyaDL could not save your settings to a file. Choose a folder you can save to, then try again.',
+          err
+        );
       }
     } finally {
       setIsExporting(false);
@@ -607,7 +616,10 @@ export function GeneralTab() {
       setPendingImport(summary);
     } catch (err) {
       if (!isCancellation(err)) {
-        showError('MeedyaDL could not open that file. Check that it was saved by MeedyaDL and is complete, then try again.', err);
+        showError(
+          'MeedyaDL could not open that file. Check that it was saved by MeedyaDL and is complete, then try again.',
+          err
+        );
       }
     }
   };
@@ -624,12 +636,11 @@ export function GeneralTab() {
     // password before launching the IPC. Empty/short passwords are
     // rejected client-side.
     const wantsCredentials =
-      pendingImport.sections.includes('credentials') &&
-      Boolean(importPicks.credentials);
+      pendingImport.sections.includes('credentials') && Boolean(importPicks.credentials);
     if (wantsCredentials && importPassword.length === 0) {
       addToast(
         'Enter the password that was set when this file was saved, so MeedyaDL can restore the sign-ins in it.',
-        'error',
+        'error'
       );
       return;
     }
@@ -656,22 +667,24 @@ export function GeneralTab() {
       if (result.database_restored) restored.push('database');
       if (result.activity_log_files_restored > 0)
         restored.push(`${result.activity_log_files_restored} activity-log file(s)`);
-      if (result.manifests_restored > 0)
-        restored.push(`${result.manifests_restored} manifest(s)`);
+      if (result.manifests_restored > 0) restored.push(`${result.manifests_restored} manifest(s)`);
       addToast(
         `Full copy imported — restored: ${restored.join(', ') || 'nothing'}. Restart MeedyaDL to finish applying it.`,
-        'success',
+        'success'
       );
       if (result.credentials_skipped_p4) {
         addToast(
           'That file has sign-ins in it, but this version of MeedyaDL cannot restore them yet. Sign in again in Settings > Cookies, and enter your MusicKit details again in Settings > Advanced > API Credentials.',
-          'info',
+          'info'
         );
       }
       setPendingImport(null);
       setImportPassword('');
     } catch (err) {
-      showError('MeedyaDL could not bring in that file. Check the password and that the file is complete, then try again.', err);
+      showError(
+        'MeedyaDL could not bring in that file. Check the password and that the file is complete, then try again.',
+        err
+      );
     } finally {
       setIsImportingBundle(false);
     }
@@ -689,7 +702,7 @@ export function GeneralTab() {
     if (bundleOptions.include_credentials && credentialsPassword.length < 6) {
       addToast(
         'Set a password of at least 6 characters to protect the sign-ins, then save the file again.',
-        'error',
+        'error'
       );
       return;
     }
@@ -697,20 +710,21 @@ export function GeneralTab() {
     try {
       const result = await exportProfile({
         ...bundleOptions,
-        credentials_password: bundleOptions.include_credentials
-          ? credentialsPassword
-          : null,
+        credentials_password: bundleOptions.include_credentials ? credentialsPassword : null,
       });
       addToast(
         `Full copy saved — ${result.sections.length === 0 ? 'settings only' : result.sections.join(', ')} (${formatBytes(result.size_bytes)})`,
-        'success',
+        'success'
       );
       // Clear the password from component state immediately on
       // success so it can't sit in DevTools / state inspector.
       setCredentialsPassword('');
     } catch (err) {
       if (!isCancellation(err)) {
-        showError('MeedyaDL could not save that file. Choose a folder you can save to, then try again.', err);
+        showError(
+          'MeedyaDL could not save that file. Choose a folder you can save to, then try again.',
+          err
+        );
       }
     } finally {
       setIsExportingBundle(false);
@@ -731,7 +745,10 @@ export function GeneralTab() {
     } catch (err) {
       // No message when the person closed the file picker.
       if (!isCancellation(err)) {
-        showError('MeedyaDL could not bring in those settings. Check that the file was saved by MeedyaDL, then try again.', err);
+        showError(
+          'MeedyaDL could not bring in those settings. Check that the file was saved by MeedyaDL, then try again.',
+          err
+        );
       }
     } finally {
       setIsImporting(false);
@@ -755,7 +772,6 @@ export function GeneralTab() {
 
       {/* Section: Appearance */}
       <SettingsSection title="Appearance">
-
         {/*
          * Theme mode selector -- controls dark/light/auto appearance.
          * The 'auto' option maps to null in theme_override (follow OS).
@@ -767,9 +783,7 @@ export function GeneralTab() {
           description="Choose between light and dark mode, or follow your OS setting"
           options={THEME_OPTIONS}
           value={themeOverride.value || 'auto'}
-          onChange={(e) =>
-            themeOverride.set(e.target.value === 'auto' ? null : e.target.value)
-          }
+          onChange={(e) => themeOverride.set(e.target.value === 'auto' ? null : e.target.value)}
         />
 
         {/*
@@ -799,9 +813,7 @@ export function GeneralTab() {
           description="Adjust status colours for colour vision deficiency. Remaps success, error, warning, and info colours to a palette distinguishable for the selected condition."
           options={COLOUR_VISION_OPTIONS}
           value={colourBlindMode.value || 'none'}
-          onChange={(e) =>
-            colourBlindMode.set(e.target.value === 'none' ? '' : e.target.value)
-          }
+          onChange={(e) => colourBlindMode.set(e.target.value === 'none' ? '' : e.target.value)}
         />
 
         <div className="space-y-1.5">
@@ -837,7 +849,6 @@ export function GeneralTab() {
 
       {/* Section: Preferences */}
       <SettingsSection title="Preferences">
-
         {/* Metadata language */}
         <Select
           label="Metadata Language"
@@ -1000,12 +1011,17 @@ export function GeneralTab() {
                 clicking "Check for Updates" heard nothing at all once
                 it finished. */}
             {checkMessage && !isChecking && (
-              <span role="status" className="text-xs text-content-secondary">{checkMessage}</span>
+              <span role="status" className="text-xs text-content-secondary">
+                {checkMessage}
+              </span>
             )}
           </div>
           {checkError && !isChecking && (
             <InlineError
-              {...explainError('MeedyaDL could not check for updates. Check your internet connection, then try again.', checkError)}
+              {...explainError(
+                'MeedyaDL could not check for updates. Check your internet connection, then try again.',
+                checkError
+              )}
             />
           )}
         </div>
@@ -1048,7 +1064,10 @@ export function GeneralTab() {
       {/* Section: Profile Bundle (#876 P2) */}
       <SettingsSection title="Full Copy of MeedyaDL">
         <p className="text-xs text-content-secondary mb-2">
-          Everything this copy of MeedyaDL holds — your settings, plus whichever parts you tick below — in one <code>.meedyabundle</code> file. Use it to move to a new computer, or keep one before a big change. To put it back, use Import Full Copy below, or open MeedyaDL for the first time on the new computer.
+          Everything this copy of MeedyaDL holds — your settings, plus whichever parts you tick
+          below — in one <code>.meedyabundle</code> file. Use it to move to a new computer, or keep
+          one before a big change. To put it back, use Import Full Copy below, or open MeedyaDL for
+          the first time on the new computer.
         </p>
         {/* Fix 10 (a11y audit): fieldset/legend say these checkboxes
             are one group ("which sections to include"), not a list of
@@ -1147,9 +1166,7 @@ export function GeneralTab() {
                 <span className="font-medium">Exported by</span>{' '}
                 <span className="font-mono">{pendingImport.producer}</span>{' '}
                 {pendingImport.producer_version}{' '}
-                <span className="text-content-tertiary">
-                  ({pendingImport.producer_platform})
-                </span>{' '}
+                <span className="text-content-tertiary">({pendingImport.producer_platform})</span>{' '}
                 on{' '}
                 <span className="font-mono">
                   {pendingImport.exported_at.slice(0, 19).replace('T', ' ')} UTC
@@ -1167,17 +1184,17 @@ export function GeneralTab() {
                       "not MeedyaDL", so a screen reader doesn't need
                       the symbol read out loud first. */}
                   <span aria-hidden="true">⚠</span> This file was made by{' '}
-                  <span className="font-mono">{pendingImport.producer}</span>,
-                  not MeedyaDL. The <code>.meedyabundle</code> extension is
-                  shared across MeedyaSuite apps — sections from another
-                  app may be unrecognised and silently skipped on import.
+                  <span className="font-mono">{pendingImport.producer}</span>, not MeedyaDL. The{' '}
+                  <code>.meedyabundle</code> extension is shared across MeedyaSuite apps — sections
+                  from another app may be unrecognised and silently skipped on import.
                 </div>
               )}
             </div>
 
             <div className="border-t border-border pt-2 space-y-2">
               <p className="text-xs text-content-secondary">
-                Settings are always restored. Tick each additional section you'd like to overwrite on this install:
+                Settings are always restored. Tick each additional section you'd like to overwrite
+                on this install:
               </p>
               {pendingImport.sections.length === 0 ? (
                 <p className="text-xs text-content-tertiary italic">
@@ -1200,23 +1217,24 @@ export function GeneralTab() {
               )}
             </div>
 
-            {pendingImport.sections.includes('credentials') &&
-              importPicks.credentials && (
-                <div className="p-2 border border-border rounded-platform-sm bg-surface-secondary/40">
-                  <Input
-                    id={importCredentialsPasswordId}
-                    label="Credentials password"
-                    type="password"
-                    value={importPassword}
-                    onChange={(e) => setImportPassword(e.target.value)}
-                    placeholder="The password chosen when this copy was made"
-                    description="Needed to unlock the sign-in details (cookies, MusicKit key and web-player token). With a wrong password only those are skipped; everything else is still restored."
-                  />
-                </div>
-              )}
+            {pendingImport.sections.includes('credentials') && importPicks.credentials && (
+              <div className="p-2 border border-border rounded-platform-sm bg-surface-secondary/40">
+                <Input
+                  id={importCredentialsPasswordId}
+                  label="Credentials password"
+                  type="password"
+                  value={importPassword}
+                  onChange={(e) => setImportPassword(e.target.value)}
+                  placeholder="The password chosen when this copy was made"
+                  description="Needed to unlock the sign-in details (cookies, MusicKit key and web-player token). With a wrong password only those are skipped; everything else is still restored."
+                />
+              </div>
+            )}
 
             <p className="text-xs text-status-warning-text border-t border-border pt-2">
-              <span aria-hidden="true">⚠</span> Existing files for selected sections will be <strong>overwritten</strong>. Restart MeedyaDL after the restore so background tasks reload the new state.
+              <span aria-hidden="true">⚠</span> Existing files for selected sections will be{' '}
+              <strong>overwritten</strong>. Restart MeedyaDL after the restore so background tasks
+              reload the new state.
             </p>
 
             <div className="flex justify-end gap-2 pt-2">

@@ -93,9 +93,7 @@ export function FallbackChainList<T extends string>({
 
   // Compute the disabled set only when `allItems` is supplied. Preserves the
   // declared order from `allItems` so the "Available" list reads naturally.
-  const disabled: T[] = allItems
-    ? allItems.filter((entry) => !items.includes(entry))
-    : [];
+  const disabled: T[] = allItems ? allItems.filter((entry) => !items.includes(entry)) : [];
 
   return (
     <div className="space-y-3">

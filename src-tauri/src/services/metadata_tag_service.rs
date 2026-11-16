@@ -435,23 +435,22 @@ pub async fn apply_enriched_metadata_tags(
     // Skipped entirely when the caller defers the renames: it has already
     // renamed the folder and renames the files itself, after the lyrics
     // steps (`apply_deferred_file_renames`).
-    let (_effective_output_path, files_to_enrich, renamed_output) = if content_advisory_in_filenames
-        && deferred_primary_files.is_none()
-    {
-        if let Some(ref metadata) = album_metadata {
-            let (new_path, new_files) = apply_advisory_suffixes(output_path, metadata);
-            let changed = if new_path != output_path {
-                Some(new_path.clone())
+    let (_effective_output_path, files_to_enrich, renamed_output) =
+        if content_advisory_in_filenames && deferred_primary_files.is_none() {
+            if let Some(ref metadata) = album_metadata {
+                let (new_path, new_files) = apply_advisory_suffixes(output_path, metadata);
+                let changed = if new_path != output_path {
+                    Some(new_path.clone())
+                } else {
+                    None
+                };
+                (new_path, new_files, changed)
             } else {
-                None
-            };
-            (new_path, new_files, changed)
+                (output_path.to_string(), m4a_files, None)
+            }
         } else {
             (output_path.to_string(), m4a_files, None)
-        }
-    } else {
-        (output_path.to_string(), m4a_files, None)
-    };
+        };
 
     // Process each M4A file with all enrichment layers.
     // Collect the ffprobe-detected codec per file so we can apply the
@@ -567,7 +566,10 @@ pub fn apply_deferred_file_renames(
         } else {
             None
         };
-        let detected = file_codecs.iter().find(|(p, _)| p == file).map(|(_, c)| c.clone());
+        let detected = file_codecs
+            .iter()
+            .find(|(p, _)| p == file)
+            .map(|(_, c)| c.clone());
         let codec = detected
             .as_ref()
             .and_then(codec_suffix_from_registry)
@@ -618,7 +620,8 @@ fn advisory_suffix_for_file(
     tracks: &[apple_music_api::TrackMetadata],
 ) -> Option<&'static str> {
     let tag = mp4ameta::Tag::read_from_path(file_path).ok()?;
-    let track_meta = match_track_to_metadata(tag.track_number(), tag.disc_number().unwrap_or(1), tracks)?;
+    let track_meta =
+        match_track_to_metadata(tag.track_number(), tag.disc_number().unwrap_or(1), tracks)?;
     advisory_suffix(track_meta.content_rating.as_deref()?)
 }
 
@@ -944,7 +947,10 @@ async fn enrich_single_file(
             // match the API response, skip API metadata to prevent cross-
             // contamination between concurrent downloads.
             let file_album = tag.album().map(|s| s.to_string());
-            let file_artist = tag.album_artist().or_else(|| tag.artist()).map(|s| s.to_string());
+            let file_artist = tag
+                .album_artist()
+                .or_else(|| tag.artist())
+                .map(|s| s.to_string());
             let api_album = metadata.album_name.as_deref();
             let api_artist = metadata.artist_name.as_deref();
             let album_matches = match (&file_album, api_album) {
@@ -1018,11 +1024,10 @@ async fn enrich_single_file(
                             "Extra metadata skipped for \"{}\" — the album name on the file \
                              (\"{}\") does not match the one Apple Music gave us (\"{}\"). \
                              The file itself downloaded normally.",
-                            tag_path
-                                .file_name()
-                                .map_or_else(|| tag_path.display().to_string(), |n| n
-                                    .to_string_lossy()
-                                    .to_string()),
+                            tag_path.file_name().map_or_else(
+                                || tag_path.display().to_string(),
+                                |n| n.to_string_lossy().to_string()
+                            ),
                             file_album.as_deref().unwrap_or("none"),
                             api_album.unwrap_or("none"),
                         ),
@@ -1077,11 +1082,7 @@ async fn enrich_single_file(
         // ISRC is from the spatial version of the track. The Apple Music API
         // returns a single ISRC per track — this marker helps identify
         // spatial variants for future cross-platform ISRC matching.
-        let spatial_codecs = [
-            SongCodec::Atmos,
-            SongCodec::Ac3,
-            SongCodec::AacBinaural,
-        ];
+        let spatial_codecs = [SongCodec::Atmos, SongCodec::Ac3, SongCodec::AacBinaural];
         if spatial_codecs.contains(&effective_codec) {
             let spatial_ident = FreeformIdent::new_static(MEEDYADL_NAMESPACE, "SpatialAudioCodec");
             tag.set_data(
@@ -1808,10 +1809,7 @@ pub fn apply_advisory_suffixes_to_files(m4a_files: &[PathBuf]) {
         };
         drop(tag);
 
-        let stem = file_path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("");
+        let stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
         // Case-insensitive idempotency guard — avoids double-suffixing.
         if stem
             .to_ascii_lowercase()
@@ -1926,8 +1924,7 @@ fn rename_matching_advisory_sidecars(audio_path: &Path, old_stem: &str, new_stem
 ///
 /// `lyrics` (the Lyricsfile sidecar, #596) is included because the per-file
 /// renames now run after every lyrics step, so it always exists by then.
-const CODEC_RENAME_SIDECAR_EXTENSIONS: &[&str] =
-    &["ttml", "lrc", "srt", "vtt", "ass", "lyrics"];
+const CODEC_RENAME_SIDECAR_EXTENSIONS: &[&str] = &["ttml", "lrc", "srt", "vtt", "ass", "lyrics"];
 
 /// Rename a single M4A file to include its codec suffix, plus any
 /// lyrics/subtitle sidecars that share its stem.
@@ -1949,10 +1946,7 @@ fn apply_codec_rename_suffix(file_path: &Path, suffix: &str) -> PathBuf {
         return file_path.to_path_buf();
     }
 
-    let stem = file_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("");
+    let stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
 
     // Idempotency: skip if suffix already present
     if stem.contains(suffix) {
@@ -2008,8 +2002,7 @@ fn rename_matching_sidecars(audio_path: &Path, stem: &str, suffix: &str) {
         // Idempotency: if a prior run already produced the suffixed
         // sidecar and something else created the clean-stem one in the
         // meantime (e.g. an overlapping companion run), leave both alone.
-        let new_sidecar =
-            parent.join(format!("{stem} {suffix}.{sidecar_ext}"));
+        let new_sidecar = parent.join(format!("{stem} {suffix}.{sidecar_ext}"));
         if new_sidecar.exists() {
             log::debug!(
                 "Codec sidecar rename: target {} already exists — leaving {} in place",
@@ -2070,7 +2063,10 @@ fn rename_file_with_advisory(file_path: &Path, suffix: &str) -> PathBuf {
     // Matches case-insensitively so re-runs don't double-suffix a file
     // that was renamed during a previous attempt with different casing.
     let stem = file_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-    if stem.to_ascii_lowercase().contains(&suffix.to_ascii_lowercase()) {
+    if stem
+        .to_ascii_lowercase()
+        .contains(&suffix.to_ascii_lowercase())
+    {
         return file_path.to_path_buf();
     }
 
@@ -2302,7 +2298,10 @@ pub fn apply_itunes_supplementary_tags(
 
         if wrote_any {
             if let Err(e) = tag.write_to_path(file_path) {
-                log::debug!("Failed to write iTunes tags to {}: {e}", file_path.display());
+                log::debug!(
+                    "Failed to write iTunes tags to {}: {e}",
+                    file_path.display()
+                );
             } else {
                 count += 1;
             }
@@ -2335,20 +2334,16 @@ pub(crate) fn collect_m4a_files(output_path: &str) -> Vec<PathBuf> {
         // Migrated to the shared `utils::fs_walk::walk_dir_depth` helper
         // (#716 finding #1, v1.0.3 prep). Depth limit and sidecar-skip
         // semantics preserved exactly.
-        files.extend(crate::utils::fs_walk::walk_dir_depth(
-            path,
-            1,
-            |p| {
-                if crate::utils::fs_safe::is_filesystem_sidecar(p) {
-                    return None;
-                }
-                if is_m4a(p) {
-                    Some(p.to_path_buf())
-                } else {
-                    None
-                }
-            },
-        ));
+        files.extend(crate::utils::fs_walk::walk_dir_depth(path, 1, |p| {
+            if crate::utils::fs_safe::is_filesystem_sidecar(p) {
+                return None;
+            }
+            if is_m4a(p) {
+                Some(p.to_path_buf())
+            } else {
+                None
+            }
+        }));
     }
 
     files
@@ -2493,9 +2488,7 @@ fn sample_indices(len: usize, cap: usize) -> Vec<usize> {
         return vec![0];
     }
 
-    let mut indices: Vec<usize> = (0..cap)
-        .map(|i| i * (len - 1) / (cap - 1))
-        .collect();
+    let mut indices: Vec<usize> = (0..cap).map(|i| i * (len - 1) / (cap - 1)).collect();
     indices.dedup();
     indices
 }
@@ -2563,7 +2556,9 @@ pub async fn verify_output_integrity(
                 // ffprobe couldn't analyse the file at all. Give MediaInfo
                 // a chance to rescue it before flagging as suspect.
                 let rescued = if let Some(ref mi_path) = mediainfo_path {
-                    mediainfo_service::detect_codec(mi_path, file).await.is_some()
+                    mediainfo_service::detect_codec(mi_path, file)
+                        .await
+                        .is_some()
                 } else {
                     false
                 };
@@ -2595,7 +2590,10 @@ pub async fn verify_output_integrity(
 /// # Returns
 /// The most accurate `SongCodec` determination, combining ffprobe analysis
 /// with the requested codec as a hint for ambiguous cases.
-pub fn resolve_codec_from_ffprobe(info: &FfprobeAudioInfo, requested_codec: &SongCodec) -> SongCodec {
+pub fn resolve_codec_from_ffprobe(
+    info: &FfprobeAudioInfo,
+    requested_codec: &SongCodec,
+) -> SongCodec {
     match info.codec_name.as_str() {
         // Unambiguous: ALAC is always lossless
         "alac" => SongCodec::Alac,
@@ -2819,7 +2817,10 @@ pub(crate) mod test_support {
     /// `ftyp` box, a `moov` box holding only an `mvhd`, and an empty `mdat`.
     pub(crate) fn minimal_m4a(path: &Path, track: u16, disc: u16, explicit: bool) {
         fn mp4_box(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
-            let mut out = u32::try_from(8 + body.len()).unwrap().to_be_bytes().to_vec();
+            let mut out = u32::try_from(8 + body.len())
+                .unwrap()
+                .to_be_bytes()
+                .to_vec();
             out.extend_from_slice(kind);
             out.extend_from_slice(body);
             out
@@ -3321,19 +3322,14 @@ mod tests {
         let audio = dir.path().join("01 Track [Dolby Atmos].m4a");
         std::fs::write(&audio, b"audio").unwrap();
         for ext in ["ttml", "lrc", "srt", "vtt", "ass"] {
-            std::fs::write(
-                dir.path().join(format!("01 Track.{ext}")),
-                b"sidecar",
-            )
-            .unwrap();
+            std::fs::write(dir.path().join(format!("01 Track.{ext}")), b"sidecar").unwrap();
         }
 
         // Audio is already suffix-renamed; sidecars still on clean stem.
         rename_matching_sidecars(&audio, "01 Track", "[Dolby Atmos]");
 
         for ext in ["ttml", "lrc", "srt", "vtt", "ass"] {
-            let renamed =
-                dir.path().join(format!("01 Track [Dolby Atmos].{ext}"));
+            let renamed = dir.path().join(format!("01 Track [Dolby Atmos].{ext}"));
             assert!(
                 renamed.exists(),
                 "expected sidecar {renamed:?} to be renamed with codec suffix"
@@ -3373,11 +3369,7 @@ mod tests {
         let audio = dir.path().join("01 Track [Dolby Atmos].m4a");
         std::fs::write(&audio, b"audio").unwrap();
         std::fs::write(dir.path().join("01 Track.ttml"), b"old").unwrap();
-        std::fs::write(
-            dir.path().join("01 Track [Dolby Atmos].ttml"),
-            b"new",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("01 Track [Dolby Atmos].ttml"), b"new").unwrap();
 
         rename_matching_sidecars(&audio, "01 Track", "[Dolby Atmos]");
 
@@ -3397,11 +3389,7 @@ mod tests {
         let audio = dir.path().join("05 Song.m4a");
         std::fs::write(&audio, b"audio").unwrap();
         for ext in ["ttml", "lrc", "srt", "vtt", "ass"] {
-            std::fs::write(
-                dir.path().join(format!("05 Song.{ext}")),
-                b"sidecar",
-            )
-            .unwrap();
+            std::fs::write(dir.path().join(format!("05 Song.{ext}")), b"sidecar").unwrap();
         }
 
         apply_codec_rename_suffix(&audio, "[Lossless]");
@@ -3409,8 +3397,7 @@ mod tests {
         assert!(dir.path().join("05 Song [Lossless].m4a").exists());
         assert!(!dir.path().join("05 Song.m4a").exists());
         for ext in ["ttml", "lrc", "srt", "vtt", "ass"] {
-            let renamed =
-                dir.path().join(format!("05 Song [Lossless].{ext}"));
+            let renamed = dir.path().join(format!("05 Song [Lossless].{ext}"));
             assert!(
                 renamed.exists(),
                 "sidecar .{ext} should follow audio rename"
@@ -3426,27 +3413,21 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let audio = dir.path().join("05 Song [Lossless].m4a");
         std::fs::write(&audio, b"audio").unwrap();
-        std::fs::write(
-            dir.path().join("05 Song [Lossless].ttml"),
-            b"side",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("05 Song [Lossless].ttml"), b"side").unwrap();
 
         apply_codec_rename_suffix(&audio, "[Lossless]");
 
         assert!(dir.path().join("05 Song [Lossless].m4a").exists());
         assert!(dir.path().join("05 Song [Lossless].ttml").exists());
         // No double-suffixed variants produced.
-        assert!(
-            !dir.path()
-                .join("05 Song [Lossless] [Lossless].m4a")
-                .exists()
-        );
-        assert!(
-            !dir.path()
-                .join("05 Song [Lossless] [Lossless].ttml")
-                .exists()
-        );
+        assert!(!dir
+            .path()
+            .join("05 Song [Lossless] [Lossless].m4a")
+            .exists());
+        assert!(!dir
+            .path()
+            .join("05 Song [Lossless] [Lossless].ttml")
+            .exists());
     }
 
     // ----------------------------------------------------------
@@ -3498,7 +3479,9 @@ mod tests {
         assert!(dir.path().join("01 T [Explicit] [Lossless].m4a").is_file());
         for ext in ALL_SIDECARS {
             assert!(
-                dir.path().join(format!("01 T [Explicit] [Lossless].{ext}")).exists(),
+                dir.path()
+                    .join(format!("01 T [Explicit] [Lossless].{ext}"))
+                    .exists(),
                 ".{ext} should follow"
             );
         }
@@ -3620,7 +3603,10 @@ mod tests {
         let landed = rename_file_with_advisory(&audio, "[Clean]");
         assert_eq!(landed, dir.path().join("01 T [Clean] [Lossless].m4a"));
         for ext in ALL_SIDECARS {
-            assert!(dir.path().join(format!("01 T [Clean] [Lossless].{ext}")).exists());
+            assert!(dir
+                .path()
+                .join(format!("01 T [Clean] [Lossless].{ext}"))
+                .exists());
         }
     }
 
@@ -3640,7 +3626,10 @@ mod tests {
 
         std::fs::remove_dir(root.path().join("Album [Explicit]")).unwrap();
         let renamed = apply_advisory_folder_suffix(album.to_str().unwrap(), &meta);
-        assert_eq!(renamed, root.path().join("Album [Explicit]").to_str().unwrap());
+        assert_eq!(
+            renamed,
+            root.path().join("Album [Explicit]").to_str().unwrap()
+        );
     }
 
     // ----------------------------------------------------------
@@ -3653,9 +3642,7 @@ mod tests {
     #[test]
     fn rename_matching_advisory_sidecars_renames_all_formats() {
         let dir = tempfile::tempdir().unwrap();
-        let new_audio = dir
-            .path()
-            .join("01 Track [Explicit] [Lossless].m4a");
+        let new_audio = dir.path().join("01 Track [Explicit] [Lossless].m4a");
         // Audio already renamed in place by the caller; sidecars
         // still on the old (pre-advisory) stem.
         std::fs::write(&new_audio, b"audio").unwrap();
@@ -3681,8 +3668,7 @@ mod tests {
                 renamed.exists(),
                 "expected sidecar .{ext} to be renamed with advisory suffix"
             );
-            let orig =
-                dir.path().join(format!("01 Track [Lossless].{ext}"));
+            let orig = dir.path().join(format!("01 Track [Lossless].{ext}"));
             assert!(
                 !orig.exists(),
                 "expected original sidecar .{ext} to be gone after rename"
@@ -3694,16 +3680,10 @@ mod tests {
     #[test]
     fn rename_matching_advisory_sidecars_skips_missing() {
         let dir = tempfile::tempdir().unwrap();
-        let new_audio = dir
-            .path()
-            .join("01 Track [Explicit] [Lossless].m4a");
+        let new_audio = dir.path().join("01 Track [Explicit] [Lossless].m4a");
         std::fs::write(&new_audio, b"audio").unwrap();
         // Only .lrc present — others missing.
-        std::fs::write(
-            dir.path().join("01 Track [Lossless].lrc"),
-            b"side",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("01 Track [Lossless].lrc"), b"side").unwrap();
 
         rename_matching_advisory_sidecars(
             &new_audio,
@@ -3730,15 +3710,9 @@ mod tests {
     #[test]
     fn rename_matching_advisory_sidecars_preserves_existing_target() {
         let dir = tempfile::tempdir().unwrap();
-        let new_audio = dir
-            .path()
-            .join("01 Track [Explicit] [Lossless].m4a");
+        let new_audio = dir.path().join("01 Track [Explicit] [Lossless].m4a");
         std::fs::write(&new_audio, b"audio").unwrap();
-        std::fs::write(
-            dir.path().join("01 Track [Lossless].ttml"),
-            b"old",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("01 Track [Lossless].ttml"), b"old").unwrap();
         std::fs::write(
             dir.path().join("01 Track [Explicit] [Lossless].ttml"),
             b"new",
@@ -3753,14 +3727,11 @@ mod tests {
 
         // Both files still exist, untouched.
         assert!(dir.path().join("01 Track [Lossless].ttml").exists());
-        let suffixed = dir
-            .path()
-            .join("01 Track [Explicit] [Lossless].ttml");
+        let suffixed = dir.path().join("01 Track [Explicit] [Lossless].ttml");
         assert!(suffixed.exists());
         assert_eq!(std::fs::read(&suffixed).unwrap(), b"new");
         assert_eq!(
-            std::fs::read(dir.path().join("01 Track [Lossless].ttml"))
-                .unwrap(),
+            std::fs::read(dir.path().join("01 Track [Lossless].ttml")).unwrap(),
             b"old"
         );
     }
@@ -3776,11 +3747,7 @@ mod tests {
         std::fs::write(&new_audio, b"audio").unwrap();
         std::fs::write(dir.path().join("01 Track.lrc"), b"side").unwrap();
 
-        rename_matching_advisory_sidecars(
-            &new_audio,
-            "01 Track",
-            "01 Track [Explicit]",
-        );
+        rename_matching_advisory_sidecars(&new_audio, "01 Track", "01 Track [Explicit]");
 
         assert!(dir.path().join("01 Track [Explicit].lrc").exists());
         assert!(!dir.path().join("01 Track.lrc").exists());
@@ -3816,8 +3783,14 @@ mod tests {
         // Edition wording is deliberately NOT normalised — telling a wording
         // difference from a different release needs a guess, and guessing
         // here writes one album's metadata onto another album's tracks.
-        assert!(!album_names_match("Nevermind (Deluxe Edition)", "Nevermind (Deluxe)"));
-        assert!(!album_names_match("Nevermind", "Nevermind (Deluxe Edition)"));
+        assert!(!album_names_match(
+            "Nevermind (Deluxe Edition)",
+            "Nevermind (Deluxe)"
+        ));
+        assert!(!album_names_match(
+            "Nevermind",
+            "Nevermind (Deluxe Edition)"
+        ));
     }
 
     #[test]

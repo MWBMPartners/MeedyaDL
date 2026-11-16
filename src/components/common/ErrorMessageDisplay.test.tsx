@@ -66,7 +66,7 @@ const REAL_GAMDL_BUG_MESSAGE =
   'GAMDL bug — music video cover art: 3 track(s) skipped. Audio for those ' +
   'tracks did not download. This is an upstream bug (Apple returns 400 Bad ' +
   'Request because GAMDL sends literal `{w}x{h}` placeholders instead of ' +
-  "real dimensions). The album cover is still attached separately during " +
+  'real dimensions). The album cover is still attached separately during ' +
   "MeedyaDL's enrichment pass. Please report at " +
   'https://github.com/glomatico/gamdl/issues.';
 
@@ -153,8 +153,12 @@ describe('ErrorMessageDisplay', () => {
   });
 
   it('shows a plain sentence as it is, with no Details', () => {
-    render(<ErrorMessageDisplay message="Every track is already on disk, so there is nothing to retry." />);
-    expect(screen.getByText('Every track is already on disk, so there is nothing to retry.')).toBeInTheDocument();
+    render(
+      <ErrorMessageDisplay message="Every track is already on disk, so there is nothing to retry." />
+    );
+    expect(
+      screen.getByText('Every track is already on disk, so there is nothing to retry.')
+    ).toBeInTheDocument();
     expect(screen.queryByText('Details')).toBeNull();
   });
 
@@ -293,7 +297,7 @@ describe('ErrorMessageDisplay', () => {
     const rawLink = "https://music.apple.com/us/album/test/123?token=abc'SECRET123";
     const cleanedLink = 'https://music.apple.com/us/album/test/123';
     redactUrlForPublicReportMock.mockImplementation((url: string) =>
-      Promise.resolve(url === rawLink ? cleanedLink : url),
+      Promise.resolve(url === rawLink ? cleanedLink : url)
     );
 
     render(<ErrorMessageDisplay message={REAL_GAMDL_BUG_MESSAGE} sourceUrl={rawLink} />);
@@ -327,7 +331,9 @@ describe('ErrorMessageDisplay', () => {
       expect(
         useUiStore
           .getState()
-          .toasts.some((t) => t.message.startsWith('MeedyaDL could not remove your personal details from the report')),
+          .toasts.some((t) =>
+            t.message.startsWith('MeedyaDL could not remove your personal details from the report')
+          )
       ).toBe(true);
     });
     expect(openMock).not.toHaveBeenCalled();

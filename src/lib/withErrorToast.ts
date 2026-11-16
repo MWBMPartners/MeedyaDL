@@ -90,7 +90,7 @@ export interface WithErrorToastOptions {
  */
 export async function withErrorToast<T>(
   fn: () => Promise<T>,
-  opts: WithErrorToastOptions,
+  opts: WithErrorToastOptions
 ): Promise<T | undefined> {
   const addToast = useUiStore.getState().addToast;
   try {
@@ -110,7 +110,14 @@ export async function withErrorToast<T>(
     }
     // The technical text goes under "Details", unless it would only
     // repeat the message.
-    addToast(display, 'error', undefined, undefined, undefined, rawMsg && rawMsg !== display ? rawMsg : undefined);
+    addToast(
+      display,
+      'error',
+      undefined,
+      undefined,
+      undefined,
+      rawMsg && rawMsg !== display ? rawMsg : undefined
+    );
     return undefined;
   }
 }

@@ -380,14 +380,15 @@ export function MainLayout({ children }: MainLayoutProps) {
               return;
             }
             if (urls.length === 0) {
-              addToast('That download record has no links in it, so there is nothing to download. Drop a different one.', 'error');
+              addToast(
+                'That download record has no links in it, so there is nothing to download. Drop a different one.',
+                'error'
+              );
               return;
             }
 
             const wasTruncated = urls.length > MAX_DROPPED_MANIFEST_URLS;
-            const urlsToImport = wasTruncated
-              ? urls.slice(0, MAX_DROPPED_MANIFEST_URLS)
-              : urls;
+            const urlsToImport = wasTruncated ? urls.slice(0, MAX_DROPPED_MANIFEST_URLS) : urls;
 
             setPage('download');
             setUrlInput(urlsToImport.join('\n'));
@@ -415,8 +416,7 @@ export function MainLayout({ children }: MainLayoutProps) {
        * then fall back to `text/plain` (plain text selections).
        */
       const rawUrl =
-        e.dataTransfer.getData('text/uri-list') ||
-        e.dataTransfer.getData('text/plain');
+        e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
 
       /* Trim whitespace and newlines that browsers may include. */
       const url = rawUrl.trim();
@@ -434,10 +434,13 @@ export function MainLayout({ children }: MainLayoutProps) {
         setUrlInput(url);
         addToast('Apple Music URL dropped successfully', 'success');
       } else {
-        addToast('That is not an Apple Music link. Drag a link from music.apple.com, or paste it into the box on the Download page.', 'error');
+        addToast(
+          'That is not an Apple Music link. Drag a link from music.apple.com, or paste it into the box on the Download page.',
+          'error'
+        );
       }
     },
-    [setPage, setUrlInput, addToast],
+    [setPage, setUrlInput, addToast]
   );
 
   // ---------------------------------------------------------------------------
@@ -481,7 +484,6 @@ export function MainLayout({ children }: MainLayoutProps) {
       >
         {t('common.skipToMainContent')}
       </a>
-
 
       {/*
        * Main body row: sidebar (fixed width) + content column (flex-1).
@@ -610,7 +612,11 @@ export function MainLayout({ children }: MainLayoutProps) {
                   strokeWidth={2}
                   aria-hidden="true"
                 >
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" />
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16"
+                  />
                 </svg>
                 <span className="text-lg font-medium text-content-primary">
                   Drop Apple Music URL here

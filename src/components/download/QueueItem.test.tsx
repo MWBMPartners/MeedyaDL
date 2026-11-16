@@ -110,7 +110,7 @@ describe('QueueItem — "Retry without Wrapper" visibility (#890)', () => {
         canMoveDown
         {...noopHandlers}
         onRetryWithoutWrapper={handler}
-      />,
+      />
     );
     fireEvent.click(screen.getByTestId('retry-without-wrapper-pill').firstChild as Element);
     expect(handler).toHaveBeenCalledWith('abc-123');
@@ -194,9 +194,7 @@ describe('QueueItem — click-to-expand row affordance (#911-0)', () => {
     // that signals the selectable-copy-paste rendering path.
     const panel = screen.getByRole('region');
     const fullUrlCell = panel.querySelector('.font-mono');
-    expect(fullUrlCell?.textContent).toBe(
-      'https://music.apple.com/us/album/very/long/9999'
-    );
+    expect(fullUrlCell?.textContent).toBe('https://music.apple.com/us/album/very/long/9999');
   });
 });
 
@@ -210,7 +208,12 @@ describe('QueueItem — speed and time left (polish pass, L5)', () => {
   });
 
   it('shows the figures once at each width, not twice', () => {
-    const item = makeQueueItem({ state: 'downloading', speed: '12.4 MiB/s', eta: '00:03:12', progress: 40 });
+    const item = makeQueueItem({
+      state: 'downloading',
+      speed: '12.4 MiB/s',
+      eta: '00:03:12',
+      progress: 40,
+    });
     render(<QueueItem item={item} isSelected={false} canMoveUp canMoveDown {...noopHandlers} />);
     const copies = screen.getAllByText('12.4 MiB/s · 00:03:12 left');
     expect(copies).toHaveLength(2);

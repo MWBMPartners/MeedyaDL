@@ -115,11 +115,13 @@ describe('ActivityLog', () => {
     vi.useFakeTimers();
     try {
       act(() => {
-        useActivityStore.getState().addEntries([
-          makeEntry({ line: 'one' }),
-          makeEntry({ line: 'two' }),
-          makeEntry({ line: 'three' }),
-        ]);
+        useActivityStore
+          .getState()
+          .addEntries([
+            makeEntry({ line: 'one' }),
+            makeEntry({ line: 'two' }),
+            makeEntry({ line: 'three' }),
+          ]);
       });
 
       render(<ActivityLog />);
@@ -134,10 +136,12 @@ describe('ActivityLog', () => {
       // Two new lines arrive and two old ones fall off the front, exactly as
       // they would once the log is full.
       act(() => {
-        useActivityStore.getState().addEntries([
-          makeEntry({ line: 'four' }),
-          makeEntry({ line: 'five', severity: 'error' }),
-        ]);
+        useActivityStore
+          .getState()
+          .addEntries([
+            makeEntry({ line: 'four' }),
+            makeEntry({ line: 'five', severity: 'error' }),
+          ]);
         const all = useActivityStore.getState().entries;
         useActivityStore.setState({ entries: all.slice(all.length - sizeBefore) });
       });
@@ -294,13 +298,15 @@ describe('ActivityLog', () => {
       'aria-pressed',
       'true'
     );
-    expect(
-      screen.getByRole('button', { name: /filter download entries/i })
-    ).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: /filter download entries/i })).toHaveAttribute(
+      'aria-pressed',
+      'true'
+    );
     // Verbose starts off.
-    expect(
-      screen.getByRole('button', { name: /filter verbose entries/i })
-    ).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: /filter verbose entries/i })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
   });
 
   it('toggling System off hides system entries', () => {
@@ -356,9 +362,7 @@ describe('ActivityLog', () => {
   it('renders [System] badge for system entries', () => {
     act(() => {
       useActivityStore.setState({
-        entries: [
-          makeEntry({ _id: 1, download_id: 'system', line: 'App started' }),
-        ],
+        entries: [makeEntry({ _id: 1, download_id: 'system', line: 'App started' })],
       });
     });
     render(<ActivityLog />);
@@ -412,7 +416,9 @@ describe('ActivityLog', () => {
   it('the header holds Auto-scroll, Clear and More, and nothing else', () => {
     render(<ActivityLog />);
     const header = screen.getByRole('banner');
-    const buttons = [...header.querySelectorAll('button')].map((b) => b.textContent?.trim() || b.getAttribute('role'));
+    const buttons = [...header.querySelectorAll('button')].map(
+      (b) => b.textContent?.trim() || b.getAttribute('role')
+    );
     // The switch (role="switch", no text of its own), Clear, More.
     expect(buttons).toEqual(['switch', 'Clear', 'More']);
     expect(screen.getByRole('switch', { name: /auto-scroll/i })).toBeInTheDocument();
@@ -455,7 +461,7 @@ describe('ActivityLog', () => {
     expect(useActivityStore.getState().paused).toBe(false);
   });
 
-  it('shows the empty state in ordinary text, not the log\'s monospace', () => {
+  it("shows the empty state in ordinary text, not the log's monospace", () => {
     render(<ActivityLog />);
     const empty = screen.getByText('No activity yet').closest('div');
     expect(empty?.className).toContain('font-sans');

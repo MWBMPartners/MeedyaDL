@@ -87,10 +87,7 @@ pub struct MediaInfoResult {
 /// # Arguments
 /// * `mediainfo_path` - Path to the `mediainfo` binary
 /// * `file_path` - Path to the audio file to analyse
-pub async fn detect_codec(
-    mediainfo_path: &Path,
-    file_path: &Path,
-) -> Option<MediaInfoResult> {
+pub async fn detect_codec(mediainfo_path: &Path, file_path: &Path) -> Option<MediaInfoResult> {
     let output = tokio::process::Command::new(mediainfo_path)
         .arg("--Output=JSON")
         .arg(file_path)
@@ -120,17 +117,14 @@ fn parse_mediainfo_json(json: &str) -> Option<MediaInfoResult> {
     let media = parsed.media?;
 
     // Find the first audio track
-    let audio_track = media
-        .track
-        .iter()
-        .find(|t| t.track_type == "Audio")?;
+    let audio_track = media.track.iter().find(|t| t.track_type == "Audio")?;
 
     let format = audio_track.format.as_deref().unwrap_or("");
-    let additional = audio_track.format_additional_features.as_deref().unwrap_or("");
-    let channels: Option<u32> = audio_track
-        .channels
+    let additional = audio_track
+        .format_additional_features
         .as_deref()
-        .and_then(|c| c.parse().ok());
+        .unwrap_or("");
+    let channels: Option<u32> = audio_track.channels.as_deref().and_then(|c| c.parse().ok());
 
     // Classify the codec based on MediaInfo fields
     let codec = match format {

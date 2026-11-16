@@ -40,7 +40,9 @@ describe('WelcomeStep', () => {
   it('says Python can be reused, not only downloaded', () => {
     render(<WelcomeStep />);
     expect(screen.getByText(/reuse a Python you already have/)).toBeInTheDocument();
-    expect(screen.queryByText(/portable Python runtime will be downloaded/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/portable Python runtime will be downloaded/)
+    ).not.toBeInTheDocument();
   });
 
   // Polish pass L13: the same thing is called "Full Copy of MeedyaDL" in
@@ -65,7 +67,9 @@ describe('WelcomeStep', () => {
       },
     ]);
     render(<WelcomeStep />);
-    expect(await screen.findByRole('heading', { name: /Found a full copy of MeedyaDL from before/ })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('heading', { name: /Found a full copy of MeedyaDL from before/ })
+    ).toBeInTheDocument();
     expect(screen.queryByText(/previous-install bundle/i)).not.toBeInTheDocument();
   });
 });

@@ -71,7 +71,12 @@ export default function AppRelocationModal() {
   }, []);
 
   return (
-    <Modal open={show} onClose={handleDecline} title="Tidy Up Your Applications Folder" maxWidth="max-w-md">
+    <Modal
+      open={show}
+      onClose={handleDecline}
+      title="Tidy Up Your Applications Folder"
+      maxWidth="max-w-md"
+    >
       <div className="space-y-4 text-sm text-content-secondary">
         <p>
           Move MeedyaDL into an <span className="font-medium">Applications/MeedyaSuite</span>{' '}

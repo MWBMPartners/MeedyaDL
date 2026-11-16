@@ -76,9 +76,7 @@ describe('DownloadForm', () => {
   it('renders the URL textarea + Add to Queue button + import buttons', () => {
     render(<DownloadForm />);
     expect(screen.getByLabelText('Media URL input')).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /add to queue/i })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /add to queue/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^import$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^scan$/i })).toBeInTheDocument();
   });
@@ -96,9 +94,7 @@ describe('DownloadForm', () => {
   it('shows the helper hint when input is empty', () => {
     render(<DownloadForm />);
     expect(
-      screen.getByText(
-        /Supports songs, albums, playlists, music videos, and artist pages/i
-      )
+      screen.getByText(/Supports songs, albums, playlists, music videos, and artist pages/i)
     ).toBeInTheDocument();
   });
 
@@ -110,9 +106,7 @@ describe('DownloadForm', () => {
     render(<DownloadForm />);
     const textarea = screen.getByLabelText('Media URL input');
     fireEvent.change(textarea, { target: { value: 'https://music.apple.com/us/album/foo/123' } });
-    expect(useDownloadStore.getState().urlInput).toBe(
-      'https://music.apple.com/us/album/foo/123'
-    );
+    expect(useDownloadStore.getState().urlInput).toBe('https://music.apple.com/us/album/foo/123');
     expect(useDownloadStore.getState().urlIsValid).toBe(true);
   });
 
@@ -202,7 +196,9 @@ describe('DownloadForm', () => {
     expect(badge.parentElement?.contains(screen.getByText('Media URL'))).toBe(true);
 
     fireEvent.change(textarea, {
-      target: { value: 'https://music.apple.com/us/album/foo/123\nhttps://music.apple.com/us/album/bar/456' },
+      target: {
+        value: 'https://music.apple.com/us/album/foo/123\nhttps://music.apple.com/us/album/bar/456',
+      },
     });
     expect(textarea.parentElement?.contains(screen.getByTestId('url-badge'))).toBe(false);
   });
@@ -326,10 +322,7 @@ describe('DownloadForm', () => {
     const textarea = screen.getByLabelText('Media URL input');
     fireEvent.change(textarea, {
       target: {
-        value: [
-          'definitely-bad',
-          'https://music.apple.com/us/album/foo/123',
-        ].join('\n'),
+        value: ['definitely-bad', 'https://music.apple.com/us/album/foo/123'].join('\n'),
       },
     });
     expect(screen.getByRole('button', { name: /add to queue/i })).toBeEnabled();
@@ -434,7 +427,7 @@ describe('DownloadForm', () => {
         () =>
           new Promise<void>((resolve) => {
             finishFirst = resolve;
-          }),
+          })
       );
 
       render(<DownloadForm />);
@@ -447,7 +440,7 @@ describe('DownloadForm', () => {
 
       expect(commands.setStoredPreference).toHaveBeenCalledTimes(1);
       expect(
-        useUiStore.getState().toasts.some((t) => t.message.includes('Still saving your previous')),
+        useUiStore.getState().toasts.some((t) => t.message.includes('Still saving your previous'))
       ).toBe(true);
 
       await act(async () => {
@@ -464,7 +457,7 @@ describe('DownloadForm', () => {
         () =>
           new Promise<void>((resolve) => {
             finishFirst = resolve;
-          }),
+          })
       );
 
       const first = render(<DownloadForm />);
@@ -499,7 +492,7 @@ describe('DownloadForm', () => {
         () =>
           new Promise<void>((resolve) => {
             finishWrite = resolve;
-          }),
+          })
       );
 
       render(<DownloadForm />);

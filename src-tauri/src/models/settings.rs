@@ -853,9 +853,10 @@ where
 {
     let wire = VideoCodecChainWire::deserialize(deserializer)?;
     let raw: Vec<String> = match wire {
-        VideoCodecChainWire::Text(text) => {
-            text.split(',').map(|part| part.trim().to_string()).collect()
-        }
+        VideoCodecChainWire::Text(text) => text
+            .split(',')
+            .map(|part| part.trim().to_string())
+            .collect(),
         VideoCodecChainWire::List(list) => list
             .into_iter()
             .filter_map(|value| match value {
@@ -2132,7 +2133,6 @@ pub struct AppSettings {
     // ================================================================
     // After-Queue Actions
     // ================================================================
-
     /// Persistent after-queue action (applies to every queue completion).
     /// Default: `DoNothing`.
     #[serde(default)]
@@ -2531,7 +2531,8 @@ impl Default for AppSettings {
             single_disc_file_template: "{track:02d} {title}".to_string(),
             multi_disc_file_template: "{disc}-{track:02d} {title}".to_string(),
             no_album_file_template: "{title}".to_string(),
-            playlist_file_template: "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})".to_string(),
+            playlist_file_template: "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})"
+                .to_string(),
             track_number_padding: TrackNumberPadding::Auto,
             disc_number_padding: DiscNumberPadding::Auto,
 
@@ -2865,11 +2866,17 @@ mod tests {
     fn video_codec_chain_falls_back_to_default_when_nothing_survives() {
         let empty: AppSettings =
             serde_json::from_str(r#"{"default_video_codec_priority": ""}"#).unwrap();
-        assert_eq!(empty.video_codec_fallback_chain, default_video_codec_chain());
+        assert_eq!(
+            empty.video_codec_fallback_chain,
+            default_video_codec_chain()
+        );
 
         let all_ask: AppSettings =
             serde_json::from_str(r#"{"default_video_codec_priority": "ask"}"#).unwrap();
-        assert_eq!(all_ask.video_codec_fallback_chain, default_video_codec_chain());
+        assert_eq!(
+            all_ask.video_codec_fallback_chain,
+            default_video_codec_chain()
+        );
     }
 
     /// The new shape — a proper JSON list under the new field name —
@@ -2889,7 +2896,10 @@ mod tests {
     fn video_codec_chain_drops_a_null_entry() {
         let json = r#"{"video_codec_fallback_chain": [null]}"#;
         let settings: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+        assert_eq!(
+            settings.video_codec_fallback_chain,
+            default_video_codec_chain()
+        );
     }
 
     /// Same as the `null` case, but for a bare number. A hand-edited (or
@@ -2900,7 +2910,10 @@ mod tests {
     fn video_codec_chain_drops_a_number_entry() {
         let json = r#"{"video_codec_fallback_chain": [1]}"#;
         let settings: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+        assert_eq!(
+            settings.video_codec_fallback_chain,
+            default_video_codec_chain()
+        );
     }
 
     /// A list that mixes one real codec name with one non-string entry
@@ -2937,7 +2950,10 @@ mod tests {
     fn video_codec_chain_field_set_to_null_survives() {
         let json = r#"{"video_codec_fallback_chain": null}"#;
         let settings: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+        assert_eq!(
+            settings.video_codec_fallback_chain,
+            default_video_codec_chain()
+        );
     }
 
     /// Same failure mode, for the field being a bare number instead of
@@ -2946,7 +2962,10 @@ mod tests {
     fn video_codec_chain_field_set_to_a_number_survives() {
         let json = r#"{"video_codec_fallback_chain": 42}"#;
         let settings: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+        assert_eq!(
+            settings.video_codec_fallback_chain,
+            default_video_codec_chain()
+        );
     }
 
     /// Same failure mode, for the field being a bare boolean.
@@ -2954,7 +2973,10 @@ mod tests {
     fn video_codec_chain_field_set_to_a_bool_survives() {
         let json = r#"{"video_codec_fallback_chain": true}"#;
         let settings: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+        assert_eq!(
+            settings.video_codec_fallback_chain,
+            default_video_codec_chain()
+        );
     }
 
     /// Same failure mode, for the field being a JSON object instead of
@@ -2963,7 +2985,10 @@ mod tests {
     fn video_codec_chain_field_set_to_an_object_survives() {
         let json = r#"{"video_codec_fallback_chain": {"oops": "not a chain"}}"#;
         let settings: AppSettings = serde_json::from_str(json).unwrap();
-        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+        assert_eq!(
+            settings.video_codec_fallback_chain,
+            default_video_codec_chain()
+        );
     }
 
     /// A settings file saved by a PRE-this-change build of MeedyaDL still
@@ -2976,7 +3001,10 @@ mod tests {
         let json = r#"{"video_fallback_chain": ["2160p", "1080p"]}"#;
         let settings: AppSettings = serde_json::from_str(json).unwrap();
         // Loaded fine, and the (now-unrelated) codec chain is still the default.
-        assert_eq!(settings.video_codec_fallback_chain, default_video_codec_chain());
+        assert_eq!(
+            settings.video_codec_fallback_chain,
+            default_video_codec_chain()
+        );
     }
 
     // ----------------------------------------------------------

@@ -52,20 +52,14 @@ export default function CrashReportOptInModal() {
   const handleDecline = useCallback(() => void record(false), [record]);
 
   return (
-    <Modal
-      open={show}
-      onClose={handleDecline}
-      title="Help Improve MeedyaDL"
-      maxWidth="max-w-md"
-    >
+    <Modal open={show} onClose={handleDecline} title="Help Improve MeedyaDL" maxWidth="max-w-md">
       <div className="space-y-4 text-sm text-content-secondary">
         <p>
-          Send anonymous crash reports when something goes wrong? This helps us
-          fix bugs faster.
+          Send anonymous crash reports when something goes wrong? This helps us fix bugs faster.
         </p>
         <p className="text-xs text-content-tertiary">
-          No personal data, download history, or music library information is
-          ever collected. You can change this anytime in Settings &gt; Advanced.
+          No personal data, download history, or music library information is ever collected. You
+          can change this anytime in Settings &gt; Advanced.
         </p>
         <div className="flex justify-end gap-3 pt-2">
           <button

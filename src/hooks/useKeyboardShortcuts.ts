@@ -246,7 +246,7 @@ export function useKeyboardShortcuts(): void {
           const settings = useSettingsStore.getState().savedSettings;
           if (settings.abort_queue_confirm) {
             const confirmed = window.confirm(
-              'Abort every active and queued download? This cannot be undone.',
+              'Abort every active and queued download? This cannot be undone.'
             );
             if (!confirmed) break;
           }

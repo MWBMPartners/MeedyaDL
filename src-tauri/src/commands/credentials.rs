@@ -106,9 +106,7 @@ fn check_credential_key_allowed(key: &str) -> Result<(), String> {
         // Logged with WARN so an operator inspecting the tracing log
         // can see brute-force probes after the fact, but the IPC
         // response stays opaque.
-        log::warn!(
-            "Credential IPC rejected disallowed key '{key}' (allowlist enforcement, #938)"
-        );
+        log::warn!("Credential IPC rejected disallowed key '{key}' (allowlist enforcement, #938)");
         Err(format!("Unknown credential key: {key}"))
     }
 }
@@ -373,7 +371,10 @@ pub async fn validate_musickit_credentials(
         let mut req = client
             .get(url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str());
+            .header(
+                "User-Agent",
+                crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str(),
+            );
         // amp-api is Apple's web player API and expects an Origin header;
         // the official MusicKit API (api.music.apple.com) does not need it.
         if url.contains("amp-api") {
@@ -799,7 +800,7 @@ mod tests {
             "musickit_private_key_v2",
             "../../../etc/passwd",
             "musickit_private_key\0extra",
-            "MusicKit_Private_Key", // case-sensitive — exact match required
+            "MusicKit_Private_Key",  // case-sensitive — exact match required
             "musickit_private_key ", // trailing space — exact match required
         ] {
             assert!(

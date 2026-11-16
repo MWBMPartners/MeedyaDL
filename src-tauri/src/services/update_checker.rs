@@ -1223,7 +1223,8 @@ fn classify_gamdl_latest(
 ) -> (bool, Option<&'static gamdl_capabilities::KnownBadVersion>) {
     let known_bad = latest.and_then(gamdl_capabilities::known_bad_version);
     let is_untested = known_bad.is_some()
-        || latest.is_some_and(|v| gamdl_capabilities::is_above_ceiling_for_platform(v, platform_id));
+        || latest
+            .is_some_and(|v| gamdl_capabilities::is_above_ceiling_for_platform(v, platform_id));
     (is_untested, known_bad)
 }
 
@@ -1304,7 +1305,9 @@ fn gamdl_update_description(
             installed.unwrap_or(&window.minimum),
             platform_id,
         );
-        format!("New GAMDL version available on PyPI, but this release is known to be broken: {advice}")
+        format!(
+            "New GAMDL version available on PyPI, but this release is known to be broken: {advice}"
+        )
     } else if platform_specific_cap_blocks(latest, platform_id).is_some() {
         // Above what THIS platform can install is a different thing from
         // untested, and an independent review caught the two being told
@@ -2720,14 +2723,12 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
     // the portable PYTHON_VERSION — that would silently replace the interpreter
     // the user deliberately chose (and would be a downgrade for e.g. a 3.14
     // system Python). Suppress the prompt entirely for that provenance.
-    let is_system_venv =
-        python_manager::get_python_source(app).is_some_and(|s| s.is_system_venv());
+    let is_system_venv = python_manager::get_python_source(app).is_some_and(|s| s.is_system_venv());
 
     // Only show an update if Python is installed AND the installed version is
     // older than the target. If Python is not installed, the setup wizard
     // handles installation — we don't show it as an "update".
-    let update_available =
-        !is_system_venv && current.as_ref().is_some_and(|c| is_newer(c, target));
+    let update_available = !is_system_venv && current.as_ref().is_some_and(|c| is_newer(c, target));
 
     // For a reused system Python, report its own version as the "latest" so the
     // Updates page reads "up to date" rather than dangling the portable version.
@@ -2859,7 +2860,9 @@ async fn check_votify_update(app: &AppHandle) -> Result<ComponentUpdate, String>
     // the strict "is it inside the validated window?" check lives in
     // `is_untested` so above-ceiling releases are still visible to users
     // rather than silently hidden.
-    let is_compatible = latest.as_ref().is_some_and(|v| votify_capabilities::should_offer_upgrade(v));
+    let is_compatible = latest
+        .as_ref()
+        .is_some_and(|v| votify_capabilities::should_offer_upgrade(v));
     let is_untested = latest
         .as_ref()
         .is_some_and(|v| votify_capabilities::is_above_tested_ceiling(v));
@@ -3225,11 +3228,7 @@ mod tests {
 
         // Pure sdist release: no `.whl` file at all — never installable
         // without a source build, regardless of platform_tags.
-        assert!(!has_compatible_wheel(
-            &["gamdl-1.0.0.tar.gz"],
-            "cp312",
-            &[]
-        ));
+        assert!(!has_compatible_wheel(&["gamdl-1.0.0.tar.gz"], "cp312", &[]));
 
         // Empty file list (e.g. yanked release): no wheel.
         let empty: [&str; 0] = [];
@@ -3436,7 +3435,10 @@ mod tests {
         // ungated update.
         let (is_untested, known_bad) = classify_gamdl_latest(Some("3.9"), "macos");
         assert!(is_untested, "a known-bad release must be flagged untested");
-        assert!(known_bad.is_some(), "must report which known-bad entry matched");
+        assert!(
+            known_bad.is_some(),
+            "must report which known-bad entry matched"
+        );
         assert_eq!(known_bad.unwrap().fixed_in, "3.9.1");
 
         // Written the other way, it is the same release.
@@ -3452,7 +3454,10 @@ mod tests {
         // platform's ceiling).
         let (is_untested, known_bad) = classify_gamdl_latest(Some("3.9.1"), "macos");
         assert!(known_bad.is_none());
-        assert!(!is_untested, "the fix release itself must not read as untested");
+        assert!(
+            !is_untested,
+            "the fix release itself must not read as untested"
+        );
     }
 
     #[test]
@@ -3532,7 +3537,10 @@ mod tests {
         //
         // A newer release on macOS must still read as a choice.
         let window = crate::services::gamdl_capabilities::support_window();
-        let newer = format!("{}.99", window.maximum_tested.split('.').next().unwrap_or("3"));
+        let newer = format!(
+            "{}.99",
+            window.maximum_tested.split('.').next().unwrap_or("3")
+        );
 
         let desc = gamdl_update_description(
             true,
@@ -3564,9 +3572,16 @@ mod tests {
             .expect("3.9 must be on the known-bad list");
 
         for platform_id in ["macos", "windows-aarch64"] {
-            let desc =
-                gamdl_update_description(true, false, Some(bad), true, platform_id, None, Some("3.9"))
-                    .expect("an update is available");
+            let desc = gamdl_update_description(
+                true,
+                false,
+                Some(bad),
+                true,
+                platform_id,
+                None,
+                Some("3.9"),
+            )
+            .expect("an update is available");
             assert!(
                 !desc.contains("move back"),
                 "{platform_id}: nothing is installed, so there is nowhere to move back to: {desc}"
@@ -3617,8 +3632,16 @@ mod tests {
     fn gamdl_update_description_prioritises_no_wheel_over_known_bad() {
         let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
             .expect("3.9 must be on the known-bad list");
-        let desc = gamdl_update_description(true, true, Some(bad), true, "macos", Some("3.8.5"), Some("3.9"))
-            .expect("update_available=true must produce Some description");
+        let desc = gamdl_update_description(
+            true,
+            true,
+            Some(bad),
+            true,
+            "macos",
+            Some("3.8.5"),
+            Some("3.9"),
+        )
+        .expect("update_available=true must produce Some description");
         assert!(
             desc.contains("no compatible wheel"),
             "the harder blocker must win, got: {desc}"
@@ -3632,9 +3655,20 @@ mod tests {
         // correct here.
         let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
             .expect("3.9 must be on the known-bad list");
-        let desc = gamdl_update_description(true, false, Some(bad), true, "macos", Some("3.8.5"), Some("3.9"))
-            .expect("update_available=true must produce Some description");
-        assert!(desc.contains(bad.reason), "must include the actual reason, got: {desc}");
+        let desc = gamdl_update_description(
+            true,
+            false,
+            Some(bad),
+            true,
+            "macos",
+            Some("3.8.5"),
+            Some("3.9"),
+        )
+        .expect("update_available=true must produce Some description");
+        assert!(
+            desc.contains(bad.reason),
+            "must include the actual reason, got: {desc}"
+        );
         assert!(
             desc.contains(bad.fixed_in),
             "must name the fixed-in release, got: {desc}"
@@ -3661,8 +3695,16 @@ mod tests {
         }
         let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
             .expect("3.9 must be on the known-bad list");
-        let desc = gamdl_update_description(true, false, Some(bad), true, "windows-aarch64", Some("3.9"), Some("3.9"))
-            .expect("update_available=true must produce Some description");
+        let desc = gamdl_update_description(
+            true,
+            false,
+            Some(bad),
+            true,
+            "windows-aarch64",
+            Some("3.9"),
+            Some("3.9"),
+        )
+        .expect("update_available=true must produce Some description");
         assert!(
             !desc.contains("or newer"),
             "windows-aarch64 cannot install past its own ceiling, got: {desc}"
@@ -3693,8 +3735,16 @@ mod tests {
             .expect("3.9 must be on the known-bad list");
 
         for platform_id in ["macos", "windows-aarch64"] {
-            let desc = gamdl_update_description(true, false, Some(bad), true, platform_id, Some("3.9"), Some("3.9"))
-                .expect("update_available=true must produce Some description");
+            let desc = gamdl_update_description(
+                true,
+                false,
+                Some(bad),
+                true,
+                platform_id,
+                Some("3.9"),
+                Some("3.9"),
+            )
+            .expect("update_available=true must produce Some description");
             let expected = gamdl_capabilities::known_bad_advice(
                 bad.reason,
                 bad.fixed_in,
@@ -3713,17 +3763,43 @@ mod tests {
     #[test]
     fn gamdl_update_description_falls_back_through_the_ordinary_states() {
         // Untested (no known-bad match) — generic warning.
-        let desc = gamdl_update_description(true, false, None, true, "macos", Some("3.9.1"), Some("3.9.1")).unwrap();
+        let desc = gamdl_update_description(
+            true,
+            false,
+            None,
+            true,
+            "macos",
+            Some("3.9.1"),
+            Some("3.9.1"),
+        )
+        .unwrap();
         assert!(desc.contains("untested"));
 
         // Fully ordinary update.
-        let desc = gamdl_update_description(true, false, None, false, "macos", Some("3.9.1"), Some("3.9.1")).unwrap();
+        let desc = gamdl_update_description(
+            true,
+            false,
+            None,
+            false,
+            "macos",
+            Some("3.9.1"),
+            Some("3.9.1"),
+        )
+        .unwrap();
         assert_eq!(desc, "New GAMDL version available on PyPI");
 
         // No update available at all — no description regardless of
         // the other flags.
         assert_eq!(
-            gamdl_update_description(false, false, None, false, "macos", Some("3.9.1"), Some("3.9.1")),
+            gamdl_update_description(
+                false,
+                false,
+                None,
+                false,
+                "macos",
+                Some("3.9.1"),
+                Some("3.9.1")
+            ),
             None
         );
     }

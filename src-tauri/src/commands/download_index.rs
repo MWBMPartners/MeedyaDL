@@ -104,10 +104,7 @@ pub async fn list_library_gaps_cmd(
 /// them. Returns `false` on DB error so the frontend can show a
 /// non-fatal "couldn't index this track" message.
 #[tauri::command]
-pub async fn upsert_known_track_cmd(
-    app: AppHandle,
-    track: KnownTrackRow,
-) -> Result<bool, String> {
+pub async fn upsert_known_track_cmd(app: AppHandle, track: KnownTrackRow) -> Result<bool, String> {
     let db_path = crate::utils::platform::get_app_data_dir(&app).join("meedyadl.db");
     if !db_path.exists() {
         return Ok(false);

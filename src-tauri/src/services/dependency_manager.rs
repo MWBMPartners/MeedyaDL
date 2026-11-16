@@ -736,9 +736,8 @@ static SEMVER_RE: LazyLock<regex::Regex> =
 static MP4BOX_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?:GPAC|version)\s+(\d+\.\d+(?:\.\d+)?)").expect("static regex")
 });
-static MP4DECRYPT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"Bento4 Version (\d+\.\d+\.\d+)").expect("static regex")
-});
+static MP4DECRYPT_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"Bento4 Version (\d+\.\d+\.\d+)").expect("static regex"));
 static NM3U8DL_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"v?(\d+\.\d+\.\d+)").expect("static regex"));
 static MEDIAINFO_RE: LazyLock<regex::Regex> =
@@ -1269,9 +1268,7 @@ async fn get_mirror_download_url(
     // mislabeled `.tar.xz` assets (e.g. BtbN's Linux FFmpeg build) and fed
     // XZ bytes into the gzip decoder.
     let format = archive::detect_archive_format_from_url(&filename).unwrap_or_else(|| {
-        log::warn!(
-            "Unrecognised archive extension on mirror asset '{filename}' — assuming tar.gz"
-        );
+        log::warn!("Unrecognised archive extension on mirror asset '{filename}' — assuming tar.gz");
         archive::ArchiveFormat::TarGz
     });
 
@@ -2442,10 +2439,7 @@ fn get_mediainfo_url(_os: &str, _arch: &str) -> Result<(String, archive::Archive
 /// The version (`vX.YY.Z`) changes per release, so we use
 /// `resolve_github_release_asset()` to find the platform-matching asset
 /// against the `latest` tag dynamically.
-async fn get_rclone_url(
-    os: &str,
-    arch: &str,
-) -> Result<(String, archive::ArchiveFormat), String> {
+async fn get_rclone_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
     // rclone uses its own asset-name suffix scheme distinct from .NET RIDs.
     // Map (os, arch) → rclone's platform-arch suffix.
     let platform_arch = match (os, arch) {
@@ -3849,7 +3843,10 @@ async fn install_mp4box_via_apt(app: &AppHandle) -> Result<String, String> {
         {
             return Err(actionable_elevation_error());
         }
-        return Err(format!("'apt-get install -y gpac' failed: {}", stderr.trim()));
+        return Err(format!(
+            "'apt-get install -y gpac' failed: {}",
+            stderr.trim()
+        ));
     }
 
     log::info!("'apt-get install gpac' completed successfully");
@@ -4442,7 +4439,11 @@ async fn install_companion_ffprobe(tool_dir: &std::path::Path) {
             match std::fs::copy(&found, &dest) {
                 Ok(_) => {
                     archive::set_executable(&dest).ok();
-                    log::info!("Copied companion {base_name} from {} to {}", found.display(), dest.display());
+                    log::info!(
+                        "Copied companion {base_name} from {} to {}",
+                        found.display(),
+                        dest.display()
+                    );
                     continue;
                 }
                 Err(e) => log::warn!("Failed to copy {base_name} from archive: {e}"),
@@ -4451,13 +4452,11 @@ async fn install_companion_ffprobe(tool_dir: &std::path::Path) {
 
         // Not in the archive — download separately (macOS evermeet.cx case)
         if cfg!(target_os = "macos") {
-            log::info!("{base_name} not in ffmpeg archive — downloading separately from evermeet.cx");
-            match archive::download_and_extract(
-                macos_url,
-                tool_dir,
-                archive::ArchiveFormat::Zip,
-            )
-            .await
+            log::info!(
+                "{base_name} not in ffmpeg archive — downloading separately from evermeet.cx"
+            );
+            match archive::download_and_extract(macos_url, tool_dir, archive::ArchiveFormat::Zip)
+                .await
             {
                 Ok(()) => {
                     if dest.exists() {
@@ -4805,10 +4804,7 @@ mod tests {
         promote_staged_install(&staging, &tool_dir, None).unwrap();
 
         assert!(!staging.exists());
-        assert_eq!(
-            std::fs::read(tool_dir.join("existing.txt")).unwrap(),
-            b"v2"
-        );
+        assert_eq!(std::fs::read(tool_dir.join("existing.txt")).unwrap(), b"v2");
     }
 
     // ---- Keeping a working copy while a new one goes in (#1225) ----

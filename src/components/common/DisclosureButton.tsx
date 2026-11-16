@@ -40,7 +40,13 @@ interface DisclosureButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElem
  * the title, left-aligned. `aria-expanded` says whether it is open; pass
  * `aria-controls` when the section has an id.
  */
-export function DisclosureButton({ open, children, className = '', type = 'button', ...rest }: DisclosureButtonProps) {
+export function DisclosureButton({
+  open,
+  children,
+  className = '',
+  type = 'button',
+  ...rest
+}: DisclosureButtonProps) {
   return (
     <button
       type={type}

@@ -203,13 +203,22 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
             }
             // Open the folder in the system file manager using platform-native commands
             #[cfg(target_os = "macos")]
-            { let _ = std::process::Command::new("open").arg(&path).spawn(); }
+            {
+                let _ = std::process::Command::new("open").arg(&path).spawn();
+            }
             #[cfg(target_os = "windows")]
-            { let _ = std::process::Command::new("explorer").arg(&path).spawn(); }
+            {
+                let _ = std::process::Command::new("explorer").arg(&path).spawn();
+            }
             #[cfg(target_os = "linux")]
-            { let _ = std::process::Command::new("xdg-open").arg(&path).spawn(); }
+            {
+                let _ = std::process::Command::new("xdg-open").arg(&path).spawn();
+            }
             log::info!("After-queue: opened output folder {path}");
-            emit_app_log(app, &format!("After-queue action: opened output folder ({path})"));
+            emit_app_log(
+                app,
+                &format!("After-queue action: opened output folder ({path})"),
+            );
         }
         AfterQueueAction::PlaySound => {
             // A real alert sound, whatever the notification settings or
@@ -278,9 +287,7 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
             }
             #[cfg(target_os = "windows")]
             {
-                let _ = std::process::Command::new("shutdown")
-                    .args(["/h"])
-                    .spawn();
+                let _ = std::process::Command::new("shutdown").args(["/h"]).spawn();
             }
             #[cfg(target_os = "linux")]
             {

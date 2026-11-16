@@ -92,15 +92,21 @@ pub(crate) use crate::models::download::{DownloadRequest, DownloadState, QueueIt
 // after merging per-download overrides with global settings.
 // SongCodec: Enum of audio codec options, used for companion download planning and
 // codec suffix logic.
-pub(crate) use crate::models::codec_registry::{codec_suffix_from_registry, song_codec_to_registry_id};
-pub(crate) use crate::models::gamdl_options::{ArtistAutoSelect, GamdlOptions, LyricsFormat, SongCodec};
+pub(crate) use crate::models::codec_registry::{
+    codec_suffix_from_registry, song_codec_to_registry_id,
+};
+pub(crate) use crate::models::gamdl_options::{
+    ArtistAutoSelect, GamdlOptions, LyricsFormat, SongCodec,
+};
 // AppSettings: The full application settings, used for merging defaults and fallback chain config.
 // CompanionMode: Enum controlling companion download behavior (Disabled, AtmosToLossless, etc.).
 pub(crate) use crate::models::settings::{AppSettings, CompanionMode};
 // config_service: Used to load settings during fallback decisions.
 // gamdl_service: Provides build_gamdl_command_public() and GamdlProgress for subprocess execution.
 // crash_report_service: Used to save download error reports for user-reportable diagnostics.
-pub(crate) use crate::services::{config_service, crash_report_service, gamdl_service, history_service};
+pub(crate) use crate::services::{
+    config_service, crash_report_service, gamdl_service, history_service,
+};
 // CrashReport: Reused for download error reports (source: "download_error").
 pub(crate) use crate::models::crash_report::CrashReport;
 // process: Provides parse_gamdl_output() for parsing GAMDL output lines and
@@ -169,7 +175,6 @@ impl ShutdownSignal {
 // crate::utils::activity_log (shared across commands and services).
 // The import is at the top of this file.
 
-
 // ============================================================
 // Submodules
 //
@@ -182,21 +187,21 @@ impl ShutdownSignal {
 // `crate::utils::process` import re-exported above.
 // ============================================================
 
-mod notifications;
-mod helpers;
-mod options;
 mod companions;
-mod processing;
-mod persistence;
+mod helpers;
 mod lyrics_pass;
+mod notifications;
+mod options;
+mod persistence;
+mod processing;
 
 // Flatten each submodule's items back into the `download_queue` namespace
 // so intra-crate references and the `#[cfg(test)] mod tests` block resolve
 // exactly as before the split.
-pub(crate) use notifications::*;
-pub(crate) use helpers::*;
-pub(crate) use options::*;
 pub(crate) use companions::*;
+pub(crate) use helpers::*;
+pub(crate) use notifications::*;
+pub(crate) use options::*;
 pub(crate) use persistence::*;
 
 // `processing`'s only cross-module symbol used by non-test code is
@@ -236,7 +241,6 @@ pub(crate) use progress_stages::{set_label_only, set_stage_with_label, ProgressS
 pub use notifications::test_desktop_notification;
 pub use persistence::{clear_queue_file, load_queue_from_disk, save_queue_to_disk};
 pub use processing::process_queue;
-
 
 // ============================================================
 // Queue item (internal representation with extra tracking fields)
@@ -617,7 +621,9 @@ impl DownloadQueue {
         // {platform} was hard-coded to Apple Music.
         let first_url = request.urls.first().map(String::as_str).unwrap_or("");
         let detected_service = crate::models::media_service::MediaServiceId::from_url(first_url);
-        let service_str = detected_service.as_ref().map(std::string::ToString::to_string);
+        let service_str = detected_service
+            .as_ref()
+            .map(std::string::ToString::to_string);
 
         // Merge per-download overrides (from the frontend's "custom options" UI)
         // with global settings to produce the final set of GAMDL options.
@@ -1007,9 +1013,7 @@ impl DownloadQueue {
                     summary.processing_stopped += 1;
                     ids_to_evict.push(item.status.id.clone());
                 }
-                DownloadState::Complete
-                | DownloadState::Cancelled
-                | DownloadState::Error => {
+                DownloadState::Complete | DownloadState::Cancelled | DownloadState::Error => {
                     // Terminal — leave alone.
                 }
             }
@@ -1462,10 +1466,7 @@ impl DownloadQueue {
     /// `Some((engine_id, fallback_index, chain_len))` if another engine is
     /// available. Returns `None` if all engines have been tried or the
     /// platform has no fallback engines.
-    pub fn try_engine_fallback(
-        &mut self,
-        download_id: &str,
-    ) -> Option<(String, usize, usize)> {
+    pub fn try_engine_fallback(&mut self, download_id: &str) -> Option<(String, usize, usize)> {
         let item = self.items.iter_mut().find(|i| i.status.id == download_id)?;
 
         // Resolve the engine chain for this item's service
@@ -1585,8 +1586,7 @@ impl DownloadQueue {
         let target = if !settings.storefront.is_empty() {
             settings.storefront.to_ascii_lowercase()
         } else {
-            super::login_window_service::detect_storefront()
-                .unwrap_or_else(|| "us".to_string())
+            super::login_window_service::detect_storefront().unwrap_or_else(|| "us".to_string())
         };
 
         // Capture the current URL storefront from the *first* URL that
@@ -1705,11 +1705,7 @@ impl DownloadQueue {
             return false; // 0 or 1 queued items — no-op
         }
         let first_queued_idx = queued[0];
-        let Some(current_idx) = self
-            .items
-            .iter()
-            .position(|i| i.status.id == download_id)
-        else {
+        let Some(current_idx) = self.items.iter().position(|i| i.status.id == download_id) else {
             return false;
         };
         if self.items[current_idx].status.state != DownloadState::Queued {
@@ -1871,7 +1867,11 @@ impl DownloadQueue {
     /// Used to trigger after-queue actions.
     #[must_use]
     pub fn is_idle(&self) -> bool {
-        self.active_count == 0 && !self.items.iter().any(|i| i.status.state == DownloadState::Queued)
+        self.active_count == 0
+            && !self
+                .items
+                .iter()
+                .any(|i| i.status.state == DownloadState::Queued)
     }
 
     /// Should we still be doing work for this item?
@@ -1973,9 +1973,8 @@ impl DownloadQueue {
                         })
                     });
 
-                if let Some(super::smart_retry_planner::PlanOutcome::AllPresent {
-                    total_tracks,
-                }) = smart_outcome
+                if let Some(super::smart_retry_planner::PlanOutcome::AllPresent { total_tracks }) =
+                    smart_outcome
                 {
                     // Every expected track is on disk — there's nothing
                     // for the retry to fetch. Refuse the retry and let
@@ -2027,9 +2026,7 @@ impl DownloadQueue {
                 // fetch in a single invocation, sharply cutting wall time
                 // (no metadata re-fetch for already-present tracks, no
                 // companion re-traversal, smaller enrichment surface).
-                if let Some(super::smart_retry_planner::PlanOutcome::Plan(plan)) =
-                    smart_outcome
-                {
+                if let Some(super::smart_retry_planner::PlanOutcome::Plan(plan)) = smart_outcome {
                     log::info!(
                         "Smart retry for {download_id}: targeting {} of {} track(s) — \
                          {} URL(s) queued",

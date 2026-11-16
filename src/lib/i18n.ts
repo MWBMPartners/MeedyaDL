@@ -112,7 +112,9 @@ export const AVAILABLE_LOCALES: readonly LocaleCode[] = LOCALES.map((l) => l.cod
  * The languages offered in the language list and chosen by "Auto": the
  * complete ones (see `complete` on `LOCALES`). English is always one.
  */
-export const OFFERED_LOCALES: readonly string[] = LOCALES.filter((l) => l.complete).map((l) => l.code);
+export const OFFERED_LOCALES: readonly string[] = LOCALES.filter((l) => l.complete).map(
+  (l) => l.code
+);
 
 /** One row of the Settings language list. */
 export interface LanguageOption {

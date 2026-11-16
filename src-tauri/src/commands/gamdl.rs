@@ -97,9 +97,7 @@ pub struct QueueStatus {
 /// have to choose between refusing everything (breaks retries on a
 /// malformed item) or allowing everything (a silent hole in the gate).
 /// Falling back to the only implemented service avoids both.
-fn service_for_queue_item(
-    item: &QueueItemStatus,
-) -> crate::models::media_service::MediaServiceId {
+fn service_for_queue_item(item: &QueueItemStatus) -> crate::models::media_service::MediaServiceId {
     use crate::models::media_service::MediaServiceId;
 
     item.service
@@ -473,32 +471,26 @@ pub async fn start_download(
                 return Err(crate::services::spotify_anti_ban::SPOTIFY_NOT_AVAILABLE.to_string());
             }
             DispatchGateOutcome::ConsentRequired => {
-                return Err(
-                    "Spotify downloads require first-run consent. \
+                return Err("Spotify downloads require first-run consent. \
                      Open the Spotify settings panel and accept the \
                      account-ban-risk acknowledgment before queueing."
-                        .to_string(),
-                );
+                    .to_string());
             }
             DispatchGateOutcome::MissingSpotifyDll => {
-                return Err(
-                    "Spotify desktop session needs the Spotify Windows \
+                return Err("Spotify desktop session needs the Spotify Windows \
                      desktop DLL (Spotify v1.2.88.483 — 'Spotify.exe' / \
                      'spotify.dll'). Set the path under Settings > \
                      Services > Spotify > Session, or switch session_type \
                      to 'librespot' / 'web'."
-                        .to_string(),
-                );
+                    .to_string());
             }
             DispatchGateOutcome::MissingWvd => {
-                return Err(
-                    "Spotify web session needs a Widevine '.wvd' file. \
+                return Err("Spotify web session needs a Widevine '.wvd' file. \
                      Set the path under Settings > Services > Spotify > \
                      Session, or switch session_type to 'librespot' / \
                      'desktop'. (Widevine files are user-supplied; see \
                      the help page for acquisition guidance.)"
-                        .to_string(),
-                );
+                    .to_string());
             }
             DispatchGateOutcome::DailyCapReached { count, cap } => {
                 return Err(format!(
@@ -535,8 +527,8 @@ pub async fn start_download(
     // to emit for every change.
     for (original, normalized) in original_urls.iter().zip(request.urls.iter()) {
         if original != normalized {
-            let was_itunes_rewrite = original.contains("itunes.apple.com")
-                && !normalized.contains("itunes.apple.com");
+            let was_itunes_rewrite =
+                original.contains("itunes.apple.com") && !normalized.contains("itunes.apple.com");
             let message = if was_itunes_rewrite {
                 format!(
                     "Legacy iTunes URL rewritten to music.apple.com (GAMDL doesn't accept itunes.apple.com): {normalized}"
@@ -616,9 +608,7 @@ pub async fn start_download(
             );
         }
 
-        if !is_library
-            && crate::services::apple_music_api::parse_apple_music_url(url).is_none()
-        {
+        if !is_library && crate::services::apple_music_api::parse_apple_music_url(url).is_none() {
             // Two known shapes land here:
             //   1. Uploaded videos (`downloader_uploaded_video.py` route in
             //      GAMDL — label/artist-uploaded backstage clips, live
@@ -651,7 +641,10 @@ pub async fn start_download(
     let duplicate_warning = {
         let q = queue.lock().await;
         if q.has_duplicate_urls(&request.urls) {
-            log::info!("Duplicate URL detected in queue: {}", request.urls.join(", "));
+            log::info!(
+                "Duplicate URL detected in queue: {}",
+                request.urls.join(", ")
+            );
             Some("This URL is already in the queue".to_string())
         } else {
             None
@@ -684,21 +677,21 @@ pub async fn start_download(
                 settings.duplicate_detection.key_strategy,
             )
         };
-        let history_keys = crate::services::duplicate_detector::collect_history_keys_with_db_augment(
-            &settings.output_path,
-            settings.duplicate_detection.scope,
-            settings.duplicate_detection.key_strategy,
-            &app,
-        );
-        if let Some(batch_plan) =
-            crate::services::duplicate_detector::plan_batch_deduplication(
+        let history_keys =
+            crate::services::duplicate_detector::collect_history_keys_with_db_augment(
+                &settings.output_path,
+                settings.duplicate_detection.scope,
+                settings.duplicate_detection.key_strategy,
                 &app,
-                &request.urls,
-                &settings,
-                &queued_keys,
-                &history_keys,
-            )
-            .await
+            );
+        if let Some(batch_plan) = crate::services::duplicate_detector::plan_batch_deduplication(
+            &app,
+            &request.urls,
+            &settings,
+            &queued_keys,
+            &history_keys,
+        )
+        .await
         {
             for line in &batch_plan.activity_lines {
                 emit_app_log(&app, line);
@@ -739,8 +732,7 @@ pub async fn start_download(
                 return Ok(StartDownloadResult {
                     download_id: String::new(),
                     duplicate_warning: Some(
-                        "Every track in this batch is already downloaded or queued"
-                            .to_string(),
+                        "Every track in this batch is already downloaded or queued".to_string(),
                     ),
                 });
             }
@@ -793,13 +785,17 @@ pub async fn start_download(
                         settings.duplicate_detection.key_strategy,
                     )
                 };
-                let history_keys = crate::services::duplicate_detector::collect_history_keys_with_db_augment(
-            &settings.output_path,
-            settings.duplicate_detection.scope,
-            settings.duplicate_detection.key_strategy,
-            &app,
-        );
-                emit_app_log(&app, "Checking for duplicate tracks across selected artist modes...");
+                let history_keys =
+                    crate::services::duplicate_detector::collect_history_keys_with_db_augment(
+                        &settings.output_path,
+                        settings.duplicate_detection.scope,
+                        settings.duplicate_detection.key_strategy,
+                        &app,
+                    );
+                emit_app_log(
+                    &app,
+                    "Checking for duplicate tracks across selected artist modes...",
+                );
                 crate::services::duplicate_detector::plan_artist_deduplication(
                     &app,
                     &parsed,
@@ -852,9 +848,7 @@ pub async fn start_download(
                         .find(|(m, _)| m == mode)
                         .map(|(_, p)| p);
                     match mode_plan {
-                        Some(
-                            crate::services::duplicate_detector::ModePlan::SkipEntirely,
-                        ) => {
+                        Some(crate::services::duplicate_detector::ModePlan::SkipEntirely) => {
                             emit_app_log(
                                 &app,
                                 &format!(
@@ -864,17 +858,14 @@ pub async fn start_download(
                             );
                             continue;
                         }
-                        Some(crate::services::duplicate_detector::ModePlan::TrackUrls(
-                            urls,
-                        )) => {
+                        Some(crate::services::duplicate_detector::ModePlan::TrackUrls(urls)) => {
                             // Replace the artist URL with explicit per-track
                             // URLs; GAMDL will download each as a single
                             // track. Drop --artist-auto-select because it's
                             // meaningless for non-artist URLs.
                             split_request.urls = urls.clone();
-                            let overrides = split_request
-                                .options
-                                .get_or_insert_with(Default::default);
+                            let overrides =
+                                split_request.options.get_or_insert_with(Default::default);
                             overrides.artist_auto_select = None;
                         }
                         Some(
@@ -1025,12 +1016,13 @@ pub async fn start_download(
                     settings.duplicate_detection.key_strategy,
                 )
             };
-            let history_keys = crate::services::duplicate_detector::collect_history_keys_with_db_augment(
-            &settings.output_path,
-            settings.duplicate_detection.scope,
-            settings.duplicate_detection.key_strategy,
-            &app,
-        );
+            let history_keys =
+                crate::services::duplicate_detector::collect_history_keys_with_db_augment(
+                    &settings.output_path,
+                    settings.duplicate_detection.scope,
+                    settings.duplicate_detection.key_strategy,
+                    &app,
+                );
             emit_app_log(&app, "Checking playlist for duplicate tracks...");
             let plan = crate::services::duplicate_detector::plan_playlist_deduplication(
                 &app,
@@ -1115,12 +1107,13 @@ pub async fn start_download(
                     settings.duplicate_detection.key_strategy,
                 )
             };
-            let history_keys = crate::services::duplicate_detector::collect_history_keys_with_db_augment(
-            &settings.output_path,
-            settings.duplicate_detection.scope,
-            settings.duplicate_detection.key_strategy,
-            &app,
-        );
+            let history_keys =
+                crate::services::duplicate_detector::collect_history_keys_with_db_augment(
+                    &settings.output_path,
+                    settings.duplicate_detection.scope,
+                    settings.duplicate_detection.key_strategy,
+                    &app,
+                );
             // Short-circuit the expensive catalog fetch if there's
             // literally nothing to compare against.
             if queued_keys.is_empty() && history_keys.is_empty() {
@@ -1167,9 +1160,7 @@ pub async fn start_download(
                                 ),
                             });
                         }
-                        crate::services::duplicate_detector::AlbumPlan::FallbackToAlbumUrl => {
-                            None
-                        }
+                        crate::services::duplicate_detector::AlbumPlan::FallbackToAlbumUrl => None,
                     }
                 } else {
                     None
@@ -1534,7 +1525,9 @@ pub async fn retry_download(
     {
         let item = {
             let q = queue.lock().await;
-            q.get_status().into_iter().find(|item| item.id == download_id)
+            q.get_status()
+                .into_iter()
+                .find(|item| item.id == download_id)
         };
         if let Some(item) = item.as_ref() {
             let service = service_for_queue_item(item);
@@ -1566,9 +1559,8 @@ pub async fn retry_download(
         let q = queue.lock().await;
         q.peek_smart_retry_outcome(&download_id)
     };
-    if let Some(crate::services::smart_retry_planner::PlanOutcome::AllPresent {
-        total_tracks,
-    }) = smart_preview
+    if let Some(crate::services::smart_retry_planner::PlanOutcome::AllPresent { total_tracks }) =
+        smart_preview
     {
         emit_app_log(
             &app,
@@ -1735,8 +1727,7 @@ pub async fn retry_failed_bulk(
             seen
         };
         for service in &services {
-            if let Err(message) =
-                crate::services::feature_flag_service::service_gate(&app, service)
+            if let Err(message) = crate::services::feature_flag_service::service_gate(&app, service)
             {
                 emit_app_log(
                     &app,
@@ -1761,11 +1752,8 @@ pub async fn retry_failed_bulk(
     let mut retry_candidates: Vec<(String, Vec<String>)> = Vec::new();
     {
         let q = queue.lock().await;
-        let statuses: std::collections::HashMap<String, Vec<String>> = q
-            .get_status()
-            .into_iter()
-            .map(|s| (s.id, s.urls))
-            .collect();
+        let statuses: std::collections::HashMap<String, Vec<String>> =
+            q.get_status().into_iter().map(|s| (s.id, s.urls)).collect();
         for id in &download_ids {
             let urls = match statuses.get(id) {
                 Some(urls) => urls.clone(),
@@ -2152,10 +2140,7 @@ pub async fn abort_all_downloads(
 ///   state) — frontend updates its button label / disabled-state in
 ///   response.
 #[tauri::command]
-pub async fn pause_queue(
-    app: AppHandle,
-    queue: State<'_, QueueHandle>,
-) -> Result<bool, String> {
+pub async fn pause_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Result<bool, String> {
     let was_paused = {
         let mut q = queue.lock().await;
         q.pause()
@@ -2192,10 +2177,7 @@ pub async fn pause_queue(
 /// * `"queue-paused-changed"` — payload: `bool` — same shape as
 ///   `pause_queue`.
 #[tauri::command]
-pub async fn resume_queue(
-    app: AppHandle,
-    queue: State<'_, QueueHandle>,
-) -> Result<bool, String> {
+pub async fn resume_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Result<bool, String> {
     // Same as starting by hand: the user is driving now, so stop waiting for
     // the internet on their behalf (#1156).
     stop_waiting_for_internet(&app);
@@ -2763,20 +2745,13 @@ pub async fn import_manifest(app: AppHandle) -> Result<Vec<String>, String> {
                 serde_json::from_str(&contents)
                     .map_err(|e| format!("Invalid manifest file: {e}"))?;
 
-            let urls: Vec<String> = manifest
-                .sources
-                .iter()
-                .map(|s| s.url.clone())
-                .collect();
+            let urls: Vec<String> = manifest.sources.iter().map(|s| s.url.clone()).collect();
 
             if urls.is_empty() {
                 return Err("Manifest contains no download sources".to_string());
             }
 
-            log::info!(
-                "Imported manifest with {} source(s)",
-                urls.len()
-            );
+            log::info!("Imported manifest with {} source(s)", urls.len());
             Ok(urls)
         }
         None => Err("Import cancelled".to_string()),
@@ -2863,29 +2838,20 @@ fn album_has_labelled_names(album_dir: &std::path::Path) -> bool {
 /// * `Ok(Vec<ScannedManifest>)` — Manifests found (may be empty)
 /// * `Err(String)` — Folder picker cancelled or I/O error
 #[tauri::command]
-pub async fn scan_folder_for_manifests(
-    app: AppHandle,
-) -> Result<Vec<ScannedManifest>, String> {
+pub async fn scan_folder_for_manifests(app: AppHandle) -> Result<Vec<ScannedManifest>, String> {
     use tauri_plugin_dialog::DialogExt;
 
-    let folder = app
-        .dialog()
-        .file()
-        .blocking_pick_folder();
+    let folder = app.dialog().file().blocking_pick_folder();
 
     let folder_path = match folder {
-        Some(path) => {
-            path.as_path()
-                .ok_or_else(|| "Failed to resolve folder path".to_string())?
-                .to_path_buf()
-        }
+        Some(path) => path
+            .as_path()
+            .ok_or_else(|| "Failed to resolve folder path".to_string())?
+            .to_path_buf(),
         None => return Err("Folder selection cancelled".to_string()),
     };
 
-    log::info!(
-        "Scanning folder for manifests: {}",
-        folder_path.display()
-    );
+    log::info!("Scanning folder for manifests: {}", folder_path.display());
 
     let results = scan_for_manifests(&folder_path);
 
@@ -2968,10 +2934,9 @@ fn parse_manifest_at_path(path: &std::path::Path) -> Option<ScannedManifest> {
         .inspect_err(|_| log::debug!("Failed to read manifest: {}", path.display()))
         .ok()?;
 
-    let manifest =
-        serde_json::from_str::<crate::models::manifest::ManifestFile>(&contents)
-            .inspect_err(|_| log::debug!("Failed to parse manifest: {}", path.display()))
-            .ok()?;
+    let manifest = serde_json::from_str::<crate::models::manifest::ManifestFile>(&contents)
+        .inspect_err(|_| log::debug!("Failed to parse manifest: {}", path.display()))
+        .ok()?;
 
     let source = manifest.sources.first();
 
@@ -3210,7 +3175,9 @@ pub async fn check_redownload_status(
     }
 
     let history = crate::services::history_service::list_history(&app);
-    let previous = history.iter().find(|e| e.url == url && e.status == "success");
+    let previous = history
+        .iter()
+        .find(|e| e.url == url && e.status == "success");
 
     Ok(previous.map(|entry| RedownloadInfo {
         downloaded_at: entry.completed_at.clone(),
@@ -3285,9 +3252,7 @@ pub async fn diff_library_scan_manifest(
             missing_codecs: plan.missing_codecs,
             total_tracks: plan.total_tracks,
         },
-        PlanOutcome::AllPresent { total_tracks } => {
-            LibraryScanDiff::AllPresent { total_tracks }
-        }
+        PlanOutcome::AllPresent { total_tracks } => LibraryScanDiff::AllPresent { total_tracks },
         PlanOutcome::NotApplicable => LibraryScanDiff::NotApplicable,
     })
 }
@@ -3347,8 +3312,8 @@ pub async fn check_library_scan_freshness(
     manifest_date: Option<String>,
 ) -> Result<LibraryScanFreshness, String> {
     use crate::services::apple_music_api::{
-        fetch_album_metadata_with_fallback, get_private_key_from_keychain,
-        parse_apple_music_url, resolve_musickit_developer_token,
+        fetch_album_metadata_with_fallback, get_private_key_from_keychain, parse_apple_music_url,
+        resolve_musickit_developer_token,
     };
 
     let Some(manifest_date) = manifest_date.filter(|s| !s.is_empty()) else {
@@ -3384,11 +3349,7 @@ pub async fn check_library_scan_freshness(
             });
         }
     };
-    let jwt = match resolve_musickit_developer_token(
-        team_id,
-        key_id,
-        private_key.as_deref(),
-    ) {
+    let jwt = match resolve_musickit_developer_token(team_id, key_id, private_key.as_deref()) {
         Ok(Some(jwt)) => jwt,
         Ok(None) => {
             return Ok(LibraryScanFreshness::Unknown {
@@ -3540,11 +3501,15 @@ mod tests {
     fn labels_meedyadl_adds_are_recognised_in_names() {
         assert!(super::name_carries_meedyadl_label("Album [Explicit]"));
         assert!(super::name_carries_meedyadl_label("01 Song [Dolby Atmos]"));
-        assert!(super::name_carries_meedyadl_label("01 Song [Clean] [Lossless]"));
+        assert!(super::name_carries_meedyadl_label(
+            "01 Song [Clean] [Lossless]"
+        ));
         assert!(!super::name_carries_meedyadl_label("Album"));
         assert!(!super::name_carries_meedyadl_label("01 Song"));
         // A label in the middle of a title is not one MeedyaDL added.
-        assert!(!super::name_carries_meedyadl_label("[Explicit] Content Live"));
+        assert!(!super::name_carries_meedyadl_label(
+            "[Explicit] Content Live"
+        ));
     }
 
     #[test]
@@ -3700,8 +3665,14 @@ mod tests {
         let urls = vec!["https://evil.example.com/steal".to_string()];
         let err = classify_batch_urls(&urls).expect_err("unsupported host must still error");
         // Wording changed in #1157, but the refusal itself must not.
-        assert!(err.contains("does not look like a link MeedyaDL recognises"), "got: {err}");
-        assert!(err.contains("evil.example.com"), "the link should be quoted back: {err}");
+        assert!(
+            err.contains("does not look like a link MeedyaDL recognises"),
+            "got: {err}"
+        );
+        assert!(
+            err.contains("evil.example.com"),
+            "the link should be quoted back: {err}"
+        );
     }
 
     // ── Telling apart "we cannot yet" from "that is not a link" (#1157) ──
@@ -3740,8 +3711,8 @@ mod tests {
         // Longest match wins, so this is YouTube Music and not plain YouTube.
         assert!(err.contains("YouTube Music"), "got: {err}");
 
-        let err =
-            classify_batch_urls(&["https://www.bbc.co.uk/iplayer/x".to_string()]).expect_err("refused");
+        let err = classify_batch_urls(&["https://www.bbc.co.uk/iplayer/x".to_string()])
+            .expect_err("refused");
         assert!(err.contains("BBC iPlayer"), "got: {err}");
     }
 
@@ -3809,7 +3780,10 @@ mod tests {
         let (has_spotify, _) =
             classify_batch_urls(&["https://open.spotify.com/album/abc".to_string()])
                 .expect("a Spotify link is a supported host");
-        assert!(has_spotify, "it must be recognised, or the Spotify checks never run");
+        assert!(
+            has_spotify,
+            "it must be recognised, or the Spotify checks never run"
+        );
     }
 
     #[test]
@@ -3832,5 +3806,4 @@ mod tests {
         ];
         assert!(classify_batch_urls(&urls).is_err());
     }
-
 }

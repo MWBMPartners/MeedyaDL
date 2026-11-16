@@ -112,6 +112,8 @@ describe('NavListItem', () => {
         Codec &amp; Resolution
       </NavListItem>
     );
-    expect(screen.getByRole('button', { name: 'Codec & Resolution' }).className).toContain('text-left');
+    expect(screen.getByRole('button', { name: 'Codec & Resolution' }).className).toContain(
+      'text-left'
+    );
   });
 });

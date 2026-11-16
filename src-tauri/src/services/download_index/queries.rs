@@ -84,9 +84,7 @@ pub fn find_download_by_url(
 /// helper that takes optional song_id + optional ISRC).
 pub fn collect_song_ids_from_db(db_path: &Path) -> Result<HashSet<String>, IndexError> {
     let idx = DownloadIndex::open(db_path)?;
-    let mut stmt = idx
-        .conn()
-        .prepare("SELECT service_url FROM downloads")?;
+    let mut stmt = idx.conn().prepare("SELECT service_url FROM downloads")?;
     let mut keys = HashSet::new();
     let rows = stmt.query_map([], |row| {
         let url: String = row.get(0)?;
@@ -147,9 +145,8 @@ pub fn search_activity_events(
     let idx = DownloadIndex::open(db_path)?;
     // Assemble the WHERE clause dynamically so we don't pay for
     // LIKE/comparison work on dimensions the caller didn't filter on.
-    let mut sql = String::from(
-        "SELECT timestamp, level, source, message FROM activity_events WHERE 1=1",
-    );
+    let mut sql =
+        String::from("SELECT timestamp, level, source, message FROM activity_events WHERE 1=1");
     let mut params: Vec<String> = Vec::new();
     if let Some(needle) = filter.message_contains {
         sql.push_str(" AND lower(message) LIKE ?");
@@ -211,10 +208,7 @@ pub struct KnownTrackRow {
 /// scope for M4 — this is the persistence half. Future work wires
 /// up a periodic sync that calls this helper with discovered
 /// tracks.
-pub fn upsert_known_track(
-    db_path: &Path,
-    track: &KnownTrackRow,
-) -> Result<(), IndexError> {
+pub fn upsert_known_track(db_path: &Path, track: &KnownTrackRow) -> Result<(), IndexError> {
     let idx = DownloadIndex::open(db_path)?;
     idx.conn().execute(
         "INSERT INTO known_tracks (
@@ -254,10 +248,7 @@ pub fn upsert_known_track(
 /// The join uses ISRC when available (most reliable cross-service
 /// key) and falls back to `service_track_id` otherwise. The query
 /// is bounded by `limit` so the Library Scan UI can page.
-pub fn list_library_gaps(
-    db_path: &Path,
-    limit: usize,
-) -> Result<Vec<KnownTrackRow>, IndexError> {
+pub fn list_library_gaps(db_path: &Path, limit: usize) -> Result<Vec<KnownTrackRow>, IndexError> {
     let idx = DownloadIndex::open(db_path)?;
     // A track is "missing" when no row in `downloads` shares its
     // ISRC (when both are non-NULL) AND no row in `downloads`
@@ -342,7 +333,8 @@ mod tests {
                 )
                 .unwrap();
             for (url, codec, _title, downloaded_at) in urls {
-                stmt.execute(rusqlite::params![url, codec, downloaded_at]).unwrap();
+                stmt.execute(rusqlite::params![url, codec, downloaded_at])
+                    .unwrap();
             }
         }
         tx.commit().unwrap();
@@ -387,10 +379,7 @@ mod tests {
         std::fs::remove_file(&db).ok();
     }
 
-    fn seed_activity_events(
-        db_path: &Path,
-        rows: &[(&str, &str, &str, &str)],
-    ) {
+    fn seed_activity_events(db_path: &Path, rows: &[(&str, &str, &str, &str)]) {
         let mut idx = DownloadIndex::open(db_path).unwrap();
         let tx = idx.conn_mut().transaction().unwrap();
         {
@@ -400,7 +389,8 @@ mod tests {
                 )
                 .unwrap();
             for (ts, level, source, msg) in rows {
-                stmt.execute(rusqlite::params![ts, level, source, msg]).unwrap();
+                stmt.execute(rusqlite::params![ts, level, source, msg])
+                    .unwrap();
             }
         }
         tx.commit().unwrap();
@@ -439,7 +429,12 @@ mod tests {
             &[
                 ("2026-05-23T10:00:00Z", "INFO", "system", "no match"),
                 ("2026-05-24T10:00:00Z", "WARN", "system", "needle here"),
-                ("2026-05-25T10:00:00Z", "ERROR", "download:abc", "NEEDLE in error"),
+                (
+                    "2026-05-25T10:00:00Z",
+                    "ERROR",
+                    "download:abc",
+                    "NEEDLE in error",
+                ),
             ],
         );
         let only_warn = search_activity_events(
@@ -534,9 +529,18 @@ mod tests {
 
         let gaps = list_library_gaps(&db, 50).unwrap();
         let titles: Vec<&str> = gaps.iter().filter_map(|r| r.title.as_deref()).collect();
-        assert!(!titles.contains(&"AlphaTrack"), "AlphaTrack is downloaded — must not appear");
-        assert!(titles.contains(&"BravoTrack"), "BravoTrack ISRC has no download — must appear");
-        assert!(titles.contains(&"CharlieTrack"), "CharlieTrack has no ISRC and no download — must appear");
+        assert!(
+            !titles.contains(&"AlphaTrack"),
+            "AlphaTrack is downloaded — must not appear"
+        );
+        assert!(
+            titles.contains(&"BravoTrack"),
+            "BravoTrack ISRC has no download — must appear"
+        );
+        assert!(
+            titles.contains(&"CharlieTrack"),
+            "CharlieTrack has no ISRC and no download — must appear"
+        );
         assert_eq!(gaps.len(), 2);
 
         // Upsert idempotency — re-inserting the same row updates rather than duplicates.

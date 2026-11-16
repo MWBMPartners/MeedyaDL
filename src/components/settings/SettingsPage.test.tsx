@@ -32,7 +32,9 @@ describe('SettingsPage when settings could not be loaded', () => {
     expect(
       await screen.findByText(/Settings could not be loaded, so they cannot be saved/)
     ).toBeInTheDocument();
-    expect((screen.getByRole('button', { name: /Save Changes/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (screen.getByRole('button', { name: /Save Changes/ }) as HTMLButtonElement).disabled
+    ).toBe(true);
 
     const before = loadSettings.mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Try loading again' }));
@@ -43,6 +45,8 @@ describe('SettingsPage when settings could not be loaded', () => {
     useSettingsStore.setState({ hasLoaded: true });
     render(<SettingsPage />);
     expect(screen.queryByText(/cannot be saved/)).not.toBeInTheDocument();
-    expect((screen.getByRole('button', { name: /Save Changes/ }) as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      (screen.getByRole('button', { name: /Save Changes/ }) as HTMLButtonElement).disabled
+    ).toBe(false);
   });
 });

@@ -216,7 +216,10 @@ mod tests {
         // serialised form means a field added to AppSettings in future is
         // covered here automatically, without anyone remembering to come
         // back and extend this test.
-        let expected = AppSettings { after_queue_once: None, ..before };
+        let expected = AppSettings {
+            after_queue_once: None,
+            ..before
+        };
         assert_eq!(
             serde_json::to_value(&after).expect("serialise the changed settings"),
             serde_json::to_value(&expected).expect("serialise the expected settings"),
@@ -289,12 +292,18 @@ mod tests {
     #[test]
     fn mutate_returns_snapshot_after_change() {
         let cache = SettingsCache::new();
-        assert!(cache.mutate(|s| s.overwrite = true).is_none(), "empty cache returns None");
+        assert!(
+            cache.mutate(|s| s.overwrite = true).is_none(),
+            "empty cache returns None"
+        );
         cache.refresh(AppSettings::default());
         let snapshot = cache
             .mutate(|s| s.overwrite = true)
             .expect("populated cache returns snapshot");
-        assert!(snapshot.overwrite, "mutation must be visible in the snapshot");
+        assert!(
+            snapshot.overwrite,
+            "mutation must be visible in the snapshot"
+        );
     }
 
     /// Cloning the cache shares the underlying state — both clones
@@ -307,6 +316,9 @@ mod tests {
         let b = a.clone();
         a.refresh(AppSettings::default());
         let guard = b.inner.read().unwrap();
-        assert!(guard.is_some(), "clone must see refreshes performed via the original");
+        assert!(
+            guard.is_some(),
+            "clone must see refreshes performed via the original"
+        );
     }
 }

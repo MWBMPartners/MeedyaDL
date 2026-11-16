@@ -63,7 +63,14 @@ import { useEffect } from 'react';
 
 // Lucide icons: success, portable download, system-Python reuse, browse,
 // broken-venv notice, rebuild action.
-import { AlertTriangle, CheckCircle, Download, FolderOpen, RefreshCw, Terminal } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle,
+  Download,
+  FolderOpen,
+  RefreshCw,
+  Terminal,
+} from 'lucide-react';
 
 // Zustand stores: dependencyStore tracks Python status; setupStore manages the
 // wizard step lifecycle.
@@ -243,7 +250,8 @@ export function PythonStep() {
                     </p>
                   </div>
                 </div>
-                {pythonVenvHealth.recordedInterpreter && pythonVenvHealth.recordedInterpreterExists ? (
+                {pythonVenvHealth.recordedInterpreter &&
+                pythonVenvHealth.recordedInterpreterExists ? (
                   <Button
                     variant="primary"
                     size="sm"

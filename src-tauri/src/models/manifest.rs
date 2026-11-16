@@ -228,9 +228,7 @@ impl ManifestFile {
         // or append. `codec` is part of the key so primary + companion
         // sources for the same album both survive the merge (#789).
         if let Some(existing) = self.sources.iter_mut().find(|s| {
-            s.platform == source.platform
-                && s.url == source.url
-                && s.codec == source.codec
+            s.platform == source.platform && s.url == source.url && s.codec == source.codec
         }) {
             *existing = source;
         } else {

@@ -63,17 +63,10 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
   const mod = isMacPlatform() ? '⌘' : 'Ctrl';
 
   return (
-    <Modal
-      open={open}
-      onClose={() => setOpen(false)}
-      title="Keyboard Shortcuts"
-      maxWidth="md"
-    >
+    <Modal open={open} onClose={() => setOpen(false)} title="Keyboard Shortcuts" maxWidth="md">
       <div className="space-y-4 text-content-primary">
         <section>
-          <h3 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">
-            Navigation
-          </h3>
+          <h3 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">Navigation</h3>
           <ShortcutRow
             label="Go to Download"
             keys={
@@ -137,9 +130,7 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
         </section>
 
         <section>
-          <h3 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">
-            Downloads
-          </h3>
+          <h3 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">Downloads</h3>
           <ShortcutRow
             label="Submit current URL (in Download input; Shift+Enter for a new line instead)"
             keys={<Key>↵</Key>}
@@ -159,13 +150,8 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
         </section>
 
         <section>
-          <h3 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">
-            General
-          </h3>
-          <ShortcutRow
-            label="Close active dialog"
-            keys={<Key>Esc</Key>}
-          />
+          <h3 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">General</h3>
+          <ShortcutRow label="Close active dialog" keys={<Key>Esc</Key>} />
           <ShortcutRow
             label="Show this dialog"
             keys={

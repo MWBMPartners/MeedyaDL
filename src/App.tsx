@@ -170,7 +170,9 @@ import { DownloadForm, DownloadQueue, HistoryPage, ActivityLog } from './compone
  * import at an index would only work while nothing else imports a value
  * from it.
  */
-const UpdatesPage = lazy(() => import('./components/updates/UpdatesPage').then((m) => ({ default: m.UpdatesPage })));
+const UpdatesPage = lazy(() =>
+  import('./components/updates/UpdatesPage').then((m) => ({ default: m.UpdatesPage }))
+);
 
 /**
  * LibraryScanPage (Phase 5 / #717): scan an existing on-disk music library
@@ -180,10 +182,14 @@ const UpdatesPage = lazy(() => import('./components/updates/UpdatesPage').then((
 import { LibraryScanPage } from './components/library/LibraryScanPage';
 
 /** SettingsPage: Full application settings editor with save/reset (loaded when first opened). */
-const SettingsPage = lazy(() => import('./components/settings/SettingsPage').then((m) => ({ default: m.SettingsPage })));
+const SettingsPage = lazy(() =>
+  import('./components/settings/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+);
 
 /** HelpViewer: In-app help documentation and FAQ (loaded when first opened). */
-const HelpViewer = lazy(() => import('./components/help/HelpViewer').then((m) => ({ default: m.HelpViewer })));
+const HelpViewer = lazy(() =>
+  import('./components/help/HelpViewer').then((m) => ({ default: m.HelpViewer }))
+);
 
 /**
  * SetupWizard: Multi-step guided setup shown on first run or when
@@ -1274,7 +1280,10 @@ function App() {
             const { queue_started: started, waiting } = event.payload;
             const plural = waiting === 1 ? '' : 's';
             if (started) {
-              ui.addToast(`Back online — starting ${waiting} waiting download${plural}.`, 'success');
+              ui.addToast(
+                `Back online — starting ${waiting} waiting download${plural}.`,
+                'success'
+              );
             } else {
               ui.addToast(
                 `Back online — ${waiting} download${plural} waiting. Press Start on the Queue page to begin.`,
@@ -1535,11 +1544,19 @@ function App() {
       {/* Developer access passphrase prompt (triggered by Konami code) */}
       <Modal
         open={showDevPrompt}
-        onClose={() => { setShowDevPrompt(false); setDevPassphrase(''); }}
+        onClose={() => {
+          setShowDevPrompt(false);
+          setDevPassphrase('');
+        }}
         title="Developer Access"
         maxWidth="max-w-sm"
       >
-        <form onSubmit={(e) => { e.preventDefault(); handleDevSubmit(); }}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleDevSubmit();
+          }}
+        >
           <input
             type="password"
             className="w-full rounded-platform-sm border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"

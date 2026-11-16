@@ -22,7 +22,15 @@ type CheckboxProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'onCha
   description?: ReactNode;
 } & ({ label: ReactNode; 'aria-label'?: string } | { label?: undefined; 'aria-label': string });
 
-export function Checkbox({ checked, onChange, label, description, disabled, className = '', ...rest }: CheckboxProps) {
+export function Checkbox({
+  checked,
+  onChange,
+  label,
+  description,
+  disabled,
+  className = '',
+  ...rest
+}: CheckboxProps) {
   const box = (
     <input
       type="checkbox"
@@ -35,11 +43,15 @@ export function Checkbox({ checked, onChange, label, description, disabled, clas
   );
   if (!label) return <span className={`inline-flex items-center ${className}`}>{box}</span>;
   return (
-    <label className={`flex items-start gap-2 text-sm text-content-secondary select-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${className}`}>
+    <label
+      className={`flex items-start gap-2 text-sm text-content-secondary select-none ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'} ${className}`}
+    >
       {box}
       <span className="min-w-0">
         {label}
-        {description && <span className="block text-xs text-content-tertiary mt-0.5">{description}</span>}
+        {description && (
+          <span className="block text-xs text-content-tertiary mt-0.5">{description}</span>
+        )}
       </span>
     </label>
   );

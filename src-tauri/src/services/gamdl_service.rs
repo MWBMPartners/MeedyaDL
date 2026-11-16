@@ -126,9 +126,7 @@ pub struct GamdlProgress {
 /// Returns `Err` with a message meant to be read by a user, not a
 /// developer: what was refused, why, and what to install instead.
 pub fn refuse_unsupported_target(target: &str, platform_id: &str) -> Result<(), String> {
-    use super::gamdl_capabilities::{
-        known_bad_advice, known_bad_version, platform_display_name,
-    };
+    use super::gamdl_capabilities::{known_bad_advice, known_bad_version, platform_display_name};
 
     let target = target.trim();
 
@@ -171,7 +169,9 @@ pub fn refuse_unsupported_target(target: &str, platform_id: &str) -> Result<(), 
         // this same function refuses two lines below it — see its own
         // doc comment for the Windows-on-ARM case that motivated it.
         let advice = known_bad_advice(bad.reason, bad.fixed_in, target, platform_id);
-        return Err(format!("MeedyaDL will not install GAMDL {target}. {advice}"));
+        return Err(format!(
+            "MeedyaDL will not install GAMDL {target}. {advice}"
+        ));
     }
 
     // Only a platform genuinely held BELOW what everyone else can
@@ -1095,8 +1095,8 @@ fn inject_tool_paths(app: &AppHandle, cmd: &mut Command, options: &GamdlOptions)
     // review: the first version of this gate used the plain capability
     // and would have stopped passing the path whenever the version probe
     // had not run.
-    let ffmpeg_path_rejected = detected_version()
-        .is_some_and(|v| !GamdlFeature::FFmpegPath.is_available_on(&v));
+    let ffmpeg_path_rejected =
+        detected_version().is_some_and(|v| !GamdlFeature::FFmpegPath.is_available_on(&v));
     if options.ffmpeg_path.is_none() && !ffmpeg_path_rejected {
         let ffmpeg_bin = dependency_manager::get_tool_binary_path(app, "ffmpeg");
         if ffmpeg_bin.exists() {
@@ -1173,9 +1173,7 @@ fn refuse_unusable_download_folder_v3(
 
 #[cfg(test)]
 mod refusal_agreement_tests {
-    use crate::services::gamdl_capabilities::{
-        platform_held_back_at, support_window,
-    };
+    use crate::services::gamdl_capabilities::{platform_held_back_at, support_window};
 
     #[test]
     fn what_the_screen_offers_is_what_the_installer_accepts() {
@@ -1207,8 +1205,7 @@ mod refusal_agreement_tests {
             );
 
             let held_back = platform_held_back_at(platform_id);
-            let refused =
-                super::refuse_unsupported_target(&above_general, platform_id).is_err();
+            let refused = super::refuse_unsupported_target(&above_general, platform_id).is_err();
 
             assert_eq!(
                 held_back.is_some(),
@@ -1351,7 +1348,10 @@ mod tool_path_gate_tests {
     #[test]
     fn only_releases_that_still_accept_them_are_sent_the_removed_arguments() {
         for old in ["3.0", "3.5.2"] {
-            assert!(tool_paths_accepted_on(Some(old)), "{old} still accepts them");
+            assert!(
+                tool_paths_accepted_on(Some(old)),
+                "{old} still accepts them"
+            );
         }
         for modern in ["3.6", "3.7.4", "3.9.1"] {
             assert!(
@@ -1752,18 +1752,34 @@ mod tests {
         // "the latest" either, so there is no answer.
         let withdrawn = doc(
             "4.0.1",
-            &[("3.9.1", false), ("4.0.0", false), ("4.0.1", false), ("4.0.2", true)],
+            &[
+                ("3.9.1", false),
+                ("4.0.0", false),
+                ("4.0.1", false),
+                ("4.0.2", true),
+            ],
         );
         assert!(pick_latest_gamdl_release(&withdrawn, Some("4.0.0")).is_err());
         // Nothing installed with the same document: the tested 3.x is
         // still offered.
-        assert_eq!(pick_latest_gamdl_release(&withdrawn, None).unwrap(), "3.9.1");
-        let nothing = doc("4.0.1", &[("4.0.0", false), ("4.0.1", false), ("4.0.2", true)]);
+        assert_eq!(
+            pick_latest_gamdl_release(&withdrawn, None).unwrap(),
+            "3.9.1"
+        );
+        let nothing = doc(
+            "4.0.1",
+            &[("4.0.0", false), ("4.0.1", false), ("4.0.2", true)],
+        );
         assert!(pick_latest_gamdl_release(&nothing, Some("4.0.0")).is_err());
         // Normal case: 4.0.2 is offered to a 4.x user.
         let normal = doc(
             "4.0.2",
-            &[("3.9.1", false), ("4.0.0", false), ("4.0.1", false), ("4.0.2", false)],
+            &[
+                ("3.9.1", false),
+                ("4.0.0", false),
+                ("4.0.1", false),
+                ("4.0.2", false),
+            ],
         );
         assert_eq!(
             pick_latest_gamdl_release(&normal, Some("4.0.0")).unwrap(),
@@ -1990,9 +2006,7 @@ mod tests {
         use crate::services::gamdl_capabilities::support_window;
         let window = support_window();
         if window.platform_ceilings.contains_key("windows-aarch64") {
-            assert!(
-                explicit_target_pip_spec(&window.maximum_tested, "windows-aarch64").is_err()
-            );
+            assert!(explicit_target_pip_spec(&window.maximum_tested, "windows-aarch64").is_err());
         }
 
         // And an ordinary, installable version still produces a normal

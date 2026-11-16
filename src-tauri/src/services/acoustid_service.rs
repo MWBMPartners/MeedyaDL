@@ -351,10 +351,7 @@ async fn lookup_acoustid(
 ///   * `Err(AcoustIdApiError(_))` → `Err("AcoustID API error: …")`.
 ///   * Any other shared-crate error → `Err("AcoustID lookup failed: …")`.
 fn map_shared_acoustid_result(
-    result: Result<
-        meedya_fingerprint::AcoustIdResult,
-        meedya_fingerprint::FingerprintError,
-    >,
+    result: Result<meedya_fingerprint::AcoustIdResult, meedya_fingerprint::FingerprintError>,
 ) -> Result<Option<String>, String> {
     match result {
         Ok(r) => {
@@ -580,11 +577,7 @@ mod tests {
 
     #[test]
     fn shared_result_with_high_score_returns_acoustid() {
-        let r = map_shared_acoustid_result(Ok(fake_result(
-            "abc-123",
-            0.95,
-            vec!["mb-001".into()],
-        )));
+        let r = map_shared_acoustid_result(Ok(fake_result("abc-123", 0.95, vec!["mb-001".into()])));
         assert_eq!(r.unwrap(), Some("abc-123".to_string()));
     }
 
@@ -592,11 +585,7 @@ mod tests {
     fn shared_result_at_threshold_returns_acoustid() {
         // Score == 0.5 must pass the floor (the local doc says `< 0.5
         // → None`, so 0.5 should be inclusive).
-        let r = map_shared_acoustid_result(Ok(fake_result(
-            "abc-123",
-            0.5,
-            vec![],
-        )));
+        let r = map_shared_acoustid_result(Ok(fake_result("abc-123", 0.5, vec![])));
         assert_eq!(r.unwrap(), Some("abc-123".to_string()));
     }
 
@@ -605,11 +594,7 @@ mod tests {
         // Score < 0.5 is treated as no match, preserving the pre-#353
         // contract. This is the rule that protects against
         // mis-tagging tracks with low-confidence fingerprint matches.
-        let r = map_shared_acoustid_result(Ok(fake_result(
-            "abc-123",
-            0.49,
-            vec![],
-        )));
+        let r = map_shared_acoustid_result(Ok(fake_result("abc-123", 0.49, vec![])));
         assert_eq!(r.unwrap(), None);
     }
 
@@ -618,9 +603,7 @@ mod tests {
         // The shared crate signals "no result found" via the typed
         // `FingerprintError::NoMatch` variant, NOT via Ok(empty).
         // MeedyaDL's contract maps it to Ok(None).
-        let r = map_shared_acoustid_result(Err(
-            meedya_fingerprint::FingerprintError::NoMatch,
-        ));
+        let r = map_shared_acoustid_result(Err(meedya_fingerprint::FingerprintError::NoMatch));
         assert_eq!(r.unwrap(), None);
     }
 
@@ -632,9 +615,7 @@ mod tests {
         // 'network' bucket. The canonical prefix must survive the
         // shared-crate refactor or the classifier loses the rule.
         let r = map_shared_acoustid_result(Err(
-            meedya_fingerprint::FingerprintError::NetworkError(
-                "connection refused".to_string(),
-            ),
+            meedya_fingerprint::FingerprintError::NetworkError("connection refused".to_string()),
         ));
         let err = r.expect_err("network error must propagate as Err");
         assert!(
@@ -676,11 +657,8 @@ mod tests {
         // compiler error here flags the change BEFORE production
         // call sites break.
         let _: meedya_fingerprint::AcoustIdResult = fake_result("x", 0.0, vec![]);
-        let _: meedya_fingerprint::FingerprintError =
-            meedya_fingerprint::FingerprintError::NoMatch;
-        let _client = meedya_fingerprint::acoustid::AcoustIdClient::new(
-            "dummy-key".to_string(),
-        );
+        let _: meedya_fingerprint::FingerprintError = meedya_fingerprint::FingerprintError::NoMatch;
+        let _client = meedya_fingerprint::acoustid::AcoustIdClient::new("dummy-key".to_string());
     }
 
     // ============================================================
@@ -710,9 +688,9 @@ mod tests {
         // historical surface used "Failed to open audio file: {e}"
         // — preserve that so any log scrapers still match.
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
-        let r = map_shared_chromaprint_result(Err(
-            meedya_fingerprint::FingerprintError::IoError(io_err),
-        ));
+        let r = map_shared_chromaprint_result(Err(meedya_fingerprint::FingerprintError::IoError(
+            io_err,
+        )));
         let err = r.expect_err("io error must propagate as Err");
         assert!(
             err.starts_with("Failed to open audio file:"),
@@ -726,11 +704,10 @@ mod tests {
         // malformed file, missing track) all surface as
         // `FingerprintError::DecodeError`. Historical MeedyaDL
         // phrasing used "Audio decode error:" for these.
-        let r = map_shared_chromaprint_result(Err(
-            meedya_fingerprint::FingerprintError::DecodeError(
+        let r =
+            map_shared_chromaprint_result(Err(meedya_fingerprint::FingerprintError::DecodeError(
                 "format probe: unsupported codec".to_string(),
-            ),
-        ));
+            )));
         let err = r.expect_err("decode error must propagate as Err");
         assert!(
             err.contains("Audio decode error"),
@@ -778,9 +755,7 @@ mod tests {
         // `Result<(String, u32), FingerprintError>`. If upstream
         // renames the function or changes the signature, compilation
         // here breaks first.
-        let _: fn(&std::path::Path) -> Result<
-            (String, u32),
-            meedya_fingerprint::FingerprintError,
-        > = meedya_fingerprint::generate_fingerprint;
+        let _: fn(&std::path::Path) -> Result<(String, u32), meedya_fingerprint::FingerprintError> =
+            meedya_fingerprint::generate_fingerprint;
     }
 }

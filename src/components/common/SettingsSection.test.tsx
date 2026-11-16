@@ -21,10 +21,12 @@ describe('SettingsSection', () => {
     );
     const heading = screen.getByRole('heading', { level: 2, name: 'Output' });
     expect(heading.querySelector('button')).not.toBeNull();
-    expect(container.querySelector('button h1, button h2, button h3, button h4, button h5, button h6')).toBeNull();
+    expect(
+      container.querySelector('button h1, button h2, button h3, button h4, button h5, button h6')
+    ).toBeNull();
   });
 
-  it("names the button by the title alone; the description is not part of the button", () => {
+  it('names the button by the title alone; the description is not part of the button', () => {
     render(
       <SettingsSection title="Output" description="Where downloads go.">
         <p>Body</p>

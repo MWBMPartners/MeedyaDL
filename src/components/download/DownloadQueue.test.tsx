@@ -77,13 +77,13 @@ vi.mock('@/components/download/QueueListVirtualized', () => ({
     return (
       <div role="list" aria-label="Download queue items">
         {queueItems.map((item) => (
-          <div
-            key={item.id}
-            data-testid={`queue-item-${item.id}`}
-            data-state={item.state}
-          >
+          <div key={item.id} data-testid={`queue-item-${item.id}`} data-state={item.state}>
             {/* Selection, so the bulk actions can be tested. */}
-            <input type="checkbox" aria-label={`Select ${item.id}`} onChange={() => onToggleSelect?.(item.id)} />
+            <input
+              type="checkbox"
+              aria-label={`Select ${item.id}`}
+              onChange={() => onToggleSelect?.(item.id)}
+            />
             {item.current_track ?? item.urls[0]}
           </div>
         ))}
@@ -108,9 +108,7 @@ describe('DownloadQueue', () => {
   it('renders empty state when no items', () => {
     render(<DownloadQueue />);
     expect(screen.getByText('No downloads in queue')).toBeInTheDocument();
-    expect(
-      screen.getByText(/Paste an Apple Music URL on the Download page/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Paste an Apple Music URL on the Download page/i)).toBeInTheDocument();
   });
 
   it('uses singular "item" in subtitle for empty queue', () => {
@@ -231,7 +229,14 @@ describe('DownloadQueue', () => {
     const labels = [...header.querySelectorAll('button')].map((b) => b.textContent?.trim());
     expect(labels).toEqual(['Start (1)', 'Pause', 'Abort', 'More']);
     // None of the secondary actions is a header button any more.
-    for (const gone of [/^import$/i, /^export/i, /^refresh$/i, /^clear all$/i, /clear completed/i, /retry all failed/i]) {
+    for (const gone of [
+      /^import$/i,
+      /^export/i,
+      /^refresh$/i,
+      /^clear all$/i,
+      /clear completed/i,
+      /retry all failed/i,
+    ]) {
       expect(screen.queryByRole('button', { name: gone })).toBeNull();
     }
   });
@@ -342,7 +347,10 @@ describe('DownloadQueue', () => {
   it('labels the filter chips with the same words as the status pills', () => {
     act(() => {
       useDownloadStore.setState({
-        queueItems: [makeItem({ id: 'a', state: 'complete' }), makeItem({ id: 'b', state: 'cancelled' })],
+        queueItems: [
+          makeItem({ id: 'a', state: 'complete' }),
+          makeItem({ id: 'b', state: 'cancelled' }),
+        ],
       });
     });
     render(<DownloadQueue />);
@@ -365,9 +373,7 @@ describe('DownloadQueue', () => {
     openMore();
     fireEvent.click(menuItem(/retry all failed/i)!);
     expect(screen.getByText(/Retry All Failed Downloads/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/will re-queue 1 failed download/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/will re-queue 1 failed download/i)).toBeInTheDocument();
   });
 
   it('opens the Clear All confirmation modal from the More menu', () => {
@@ -429,11 +435,16 @@ describe('DownloadQueue', () => {
   // ===========================================================================
 
   it('a bulk cancel says how many could not be cancelled, instead of claiming all of them', async () => {
-    const cancel = vi.fn((id: string) => (id === 'b' ? Promise.reject(new Error('already finished')) : Promise.resolve()));
+    const cancel = vi.fn((id: string) =>
+      id === 'b' ? Promise.reject(new Error('already finished')) : Promise.resolve()
+    );
     const realCancel = useDownloadStore.getState().cancelDownload;
     act(() => {
       useDownloadStore.setState({
-        queueItems: [makeItem({ id: 'a', state: 'queued' }), makeItem({ id: 'b', state: 'queued' })],
+        queueItems: [
+          makeItem({ id: 'a', state: 'queued' }),
+          makeItem({ id: 'b', state: 'queued' }),
+        ],
         cancelDownload: cancel,
       });
     });
@@ -444,7 +455,9 @@ describe('DownloadQueue', () => {
       fireEvent.click(screen.getByRole('button', { name: /cancel selected/i }));
     });
     const toasts = useUiStore.getState().toasts;
-    const report = toasts.find((t) => /Cancelled 1 of 2 items; 1 could not be cancelled/.test(t.message));
+    const report = toasts.find((t) =>
+      /Cancelled 1 of 2 items; 1 could not be cancelled/.test(t.message)
+    );
     expect(report?.type).toBe('warning');
     expect(report?.details).toBe('already finished');
     expect(toasts.some((t) => t.message === 'Cancelled 2 items')).toBe(false);
@@ -452,11 +465,16 @@ describe('DownloadQueue', () => {
   });
 
   it('Remove selected asks first, removes nothing on Cancel, and keeps failed rows selected (#1232)', async () => {
-    const del = vi.fn((id: string) => (id === 'b' ? Promise.reject(new Error('busy')) : Promise.resolve()));
+    const del = vi.fn((id: string) =>
+      id === 'b' ? Promise.reject(new Error('busy')) : Promise.resolve()
+    );
     const realDelete = useDownloadStore.getState().deleteItem;
     act(() => {
       useDownloadStore.setState({
-        queueItems: [makeItem({ id: 'a', state: 'queued' }), makeItem({ id: 'b', state: 'queued' })],
+        queueItems: [
+          makeItem({ id: 'a', state: 'queued' }),
+          makeItem({ id: 'b', state: 'queued' }),
+        ],
         deleteItem: del,
       });
     });
@@ -475,7 +493,9 @@ describe('DownloadQueue', () => {
       fireEvent.click(screen.getByRole('button', { name: /^remove$/i }));
     });
     expect(del).toHaveBeenCalledTimes(2);
-    const report = useUiStore.getState().toasts.find((t) => /Removed 1 of 2 items; 1 could not be removed/.test(t.message));
+    const report = useUiStore
+      .getState()
+      .toasts.find((t) => /Removed 1 of 2 items; 1 could not be removed/.test(t.message));
     expect(report).toBeTruthy();
     // Only the row that failed stays selected.
     expect(screen.getByText('1 selected')).toBeInTheDocument();
@@ -507,9 +527,7 @@ describe('DownloadQueue', () => {
     ];
     act(() => {
       useDownloadStore.setState({
-        queueItems: states.map((state, i) =>
-          makeItem({ id: `item-${i}`, state })
-        ),
+        queueItems: states.map((state, i) => makeItem({ id: `item-${i}`, state })),
       });
     });
     render(<DownloadQueue />);

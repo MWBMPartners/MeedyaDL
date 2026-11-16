@@ -364,10 +364,7 @@ mod tests {
 
     /// Same as [`make_snapshot`] but with an explicit activity counter
     /// (#846).
-    fn make_snapshot_with_activity(
-        progress: f64,
-        activity_count: u64,
-    ) -> ProgressSnapshot {
+    fn make_snapshot_with_activity(progress: f64, activity_count: u64) -> ProgressSnapshot {
         ProgressSnapshot {
             progress_bucket: (progress * 10.0).round() as i64,
             processing_progress_bucket: -1,

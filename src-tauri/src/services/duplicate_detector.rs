@@ -131,7 +131,10 @@ pub async fn plan_artist_deduplication(
         return None;
     }
     if modes.len() < 2 && queued_keys.is_empty() && history_keys.is_empty() {
-        log::debug!("Dedup: only {} mode(s) selected and no queue/history, skipping", modes.len());
+        log::debug!(
+            "Dedup: only {} mode(s) selected and no queue/history, skipping",
+            modes.len()
+        );
         return None;
     }
     if parsed.content_type != "artist" || parsed.artist_id.is_none() {
@@ -219,10 +222,7 @@ pub async fn plan_artist_deduplication(
                         meta.tracks
                     }
                     Ok(None) => {
-                        log::debug!(
-                            "Dedup: album {} returned no data, skipping",
-                            album.album_id
-                        );
+                        log::debug!("Dedup: album {} returned no data, skipping", album.album_id);
                         Vec::new()
                     }
                     Err(e) => {
@@ -452,20 +452,19 @@ pub async fn plan_playlist_deduplication(
 
     // Fetch the playlist's tracks (paginated). On failure, graceful
     // fallback — never block the download.
-    let tracks = match apple_music_api::fetch_playlist_tracks(&jwt, &parsed.storefront, playlist_id)
-        .await
-    {
-        Ok(t) => t,
-        Err(e) => {
-            log::warn!("Playlist dedup: fetch_playlist_tracks failed for {playlist_id}: {e}");
-            return Some(PlaylistDedupPlan {
-                plan: PlaylistPlan::FallbackToPlaylistUrl,
-                activity_lines: Vec::new(),
-                skipped_count: 0,
-                kept_count: 0,
-            });
-        }
-    };
+    let tracks =
+        match apple_music_api::fetch_playlist_tracks(&jwt, &parsed.storefront, playlist_id).await {
+            Ok(t) => t,
+            Err(e) => {
+                log::warn!("Playlist dedup: fetch_playlist_tracks failed for {playlist_id}: {e}");
+                return Some(PlaylistDedupPlan {
+                    plan: PlaylistPlan::FallbackToPlaylistUrl,
+                    activity_lines: Vec::new(),
+                    skipped_count: 0,
+                    kept_count: 0,
+                });
+            }
+        };
 
     if tracks.is_empty() {
         log::info!(
@@ -490,11 +489,8 @@ pub async fn plan_playlist_deduplication(
     let mut seen_in_playlist: HashSet<String> = HashSet::new();
 
     for t in &tracks {
-        let Some(key) = build_track_key_from_parts(
-            Some(&t.song_id),
-            t.isrc.as_deref(),
-            strategy,
-        ) else {
+        let Some(key) = build_track_key_from_parts(Some(&t.song_id), t.isrc.as_deref(), strategy)
+        else {
             // Track lacks the fields required by the configured strategy
             // — can't dedupe it. Keep it so we don't silently drop tracks.
             if let Some(url) = build_track_url(&parsed.storefront, &t.album_id, &t.song_id) {
@@ -540,9 +536,7 @@ pub async fn plan_playlist_deduplication(
         PlaylistPlan::TrackUrls(kept_urls)
     };
 
-    log::info!(
-        "Playlist dedup: {playlist_id} — {kept_count} kept, {skipped_count} skipped"
-    );
+    log::info!("Playlist dedup: {playlist_id} — {kept_count} kept, {skipped_count} skipped");
 
     Some(PlaylistDedupPlan {
         plan,
@@ -829,8 +823,7 @@ pub async fn plan_batch_deduplication(
     // already caught upstream).
     let has_fetchable = parsed.iter().any(|p| {
         p.as_ref().is_some_and(|p| {
-            (p.content_type == "album" && p.song_id.is_none())
-                || p.content_type == "playlist"
+            (p.content_type == "album" && p.song_id.is_none()) || p.content_type == "playlist"
         })
     });
     if !has_fetchable {
@@ -944,11 +937,9 @@ pub async fn plan_batch_deduplication(
         let mut kept_urls: Vec<String> = Vec::new();
         let mut playlist_skipped = 0usize;
         for t in &tracks {
-            let Some(key) = build_track_key_from_parts(
-                Some(&t.song_id),
-                t.isrc.as_deref(),
-                strategy,
-            ) else {
+            let Some(key) =
+                build_track_key_from_parts(Some(&t.song_id), t.isrc.as_deref(), strategy)
+            else {
                 if let Some(url) = build_track_url(&p.storefront, &t.album_id, &t.song_id) {
                     kept_urls.push(url);
                 }
@@ -1128,11 +1119,8 @@ fn resolve_jwt(settings: &AppSettings) -> Option<String> {
             None
         }
     };
-    match apple_music_api::resolve_musickit_developer_token(
-        team_id,
-        key_id,
-        private_key.as_deref(),
-    ) {
+    match apple_music_api::resolve_musickit_developer_token(team_id, key_id, private_key.as_deref())
+    {
         Ok(Some(jwt)) => Some(jwt),
         Ok(None) => None,
         Err(e) => {
@@ -1181,11 +1169,7 @@ pub fn collect_queued_keys(
         // behaviour).
         for url in &item.urls {
             if let Some(song_id) = extract_song_id_from_url(url) {
-                if let Some(key) = build_track_key_from_parts(
-                    Some(&song_id),
-                    None,
-                    strategy,
-                ) {
+                if let Some(key) = build_track_key_from_parts(Some(&song_id), None, strategy) {
                     keys.insert(key);
                 }
             }
@@ -1442,41 +1426,28 @@ mod tests {
     #[test]
     fn preference_order_appends_unlisted_modes() {
         let cfg = vec![ArtistAutoSelect::MainAlbums];
-        let modes = vec![
-            ArtistAutoSelect::MusicVideos,
-            ArtistAutoSelect::MainAlbums,
-        ];
+        let modes = vec![ArtistAutoSelect::MusicVideos, ArtistAutoSelect::MainAlbums];
         let ordered = preference_order(&cfg, &modes);
         assert_eq!(
             ordered,
-            vec![
-                ArtistAutoSelect::MainAlbums,
-                ArtistAutoSelect::MusicVideos,
-            ]
+            vec![ArtistAutoSelect::MainAlbums, ArtistAutoSelect::MusicVideos,]
         );
     }
 
     #[test]
     fn track_url_builds_with_query_marker() {
         let u = build_track_url("gb", "1234", "9876").unwrap();
-        assert_eq!(
-            u,
-            "https://music.apple.com/gb/album/_/1234?i=9876"
-        );
+        assert_eq!(u, "https://music.apple.com/gb/album/_/1234?i=9876");
     }
 
     #[test]
     fn song_id_extraction_handles_various_positions() {
         assert_eq!(
-            extract_song_id_from_url(
-                "https://music.apple.com/gb/album/_/1?i=42"
-            ),
+            extract_song_id_from_url("https://music.apple.com/gb/album/_/1?i=42"),
             Some("42".into())
         );
         assert_eq!(
-            extract_song_id_from_url(
-                "https://music.apple.com/gb/album/x/1?foo=bar&i=42"
-            ),
+            extract_song_id_from_url("https://music.apple.com/gb/album/x/1?foo=bar&i=42"),
             Some("42".into())
         );
         // No ?i=
@@ -1512,9 +1483,8 @@ mod tests {
         // different endpoint, so falling through to the generic path is
         // the correct behaviour.
         use crate::services::apple_music_api::parse_apple_music_url;
-        assert!(parse_apple_music_url(
-            "https://music.apple.com/gb/library/playlist/p.abc123"
-        )
-        .is_none());
+        assert!(
+            parse_apple_music_url("https://music.apple.com/gb/library/playlist/p.abc123").is_none()
+        );
     }
 }

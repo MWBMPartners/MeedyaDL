@@ -137,7 +137,6 @@ export function TemplatesTab() {
 
       {/* Section: Folder Templates */}
       <SettingsSection title="Folder Templates">
-
         <TemplateBuilder
           label="Album Folder"
           description="Folder structure for regular album downloads"
@@ -180,7 +179,6 @@ export function TemplatesTab() {
 
       {/* Section: File Templates */}
       <SettingsSection title="File Templates">
-
         <TemplateBuilder
           label="Single Disc File"
           description="Filename template for tracks from single-disc albums"

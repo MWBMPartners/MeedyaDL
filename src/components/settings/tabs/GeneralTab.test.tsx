@@ -187,19 +187,23 @@ describe('GeneralTab -- Interface Language dropdown (independent review, round 4
     ORDER_TEST_LIMIT_MS
   );
 
-  it('shows a saved regional form (de-AT) on the German row and leaves the saved value alone (#1267)', async () => {
-    order.mockImplementation(async (tags) => [...tags]);
-    const savedBefore = useSettingsStore.getState().settings;
-    useSettingsStore.setState({ settings: { ...savedBefore, ui_language: 'de-AT' } });
-    onTestFinished(() => {
-      useSettingsStore.setState({ settings: savedBefore });
-    });
+  it(
+    'shows a saved regional form (de-AT) on the German row and leaves the saved value alone (#1267)',
+    async () => {
+      order.mockImplementation(async (tags) => [...tags]);
+      const savedBefore = useSettingsStore.getState().settings;
+      useSettingsStore.setState({ settings: { ...savedBefore, ui_language: 'de-AT' } });
+      onTestFinished(() => {
+        useSettingsStore.setState({ settings: savedBefore });
+      });
 
-    render(<GeneralTab />);
-    const select = screen.getByLabelText('Language') as HTMLSelectElement;
-    await waitFor(() => expect(select.value).toBe('de'), { timeout: REORDER_WAIT_MS });
-    expect(useSettingsStore.getState().settings.ui_language).toBe('de-AT');
-  }, ORDER_TEST_LIMIT_MS);
+      render(<GeneralTab />);
+      const select = screen.getByLabelText('Language') as HTMLSelectElement;
+      await waitFor(() => expect(select.value).toBe('de'), { timeout: REORDER_WAIT_MS });
+      expect(useSettingsStore.getState().settings.ui_language).toBe('de-AT');
+    },
+    ORDER_TEST_LIMIT_MS
+  );
 });
 
 describe('GeneralTab -- Metadata Language dropdown (Codex review of round 5, finding 1)', () => {
@@ -217,44 +221,48 @@ describe('GeneralTab -- Metadata Language dropdown (Codex review of round 5, fin
     vi.restoreAllMocks();
   });
 
-  it('shows a saved "EN-us" as the selected English row, not the first row, in a German interface', async () => {
-    // (This test has its own time limit, ORDER_TEST_LIMIT_MS, passed as the
-    // last argument below: vitest's default limit is 5 s, which a 5 s wait
-    // could never fit inside.)
-    useSettingsStore.setState({ settings: { ...savedSettings, language: 'EN-us' } });
-    // German first, as the backend orders it for a German interface: the
-    // row a mismatched value would fall back to is then German.
-    order.mockImplementation(async (tags) =>
-      tags.length === AVAILABLE_LOCALES.length
-        ? [...tags]
-        : ['de-DE', ...tags.filter((tag) => tag !== 'de-DE')]
-    );
+  it(
+    'shows a saved "EN-us" as the selected English row, not the first row, in a German interface',
+    async () => {
+      // (This test has its own time limit, ORDER_TEST_LIMIT_MS, passed as the
+      // last argument below: vitest's default limit is 5 s, which a 5 s wait
+      // could never fit inside.)
+      useSettingsStore.setState({ settings: { ...savedSettings, language: 'EN-us' } });
+      // German first, as the backend orders it for a German interface: the
+      // row a mismatched value would fall back to is then German.
+      order.mockImplementation(async (tags) =>
+        tags.length === AVAILABLE_LOCALES.length
+          ? [...tags]
+          : ['de-DE', ...tags.filter((tag) => tag !== 'de-DE')]
+      );
 
-    render(<GeneralTab />);
-    const select = screen.getByLabelText('Metadata Language') as HTMLSelectElement;
-    const optionValues = () =>
-      within(select)
-        .getAllByRole('option')
-        .map((option) => (option as HTMLOptionElement).value);
+      render(<GeneralTab />);
+      const select = screen.getByLabelText('Metadata Language') as HTMLSelectElement;
+      const optionValues = () =>
+        within(select)
+          .getAllByRole('option')
+          .map((option) => (option as HTMLOptionElement).value);
 
-    // The backend's answers are in: German first, and one English row.
-    // (Waits as long as the Interface Language test does, REORDER_WAIT_MS:
-    // the whole tab renders here, and under heavy load the default one
-    // second is too short for the mocked answer to reach the rows.)
-    await waitFor(
-      () => {
-        expect(optionValues()[0]).toBe('de-DE');
-        expect(optionValues()).not.toContain('EN-us');
-      },
-      { timeout: REORDER_WAIT_MS }
-    );
-    expect(optionValues().filter((value) => value === 'en-US')).toHaveLength(1);
+      // The backend's answers are in: German first, and one English row.
+      // (Waits as long as the Interface Language test does, REORDER_WAIT_MS:
+      // the whole tab renders here, and under heavy load the default one
+      // second is too short for the mocked answer to reach the rows.)
+      await waitFor(
+        () => {
+          expect(optionValues()[0]).toBe('de-DE');
+          expect(optionValues()).not.toContain('EN-us');
+        },
+        { timeout: REORDER_WAIT_MS }
+      );
+      expect(optionValues().filter((value) => value === 'en-US')).toHaveLength(1);
 
-    // The dropdown shows English (in German) selected -- not German.
-    expect(select.value).toBe('en-US');
-    expect(select.selectedOptions[0].textContent).toBe('Englisch (Vereinigte Staaten)');
-    // Only what is SHOWN changed: the saved value is exactly as it was.
-    expect(useSettingsStore.getState().settings.language).toBe('EN-us');
-    expect(useSettingsStore.getState().isDirty).toBe(false);
-  }, ORDER_TEST_LIMIT_MS);
+      // The dropdown shows English (in German) selected -- not German.
+      expect(select.value).toBe('en-US');
+      expect(select.selectedOptions[0].textContent).toBe('Englisch (Vereinigte Staaten)');
+      // Only what is SHOWN changed: the saved value is exactly as it was.
+      expect(useSettingsStore.getState().settings.language).toBe('EN-us');
+      expect(useSettingsStore.getState().isDirty).toBe(false);
+    },
+    ORDER_TEST_LIMIT_MS
+  );
 });

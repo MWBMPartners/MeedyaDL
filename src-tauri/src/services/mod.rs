@@ -436,6 +436,7 @@ pub mod download_index;
 /// of OPTIONAL sections.
 pub mod profile_bundle;
 
+pub mod bbc_iplayer_service;
 /// Multi-service engine scaffolding (#884, cherry-picked from
 /// `prep/expanded-services-groundwork`).
 ///
@@ -460,7 +461,6 @@ pub mod profile_bundle;
 ///   in `.claude/CLAUDE.md`).
 /// * `youtube_service` — M10 stub (yt-dlp). Not started.
 pub mod service_dispatch;
-pub mod bbc_iplayer_service;
 pub mod spotify_service;
 pub mod youtube_service;
 

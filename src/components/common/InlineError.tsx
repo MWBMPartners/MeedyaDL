@@ -27,10 +27,13 @@ interface InlineErrorProps {
 }
 
 export function InlineError({ message, details, look = 'text', className = '' }: InlineErrorProps) {
-  const box = look === 'box' ? 'p-3 rounded-platform border border-status-error bg-status-error-bg' : '';
+  const box =
+    look === 'box' ? 'p-3 rounded-platform border border-status-error bg-status-error-bg' : '';
   return (
     <div role="alert" className={`${box} ${className}`}>
-      <p className={`${look === 'box' ? 'text-sm' : 'text-xs'} text-status-error-text`}>{message}</p>
+      <p className={`${look === 'box' ? 'text-sm' : 'text-xs'} text-status-error-text`}>
+        {message}
+      </p>
       <ErrorDetails details={details && details !== message ? details : null} />
     </div>
   );

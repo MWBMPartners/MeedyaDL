@@ -199,8 +199,7 @@ mod tests {
     fn round_trip_succeeds_with_correct_password() {
         let plaintext = b"{\"cookies\":\"...\",\"musickit_jwt\":\"...\"}";
         let enc = encrypt_credentials("hunter2", plaintext).unwrap();
-        let decrypted =
-            decrypt_credentials("hunter2", &enc.ciphertext, &enc.kdf_params).unwrap();
+        let decrypted = decrypt_credentials("hunter2", &enc.ciphertext, &enc.kdf_params).unwrap();
         assert_eq!(decrypted, plaintext);
     }
 
@@ -253,10 +252,7 @@ mod tests {
     #[test]
     fn kdf_params_advertises_correct_algorithm_string() {
         let enc = encrypt_credentials("pw", b"payload").unwrap();
-        assert_eq!(
-            enc.kdf_params.algorithm,
-            "pbkdf2-hmac-sha256+aes-256-gcm"
-        );
+        assert_eq!(enc.kdf_params.algorithm, "pbkdf2-hmac-sha256+aes-256-gcm");
         assert_eq!(enc.kdf_params.iterations, PBKDF2_ITERATIONS);
     }
 

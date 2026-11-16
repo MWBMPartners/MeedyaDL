@@ -88,8 +88,7 @@ export function SpotifyTab() {
   // DEFAULT_SPOTIFY when the optional service_settings.spotify slot
   // is undefined (e.g. on a freshly-installed app whose settings
   // file predates the M9-1 schema bump).
-  const spotify: SpotifyServiceSettings =
-    settings.service_settings?.spotify ?? DEFAULT_SPOTIFY;
+  const spotify: SpotifyServiceSettings = settings.service_settings?.spotify ?? DEFAULT_SPOTIFY;
   const antiBan: AntiBanSettings = spotify.anti_ban ?? DEFAULT_SPOTIFY.anti_ban;
 
   /**
@@ -118,10 +117,10 @@ export function SpotifyTab() {
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const result = await withErrorToast(
-        async () => getSpotifyDailyCapStatus(),
-        { errorMsg: "MeedyaDL could not read today's Spotify download count. Open this tab again to retry." }
-      );
+      const result = await withErrorToast(async () => getSpotifyDailyCapStatus(), {
+        errorMsg:
+          "MeedyaDL could not read today's Spotify download count. Open this tab again to retry.",
+      });
       if (!cancelled && result) {
         setCapStatus(result);
       }
@@ -145,14 +144,12 @@ export function SpotifyTab() {
           <span className="font-medium text-content-primary">
             This is the most important account-safety setting.
           </span>{' '}
-          Without it, a whole album can download in seconds, which is
-          the clearest sign to Spotify that a program, not a person,
-          is listening.
+          Without it, a whole album can download in seconds, which is the clearest sign to Spotify
+          that a program, not a person, is listening.
         </p>
         <p>
-          Leaving it on is the safer choice. Only turn it off on an
-          account you can afford to lose, and accept that Spotify is
-          then more likely to suspend it.
+          Leaving it on is the safer choice. Only turn it off on an account you can afford to lose,
+          and accept that Spotify is then more likely to suspend it.
         </p>
       </div>
     ),
@@ -168,12 +165,11 @@ export function SpotifyTab() {
           <span className="font-medium text-content-primary">
             Setting the cap to 0 removes every per-day download limit.
           </span>{' '}
-          A 500-track day looks much more like a bot than a 100-track
-          day.
+          A 500-track day looks much more like a bot than a 100-track day.
         </p>
         <p>
-          Most users should keep the default of 100. Raise it to 200
-          or 300 if you need headroom — don't zero it out.
+          Most users should keep the default of 100. Raise it to 200 or 300 if you need headroom —
+          don't zero it out.
         </p>
       </div>
     ),
@@ -187,13 +183,10 @@ export function SpotifyTab() {
     title: 'Revoke Spotify consent?',
     description: (
       <div className="space-y-2 text-sm text-content-secondary">
-        <p>
-          The consent prompt will appear again the next time you
-          queue a Spotify URL.
-        </p>
+        <p>The consent prompt will appear again the next time you queue a Spotify URL.</p>
         <p className="text-xs text-content-tertiary">
-          Active downloads are not cancelled — only future Spotify
-          queueing requires re-acknowledgement.
+          Active downloads are not cancelled — only future Spotify queueing requires
+          re-acknowledgement.
         </p>
       </div>
     ),
@@ -208,9 +201,8 @@ export function SpotifyTab() {
     description: (
       <div className="space-y-2 text-sm text-content-secondary">
         <p>
-          The daily counter is intended as a fixed safety boundary.
-          Resetting it mid-day defeats the purpose of the cap —
-          use this only when you understand the risk.
+          The daily counter is intended as a fixed safety boundary. Resetting it mid-day defeats the
+          purpose of the cap — use this only when you understand the risk.
         </p>
       </div>
     ),
@@ -242,9 +234,7 @@ export function SpotifyTab() {
         <Select
           label="Session type"
           value={spotify.session_type ?? 'librespot'}
-          onChange={(e) =>
-            patchSpotify({ session_type: e.target.value || null })
-          }
+          onChange={(e) => patchSpotify({ session_type: e.target.value || null })}
           options={[
             { value: 'librespot', label: 'Free account — Ogg Vorbis only' },
             {
@@ -260,9 +250,7 @@ export function SpotifyTab() {
             description="The DLL file from the Spotify app for Windows, which you supply; MeedyaDL does not include it. Tested with Spotify 1.2.88.483."
             value={spotify.spotify_dll_path}
             onChange={(v) => patchSpotify({ spotify_dll_path: v })}
-            filters={[
-              { name: 'Spotify DLL', extensions: ['dll', 'exe'] },
-            ]}
+            filters={[{ name: 'Spotify DLL', extensions: ['dll', 'exe'] }]}
           />
         )}
         {spotify.session_type === 'web' && (
@@ -271,9 +259,7 @@ export function SpotifyTab() {
             description="A Widevine device file (.wvd), which you supply. Needed for FLAC on a Mac or Linux. How to get one is deliberately not explained in the app; see the project wiki."
             value={spotify.wvd_path}
             onChange={(v) => patchSpotify({ wvd_path: v })}
-            filters={[
-              { name: 'Widevine device', extensions: ['wvd'] },
-            ]}
+            filters={[{ name: 'Widevine device', extensions: ['wvd'] }]}
           />
         )}
         <FilePickerButton
@@ -324,9 +310,7 @@ export function SpotifyTab() {
               value={antiBan.inter_track_delay_seconds.toString()}
               onChange={(e) =>
                 patchAntiBan({
-                  inter_track_delay_seconds: e.target.value
-                    ? parseInt(e.target.value, 10)
-                    : 0,
+                  inter_track_delay_seconds: e.target.value ? parseInt(e.target.value, 10) : 0,
                 })
               }
             />
@@ -346,9 +330,7 @@ export function SpotifyTab() {
               value={antiBan.inter_track_jitter_seconds.toString()}
               onChange={(e) =>
                 patchAntiBan({
-                  inter_track_jitter_seconds: e.target.value
-                    ? parseInt(e.target.value, 10)
-                    : 0,
+                  inter_track_jitter_seconds: e.target.value ? parseInt(e.target.value, 10) : 0,
                 })
               }
             />
@@ -392,9 +374,7 @@ export function SpotifyTab() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-sm text-content-secondary">Today</span>
-              <span className="text-sm font-medium text-content-primary">
-                {capStatus.date}
-              </span>
+              <span className="text-sm font-medium text-content-primary">{capStatus.date}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-content-secondary">Tracks counted</span>
@@ -403,16 +383,15 @@ export function SpotifyTab() {
                   capStatus.at_cap ? 'text-status-error-text' : 'text-content-primary'
                 }`}
               >
-                {capStatus.count} /{' '}
-                {capStatus.cap === 0 ? 'Unlimited' : capStatus.cap}
+                {capStatus.count} / {capStatus.cap === 0 ? 'Unlimited' : capStatus.cap}
               </span>
             </div>
             {capStatus.at_cap && (
               <div className="flex gap-2 rounded-platform-lg border border-status-error/40 bg-status-error/5 p-2 text-xs text-status-error-text">
                 <AlertCircle size={14} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
                 <span>
-                  Daily cap reached — new Spotify downloads will be blocked
-                  until the counter resets at local midnight.
+                  Daily cap reached — new Spotify downloads will be blocked until the counter resets
+                  at local midnight.
                 </span>
               </div>
             )}

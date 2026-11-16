@@ -275,7 +275,10 @@ fn sample_value_at_path(json: &serde_json::Value, path: &str) -> Option<String> 
     // curly quotes and long dashes, and a fixed `&sample[..200]` cut can
     // land in the middle of one of those and crash the whole program.
     if sample.len() > 200 {
-        Some(format!("{}...", crate::utils::text::truncate_str(&sample, 200)))
+        Some(format!(
+            "{}...",
+            crate::utils::text::truncate_str(&sample, 200)
+        ))
     } else {
         Some(sample)
     }

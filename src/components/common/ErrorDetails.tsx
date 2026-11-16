@@ -19,7 +19,11 @@ interface ErrorDetailsProps {
   className?: string;
 }
 
-export function ErrorDetails({ details, label = 'Details', className = 'mt-1' }: ErrorDetailsProps) {
+export function ErrorDetails({
+  details,
+  label = 'Details',
+  className = 'mt-1',
+}: ErrorDetailsProps) {
   if (!details) return null;
   return (
     <details className={`text-xs ${className}`}>

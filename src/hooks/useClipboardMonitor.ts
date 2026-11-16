@@ -102,9 +102,7 @@ export function useClipboardMonitor(isReady: boolean): void {
 
           // Parse the URL to get the content type for a descriptive toast
           const parsed = parseAppleMusicUrl(trimmed);
-          const typeLabel = parsed.isValid
-            ? getContentTypeLabel(parsed.contentType)
-            : 'content';
+          const typeLabel = parsed.isValid ? getContentTypeLabel(parsed.contentType) : 'content';
 
           // The system notification (when one goes out) points the person
           // at THIS message by its own words, so the two must agree.
@@ -129,13 +127,18 @@ export function useClipboardMonitor(isReady: boolean): void {
                 // this identical shape from the same IPC call, so this
                 // follows the same fallback: the server's own explanation
                 // first, then a plain sentence if it didn't send one.
-                useUiStore.getState().addToast(
-                  result.duplicate_warning ?? 'Already in the queue — nothing added',
-                  'info',
-                );
+                useUiStore
+                  .getState()
+                  .addToast(
+                    result.duplicate_warning ?? 'Already in the queue — nothing added',
+                    'info'
+                  );
               })
               .catch((err) => {
-                showBackendError('MeedyaDL could not add the copied link to the queue. Paste it on the Download page instead.', err);
+                showBackendError(
+                  'MeedyaDL could not add the copied link to the queue. Paste it on the Download page instead.',
+                  err
+                );
               });
           };
 
@@ -152,20 +155,22 @@ export function useClipboardMonitor(isReady: boolean): void {
           // them to find it. So it stays until dismissed in those cases;
           // otherwise it goes after 10 seconds as before.
           const notLooking = typeof document !== 'undefined' && !document.hasFocus();
-          useUiStore.getState().addToast(
-            toastMessage,
-            'info',
-            notLooking ? 0 : 10000,
-            CLIPBOARD_TOAST_KEY,
-            { label: 'Download', onClick: downloadAction },
-            undefined,
-            {
-              kind: 'clipboard_link',
-              systemTitle: 'Copied link found',
-              systemBody: `Open MeedyaDL and choose Download on the "${toastMessage}" message to add it to the queue.`,
-              keepUntilDismissedIfSent: true,
-            }
-          );
+          useUiStore
+            .getState()
+            .addToast(
+              toastMessage,
+              'info',
+              notLooking ? 0 : 10000,
+              CLIPBOARD_TOAST_KEY,
+              { label: 'Download', onClick: downloadAction },
+              undefined,
+              {
+                kind: 'clipboard_link',
+                systemTitle: 'Copied link found',
+                systemBody: `Open MeedyaDL and choose Download on the "${toastMessage}" message to add it to the queue.`,
+                keepUntilDismissedIfSent: true,
+              }
+            );
         })
         .catch(() => {
           // Silently ignore clipboard read errors (e.g., no display server)

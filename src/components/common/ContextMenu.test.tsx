@@ -37,9 +37,7 @@ function Harness({ items }: { items: ContextMenuItem[] }) {
       <button type="button" onClick={() => setOpen(true)}>
         Open menu
       </button>
-      {open && (
-        <ContextMenu items={items} x={10} y={10} onClose={() => setOpen(false)} />
-      )}
+      {open && <ContextMenu items={items} x={10} y={10} onClose={() => setOpen(false)} />}
     </div>
   );
 }

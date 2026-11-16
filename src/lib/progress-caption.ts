@@ -40,9 +40,7 @@ export const DOWNLOADING_PREFIX = 'Downloading: ';
  *   3. **Fallback**: just the album name (or first URL if even the
  *      album is unknown — typically pre-metadata-fetch state).
  */
-export function formatActiveItemCaption(
-  item: QueueItemStatus | null | undefined
-): string {
+export function formatActiveItemCaption(item: QueueItemStatus | null | undefined): string {
   if (!item) return 'Waiting…';
 
   // Path 1: backend-assembled processing label.

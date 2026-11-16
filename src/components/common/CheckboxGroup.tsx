@@ -79,12 +79,8 @@ export function CheckboxGroup<T extends string>({
           {helpTopic && <HelpButton topic={helpTopic} />}
         </legend>
       )}
-      {description && (
-        <p className="text-xs text-content-tertiary mb-2">{description}</p>
-      )}
-      <div
-        className={`grid ${gridCols} gap-1.5 p-2 bg-surface-secondary rounded-platform`}
-      >
+      {description && <p className="text-xs text-content-tertiary mb-2">{description}</p>}
+      <div className={`grid ${gridCols} gap-1.5 p-2 bg-surface-secondary rounded-platform`}>
         {(Object.entries(options) as [T, string][]).map(([value, optLabel]) => (
           <label
             key={value}

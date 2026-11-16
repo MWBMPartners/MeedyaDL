@@ -251,7 +251,10 @@ pub async fn use_system_python(
         &format!("Provisioning Python from your system interpreter: {interpreter}"),
     );
     let version = python_manager::provision_venv_from_system_python(&app, &interpreter).await?;
-    emit_app_log(&app, &format!("Python {version} ready (from your system Python)"));
+    emit_app_log(
+        &app,
+        &format!("Python {version} ready (from your system Python)"),
+    );
 
     let python_dir = crate::utils::platform::get_python_dir(&app);
     let python_bin = crate::utils::platform::resolve_managed_python_binary(&python_dir);
@@ -323,7 +326,9 @@ fn gamdl_classification_fields(
     version: Option<&str>,
     platform_id: &str,
 ) -> (Option<String>, Option<String>) {
-    use crate::services::gamdl_capabilities::{classify_for_platform, known_bad_advice, VersionSupport};
+    use crate::services::gamdl_capabilities::{
+        classify_for_platform, known_bad_advice, VersionSupport,
+    };
 
     match classify_for_platform(version, platform_id) {
         VersionSupport::Supported { .. } => (Some("supported".to_string()), None),
@@ -448,7 +453,10 @@ pub async fn install_gamdl(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub async fn install_gamdl_version(app: AppHandle, version: String) -> Result<String, String> {
     log::info!("Installing specific GAMDL version: {version}");
-    emit_app_log(&app, &format!("Installing GAMDL v{version} (force-reinstall)..."));
+    emit_app_log(
+        &app,
+        &format!("Installing GAMDL v{version} (force-reinstall)..."),
+    );
 
     // Classify against the support window so we can surface an
     // advisory warning to the user before the install lands. We don't
@@ -989,7 +997,9 @@ async fn find_external_gamdl(app: &AppHandle) -> Option<ExternalGamdlInfo> {
         // the wizard).
         let version = match tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            tokio::process::Command::new(&cand).arg("--version").output(),
+            tokio::process::Command::new(&cand)
+                .arg("--version")
+                .output(),
         )
         .await
         {
@@ -1187,7 +1197,10 @@ pub async fn get_component_versions(app: AppHandle) -> Result<Vec<ComponentVersi
     let mut versions = Vec::new();
 
     // Python version
-    let python_version = python_manager::check_python_status(&app).await.ok().flatten();
+    let python_version = python_manager::check_python_status(&app)
+        .await
+        .ok()
+        .flatten();
     versions.push(ComponentVersion {
         name: "Python".to_string(),
         version: python_version.clone(),
@@ -1212,9 +1225,7 @@ pub async fn get_component_versions(app: AppHandle) -> Result<Vec<ComponentVersi
     // — and so the version cache in `votify_capabilities` is populated for
     // any caller that needs to gate on a feature.
     let votify_version = probe_votify_version(&app).await;
-    super::super::services::votify_capabilities::set_detected_version(
-        votify_version.clone(),
-    );
+    super::super::services::votify_capabilities::set_detected_version(votify_version.clone());
     // Listed only with developer access on: votify is the engine of the
     // Spotify preview, which nobody else can use. The probe above still runs
     // for everyone, as before, because other code reads the version it
@@ -1271,13 +1282,7 @@ pub async fn log_component_versions_to_activity(app: &AppHandle) {
             let version_strings: Vec<String> = versions
                 .iter()
                 .filter(|v| v.installed)
-                .map(|v| {
-                    format!(
-                        "{} {}",
-                        v.name,
-                        v.version.as_deref().unwrap_or("(unknown)")
-                    )
-                })
+                .map(|v| format!("{} {}", v.name, v.version.as_deref().unwrap_or("(unknown)")))
                 .collect();
             if !version_strings.is_empty() {
                 let msg = format!("Component versions: {}", version_strings.join(", "));
@@ -1403,8 +1408,7 @@ mod tests {
     #[test]
     fn gamdl_classification_fields_reports_supported() {
         let window = crate::services::gamdl_capabilities::support_window();
-        let (classification, message) =
-            gamdl_classification_fields(Some(&window.minimum), "macos");
+        let (classification, message) = gamdl_classification_fields(Some(&window.minimum), "macos");
         assert_eq!(classification.as_deref(), Some("supported"));
         assert_eq!(message, None);
     }

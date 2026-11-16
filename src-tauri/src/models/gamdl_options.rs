@@ -1291,8 +1291,7 @@ impl GamdlOptions {
         // a readable version made `supports` answer false for a version
         // string we cannot parse, which this line would have read as
         // permission to send the old arguments.
-        let tool_paths_accepted =
-            crate::services::gamdl_capabilities::tool_path_flags_accepted();
+        let tool_paths_accepted = crate::services::gamdl_capabilities::tool_path_flags_accepted();
         let ffmpeg_path_supported = supports(GamdlFeature::FFmpegPath);
         // --ffmpeg-path: emit when the gate says it's accepted (true on
         // <3.6 OR >=3.7; false only on the 3.6.x line).
@@ -1816,7 +1815,11 @@ impl GamdlOptions {
         if self.no_synced_lyrics == Some(true) {
             args.push("--no-lyrics-file".to_string());
         } else if word_timed {
-            push(&mut args, "--lyrics-file-format", "enhanced-ttml".to_string());
+            push(
+                &mut args,
+                "--lyrics-file-format",
+                "enhanced-ttml".to_string(),
+            );
         } else if let Some(ref format) = self.synced_lyrics_format {
             push(
                 &mut args,
@@ -2235,7 +2238,10 @@ mod tests {
         set_detected_version(Some("3.8.2".to_string()));
         let args = options.to_cli_args();
         set_detected_version(None);
-        let at = args.iter().position(|a| a == "--wrapper-decrypt-host").unwrap();
+        let at = args
+            .iter()
+            .position(|a| a == "--wrapper-decrypt-host")
+            .unwrap();
         assert_eq!(args[at + 1], "192.168.1.20");
         assert_eq!(args[at + 3], "10020");
     }
@@ -2257,7 +2263,10 @@ mod tests {
         };
         let merged = crate::services::download_queue::merge_options(None, &settings, None);
         assert_eq!(merged.wrapper_decrypt_ip.as_deref(), Some(""));
-        assert_eq!(merged.wrapper_m3u8_ip.as_deref(), Some("192.168.1.20:20020"));
+        assert_eq!(
+            merged.wrapper_m3u8_ip.as_deref(),
+            Some("192.168.1.20:20020")
+        );
 
         set_detected_version(Some("3.8.2".to_string()));
         let args = merged.to_cli_args();
@@ -2267,7 +2276,10 @@ mod tests {
         set_detected_version(None);
         let at = args.iter().position(|a| a == "--wrapper-m3u8-ip").unwrap();
         assert_eq!(args[at + 1], "192.168.1.20:20020");
-        let at = args.iter().position(|a| a == "--wrapper-decrypt-ip").unwrap();
+        let at = args
+            .iter()
+            .position(|a| a == "--wrapper-decrypt-ip")
+            .unwrap();
         assert_eq!(args[at + 1], "192.168.1.20:10020");
     }
 
@@ -2287,7 +2299,10 @@ mod tests {
         set_detected_version(Some("3.8.2".to_string()));
         let args = merged.to_cli_args();
         set_detected_version(None);
-        let at = args.iter().position(|a| a == "--wrapper-decrypt-host").unwrap();
+        let at = args
+            .iter()
+            .position(|a| a == "--wrapper-decrypt-host")
+            .unwrap();
         assert_eq!(args[at + 1], "192.168.1.20");
     }
 
@@ -2300,7 +2315,10 @@ mod tests {
             ..Default::default()
         };
         let args = options.to_cli_args_v4();
-        let at = args.iter().position(|a| a == "--wrapper-decrypt-host").unwrap();
+        let at = args
+            .iter()
+            .position(|a| a == "--wrapper-decrypt-host")
+            .unwrap();
         assert_eq!(args[at + 1], "192.168.1.20");
         assert_eq!(args[at + 3], "10020");
     }
@@ -2319,7 +2337,10 @@ mod tests {
         };
         let args = options.to_cli_args();
         set_detected_version(None);
-        let at = args.iter().position(|a| a == "--wrapper-decrypt-ip").unwrap();
+        let at = args
+            .iter()
+            .position(|a| a == "--wrapper-decrypt-ip")
+            .unwrap();
         assert_eq!(args[at + 1], "10.0.0.7:10020");
     }
 
@@ -2335,7 +2356,10 @@ mod tests {
         };
         let args = options.to_cli_args();
         set_detected_version(None);
-        let at = args.iter().position(|a| a == "--wrapper-decrypt-host").unwrap();
+        let at = args
+            .iter()
+            .position(|a| a == "--wrapper-decrypt-host")
+            .unwrap();
         assert_eq!(args[at + 1], "::1");
         assert_eq!(args[at + 3], "10020");
     }
@@ -3019,12 +3043,19 @@ mod gamdl_v4_args_tests {
         for old in ["4.0.0", "4.0.1"] {
             set_detected_version(Some(old.to_string()));
             let args = word_timed.to_cli_args_v4();
-            assert_eq!(value_of(&args, "--lyrics-file-format"), Some("ttml"), "{old}");
+            assert_eq!(
+                value_of(&args, "--lyrics-file-format"),
+                Some("ttml"),
+                "{old}"
+            );
         }
 
         set_detected_version(Some("4.0.2".to_string()));
         let args = word_timed.to_cli_args_v4();
-        assert_eq!(value_of(&args, "--lyrics-file-format"), Some("enhanced-ttml"));
+        assert_eq!(
+            value_of(&args, "--lyrics-file-format"),
+            Some("enhanced-ttml")
+        );
         // An ordinary download never asks for it.
         let args = everything().to_cli_args_v4();
         assert_eq!(value_of(&args, "--lyrics-file-format"), Some("ttml"));

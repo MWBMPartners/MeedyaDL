@@ -70,7 +70,10 @@ pub fn preserve_damaged_file(path: &Path) -> Option<PathBuf> {
             // Worth knowing about, but not worth stopping for. The file was
             // already unreadable; failing to move it leaves things exactly as
             // they were before this existed.
-            log::warn!("could not set aside the unreadable file {}: {e}", path.display());
+            log::warn!(
+                "could not set aside the unreadable file {}: {e}",
+                path.display()
+            );
             None
         }
     }
@@ -112,12 +115,7 @@ fn next_available_name(path: &Path) -> Option<PathBuf> {
 /// * `consequence` -- What the person will notice, in their words. For example
 ///   "Your history looks empty" — said plainly, because that is the thing they
 ///   are about to see and be alarmed by.
-pub fn report_damaged_file(
-    app: &AppHandle,
-    what: &str,
-    kept_at: Option<&Path>,
-    consequence: &str,
-) {
+pub fn report_damaged_file(app: &AppHandle, what: &str, kept_at: Option<&Path>, consequence: &str) {
     let mut message = format!("Your saved {what} could not be read. {consequence}");
     if let Some(path) = kept_at {
         // Naming the file matters: it is the difference between "your history
@@ -148,7 +146,10 @@ mod tests {
         // A first run, or someone clearing things out deliberately. Nothing to
         // preserve and nothing to worry anyone about.
         let dir = temp_dir();
-        assert_eq!(preserve_damaged_file(&dir.path().join("history.json")), None);
+        assert_eq!(
+            preserve_damaged_file(&dir.path().join("history.json")),
+            None
+        );
     }
 
     #[test]

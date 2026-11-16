@@ -146,7 +146,10 @@ pub trait FilenameSafetyContract {
             "(no album)",
             "(unknown)",
         ];
-        if FORBIDDEN.iter().any(|bad| template.eq_ignore_ascii_case(bad)) {
+        if FORBIDDEN
+            .iter()
+            .any(|bad| template.eq_ignore_ascii_case(bad))
+        {
             return Err(FilenameSafetyViolation::UnknownSentinelFolder {
                 engine: self.engine_id().to_string(),
                 template: template.to_string(),
@@ -412,7 +415,9 @@ mod tests {
             }
         }
         let violations = BadEngine.run_all_checks();
-        assert!(violations.iter().any(|v| matches!(v, FilenameSafetyViolation::MissingStableId { .. })));
+        assert!(violations
+            .iter()
+            .any(|v| matches!(v, FilenameSafetyViolation::MissingStableId { .. })));
     }
 
     #[test]

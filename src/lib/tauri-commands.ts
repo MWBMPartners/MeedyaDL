@@ -437,9 +437,18 @@ export function buildDiagnosticBundle(input: DiagnosticBundleInput): Promise<Dia
  * history into roll-up stats: totals, success rate, codec
  * distribution, top artist/album, last-7-day activity.
  */
-export interface CodecCount { codec: string; count: number; }
-export interface NameCount { name: string; count: number; }
-export interface DayCount { date: string; count: number; }
+export interface CodecCount {
+  codec: string;
+  count: number;
+}
+export interface NameCount {
+  name: string;
+  count: number;
+}
+export interface DayCount {
+  date: string;
+  count: number;
+}
 export interface LifetimeStats {
   total: number;
   success: number;
@@ -1028,7 +1037,7 @@ export function getDefaultOutputPath(): Promise<string> {
  */
 export function startDownload(
   request: DownloadRequest,
-  skipAutoStart?: boolean,
+  skipAutoStart?: boolean
 ): Promise<StartDownloadResult> {
   return invoke<StartDownloadResult>('start_download', { request, skipAutoStart });
 }
@@ -1544,9 +1553,7 @@ export interface MergeReport {
  *
  * Rust handler: `detect_legacy_folder_pairs()` in `gamdl.rs`.
  */
-export function detectLegacyFolderPairs(
-  folderPath: string
-): Promise<SiblingPair[]> {
+export function detectLegacyFolderPairs(folderPath: string): Promise<SiblingPair[]> {
   return invoke<SiblingPair[]>('detect_legacy_folder_pairs', { folderPath });
 }
 
@@ -1557,9 +1564,7 @@ export function detectLegacyFolderPairs(
  *
  * Rust handler: `preview_legacy_folder_merge()` in `gamdl.rs`.
  */
-export function previewLegacyFolderMerge(
-  pair: SiblingPair
-): Promise<MergePreview> {
+export function previewLegacyFolderMerge(pair: SiblingPair): Promise<MergePreview> {
   return invoke<MergePreview>('preview_legacy_folder_merge', { pair });
 }
 
@@ -1571,9 +1576,7 @@ export function previewLegacyFolderMerge(
  *
  * Rust handler: `execute_legacy_folder_merge()` in `gamdl.rs`.
  */
-export function executeLegacyFolderMerge(
-  pair: SiblingPair
-): Promise<MergeReport> {
+export function executeLegacyFolderMerge(pair: SiblingPair): Promise<MergeReport> {
   return invoke<MergeReport>('execute_legacy_folder_merge', { pair });
 }
 
@@ -1915,9 +1918,7 @@ export interface ExportProfileResult {
  *
  * Called by: GeneralTab "Export Profile" button.
  */
-export function exportProfile(
-  options: ExportProfileOptions = {},
-): Promise<ExportProfileResult> {
+export function exportProfile(options: ExportProfileOptions = {}): Promise<ExportProfileResult> {
   return invoke<ExportProfileResult>('export_profile', { options });
 }
 
@@ -1950,9 +1951,7 @@ export interface ProfileBundleSummary {
  * Pass `null`/omit to open a native file picker; pass an absolute
  * path to skip the picker (used by P5's first-launch auto-detect).
  */
-export function peekProfileBundle(
-  path?: string | null,
-): Promise<ProfileBundleSummary> {
+export function peekProfileBundle(path?: string | null): Promise<ProfileBundleSummary> {
   return invoke<ProfileBundleSummary>('peek_profile_bundle', {
     path: path ?? null,
   });
@@ -1995,9 +1994,7 @@ export interface ImportProfileResult {
  * restart afterwards because background tasks (queue processor,
  * activity-log writer) hold the affected files open.
  */
-export function importProfile(
-  options: ImportProfileOptions,
-): Promise<ImportProfileResult> {
+export function importProfile(options: ImportProfileOptions): Promise<ImportProfileResult> {
   return invoke<ImportProfileResult>('import_profile', { options });
 }
 
@@ -2903,12 +2900,8 @@ export function resetSpotifyDailyCapCounter(): Promise<void> {
  * batch containing a Spotify URL — this is the **preview** of
  * that decision, NOT a separate gate.
  */
-export function checkSpotifyDispatchAllowed(): Promise<
-  import('@/types').DispatchGateOutcome
-> {
-  return invoke<import('@/types').DispatchGateOutcome>(
-    'check_spotify_dispatch_allowed'
-  );
+export function checkSpotifyDispatchAllowed(): Promise<import('@/types').DispatchGateOutcome> {
+  return invoke<import('@/types').DispatchGateOutcome>('check_spotify_dispatch_allowed');
 }
 
 // ============================================================

@@ -24,15 +24,9 @@ import { makeScannedManifest } from '@/testing/fixtures';
 
 vi.mock('lucide-react', () => ({
   X: (props: Record<string, unknown>) => <span data-testid="x-icon" {...props} />,
-  Music: (props: Record<string, unknown>) => (
-    <span data-testid="music-icon" {...props} />
-  ),
-  Video: (props: Record<string, unknown>) => (
-    <span data-testid="video-icon" {...props} />
-  ),
-  Info: (props: Record<string, unknown>) => (
-    <span data-testid="info-icon" {...props} />
-  ),
+  Music: (props: Record<string, unknown>) => <span data-testid="music-icon" {...props} />,
+  Video: (props: Record<string, unknown>) => <span data-testid="video-icon" {...props} />,
+  Info: (props: Record<string, unknown>) => <span data-testid="info-icon" {...props} />,
 }));
 
 const baseManifest = makeScannedManifest();
@@ -98,9 +92,7 @@ describe('MvGapFillModal', () => {
         />
       );
       expect(screen.getByText(/enabled/i)).toBeInTheDocument();
-      expect(
-        screen.getByText('Include music videos in this gap-fill?')
-      ).toBeInTheDocument();
+      expect(screen.getByText('Include music videos in this gap-fill?')).toBeInTheDocument();
     });
 
     it('Yes → null (inherit settings)', () => {
@@ -152,9 +144,7 @@ describe('MvGapFillModal', () => {
         />
       );
       expect(screen.getByText(/currently disabled/i)).toBeInTheDocument();
-      expect(
-        screen.getByText('Include music videos in this gap-fill anyway?')
-      ).toBeInTheDocument();
+      expect(screen.getByText('Include music videos in this gap-fill anyway?')).toBeInTheDocument();
     });
 
     it('Yes → true (force-enable for this item)', () => {

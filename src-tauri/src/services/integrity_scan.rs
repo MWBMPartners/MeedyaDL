@@ -167,7 +167,11 @@ fn classify_degenerate_name(path: &Path) -> Option<&'static str> {
     // partial fix that renamed `[Unknown]` to `Unknown Album` but
     // hadn't yet fixed the filename derivation.
     if file_name.starts_with("-.") {
-        if let Some(parent) = path.parent().and_then(|p| p.file_name()).and_then(|s| s.to_str()) {
+        if let Some(parent) = path
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+        {
             if parent == "Unknown Album" {
                 return Some("unknown-album-with-empty-filename");
             }
@@ -223,10 +227,8 @@ pub fn scan(output_path: &Path) -> IntegrityScanReport {
     // we actually classified so we can count files_walked accurately
     // — we collect the unit return values to size the vec, then
     // discard them.
-    let files_walked_marker = crate::utils::fs_walk::walk_dir_depth(
-        output_path,
-        MAX_SCAN_DEPTH,
-        |path| {
+    let files_walked_marker =
+        crate::utils::fs_walk::walk_dir_depth(output_path, MAX_SCAN_DEPTH, |path| {
             // Only consider regular files — directories are walked but
             // not classified directly (an `[Unknown]` directory
             // matches via the filename of audio file inside it).
@@ -243,13 +245,12 @@ pub fn scan(output_path: &Path) -> IntegrityScanReport {
                 return Some(());
             }
             if let Some(cover_path) = classify_zero_byte_cover(path) {
-                report.issues.push(IntegrityIssue::ZeroByteCover {
-                    path: cover_path,
-                });
+                report
+                    .issues
+                    .push(IntegrityIssue::ZeroByteCover { path: cover_path });
             }
             Some(())
-        },
-    );
+        });
     report.files_walked = files_walked_marker.len();
 
     report
@@ -327,7 +328,10 @@ mod tests {
         // Zero-byte cover
         touch_with_bytes(&root.join("Artist/Album/FrontCover.mp4"), b"");
         // Non-zero cover should NOT match
-        touch_with_bytes(&root.join("Artist/AnotherAlbum/FrontCover.mp4"), b"\x00\x01\x02");
+        touch_with_bytes(
+            &root.join("Artist/AnotherAlbum/FrontCover.mp4"),
+            b"\x00\x01\x02",
+        );
         let report = scan(root);
         assert_eq!(
             report.zero_byte_cover_count(),
@@ -346,7 +350,11 @@ mod tests {
         touch_with_bytes(&root.join("Artist/Album/FrontCover.mp4"), b"video");
         touch_with_bytes(&root.join("Artist/Album/cover.jpg"), b"img");
         let report = scan(root);
-        assert_eq!(report.issues.len(), 0, "clean library should have no issues");
+        assert_eq!(
+            report.issues.len(),
+            0,
+            "clean library should have no issues"
+        );
         assert!(report.files_walked >= 3, "should walk all 3 files");
     }
 

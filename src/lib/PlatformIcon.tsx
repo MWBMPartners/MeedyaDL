@@ -43,8 +43,8 @@ export function PlatformIcon({
   platform: PlatformEntry | undefined;
   size?: number;
 }) {
-  const [svgHtml, setSvgHtml] = useState<string | null>(
-    () => (platform?.icon ? svgCache.get(platform.icon) ?? null : null)
+  const [svgHtml, setSvgHtml] = useState<string | null>(() =>
+    platform?.icon ? (svgCache.get(platform.icon) ?? null) : null
   );
   const [useFallback, setUseFallback] = useState(false);
 
@@ -57,9 +57,7 @@ export function PlatformIcon({
       setSvgHtml(svgCache.get(platform.icon)!);
       return;
     }
-    const iconUrl = platform.icon.startsWith('/')
-      ? platform.icon
-      : `/${platform.icon}`;
+    const iconUrl = platform.icon.startsWith('/') ? platform.icon : `/${platform.icon}`;
     fetch(iconUrl)
       .then((r) => {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);

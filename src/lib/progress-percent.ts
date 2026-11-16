@@ -73,9 +73,7 @@ function clamp01(percent: number): number {
  * accuracy beats a synthesised determinate number that doesn't
  * reflect any real measurement.
  */
-export function computeItemProgress(
-  item: QueueItemStatus | null | undefined
-): number | null {
+export function computeItemProgress(item: QueueItemStatus | null | undefined): number | null {
   if (!item) return null;
 
   // Path 1: GAMDL is actively reporting bytes for the current

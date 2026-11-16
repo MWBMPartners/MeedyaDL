@@ -221,9 +221,7 @@ export async function loadTranslatedHelpPages(language: string): Promise<Record<
   }
 
   const prefix = `/help/${code}/`;
-  const matches = Object.entries(TRANSLATED_HELP_PAGES).filter(([path]) =>
-    path.startsWith(prefix)
-  );
+  const matches = Object.entries(TRANSLATED_HELP_PAGES).filter(([path]) => path.startsWith(prefix));
 
   const pages = await Promise.all(
     matches.map(async ([path, loadRaw]) => {

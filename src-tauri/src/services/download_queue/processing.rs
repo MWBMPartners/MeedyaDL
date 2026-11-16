@@ -116,8 +116,7 @@ pub fn process_queue(
                 // when `--use-wrapper` is set. Skip the probe on older
                 // releases (flag is ignored there) and on v3.6+ (replaced by
                 // wrapper-v2 single endpoint).
-                let wrapper_m3u8_future = if use_wrapper_v1
-                    && supports(GamdlFeature::WrapperM3u8Ip)
+                let wrapper_m3u8_future = if use_wrapper_v1 && supports(GamdlFeature::WrapperM3u8Ip)
                 {
                     Some(
                         crate::services::health_check_service::check_wrapper_m3u8_health(
@@ -155,16 +154,20 @@ pub fn process_queue(
 
                 // -- wrapper-v2 (GAMDL ≥ 3.6, #853) --
                 let wrapper_v2_health_future = if use_wrapper_v2 {
-                    Some(crate::services::health_check_service::check_wrapper_v2_health(
-                        &settings.wrapper_url,
-                    ))
+                    Some(
+                        crate::services::health_check_service::check_wrapper_v2_health(
+                            &settings.wrapper_url,
+                        ),
+                    )
                 } else {
                     None
                 };
                 let wrapper_v2_auth_future = if use_wrapper_v2 {
-                    Some(crate::services::health_check_service::check_wrapper_v2_auth(
-                        &settings.wrapper_url,
-                    ))
+                    Some(
+                        crate::services::health_check_service::check_wrapper_v2_auth(
+                            &settings.wrapper_url,
+                        ),
+                    )
                 } else {
                     None
                 };
@@ -296,10 +299,8 @@ pub fn process_queue(
                         // pre-flight warning has ever cleared itself. A message
                         // saying there is no internet stayed on screen after
                         // the connection came back, for every check, always.
-                        let _ = app.emit(
-                            "preflight-cleared",
-                            &serde_json::json!({ "check": check }),
-                        );
+                        let _ =
+                            app.emit("preflight-cleared", &serde_json::json!({ "check": check }));
                     }
                 }
                 if !any_warnings {
@@ -350,7 +351,11 @@ pub fn process_queue(
                 // Consuming it only when idle keeps the two cases apart: the
                 // queue was never busy (nothing to act on) versus the queue
                 // was busy and has now finished (act on it).
-                let ran = if idle { q.take_ran_since_drain() } else { false };
+                let ran = if idle {
+                    q.take_ran_since_drain()
+                } else {
+                    false
+                };
                 (idle, q.take_recently_aborted(), ran)
             };
             if is_idle && !ran {
@@ -369,13 +374,8 @@ pub fn process_queue(
                 log::debug!("Queue idle but nothing ran — not firing the post-queue action");
             } else if is_idle {
                 if was_aborted {
-                    log::info!(
-                        "Queue idle after abort — suppressing post-queue action (#620)"
-                    );
-                    emit_app_log(
-                        &app,
-                        "Queue drained by abort — skipping post-queue action",
-                    );
+                    log::info!("Queue idle after abort — suppressing post-queue action (#620)");
+                    emit_app_log(&app, "Queue drained by abort — skipping post-queue action");
                     // The counts belong to a run that was stopped, not
                     // finished; the next run starts from zero (#1431).
                     crate::services::notification_service::reset_queue_run_counts();
@@ -392,8 +392,8 @@ pub fn process_queue(
 
         // Determine if this is an Apple Music download for service-aware routing.
         // Used to guard Apple Music-specific enrichment and companion features.
-        let is_apple_music = item_service.as_deref() == Some("apple-music")
-            || item_service.is_none(); // Legacy items default to Apple Music
+        let is_apple_music =
+            item_service.as_deref() == Some("apple-music") || item_service.is_none(); // Legacy items default to Apple Music
 
         log::info!("Processing download {download_id}");
 
@@ -505,11 +505,7 @@ pub fn process_queue(
 
             if let Some(ref meta) = early_metadata {
                 let mut q = queue.lock().await;
-                if let Some(item) = q
-                    .items
-                    .iter_mut()
-                    .find(|i| i.status.id == download_id)
-                {
+                if let Some(item) = q.items.iter_mut().find(|i| i.status.id == download_id) {
                     if let Some(ref name) = meta.artist_name {
                         item.status.artist_name = Some(name.clone());
                     }
@@ -574,8 +570,7 @@ pub fn process_queue(
         // an upgrade. The preflight above may also already have filled the
         // cache, which saves running the slow probe a second time.
         let queued_copy = queue.lock().await.gamdl_version.clone();
-        let already_known =
-            crate::services::gamdl_capabilities::detected_version().or(queued_copy);
+        let already_known = crate::services::gamdl_capabilities::detected_version().or(queued_copy);
         let gamdl_version = if let Some(ver) = already_known {
             // Keep the queue's own copy in step (other code reads it).
             let mut q = queue.lock().await;
@@ -796,9 +791,7 @@ pub fn process_queue(
         // one item. No worse than today.
         if settings_for_companion.content_advisory_in_filenames {
             if let Some(rating) = early_album_content_rating.as_deref() {
-                if let Some(suffix) =
-                    super::metadata_tag_service::advisory_suffix(rating)
-                {
+                if let Some(suffix) = super::metadata_tag_service::advisory_suffix(rating) {
                     if let Some(new_template) = inject_advisory_suffix_into_template(
                         companion_base_options.album_folder_template.as_deref(),
                         suffix,
@@ -884,9 +877,7 @@ pub fn process_queue(
         // (e.g., ?token=abc) into log files which have no automatic cleanup.
         if let Some(ref url) = wrapper_url_for_logging {
             let safe_url = redact_url_query(url);
-            log::info!(
-                "Download {download_id} using wrapper at {safe_url}"
-            );
+            log::info!("Download {download_id} using wrapper at {safe_url}");
             // User-visible Activity Log: show auth mode clearly
             emit_download_log(
                 &app,
@@ -958,9 +949,7 @@ pub fn process_queue(
                     None,
                 ),
                 super::options::DrmPlan::LeaveToGamdl => (None, None, None),
-                super::options::DrmPlan::FallBackToBuiltIn { reason } => {
-                    (None, None, Some(reason))
-                }
+                super::options::DrmPlan::FallBackToBuiltIn { reason } => (None, None, Some(reason)),
             };
         download_options.drm_backend = drm_backend;
         download_options.prd_path.clone_from(&prd_path);
@@ -982,9 +971,7 @@ pub fn process_queue(
         emit_download_log(
             &app,
             &download_id,
-            &format!(
-                "GAMDL {gamdl_version_label} — capabilities: {gamdl_capabilities}"
-            ),
+            &format!("GAMDL {gamdl_version_label} — capabilities: {gamdl_capabilities}"),
         );
 
         // Verbose: log the full download options
@@ -1063,7 +1050,12 @@ pub fn process_queue(
                     // === Success path ===
                     // GAMDL exited with code 0. Check whether output files were
                     // actually produced before declaring success.
-                    let (output_path_for_artwork, completed_codec, history_track_name, history_created_at) = {
+                    let (
+                        output_path_for_artwork,
+                        completed_codec,
+                        history_track_name,
+                        history_created_at,
+                    ) = {
                         let mut q = queue_clone.lock().await;
 
                         // #1431: if the item was already failed by the stall
@@ -1340,15 +1332,14 @@ pub fn process_queue(
                                         .find(|i| i.status.id == dl_id)
                                         .map(|i| format_content_label(&i.status))
                                         .unwrap_or_else(|| "unknown content".to_string());
-                                    let is_music_video = q
-                                        .items
-                                        .iter()
-                                        .find(|i| i.status.id == dl_id)
-                                        .is_some_and(|i| {
-                                            super::helpers::urls_are_all_music_videos(
-                                                &i.status.urls,
-                                            )
-                                        });
+                                    let is_music_video =
+                                        q.items.iter().find(|i| i.status.id == dl_id).is_some_and(
+                                            |i| {
+                                                super::helpers::urls_are_all_music_videos(
+                                                    &i.status.urls,
+                                                )
+                                            },
+                                        );
                                     let exhausted_msg = if is_music_video {
                                         format!(
                                             "This music video could not be downloaded — \
@@ -1386,7 +1377,9 @@ pub fn process_queue(
                                         let artist_hint = item.status.artist_name.as_deref();
                                         let album_hint = item.status.album_name.as_deref();
                                         // Find the actual album directory within the base output dir
-                                        if let Some(album_dir) = find_album_directory(base_path, artist_hint, album_hint) {
+                                        if let Some(album_dir) =
+                                            find_album_directory(base_path, artist_hint, album_hint)
+                                        {
                                             item.status.output_path = Some(album_dir);
                                             item.status.output_is_directory = true;
                                             log::info!(
@@ -1415,7 +1408,9 @@ pub fn process_queue(
                                         let base_path = std::path::Path::new(base_dir);
                                         let artist_hint = item.status.artist_name.as_deref();
                                         let album_hint = item.status.album_name.as_deref();
-                                        if let Some(album_dir) = find_album_directory(base_path, artist_hint, album_hint) {
+                                        if let Some(album_dir) =
+                                            find_album_directory(base_path, artist_hint, album_hint)
+                                        {
                                             item.status.output_path = Some(album_dir);
                                             item.status.output_is_directory = true;
                                         } else {
@@ -1437,24 +1432,19 @@ pub fn process_queue(
                             // for album downloads. Scan the output directory
                             // for audio files as a last resort before declaring
                             // failure.
-                            if let Some(item) =
-                                q.items.iter_mut().find(|i| i.status.id == dl_id)
-                            {
+                            if let Some(item) = q.items.iter_mut().find(|i| i.status.id == dl_id) {
                                 if item.status.output_path.is_none() {
                                     if let Some(ref base_dir) =
                                         item.merged_options.output_path.clone()
                                     {
-                                        let base_path =
-                                            std::path::Path::new(base_dir);
+                                        let base_path = std::path::Path::new(base_dir);
                                         let artist_hint = item.status.artist_name.as_deref();
                                         let album_hint = item.status.album_name.as_deref();
                                         if let Some(album_dir) =
                                             find_album_directory(base_path, artist_hint, album_hint)
                                         {
-                                            item.status.output_path =
-                                                Some(album_dir);
-                                            item.status.output_is_directory =
-                                                true;
+                                            item.status.output_path = Some(album_dir);
+                                            item.status.output_is_directory = true;
                                             log::info!(
                                                 "Download {dl_id} recovered: \
                                                  found album directory on disk \
@@ -1509,10 +1499,8 @@ pub fn process_queue(
                                     // Clear the misleading output_path so the
                                     // post-error UI doesn't open a folder that
                                     // was actually pre-existing.
-                                    if let Some(item) = q
-                                        .items
-                                        .iter_mut()
-                                        .find(|i| i.status.id == dl_id)
+                                    if let Some(item) =
+                                        q.items.iter_mut().find(|i| i.status.id == dl_id)
                                     {
                                         item.status.output_path = None;
                                         item.status.output_is_directory = false;
@@ -1539,9 +1527,7 @@ pub fn process_queue(
                                 // so honestly instead of "Download completed but no
                                 // output files were produced: [WARNING] Skipping ...".
                                 let only_codec_skips = !warnings.is_empty()
-                                    && warnings
-                                        .iter()
-                                        .all(|w| process::is_codec_skip_message(w));
+                                    && warnings.iter().all(|w| process::is_codec_skip_message(w));
                                 let error_msg = if has_io_error {
                                     format!(
                                         "Output path may be unreachable or too slow. \
@@ -1557,15 +1543,14 @@ pub fn process_queue(
                                     // pointing at a setting with no bearing on it.
                                     // Anyone following it would change their music
                                     // format, try again, and get the same result.
-                                    let is_music_video = q
-                                        .items
-                                        .iter()
-                                        .find(|i| i.status.id == dl_id)
-                                        .is_some_and(|i| {
-                                            super::helpers::urls_are_all_music_videos(
-                                                &i.status.urls,
-                                            )
-                                        });
+                                    let is_music_video =
+                                        q.items.iter().find(|i| i.status.id == dl_id).is_some_and(
+                                            |i| {
+                                                super::helpers::urls_are_all_music_videos(
+                                                    &i.status.urls,
+                                                )
+                                            },
+                                        );
                                     if is_music_video {
                                         "This music video is not available in any of \
                                      the video formats you allow. Try adding another \
@@ -1693,8 +1678,12 @@ pub fn process_queue(
                                 // Record failed download in history
                                 {
                                     let q = queue_clone.lock().await;
-                                    let created = q.get_status().iter().find(|s| s.id == dl_id)
-                                        .map(|s| s.created_at.clone()).unwrap_or_default();
+                                    let created = q
+                                        .get_status()
+                                        .iter()
+                                        .find(|s| s.id == dl_id)
+                                        .map(|s| s.created_at.clone())
+                                        .unwrap_or_default();
                                     drop(q);
                                     history_service::save_history_entry(
                                         &app_clone,
@@ -1719,11 +1708,7 @@ pub fn process_queue(
                                 // Emit error guidance to the activity log
                                 let error_category = classify_error_for_installed_gamdl(&error_msg);
                                 let guidance = process::error_guidance(error_category);
-                                emit_download_log(
-                                    &app_clone,
-                                    &dl_id,
-                                    &format!("💡 {guidance}"),
-                                );
+                                emit_download_log(&app_clone, &dl_id, &format!("💡 {guidance}"));
 
                                 let _ = app_clone.emit(
                                     "download-error",
@@ -1903,7 +1888,9 @@ pub fn process_queue(
                     // read by the final advisory pass after them.
                     let advisory_scope: Arc<StdMutex<Option<super::lyrics_pass::AdvisoryScope>>> =
                         Arc::new(StdMutex::new(None));
-                    let enrichment_handle = if let Some(output_dir) = output_path_for_artwork.clone() {
+                    let enrichment_handle = if let Some(output_dir) =
+                        output_path_for_artwork.clone()
+                    {
                         let enrich_app = app_clone.clone();
                         let enrich_urls = urls.clone();
                         let enrich_dl_id = dl_id.clone();
@@ -1975,10 +1962,7 @@ pub fn process_queue(
                                     .iter()
                                     .find(|i| i.status.id == enrich_dl_id)
                                     .map(|i| {
-                                        (
-                                            i.status.artist_name.clone(),
-                                            i.status.album_name.clone(),
-                                        )
+                                        (i.status.artist_name.clone(), i.status.album_name.clone())
                                     })
                                     .unwrap_or((None, None))
                             };
@@ -2040,7 +2024,13 @@ pub fn process_queue(
                                     .copied()
                                     .find(|s| (s.weight() - progress).abs() < f32::EPSILON)
                                     .unwrap_or(ProgressStage::Finalising);
-                                set_stage_with_label(&label_app, &label_queue, &label_dl_id, stage, label);
+                                set_stage_with_label(
+                                    &label_app,
+                                    &label_queue,
+                                    &label_dl_id,
+                                    stage,
+                                    label,
+                                );
                             };
 
                             // Helper: get album context for activity log messages.
@@ -2048,8 +2038,11 @@ pub fn process_queue(
                             let log_context_id = enrich_dl_id.clone();
                             let album_context = move || -> String {
                                 if let Ok(q) = log_context_queue.try_lock() {
-                                    if let Some(item) = q.items.iter().find(|i| i.status.id == log_context_id) {
-                                        let artist = item.status.artist_name.as_deref().unwrap_or("");
+                                    if let Some(item) =
+                                        q.items.iter().find(|i| i.status.id == log_context_id)
+                                    {
+                                        let artist =
+                                            item.status.artist_name.as_deref().unwrap_or("");
                                         let album = item.status.album_name.as_deref().unwrap_or("");
                                         if !artist.is_empty() && !album.is_empty() {
                                             return format!(" — {artist}: {album}");
@@ -2111,8 +2104,7 @@ pub fn process_queue(
                             // are correctly detected as "primary succeeded".
                             {
                                 let dir_path = std::path::Path::new(&album_dir);
-                                let output_file_count =
-                                    count_audio_files_in_directory(dir_path);
+                                let output_file_count = count_audio_files_in_directory(dir_path);
                                 if output_file_count == 0 {
                                     log::info!(
                                         "Skipping enrichment for {} — primary download produced no output files",
@@ -2152,8 +2144,15 @@ pub fn process_queue(
                             ),
                         );
 
-                            set_label("Enriching metadata tags...", ProgressStage::Metadata.weight());
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Metadata enrichment started{}", album_context()));
+                            set_label(
+                                "Enriching metadata tags...",
+                                ProgressStage::Metadata.weight(),
+                            );
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!("▶ Metadata enrichment started{}", album_context()),
+                            );
                             // --- Step 1: Enriched metadata tagging ---
                             // Parse the codec string and run full enrichment (codec tags,
                             // source tags, channel detection, API metadata). Returns the
@@ -2204,7 +2203,6 @@ pub fn process_queue(
                                     "Library item detected — skipping Apple Music catalog enrichment (iTunes Lookup, catalog metadata, syllable lyrics, animated artwork). AcoustID + ReplayGain + local tags still run.",
                                 );
                             }
-
 
                             // ── The enrichment order (16 Nov 2026, revised) ──
                             // 1. A snapshot of the primary download's files.
@@ -2275,10 +2273,8 @@ pub fn process_queue(
                             // Update artist_name from API metadata for progress bar display
                             if let Some(ref meta) = album_metadata {
                                 let mut q = enrich_queue.lock().await;
-                                if let Some(item) = q
-                                    .items
-                                    .iter_mut()
-                                    .find(|i| i.status.id == enrich_dl_id)
+                                if let Some(item) =
+                                    q.items.iter_mut().find(|i| i.status.id == enrich_dl_id)
                                 {
                                     if item.status.artist_name.is_none() {
                                         item.status.artist_name = meta.artist_name.clone();
@@ -2295,7 +2291,8 @@ pub fn process_queue(
                             // Skipped for library URLs (#871) — iTunes Lookup keys
                             // off the catalog album ID, which library IDs are not.
                             if !is_library {
-                                let album_id = enrich_urls.iter()
+                                let album_id = enrich_urls
+                                    .iter()
                                     .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
                                     .map(|p| p.album_id);
 
@@ -2327,7 +2324,9 @@ pub fn process_queue(
                                             );
                                         }
                                         Err(e) => {
-                                            log::debug!("iTunes Lookup failed for {enrich_dl_id}: {e}");
+                                            log::debug!(
+                                                "iTunes Lookup failed for {enrich_dl_id}: {e}"
+                                            );
                                         }
                                     }
                                 }
@@ -2374,15 +2373,19 @@ pub fn process_queue(
                                     gamdl_capabilities::GamdlFeature::GamdlFourWordTimedLyricsFile,
                                 ),
                                 enhanced_lrc: enrich_settings.enhanced_lrc,
-                                lyrics_files_on: enrich_primary_options.no_synced_lyrics != Some(true),
-                                links_allow: super::lyrics_pass::links_allow_word_lyrics_pass(&enrich_urls),
+                                lyrics_files_on: enrich_primary_options.no_synced_lyrics
+                                    != Some(true),
+                                links_allow: super::lyrics_pass::links_allow_word_lyrics_pass(
+                                    &enrich_urls,
+                                ),
                                 is_library,
                                 primary_clean: enrich_primary_clean,
                                 stopping: enrich_shutdown.is_triggered()
                                     || enrich_queue.lock().await.is_cancelled(&enrich_dl_id),
                                 needed: super::lyrics_pass::needs_gamdl_fallback(&step_1b),
                                 same_gamdl_version: enrich_primary_version.is_some()
-                                    && gamdl_capabilities::detected_version() == enrich_primary_version,
+                                    && gamdl_capabilities::detected_version()
+                                        == enrich_primary_version,
                                 download_folder_known: enrich_download_folder.is_some(),
                             };
                             if super::lyrics_pass::should_run_word_lyrics_pass(&pass_conditions) {
@@ -2392,7 +2395,10 @@ pub fn process_queue(
                                     super::lyrics_pass::primary_files_unmoved(&primary_files),
                                     enrich_download_folder.as_deref(),
                                 ) {
-                                    set_label("Adding word-level lyrics…", ProgressStage::WordLyrics.weight());
+                                    set_label(
+                                        "Adding word-level lyrics…",
+                                        ProgressStage::WordLyrics.weight(),
+                                    );
                                     let pass_options = super::lyrics_pass::plan_word_lyrics_pass(
                                         &enrich_primary_options,
                                         folder,
@@ -2427,13 +2433,17 @@ pub fn process_queue(
                             // lyrics step has run, so the lyrics files are built
                             // beside the names GAMDL gave and then move with
                             // their tracks.
-                            set_label("Enriching metadata tags…", ProgressStage::WordLyrics.weight());
+                            set_label(
+                                "Enriching metadata tags…",
+                                ProgressStage::WordLyrics.weight(),
+                            );
                             emit_download_log(
                             &enrich_app,
                             &enrich_dl_id,
                             "Enriching metadata (codec tags, source tags, channel detection, Apple Music API)...",
                         );
-                            let (file_codecs, album_matched_files) = if let Some(ref codec) = codec {
+                            let (file_codecs, album_matched_files) = if let Some(ref codec) = codec
+                            {
                                 match super::metadata_tag_service::apply_enriched_metadata_tags(
                                     &enrich_app,
                                     &album_dir,
@@ -2512,23 +2522,30 @@ pub fn process_queue(
                                         .map(|t| (t.disc_number, t.track_number))
                                 });
                             let is_song_link = enrich_urls.iter().any(|u| {
-                                super::apple_music_api::parse_apple_music_url(u)
-                                    .is_some_and(|p| p.song_id.is_some() || p.content_type == "song")
+                                super::apple_music_api::parse_apple_music_url(u).is_some_and(|p| {
+                                    p.song_id.is_some() || p.content_type == "song"
+                                })
                             });
                             let this_download_paths: Vec<std::path::PathBuf> = primary_files
                                 .iter()
                                 .filter(|path| {
-                                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                                    let stem =
+                                        path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
                                     let evidence = super::lyrics_pass::FileEvidence {
                                         fresh: fresh_files.contains(*path),
                                         name_matches_primary:
-                                            super::lyrics_pass::stem_matches_primary_name(stem, primary_suffix),
+                                            super::lyrics_pass::stem_matches_primary_name(
+                                                stem,
+                                                primary_suffix,
+                                            ),
                                         primary_has_suffix: primary_suffix.is_some(),
                                         album_matched: album_metadata
                                             .as_ref()
                                             .map(|_| album_matched_files.contains(*path)),
                                         is_requested_song: is_song_link.then(|| {
-                                            let n = super::lyrics_pass::read_audio_numbers(path, false, None);
+                                            let n = super::lyrics_pass::read_audio_numbers(
+                                                path, false, None,
+                                            );
                                             requested_song.is_some()
                                                 && n.disc.zip(n.track) == requested_song
                                         }),
@@ -2541,7 +2558,8 @@ pub fn process_queue(
                                 &this_download_paths,
                                 &file_codecs,
                                 |path| {
-                                    let n = super::lyrics_pass::read_audio_numbers(path, false, None);
+                                    let n =
+                                        super::lyrics_pass::read_audio_numbers(path, false, None);
                                     n.disc.zip(n.track)
                                 },
                             );
@@ -2558,7 +2576,11 @@ pub fn process_queue(
                                 .unwrap_or_default();
 
                             if album_metadata.is_some() {
-                                emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Metadata enrichment completed{}", album_context()));
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    &format!("✓ Metadata enrichment completed{}", album_context()),
+                                );
                             } else {
                                 emit_download_log(&enrich_app, &enrich_dl_id, &format!("⚠ Metadata enrichment completed without API data — some enrichment steps may be limited{}", album_context()));
                             }
@@ -2567,7 +2589,10 @@ pub fn process_queue(
                             // GAMDL saves static cover art as Cover.<ext>. Rename to the
                             // user's configured name (default: FrontCover for consistency
                             // with animated artwork FrontCover.mp4/FrontCoverPortrait.mp4).
-                            rename_cover_art(&album_dir, enrich_settings.cover_art_name.to_filename_stem());
+                            rename_cover_art(
+                                &album_dir,
+                                enrich_settings.cover_art_name.to_filename_stem(),
+                            );
 
                             // --- Post-step 1b: Cover-art fallback chain (#756) ---
                             // GAMDL's static cover write is fragile, especially for
@@ -2578,16 +2603,15 @@ pub fn process_queue(
                             // browser previews fail. Walk the API artwork URL down a
                             // RAW → PNG → JPEG chain to recover.
                             if let Some(ref metadata) = album_metadata {
-                                let cover_stem = enrich_settings
-                                    .cover_art_name
-                                    .to_filename_stem();
-                                let outcome = crate::services::cover_art_fallback::ensure_cover_present(
-                                    std::path::Path::new(&album_dir),
-                                    metadata,
-                                    &enrich_settings.cover_format,
-                                    cover_stem,
-                                )
-                                .await;
+                                let cover_stem = enrich_settings.cover_art_name.to_filename_stem();
+                                let outcome =
+                                    crate::services::cover_art_fallback::ensure_cover_present(
+                                        std::path::Path::new(&album_dir),
+                                        metadata,
+                                        &enrich_settings.cover_format,
+                                        cover_stem,
+                                    )
+                                    .await;
                                 match outcome {
                                     crate::services::cover_art_fallback::CoverFallbackOutcome::AlreadyPresent { .. } => {
                                         // Fast path — GAMDL did its job. Silent.
@@ -2683,10 +2707,8 @@ pub fn process_queue(
                             // File is named `<AlbumName>-applemusic-data.json` in the album dir.
                             if crate::utils::activity_log::is_verbose_logging() {
                                 if let Some(ref metadata) = album_metadata {
-                                    let album_name = metadata
-                                        .album_name
-                                        .as_deref()
-                                        .unwrap_or("Unknown Album");
+                                    let album_name =
+                                        metadata.album_name.as_deref().unwrap_or("Unknown Album");
                                     // An album name comes from Apple Music, which means a
                                     // record label typed it, which means it can contain
                                     // anything at all. This is the one place in the download
@@ -2739,10 +2761,11 @@ pub fn process_queue(
                                     const NAME_SUFFIX: &str = "-applemusic-data.json";
                                     // Enough for a two-digit disambiguating number.
                                     const ROOM_FOR_A_NUMBER: usize = 4;
-                                    let name_budget =
-                                        255usize.saturating_sub(NAME_SUFFIX.len() + ROOM_FOR_A_NUMBER);
+                                    let name_budget = 255usize
+                                        .saturating_sub(NAME_SUFFIX.len() + ROOM_FOR_A_NUMBER);
                                     let safe_name = safe_name.trim_matches([' ', '.'].as_ref());
-                                    let safe_name = crate::utils::text::truncate_str(safe_name, name_budget);
+                                    let safe_name =
+                                        crate::utils::text::truncate_str(safe_name, name_budget);
                                     let safe_name = safe_name.trim_matches([' ', '.'].as_ref());
                                     // Never empty: a name of nothing but punctuation would
                                     // otherwise produce a file called just the suffix.
@@ -2808,7 +2831,11 @@ pub fn process_queue(
                                 "Converting lyrics (Enhanced LRC)...",
                                 ProgressStage::LyricsConversion.weight(),
                             );
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Lyrics processing started{}", album_context()));
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!("▶ Lyrics processing started{}", album_context()),
+                            );
                             // --- Step 2: Enhanced LRC conversion (opt-in, default on) ---
                             // When enabled, converts TTML sidecar files to Enhanced LRC
                             // with word-by-word timestamps. Saves a `.lrc` sidecar file
@@ -3138,9 +3165,8 @@ pub fn process_queue(
                                     )
                                 })
                                 .await
-                                .unwrap_or_else(|e| {
-                                    Err(format!("Lyricsfile task panicked: {e}"))
-                                }) {
+                                .unwrap_or_else(|e| Err(format!("Lyricsfile task panicked: {e}")))
+                                {
                                     Ok(count) if count > 0 => {
                                         log::info!(
                                             "Generated {count} Lyricsfile sidecar(s) for {enrich_dl_id}"
@@ -3192,23 +3218,26 @@ pub fn process_queue(
                             let mut this_download_paths = this_download_paths;
                             if enrich_settings.content_advisory_in_filenames {
                                 if let Some(ref meta) = album_metadata {
-                                    let new_dir = super::metadata_tag_service::apply_advisory_folder_suffix(
-                                        &album_dir,
-                                        meta,
-                                    );
+                                    let new_dir =
+                                        super::metadata_tag_service::apply_advisory_folder_suffix(
+                                            &album_dir, meta,
+                                        );
                                     if new_dir != album_dir {
                                         let (old, new) = (
                                             std::path::PathBuf::from(&album_dir),
                                             std::path::PathBuf::from(&new_dir),
                                         );
-                                        this_download_paths = super::lyrics_pass::remap_under_renamed_folder(
-                                            &this_download_paths,
-                                            &old,
-                                            &new,
-                                        );
+                                        this_download_paths =
+                                            super::lyrics_pass::remap_under_renamed_folder(
+                                                &this_download_paths,
+                                                &old,
+                                                &new,
+                                            );
                                         file_codecs = file_codecs
                                             .into_iter()
-                                            .map(|(p, c)| (super::lyrics_pass::remap_path(&p, &old, &new), c))
+                                            .map(|(p, c)| {
+                                                (super::lyrics_pass::remap_path(&p, &old, &new), c)
+                                            })
                                             .collect();
                                         album_dir = new_dir.clone();
                                         if single_album_link {
@@ -3216,10 +3245,8 @@ pub fn process_queue(
                                         }
                                         // Update queue item's output_path so "Open Folder" works
                                         let mut q = enrich_queue.lock().await;
-                                        if let Some(item) = q
-                                            .items
-                                            .iter_mut()
-                                            .find(|i| i.status.id == enrich_dl_id)
+                                        if let Some(item) =
+                                            q.items.iter_mut().find(|i| i.status.id == enrich_dl_id)
                                         {
                                             item.status.output_path = Some(new_dir);
                                         }
@@ -3240,12 +3267,13 @@ pub fn process_queue(
                             // Only THIS download's files are renamed. Older
                             // files in the folder keep their names (a later
                             // download used to rename every tagged file there).
-                            let renamed_primary = super::metadata_tag_service::apply_deferred_file_renames(
-                                &this_download_paths,
-                                album_metadata.as_ref(),
-                                &file_codecs,
-                                enrich_settings.content_advisory_in_filenames,
-                            );
+                            let renamed_primary =
+                                super::metadata_tag_service::apply_deferred_file_renames(
+                                    &this_download_paths,
+                                    album_metadata.as_ref(),
+                                    &file_codecs,
+                                    enrich_settings.content_advisory_in_filenames,
+                                );
                             log::debug!(
                                 "Per-file renames done for {enrich_dl_id}: {} file(s)",
                                 renamed_primary.len()
@@ -3280,7 +3308,9 @@ pub fn process_queue(
                             }
                             companion_gate.release(
                                 every_file_has_its_format
-                                    && super::metadata_tag_service::renames_complete(&renamed_primary),
+                                    && super::metadata_tag_service::renames_complete(
+                                        &renamed_primary,
+                                    ),
                                 detected_codecs,
                                 split.tracks,
                                 album_tracks,
@@ -3288,13 +3318,21 @@ pub fn process_queue(
                                 album_metadata.as_ref().and_then(|m| m.album_name.clone()),
                             );
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!("✓ Lyrics processing completed{}", album_context()),
+                            );
 
                             set_label(
                                 "Downloading animated artwork...",
                                 ProgressStage::AnimatedArtwork.weight(),
                             );
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("▶ Animated artwork started{}", album_context()));
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!("▶ Animated artwork started{}", album_context()),
+                            );
                             // --- Step 3: Animated artwork download ---
                             // Reuse the AlbumMetadata from enrichment to avoid a
                             // duplicate API call. Falls back to a fresh API call
@@ -3487,12 +3525,13 @@ pub fn process_queue(
                                     );
                                 } else {
                                     // Extract artist ID and storefront from album metadata or URL
-                                    let artist_id = album_metadata
-                                        .as_ref()
-                                        .and_then(|m| m.artist_id.clone());
+                                    let artist_id =
+                                        album_metadata.as_ref().and_then(|m| m.artist_id.clone());
                                     let storefront = enrich_urls
                                         .iter()
-                                        .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
+                                        .find_map(|u| {
+                                            super::apple_music_api::parse_apple_music_url(u)
+                                        })
                                         .map(|p| p.storefront)
                                         .unwrap_or_else(|| enrich_settings.storefront.clone());
 
@@ -3554,7 +3593,11 @@ pub fn process_queue(
                                 return;
                             }
 
-                            emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Animated artwork completed{}", album_context()));
+                            emit_download_log(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &format!("✓ Animated artwork completed{}", album_context()),
+                            );
 
                             // --- Steps 4 + 5 + 6b lookup: AcoustID + ReplayGain + MusicBrainz lookup (all three together) ---
                             //
@@ -3599,8 +3642,8 @@ pub fn process_queue(
                             // Pre-resolve mv_companion_enabled here so both the parallel
                             // pair AND the sequential MV/MusicBrainz-download stages
                             // below can share the same value. Originally lived in Step 6.
-                            let mv_companion_enabled = enrich_mv_override
-                                .unwrap_or(enrich_settings.music_video_companion);
+                            let mv_companion_enabled =
+                                enrich_mv_override.unwrap_or(enrich_settings.music_video_companion);
 
                             // Pre-compute the MusicBrainz lookup inputs once so the
                             // async block doesn't re-borrow nested Option chains.
@@ -3623,28 +3666,29 @@ pub fn process_queue(
                             // `None` here — both tiers remain latent until a
                             // caller threads those identifiers through,
                             // unchanged by this migration.
-                            let mb_isrc_tracks: Option<Vec<super::musicbrainz_service::TrackLookupInfo>> =
-                                if run_musicbrainz_lookup {
-                                    album_metadata.as_ref().map(|metadata| {
-                                        metadata
-                                            .tracks
-                                            .iter()
-                                            .map(|t| super::musicbrainz_service::TrackLookupInfo {
-                                                song_id: t.song_id.clone(),
-                                                apple_music_url: None,
-                                                isrc: t.isrc.clone(),
-                                                musicbrainz_recording_id: None,
-                                                artist: t
-                                                    .artist_name
-                                                    .clone()
-                                                    .or_else(|| metadata.artist_name.clone()),
-                                                title: Some(t.name.clone()),
-                                            })
-                                            .collect()
-                                    })
-                                } else {
-                                    None
-                                };
+                            let mb_isrc_tracks: Option<
+                                Vec<super::musicbrainz_service::TrackLookupInfo>,
+                            > = if run_musicbrainz_lookup {
+                                album_metadata.as_ref().map(|metadata| {
+                                    metadata
+                                        .tracks
+                                        .iter()
+                                        .map(|t| super::musicbrainz_service::TrackLookupInfo {
+                                            song_id: t.song_id.clone(),
+                                            apple_music_url: None,
+                                            isrc: t.isrc.clone(),
+                                            musicbrainz_recording_id: None,
+                                            artist: t
+                                                .artist_name
+                                                .clone()
+                                                .or_else(|| metadata.artist_name.clone()),
+                                            title: Some(t.name.clone()),
+                                        })
+                                        .collect()
+                                })
+                            } else {
+                                None
+                            };
                             // S2's once-per-album URL search input (§0.2
                             // M3/m4) — the queue item's own Apple Music URL,
                             // mirroring the `enrich_urls.first()` idiom used
@@ -3918,8 +3962,11 @@ pub fn process_queue(
                                 }
                             };
 
-                            let ((), musicbrainz_videos, ()) =
-                                tokio::join!(acoustid_task, musicbrainz_lookup_task, replaygain_task);
+                            let ((), musicbrainz_videos, ()) = tokio::join!(
+                                acoustid_task,
+                                musicbrainz_lookup_task,
+                                replaygain_task
+                            );
 
                             if enrich_shutdown.is_triggered() {
                                 log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
@@ -4019,8 +4066,7 @@ pub fn process_queue(
                                         if enrich_shutdown.is_triggered() {
                                             break;
                                         }
-                                        let label =
-                                            video.title.as_deref().unwrap_or("unknown");
+                                        let label = video.title.as_deref().unwrap_or("unknown");
                                         // Tier 3 (#559): MusicBrainz
                                         // fallback inherits the same parent-
                                         // album context as the MusicKit path.
@@ -4050,10 +4096,8 @@ pub fn process_queue(
                                 let post = snapshot_video_files(&enrich_settings.output_path).len();
                                 let mv_count = post.saturating_sub(pre);
                                 let mut q = enrich_queue.lock().await;
-                                if let Some(item) = q
-                                    .items
-                                    .iter_mut()
-                                    .find(|i| i.status.id == enrich_dl_id)
+                                if let Some(item) =
+                                    q.items.iter_mut().find(|i| i.status.id == enrich_dl_id)
                                 {
                                     item.status.mv_companion_count = Some(mv_count);
                                 }
@@ -4079,10 +4123,7 @@ pub fn process_queue(
                             let cross_platform_urls = if enrich_settings.odesli_lookup_enabled
                                 && !enrich_shutdown.is_triggered()
                             {
-                                let source_url = enrich_urls
-                                    .first()
-                                    .cloned()
-                                    .unwrap_or_default();
+                                let source_url = enrich_urls.first().cloned().unwrap_or_default();
                                 if source_url.is_empty() {
                                     None
                                 } else {
@@ -4179,7 +4220,9 @@ pub fn process_queue(
                             // `/song/` address.
                             let lookup_was_for_one_track = enrich_urls
                                 .first()
-                                .map(|u| u.contains("?i=") || u.contains("&i=") || u.contains("/song/"))
+                                .map(|u| {
+                                    u.contains("?i=") || u.contains("&i=") || u.contains("/song/")
+                                })
                                 .unwrap_or(false);
                             if lookup_was_for_one_track && cross_platform_urls.is_some() {
                                 log::debug!(
@@ -4188,20 +4231,22 @@ pub fn process_queue(
                                      folder would label the other songs wrongly"
                                 );
                             }
-                            if let Some(urls) = cross_platform_urls.as_ref().filter(|_| !lookup_was_for_one_track) {
+                            if let Some(urls) = cross_platform_urls
+                                .as_ref()
+                                .filter(|_| !lookup_was_for_one_track)
+                            {
                                 if !enrich_shutdown.is_triggered() {
                                     set_label(
                                         "song.link: writing links into files…",
                                         ProgressStage::Finalising.weight(),
                                     );
-                                    let written =
-                                        crate::services::odesli_service::write_url_atoms(
-                                            &album_dir,
-                                            urls,
-                                            Some(&enrich_file_locks),
-                                            || enrich_shutdown.is_triggered(),
-                                        )
-                                        .await;
+                                    let written = crate::services::odesli_service::write_url_atoms(
+                                        &album_dir,
+                                        urls,
+                                        Some(&enrich_file_locks),
+                                        || enrich_shutdown.is_triggered(),
+                                    )
+                                    .await;
                                     if written > 0 {
                                         emit_download_log(
                                             &enrich_app,
@@ -4232,18 +4277,17 @@ pub fn process_queue(
                             // for the (extremely rare) unparseable case so the
                             // manifest write still succeeds with codec-blind
                             // diff semantics.
-                            let (manifest_primary_id, manifest_companion_tiers) =
-                                enrich_codec_str
-                                    .as_deref()
-                                    .and_then(SongCodec::from_cli_string)
-                                    .map_or((None, None), |c| {
-                                        let id = song_codec_to_registry_id(&c).to_string();
-                                        let tiers = build_manifest_companion_tiers(
-                                            &enrich_settings,
-                                            c.to_cli_string(),
-                                        );
-                                        (Some(id), tiers)
-                                    });
+                            let (manifest_primary_id, manifest_companion_tiers) = enrich_codec_str
+                                .as_deref()
+                                .and_then(SongCodec::from_cli_string)
+                                .map_or((None, None), |c| {
+                                    let id = song_codec_to_registry_id(&c).to_string();
+                                    let tiers = build_manifest_companion_tiers(
+                                        &enrich_settings,
+                                        c.to_cli_string(),
+                                    );
+                                    (Some(id), tiers)
+                                });
                             write_manifest(
                                 &album_dir,
                                 &enrich_urls,
@@ -4319,8 +4363,7 @@ pub fn process_queue(
 
                     // When native priority was used, force all companions to
                     // use suffixed filenames (primary has clean filenames).
-                    let companion_traits =
-                        read_audio_traits(&queue_clone, &dl_id).await;
+                    let companion_traits = read_audio_traits(&queue_clone, &dl_id).await;
                     let companion_handle = spawn_companion_downloads(
                         &app_clone,
                         &queue_clone,
@@ -4380,10 +4423,7 @@ pub fn process_queue(
                             // ReplayGain with tracks missing their tags.
                             let (output_path_for_timeout, content_label) = {
                                 let q = completion_queue.lock().await;
-                                let item = q
-                                    .items
-                                    .iter()
-                                    .find(|i| i.status.id == completion_dl_id);
+                                let item = q.items.iter().find(|i| i.status.id == completion_dl_id);
                                 let path = item.and_then(|i| i.status.output_path.clone());
                                 let label = item
                                     .map(|i| format_content_label(&i.status))
@@ -4399,9 +4439,7 @@ pub fn process_queue(
                                     } else {
                                         // Single-file output (e.g. direct MV URL) —
                                         // count its parent directory.
-                                        p.parent()
-                                            .map(count_audio_files_in_directory)
-                                            .unwrap_or(0)
+                                        p.parent().map(count_audio_files_in_directory).unwrap_or(0)
                                     }
                                 })
                                 .unwrap_or(0);
@@ -4511,12 +4549,9 @@ pub fn process_queue(
                                     mv_count_for_companion,
                                     mv_source,
                                 );
-                                if tokio::time::timeout(
-                                    companion_timeout,
-                                    &mut handle.handle,
-                                )
-                                .await
-                                .is_err()
+                                if tokio::time::timeout(companion_timeout, &mut handle.handle)
+                                    .await
+                                    .is_err()
                                 {
                                     let pending = handle.describe_pending();
                                     log::warn!(
@@ -4532,12 +4567,9 @@ pub fn process_queue(
                                             "⚠ Companion downloads still running after {companion_timeout_mins} minutes for {content_label} — waiting instead of skipping ({pending}); final tag pass will run afterwards"
                                         ),
                                     );
-                                    if tokio::time::timeout(
-                                        companion_timeout,
-                                        &mut handle.handle,
-                                    )
-                                    .await
-                                    .is_err()
+                                    if tokio::time::timeout(companion_timeout, &mut handle.handle)
+                                        .await
+                                        .is_err()
                                     {
                                         let hard_timeout_mins =
                                             companion_timeout_mins.saturating_mul(2);
@@ -4668,7 +4700,8 @@ pub fn process_queue(
                                                 );
                                             }
                                         });
-                                        match tokio::time::timeout(ADVISORY_TIMEOUT, blocking).await {
+                                        match tokio::time::timeout(ADVISORY_TIMEOUT, blocking).await
+                                        {
                                             Ok(Ok(())) => {
                                                 // Normal completion — advisory pass
                                                 // finished in time.
@@ -4733,9 +4766,9 @@ pub fn process_queue(
                                 None
                             };
 
-                            let integrity_failure = integrity_report
-                                .as_ref()
-                                .and_then(|r| integrity_failure_message(r.checked, &r.suspect_files));
+                            let integrity_failure = integrity_report.as_ref().and_then(|r| {
+                                integrity_failure_message(r.checked, &r.suspect_files)
+                            });
 
                             // Partial-failure case: SOME (but not every)
                             // probed file is suspect. The item still
@@ -5001,9 +5034,7 @@ pub fn process_queue(
                                                 super::helpers::urls_are_all_music_videos(
                                                     &i.status.urls,
                                                 ),
-                                                i.merged_options
-                                                    .music_video_codec_priority
-                                                    .clone(),
+                                                i.merged_options.music_video_codec_priority.clone(),
                                             )
                                         })
                                         .unwrap_or((false, None))
@@ -5457,8 +5488,12 @@ pub fn process_queue(
                         // Record failed download in history
                         {
                             let q = queue_clone.lock().await;
-                            let created = q.get_status().iter().find(|s| s.id == dl_id)
-                                .map(|s| s.created_at.clone()).unwrap_or_default();
+                            let created = q
+                                .get_status()
+                                .iter()
+                                .find(|s| s.id == dl_id)
+                                .map(|s| s.created_at.clone())
+                                .unwrap_or_default();
                             drop(q);
                             history_service::save_history_entry(
                                 &app_clone,
@@ -5480,11 +5515,7 @@ pub fn process_queue(
 
                         // Emit error guidance to the activity log
                         let guidance = process::error_guidance(error_category);
-                        emit_download_log(
-                            &app_clone,
-                            &dl_id,
-                            &format!("💡 {guidance}"),
-                        );
+                        emit_download_log(&app_clone, &dl_id, &format!("💡 {guidance}"));
 
                         let _ = app_clone.emit(
                             "download-error",
@@ -5756,9 +5787,9 @@ pub(crate) async fn run_spotify_dispatch_arm(
             "{} This download was not started.",
             crate::services::spotify_anti_ban::SPOTIFY_NOT_AVAILABLE
         )),
-        DispatchGateOutcome::ConsentRequired => Some(
-            "Spotify dispatch blocked — first-run consent not acknowledged.".to_string(),
-        ),
+        DispatchGateOutcome::ConsentRequired => {
+            Some("Spotify dispatch blocked — first-run consent not acknowledged.".to_string())
+        }
         DispatchGateOutcome::MissingSpotifyDll => Some(
             "Spotify dispatch blocked — `session_type=desktop` selected \
              but Spotify desktop DLL path is unset or missing on disk."
@@ -5785,16 +5816,13 @@ pub(crate) async fn run_spotify_dispatch_arm(
     // (#831) — used to detect partial / total failure via the
     // post-run count delta.
     let output_path = settings.output_path.clone();
-    let pre_run_audio_count = count_audio_files_in_directory(
-        std::path::Path::new(&output_path),
-    );
+    let pre_run_audio_count = count_audio_files_in_directory(std::path::Path::new(&output_path));
 
     // Build VotifyOptions from settings (per-download overrides are
     // M9-9 work — today's queue items dispatch with global settings).
-    let votify_options =
-        crate::models::votify_options::VotifyOptions::from_settings(
-            &settings.service_settings.spotify,
-        );
+    let votify_options = crate::models::votify_options::VotifyOptions::from_settings(
+        &settings.service_settings.spotify,
+    );
 
     // Build the actual command. Spawn failures (Python missing, etc.)
     // are surfaced inline rather than wrapped in the spawned task —
@@ -5840,11 +5868,9 @@ pub(crate) async fn run_spotify_dispatch_arm(
             Ok(()) => {
                 // Re-scan the output tree. The delta = how many new
                 // audio files actually landed.
-                let post_run_audio_count = count_audio_files_in_directory(
-                    std::path::Path::new(&output_path),
-                );
-                let new_files = post_run_audio_count
-                    .saturating_sub(pre_run_audio_count);
+                let post_run_audio_count =
+                    count_audio_files_in_directory(std::path::Path::new(&output_path));
+                let new_files = post_run_audio_count.saturating_sub(pre_run_audio_count);
 
                 if new_files == 0 {
                     // Zero new files despite a clean exit — partial-
@@ -5853,7 +5879,8 @@ pub(crate) async fn run_spotify_dispatch_arm(
                     // badge on an empty folder.
                     let msg = "votify exited cleanly but produced no new audio \
                                files — every track failed (likely auth, region \
-                               lock, or premium-only content)".to_string();
+                               lock, or premium-only content)"
+                        .to_string();
                     emit_download_log(&app_clone, &dl_id, &msg);
                     let mut q = queue_clone.lock().await;
                     // Announced and counted like any failed download, and
@@ -5885,7 +5912,11 @@ pub(crate) async fn run_spotify_dispatch_arm(
                     // hundreds of tracks on a near-cap dispatch
                     // (critique amendment 3 — known limitation; rich
                     // per-track instrumentation lands in M9-8).
-                    let cap = settings.service_settings.spotify.anti_ban.daily_download_cap;
+                    let cap = settings
+                        .service_settings
+                        .spotify
+                        .anti_ban
+                        .daily_download_cap;
                     let new_files_u32 = u32::try_from(new_files).unwrap_or(u32::MAX);
                     match crate::services::spotify_anti_ban::increment_counter(
                         &app_clone,
@@ -6203,9 +6234,7 @@ pub(crate) async fn run_download_with_events(
     //   error at status-check time instead of being silently swallowed
     //   (the same symptom the companion supervisor guards against
     //   in #500).
-    let last_activity_ms = Arc::new(std::sync::atomic::AtomicU64::new(
-        now_epoch_ms_primary(),
-    ));
+    let last_activity_ms = Arc::new(std::sync::atomic::AtomicU64::new(now_epoch_ms_primary()));
     let post_processing_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let soft_error_count = Arc::new(std::sync::atomic::AtomicU32::new(0));
 
@@ -6230,8 +6259,9 @@ pub(crate) async fn run_download_with_events(
     // The bounded ring buffer retains the last
     // `DEFAULT_LINE_CAP_ERRORS` lines and truncates any individual
     // line past `DEFAULT_LINE_BYTE_CAP`.
-    let collected_errors: Arc<Mutex<crate::utils::bounded_log::BoundedLineBuffer>> =
-        Arc::new(Mutex::new(crate::utils::bounded_log::BoundedLineBuffer::for_errors()));
+    let collected_errors: Arc<Mutex<crate::utils::bounded_log::BoundedLineBuffer>> = Arc::new(
+        Mutex::new(crate::utils::bounded_log::BoundedLineBuffer::for_errors()),
+    );
 
     // Collect ALL output lines (raw) from BOTH stdout and stderr for
     // post-mortem analysis: Python traceback extraction, soft-error
@@ -6255,8 +6285,9 @@ pub(crate) async fn run_download_with_events(
     // (`traceback_diagnostic::write_diagnostic_if_any`,
     // `is_storefront_mismatch_error`, soft-error classifier) scan the
     // newest lines so the eviction policy doesn't hide signal.
-    let raw_output_lines: Arc<Mutex<crate::utils::bounded_log::BoundedLineBuffer>> =
-        Arc::new(Mutex::new(crate::utils::bounded_log::BoundedLineBuffer::for_raw_output()));
+    let raw_output_lines: Arc<Mutex<crate::utils::bounded_log::BoundedLineBuffer>> = Arc::new(
+        Mutex::new(crate::utils::bounded_log::BoundedLineBuffer::for_raw_output()),
+    );
 
     // Deduplication set for Activity Log emissions.
     // GAMDL and its Python dependencies (yt-dlp, tqdm) may write the same
@@ -6289,8 +6320,7 @@ pub(crate) async fn run_download_with_events(
                 // #508: bump the idle watchdog on every line and scan
                 // for GAMDL's end-of-run summary. Parsing is cheap
                 // (byte search) and runs once per stdout line.
-                last_activity
-                    .store(now_epoch_ms_primary(), std::sync::atomic::Ordering::Relaxed);
+                last_activity.store(now_epoch_ms_primary(), std::sync::atomic::Ordering::Relaxed);
                 if let Some(n) = process::parse_gamdl_error_count(&raw_line) {
                     if n > 0 {
                         soft_errors.store(n, std::sync::atomic::Ordering::Relaxed);
@@ -6314,9 +6344,7 @@ pub(crate) async fn run_download_with_events(
                 // emit ALL segments so users get complete progress detail
                 // for debugging (speeds, ETAs, percentages at every step).
                 let verbose = crate::utils::activity_log::is_verbose_logging();
-                let last_segment_idx = segments
-                    .iter()
-                    .rposition(|s| !s.trim().is_empty());
+                let last_segment_idx = segments.iter().rposition(|s| !s.trim().is_empty());
 
                 for (idx, segment) in segments.iter().enumerate() {
                     let segment = segment.trim();
@@ -6350,9 +6378,8 @@ pub(crate) async fn run_download_with_events(
                             // (#660). Same gate for ffprobe demuxing noise
                             // (#847). The helper unconditionally writes to
                             // disk so support requests stay debuggable.
-                            let is_known_noise =
-                                process::is_python_traceback_noise(&clean_line)
-                                    || process::is_ffprobe_demux_noise(&clean_line);
+                            let is_known_noise = process::is_python_traceback_noise(&clean_line)
+                                || process::is_ffprobe_demux_noise(&clean_line);
                             // Phase 3.5h: humanise GAMDL "codec skip" lines
                             // — strip "(media ID: NNN)" and the Python-repr
                             // codec list. Idempotent + safe on non-matching
@@ -6434,9 +6461,7 @@ pub(crate) async fn run_download_with_events(
                             &app,
                             &download_id,
                             "internal",
-                            format!(
-                                "──── {track_label} Downloading {context}\"{title}\" ────"
-                            ),
+                            format!("──── {track_label} Downloading {context}\"{title}\" ────"),
                             true,
                         );
                     }
@@ -6470,18 +6495,14 @@ pub(crate) async fn run_download_with_events(
                     // shared flag; first flip also updates the queue's
                     // processing_label so the UI caption flips to
                     // `Post-processing (remux / decrypt)`.
-                    let is_processing_transition = matches!(
-                        event,
-                        process::GamdlOutputEvent::ProcessingStep { .. }
-                    ) || clean_line.contains("100% of");
+                    let is_processing_transition =
+                        matches!(event, process::GamdlOutputEvent::ProcessingStep { .. })
+                            || clean_line.contains("100% of");
                     if is_processing_transition
                         && !post_proc.swap(true, std::sync::atomic::Ordering::Relaxed)
                     {
                         let mut q = queue.lock().await;
-                        q.set_processing_label(
-                            &download_id,
-                            "Post-processing (remux / decrypt)",
-                        );
+                        q.set_processing_label(&download_id, "Post-processing (remux / decrypt)");
                     }
 
                     // Emit parsed event to frontend
@@ -6509,17 +6530,14 @@ pub(crate) async fn run_download_with_events(
             let reader = tokio::io::BufReader::new(stderr);
             let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
             while let Ok(Some(raw_line)) = lines.next_line().await {
-                last_activity
-                    .store(now_epoch_ms_primary(), std::sync::atomic::Ordering::Relaxed);
+                last_activity.store(now_epoch_ms_primary(), std::sync::atomic::Ordering::Relaxed);
                 // Split on \r for yt-dlp progress updates (same as stdout)
                 let segments: Vec<&str> = raw_line.split('\r').collect();
 
                 // Same coalescing logic as stdout: emit only last \r segment
                 // in normal mode, or ALL segments when verbose logging is on.
                 let verbose = crate::utils::activity_log::is_verbose_logging();
-                let last_segment_idx = segments
-                    .iter()
-                    .rposition(|s| !s.trim().is_empty());
+                let last_segment_idx = segments.iter().rposition(|s| !s.trim().is_empty());
 
                 for (idx, segment) in segments.iter().enumerate() {
                     let segment = segment.trim();
@@ -6549,9 +6567,8 @@ pub(crate) async fn run_download_with_events(
                             // non-verbose mode. The helper unconditionally
                             // writes to disk so support requests stay
                             // debuggable.
-                            let is_known_noise =
-                                process::is_python_traceback_noise(&clean_line)
-                                    || process::is_ffprobe_demux_noise(&clean_line);
+                            let is_known_noise = process::is_python_traceback_noise(&clean_line)
+                                || process::is_ffprobe_demux_noise(&clean_line);
                             // Phase 3.5h: humanise GAMDL "codec skip" lines
                             // (strips "(media ID: NNN)" + Python-repr codec
                             // list).
@@ -6653,20 +6670,15 @@ pub(crate) async fn run_download_with_events(
         // — remux / decrypt can run silently for minutes on a network
         // volume without being stuck.
         if !post_processing_flag.load(std::sync::atomic::Ordering::Relaxed) {
-            let elapsed = now_epoch_ms_primary().saturating_sub(
-                last_activity_ms.load(std::sync::atomic::Ordering::Relaxed),
-            );
+            let elapsed = now_epoch_ms_primary()
+                .saturating_sub(last_activity_ms.load(std::sync::atomic::Ordering::Relaxed));
             if elapsed >= idle_limit_ms {
                 let mins = idle_limit_ms / 60_000;
-                log::warn!(
-                    "GAMDL idle for {mins} min on download {download_id} — terminating"
-                );
+                log::warn!("GAMDL idle for {mins} min on download {download_id} — terminating");
                 emit_download_log(
                     app,
                     download_id,
-                    &format!(
-                        "⚠ GAMDL was idle for {mins} min — terminated by watchdog"
-                    ),
+                    &format!("⚠ GAMDL was idle for {mins} min — terminated by watchdog"),
                 );
                 let _ = child.kill().await;
                 let _ = child.wait().await;
@@ -6742,9 +6754,7 @@ pub(crate) async fn run_download_with_events(
                 );
             }
             Err(e) => {
-                log::warn!(
-                    "Traceback diagnostic write failed for {download_id}: {e}"
-                );
+                log::warn!("Traceback diagnostic write failed for {download_id}: {e}");
             }
         }
     }
@@ -6902,4 +6912,3 @@ pub(crate) async fn run_download_with_events(
         )
     }
 }
-

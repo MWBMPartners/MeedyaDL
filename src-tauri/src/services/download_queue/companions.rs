@@ -626,7 +626,6 @@ pub(crate) fn mixed_album_lines(
     lines
 }
 
-
 /// How the primary run named its files, for the companions' guard.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct PrimaryNaming {
@@ -794,9 +793,7 @@ pub(crate) fn already_there_line(codec: &SongCodec, count: usize) -> Option<Stri
 /// A format's name for the activity log, without the "(Experimental)"
 /// note the settings list shows.
 pub(crate) fn plain_codec_name(codec: &SongCodec) -> &str {
-    codec
-        .display_name()
-        .trim_end_matches(" (Experimental)")
+    codec.display_name().trim_end_matches(" (Experimental)")
 }
 
 // ============================================================
@@ -3059,13 +3056,15 @@ pub(crate) fn spawn_companion_downloads(
                 let state = super::lyrics_pass::wait_for_companion_gate(&mut waiter, || {
                     let queue = comp_queue.clone();
                     let id = comp_dl_id.clone();
-                    let stopping = comp_shutdown.is_triggered()
-                        || aborted_for_task.load(Ordering::Relaxed);
+                    let stopping =
+                        comp_shutdown.is_triggered() || aborted_for_task.load(Ordering::Relaxed);
                     async move { stopping || !queue.lock().await.should_keep_working_on(&id) }
                 })
                 .await;
                 let Some(state) = state else {
-                    log::info!("Companion downloads for {comp_dl_id} not started (stopped while waiting)");
+                    log::info!(
+                        "Companion downloads for {comp_dl_id} not started (stopped while waiting)"
+                    );
                     return;
                 };
                 primary_codecs.clone_from(&state.primary_codecs);
@@ -3099,7 +3098,9 @@ pub(crate) fn spawn_companion_downloads(
                 // files (#528), whatever GAMDL's template would call it.
                 // Only when the companion saves under the same download
                 // folder the primary run used.
-                if let (Some(dir), Some(root)) = (state.album_dir.as_deref(), hold.download_root.as_deref()) {
+                if let (Some(dir), Some(root)) =
+                    (state.album_dir.as_deref(), hold.download_root.as_deref())
+                {
                     let own_root = comp_base_opts
                         .output_path
                         .as_deref()
@@ -3118,7 +3119,11 @@ pub(crate) fn spawn_companion_downloads(
                         }
                     }
                 }
-                emit_download_log(&comp_app, &comp_dl_id, "Starting the extra format downloads");
+                emit_download_log(
+                    &comp_app,
+                    &comp_dl_id,
+                    "Starting the extra format downloads",
+                );
             }
 
             // `any_tier_produced_files` is set the first time a tier actually
@@ -3261,7 +3266,9 @@ pub(crate) fn spawn_companion_downloads(
                         Ok(plan) => plan,
                         Err(why) => {
                             let reason = match why {
-                                CompanionSkip::SameFormat => "the main download is already in that format",
+                                CompanionSkip::SameFormat => {
+                                    "the main download is already in that format"
+                                }
                                 CompanionSkip::SameNames => {
                                     "its files would have had the same names as the main download"
                                 }
@@ -3398,7 +3405,9 @@ pub(crate) fn spawn_companion_downloads(
 
                     // Build the GAMDL CLI command for the companion
                     let mut cmd = match gamdl_service::build_gamdl_command_public(
-                        &comp_app, &attempt_urls, &opts,
+                        &comp_app,
+                        &attempt_urls,
+                        &opts,
                     ) {
                         Ok(c) => c,
                         Err(e) => {

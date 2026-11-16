@@ -120,14 +120,17 @@ export function CrashReportSection() {
     // `null` — so the check below only worked because `null !== undefined`.
     // Returning `true` makes "it succeeded" explicit rather than an
     // accident of how an empty reply is represented.
-    const ok = await withErrorToast(async () => {
-      await deleteCrashReport(id);
-      return true;
-    }, {
-      successMsg: 'Crash report deleted',
-      successVariant: 'info',
-      errorMsg: 'MeedyaDL could not delete that error report. Try again in a moment.',
-    });
+    const ok = await withErrorToast(
+      async () => {
+        await deleteCrashReport(id);
+        return true;
+      },
+      {
+        successMsg: 'Crash report deleted',
+        successVariant: 'info',
+        errorMsg: 'MeedyaDL could not delete that error report. Try again in a moment.',
+      }
+    );
     if (ok) {
       setReports((prev) => prev.filter((r) => r.id !== id));
     }
@@ -199,7 +202,12 @@ export function CrashReportSection() {
                   >
                     Report
                   </Button>
-                  <IconButton tone="danger" icon={<Trash2 size={14} />} label="Delete crash report" onClick={() => handleDelete(report.id)} />
+                  <IconButton
+                    tone="danger"
+                    icon={<Trash2 size={14} />}
+                    label="Delete crash report"
+                    onClick={() => handleDelete(report.id)}
+                  />
                 </div>
               </div>
             );

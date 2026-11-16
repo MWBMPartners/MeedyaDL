@@ -72,10 +72,7 @@ export function StatisticsPanel() {
     const codecCounts = new Map<string, number>();
     for (const item of queueItems) {
       if (item.codec_used) {
-        codecCounts.set(
-          item.codec_used,
-          (codecCounts.get(item.codec_used) ?? 0) + 1
-        );
+        codecCounts.set(item.codec_used, (codecCounts.get(item.codec_used) ?? 0) + 1);
       }
     }
     let topCodec: string | null = null;
@@ -100,11 +97,7 @@ export function StatisticsPanel() {
       <SettingsSection title="Session Statistics" defaultOpen={false}>
         {/* Row 1: Summary cards */}
         <div className="grid grid-cols-3 gap-3">
-          <StatCard
-            value={String(stats.total)}
-            label="Total"
-            colour="text-content-primary"
-          />
+          <StatCard value={String(stats.total)} label="Total" colour="text-content-primary" />
           <StatCard
             value={stats.successRate !== null ? `${stats.successRate}%` : '--'}
             label="Success"
@@ -130,26 +123,14 @@ export function StatisticsPanel() {
 
         {/* Row 2: Per-state breakdown */}
         <div className="grid grid-cols-4 gap-3">
-          <StatCard
-            value={String(stats.active)}
-            label="Active"
-            colour="text-status-info-text"
-          />
-          <StatCard
-            value={String(stats.queued)}
-            label="Queued"
-            colour="text-content-secondary"
-          />
+          <StatCard value={String(stats.active)} label="Active" colour="text-status-info-text" />
+          <StatCard value={String(stats.queued)} label="Queued" colour="text-content-secondary" />
           <StatCard
             value={String(stats.completed)}
             label="Done"
             colour="text-status-success-text"
           />
-          <StatCard
-            value={String(stats.failed)}
-            label="Failed"
-            colour="text-status-error-text"
-          />
+          <StatCard value={String(stats.failed)} label="Failed" colour="text-status-error-text" />
         </div>
 
         {/* Download speed sparkline (last 60 samples) */}
@@ -221,10 +202,7 @@ function LifetimeStatsSection() {
 
   const lastDay = stats.last_7_days[stats.last_7_days.length - 1];
   return (
-    <SettingsSection
-      title={`Lifetime Statistics (${stats.total})`}
-      defaultOpen={false}
-    >
+    <SettingsSection title={`Lifetime Statistics (${stats.total})`} defaultOpen={false}>
       <div className="grid grid-cols-3 gap-3">
         <StatCard
           value={String(stats.total)}
@@ -252,9 +230,7 @@ function LifetimeStatsSection() {
       {/* Codec distribution — bar list, hidden when empty. */}
       {stats.codec_distribution.length > 0 && (
         <div className="mt-3">
-          <h2 className="text-xs font-medium text-content-secondary mb-1.5">
-            By codec
-          </h2>
+          <h2 className="text-xs font-medium text-content-secondary mb-1.5">By codec</h2>
           <div className="space-y-1">
             {stats.codec_distribution.slice(0, 6).map((c) => {
               const pct = (c.count / stats.success) * 100;
@@ -264,10 +240,7 @@ function LifetimeStatsSection() {
                     {codecDisplayName(c.codec)}
                   </span>
                   <div className="flex-1 h-2 rounded-full bg-surface-secondary/60 overflow-hidden">
-                    <div
-                      className="h-full bg-accent rounded-full"
-                      style={{ width: `${pct}%` }}
-                    />
+                    <div className="h-full bg-accent rounded-full" style={{ width: `${pct}%` }} />
                   </div>
                   <span className="w-10 text-right text-content-tertiary tabular-nums">
                     {c.count}
@@ -283,12 +256,14 @@ function LifetimeStatsSection() {
       <div className="mt-3 text-xs text-content-tertiary space-y-0.5">
         {stats.top_artist && (
           <p>
-            <span className="text-content-secondary">Top artist:</span> {stats.top_artist.name} ({stats.top_artist.count})
+            <span className="text-content-secondary">Top artist:</span> {stats.top_artist.name} (
+            {stats.top_artist.count})
           </p>
         )}
         {stats.top_album && (
           <p>
-            <span className="text-content-secondary">Top album:</span> {stats.top_album.name} ({stats.top_album.count})
+            <span className="text-content-secondary">Top album:</span> {stats.top_album.name} (
+            {stats.top_album.count})
           </p>
         )}
         <p>
@@ -328,7 +303,13 @@ function SpeedSparkline() {
           a bare <svg> with no explicit role is inconsistent across
           screen readers, the same underlying problem as aria-label on
           a plain <span> elsewhere in this fix. */}
-      <svg width={width} height={height} className="flex-shrink-0" role="img" aria-label="Download speed history">
+      <svg
+        width={width}
+        height={height}
+        className="flex-shrink-0"
+        role="img"
+        aria-label="Download speed history"
+      >
         <polyline
           points={points}
           fill="none"

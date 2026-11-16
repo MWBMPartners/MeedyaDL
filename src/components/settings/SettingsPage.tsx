@@ -190,7 +190,6 @@ function tabTranslationKey(id: string): string {
   return id.replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
 }
 
-
 /**
  * SettingsPage -- Top-level settings page component.
  *
@@ -373,16 +372,15 @@ export function SettingsPage() {
       },
       {
         successMsg: 'Settings saved successfully',
-        errorMsg: 'MeedyaDL could not save your settings, so your changes are not saved yet. Press Save Changes again.',
-      },
+        errorMsg:
+          'MeedyaDL could not save your settings, so your changes are not saved yet. Press Save Changes again.',
+      }
     );
     if (!saved) return;
     const post = useSettingsStore.getState().settings;
     const changed =
       preSaveSnapshot !== null &&
-      RESTART_REQUIRED_KEYS.some(
-        (k) => ((post[k] ?? '') as string) !== preSaveSnapshot[k],
-      );
+      RESTART_REQUIRED_KEYS.some((k) => ((post[k] ?? '') as string) !== preSaveSnapshot[k]);
     // Refresh snapshot so a second click of Save Changes (with no
     // further template edits) won't re-trigger the prompt.
     const next = {} as Record<RestartKey, string>;
@@ -408,7 +406,7 @@ export function SettingsPage() {
     } catch (e) {
       showError(
         'MeedyaDL could not restart itself. Quit MeedyaDL and open it again to use the new setting.',
-        e,
+        e
       );
     }
   };
@@ -437,8 +435,8 @@ export function SettingsPage() {
     description: (
       <div className="space-y-3">
         <p>
-          This clears everything you have set up, including things that are not
-          on this screen and are awkward to get back:
+          This clears everything you have set up, including things that are not on this screen and
+          are awkward to get back:
         </p>
         <ul className="list-disc pl-5 space-y-1">
           <li>where your cookies file is</li>
@@ -448,9 +446,8 @@ export function SettingsPage() {
           <li>the folder your music is saved to</li>
         </ul>
         <p>
-          Nothing is written until you press <strong>Save Changes</strong>. Until
-          then you can close Settings and open it again to get your
-          settings back as they were.
+          Nothing is written until you press <strong>Save Changes</strong>. Until then you can close
+          Settings and open it again to get your settings back as they were.
         </p>
       </div>
     ),
@@ -465,7 +462,10 @@ export function SettingsPage() {
           await resetToDefaults();
           return true;
         },
-        { errorMsg: 'MeedyaDL could not reset the settings. Try again; if it keeps happening, restart MeedyaDL.' },
+        {
+          errorMsg:
+            'MeedyaDL could not reset the settings. Try again; if it keeps happening, restart MeedyaDL.',
+        }
       );
       if (!reset) return;
       addToast(
@@ -503,16 +503,14 @@ export function SettingsPage() {
         title="Restart Required"
       >
         <p className="text-sm text-content-primary mb-3">
-          Your template changes have been saved, but they only take effect
-          for downloads queued <em>after</em> MeedyaDL restarts. Items
-          already in flight will continue using the previous templates
-          until they finish.
+          Your template changes have been saved, but they only take effect for downloads queued{' '}
+          <em>after</em> MeedyaDL restarts. Items already in flight will continue using the previous
+          templates until they finish.
         </p>
         <p className="text-xs text-content-tertiary mb-4">
-          GAMDL reads its template configuration when it starts. MeedyaDL
-          writes the config once at app launch and doesn't re-spawn GAMDL
-          mid-download, so a template edit can't be picked up by an
-          already-running subprocess.
+          GAMDL reads its template configuration when it starts. MeedyaDL writes the config once at
+          app launch and doesn't re-spawn GAMDL mid-download, so a template edit can't be picked up
+          by an already-running subprocess.
         </p>
         <div className="flex justify-end gap-2">
           <Button
@@ -610,7 +608,10 @@ export function SettingsPage() {
         {/* Fix 14 (a11y audit): the app already has a "Main navigation"
             landmark (the sidebar) -- this second, unnamed <nav> was
             indistinguishable from it in a screen reader's landmark list. */}
-        <nav aria-label="Settings tabs" className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2">
+        <nav
+          aria-label="Settings tabs"
+          className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2"
+        >
           {groups.map((group, groupIndex) => (
             <div key={group.id} className={groupIndex > 0 ? 'mt-3' : ''}>
               {/* Group section header -- uppercase, small, muted colour */}

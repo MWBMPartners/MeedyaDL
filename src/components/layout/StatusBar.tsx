@@ -119,9 +119,7 @@ function AfterQueueIndicator() {
   // itself, this is the value that takes over, and the person should
   // know it does not match what they last typed.
   const hasUnsavedStandingEdit = editedAlways !== savedAlways;
-  const fullText = hasUnsavedStandingEdit
-    ? `${text} ${t('statusBar.unsavedChangeNote')}`
-    : text;
+  const fullText = hasUnsavedStandingEdit ? `${text} ${t('statusBar.unsavedChangeNote')}` : text;
 
   return (
     <span className="text-status-warning-text" title={fullText}>
@@ -203,7 +201,7 @@ export function StatusBar() {
   const abortAll = useDownloadStore((s) => s.abortAll);
   const abortQueueConfirm = useSettingsStore(
     // The saved value, not the Settings screen's unsaved edit (#1233).
-    (s) => s.savedSettings.abort_queue_confirm,
+    (s) => s.savedSettings.abort_queue_confirm
   );
   const triggerAbort = useCallback(() => {
     if (abortQueueConfirm) {

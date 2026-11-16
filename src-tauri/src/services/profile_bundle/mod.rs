@@ -73,8 +73,7 @@ pub const BUNDLE_MIME_TYPE: &str = "application/vnd.meedyasuite.bundle+zip";
 /// actual content is identified by [`BundleMeta`] inside meta.json,
 /// so a legacy-MIME bundle will import without issue. Kept as a
 /// `pub const` so an "is this our format?" check can match either.
-pub const BUNDLE_MIME_TYPE_LEGACY: &str =
-    "application/vnd.mwbmpartners.meedyadl.bundle+zip";
+pub const BUNDLE_MIME_TYPE_LEGACY: &str = "application/vnd.mwbmpartners.meedyadl.bundle+zip";
 
 /// Filenames inside the archive. Constants live alongside the format
 /// definition so every consumer reads the same canonical strings.
@@ -291,10 +290,7 @@ impl BundleWriter {
     /// Returns `Err(BundleError::Io)` only when the DB file cannot be
     /// read; absence is logged at the caller's discretion (an
     /// install that has never opened the DB simply skips this step).
-    pub fn add_database_from_disk(
-        &mut self,
-        db_path: &std::path::Path,
-    ) -> Result<(), BundleError> {
+    pub fn add_database_from_disk(&mut self, db_path: &std::path::Path) -> Result<(), BundleError> {
         let bytes = std::fs::read(db_path)?;
         self.add_optional_file(entry::DATABASE, bytes);
         self.declare_section(BundleSection::Database);
@@ -423,10 +419,7 @@ impl BundleReader {
     /// `activity_log/` and `manifests/` sub-trees one entry at a
     /// time. Cheap — only the central directory is consulted, no
     /// file payloads are decompressed.
-    pub fn file_names_starting_with(
-        &self,
-        prefix: &str,
-    ) -> Result<Vec<String>, BundleError> {
+    pub fn file_names_starting_with(&self, prefix: &str) -> Result<Vec<String>, BundleError> {
         let mut out = Vec::new();
         // Read-only access to entry names doesn't need a mutable archive
         // borrow — `file_names` reads the central directory. Since zip 9
@@ -525,7 +518,10 @@ mod tests {
         assert_eq!(reader.meta().producer_version, "1.10.0-test");
         assert_eq!(reader.meta().producer, "meedyadl");
         assert!(reader.meta().is_produced_by_this_app());
-        assert!(reader.meta().contents.is_empty(), "no optional sections declared");
+        assert!(
+            reader.meta().contents.is_empty(),
+            "no optional sections declared"
+        );
 
         let restored = reader
             .read_entry(entry::SETTINGS)
@@ -643,8 +639,11 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
         {
             let mut zip = zip::ZipWriter::new(&mut buf);
-            zip.start_file("not-a-meedyabundle.txt", zip::write::SimpleFileOptions::default())
-                .unwrap();
+            zip.start_file(
+                "not-a-meedyabundle.txt",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
             zip.write_all(b"nope").unwrap();
             zip.finish().unwrap();
         }
@@ -747,7 +746,10 @@ mod tests {
         assert!(reader.meta().has(BundleSection::Database));
         let dest_db = tmp.path().join("restored.db");
         let extracted = reader.extract_database_to(&dest_db).unwrap();
-        assert!(extracted, "extract_database_to must return true when section present");
+        assert!(
+            extracted,
+            "extract_database_to must return true when section present"
+        );
         assert!(dest_db.exists());
 
         // Open the restored DB and confirm both rows survived.
@@ -756,6 +758,9 @@ mod tests {
             .conn()
             .query_row("SELECT COUNT(*) FROM downloads", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 2, "both seeded rows must survive the bundle round-trip");
+        assert_eq!(
+            count, 2,
+            "both seeded rows must survive the bundle round-trip"
+        );
     }
 }

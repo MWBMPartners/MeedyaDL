@@ -150,7 +150,11 @@ pub async fn process_replaygain_for_directory(
                 track_results.push((file_path.clone(), result));
             }
             Err(e) => {
-                log::debug!("ReplayGain analysis failed for {}: {}", file_path.display(), e);
+                log::debug!(
+                    "ReplayGain analysis failed for {}: {}",
+                    file_path.display(),
+                    e
+                );
             }
         }
     }
@@ -233,7 +237,11 @@ pub async fn process_replaygain_for_directory(
                 tagged_count += 1;
             }
             Err(e) => {
-                log::debug!("ReplayGain tagging failed for {}: {}", file_path.display(), e);
+                log::debug!(
+                    "ReplayGain tagging failed for {}: {}",
+                    file_path.display(),
+                    e
+                );
             }
         }
     }
@@ -295,8 +303,14 @@ async fn write_replaygain_tags(
 
     match format {
         AudioFormat::Mp4 => {
-            write_replaygain_mp4(file_path, track_gain_db, track_peak, album_gain_db, album_peak)
-                .await
+            write_replaygain_mp4(
+                file_path,
+                track_gain_db,
+                track_peak,
+                album_gain_db,
+                album_peak,
+            )
+            .await
         }
         AudioFormat::VorbisComment | AudioFormat::Id3v2 => {
             write_replaygain_lofty(
@@ -395,7 +409,10 @@ async fn write_replaygain_lofty(
         };
 
         // Write track-level tags
-        tag.insert_text(ItemKey::ReplayGainTrackGain, format!("{track_gain_db:.2} dB"));
+        tag.insert_text(
+            ItemKey::ReplayGainTrackGain,
+            format!("{track_gain_db:.2} dB"),
+        );
         tag.insert_text(ItemKey::ReplayGainTrackPeak, format!("{track_peak:.6}"));
 
         // Write album-level tags (when enabled)
@@ -443,10 +460,9 @@ async fn analyse_track_loudness(
     file_path: &Path,
     reference_level: f64,
 ) -> Result<ReplayGainResult, String> {
-    let analyzer = meedya_fingerprint::ReplayGainAnalyzer::new(
-        ffmpeg_path.to_string_lossy().into_owned(),
-    )
-    .with_reference_level(reference_level);
+    let analyzer =
+        meedya_fingerprint::ReplayGainAnalyzer::new(ffmpeg_path.to_string_lossy().into_owned())
+            .with_reference_level(reference_level);
     map_shared_replaygain_result(analyzer.analyze_track(file_path).await)
 }
 
@@ -602,10 +618,7 @@ mod tests {
             err.contains("FFmpeg not found"),
             "expected `FFmpeg not found` prefix, got: {err}"
         );
-        assert!(
-            err.contains("/opt/ffmpeg"),
-            "missing path in error: {err}"
-        );
+        assert!(err.contains("/opt/ffmpeg"), "missing path in error: {err}");
     }
 
     #[test]
@@ -655,8 +668,8 @@ mod tests {
         // Pins the bits of `meedya-fingerprint` we depend on. If upstream
         // renames `analyze_track`, drops `with_reference_level`, or changes
         // either result type's fields, compilation here breaks first.
-        let analyzer = meedya_fingerprint::ReplayGainAnalyzer::new("ffmpeg")
-            .with_reference_level(-18.0);
+        let analyzer =
+            meedya_fingerprint::ReplayGainAnalyzer::new("ffmpeg").with_reference_level(-18.0);
         // Pin `analyze_track`'s existence and arity via a local `async fn`.
         // We never invoke it (FFmpeg isn't on $PATH in CI); if upstream
         // renames the method or changes the parameter list, this stops
@@ -665,10 +678,8 @@ mod tests {
         async fn pin_analyze_track(
             a: &meedya_fingerprint::ReplayGainAnalyzer,
             p: &Path,
-        ) -> Result<
-            meedya_fingerprint::ReplayGainResult,
-            meedya_fingerprint::FingerprintError,
-        > {
+        ) -> Result<meedya_fingerprint::ReplayGainResult, meedya_fingerprint::FingerprintError>
+        {
             a.analyze_track(p).await
         }
         let _: fn(_, _) -> _ = pin_analyze_track; // suppress unused-fn warning
@@ -686,7 +697,12 @@ mod tests {
             gain_db: 0.0,
             reference_level: 0.0,
         };
-        let _ = (r.integrated_loudness, r.true_peak, r.gain_db, r.reference_level);
+        let _ = (
+            r.integrated_loudness,
+            r.true_peak,
+            r.gain_db,
+            r.reference_level,
+        );
     }
 
     #[test]
@@ -728,29 +744,65 @@ mod tests {
 
     #[test]
     fn detect_mp4_family() {
-        assert_eq!(detect_format(Path::new("track.m4a")), Some(AudioFormat::Mp4));
-        assert_eq!(detect_format(Path::new("video.m4v")), Some(AudioFormat::Mp4));
-        assert_eq!(detect_format(Path::new("video.mp4")), Some(AudioFormat::Mp4));
+        assert_eq!(
+            detect_format(Path::new("track.m4a")),
+            Some(AudioFormat::Mp4)
+        );
+        assert_eq!(
+            detect_format(Path::new("video.m4v")),
+            Some(AudioFormat::Mp4)
+        );
+        assert_eq!(
+            detect_format(Path::new("video.mp4")),
+            Some(AudioFormat::Mp4)
+        );
         assert_eq!(detect_format(Path::new("book.m4b")), Some(AudioFormat::Mp4));
         assert_eq!(detect_format(Path::new("drm.m4p")), Some(AudioFormat::Mp4));
         // Case-insensitive
-        assert_eq!(detect_format(Path::new("TRACK.M4A")), Some(AudioFormat::Mp4));
-        assert_eq!(detect_format(Path::new("video.MP4")), Some(AudioFormat::Mp4));
+        assert_eq!(
+            detect_format(Path::new("TRACK.M4A")),
+            Some(AudioFormat::Mp4)
+        );
+        assert_eq!(
+            detect_format(Path::new("video.MP4")),
+            Some(AudioFormat::Mp4)
+        );
     }
 
     #[test]
     fn detect_vorbis_comment_formats() {
-        assert_eq!(detect_format(Path::new("track.flac")), Some(AudioFormat::VorbisComment));
-        assert_eq!(detect_format(Path::new("track.ogg")), Some(AudioFormat::VorbisComment));
-        assert_eq!(detect_format(Path::new("track.oga")), Some(AudioFormat::VorbisComment));
-        assert_eq!(detect_format(Path::new("track.opus")), Some(AudioFormat::VorbisComment));
-        assert_eq!(detect_format(Path::new("TRACK.FLAC")), Some(AudioFormat::VorbisComment));
+        assert_eq!(
+            detect_format(Path::new("track.flac")),
+            Some(AudioFormat::VorbisComment)
+        );
+        assert_eq!(
+            detect_format(Path::new("track.ogg")),
+            Some(AudioFormat::VorbisComment)
+        );
+        assert_eq!(
+            detect_format(Path::new("track.oga")),
+            Some(AudioFormat::VorbisComment)
+        );
+        assert_eq!(
+            detect_format(Path::new("track.opus")),
+            Some(AudioFormat::VorbisComment)
+        );
+        assert_eq!(
+            detect_format(Path::new("TRACK.FLAC")),
+            Some(AudioFormat::VorbisComment)
+        );
     }
 
     #[test]
     fn detect_id3v2_formats() {
-        assert_eq!(detect_format(Path::new("track.mp3")), Some(AudioFormat::Id3v2));
-        assert_eq!(detect_format(Path::new("TRACK.MP3")), Some(AudioFormat::Id3v2));
+        assert_eq!(
+            detect_format(Path::new("track.mp3")),
+            Some(AudioFormat::Id3v2)
+        );
+        assert_eq!(
+            detect_format(Path::new("TRACK.MP3")),
+            Some(AudioFormat::Id3v2)
+        );
     }
 
     #[test]
@@ -762,8 +814,17 @@ mod tests {
     #[test]
     fn detect_video_containers_returns_vorbis_comment() {
         // MKV/WebM/OGV video containers use VorbisComment tags (#329)
-        assert_eq!(detect_format(Path::new("video.mkv")), Some(AudioFormat::VorbisComment));
-        assert_eq!(detect_format(Path::new("video.webm")), Some(AudioFormat::VorbisComment));
-        assert_eq!(detect_format(Path::new("video.ogv")), Some(AudioFormat::VorbisComment));
+        assert_eq!(
+            detect_format(Path::new("video.mkv")),
+            Some(AudioFormat::VorbisComment)
+        );
+        assert_eq!(
+            detect_format(Path::new("video.webm")),
+            Some(AudioFormat::VorbisComment)
+        );
+        assert_eq!(
+            detect_format(Path::new("video.ogv")),
+            Some(AudioFormat::VorbisComment)
+        );
     }
 }

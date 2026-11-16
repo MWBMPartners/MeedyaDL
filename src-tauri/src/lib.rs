@@ -218,9 +218,7 @@ fn clear_old_logs(app_data_dir: &std::path::Path, extra_log_dir: Option<&std::pa
         }
     }
     if removed > 0 {
-        log::info!(
-            "Cleaned up {removed} log file(s) (tracing/activity: >7d, session: >30d)"
-        );
+        log::info!("Cleaned up {removed} log file(s) (tracing/activity: >7d, session: >30d)");
     }
 }
 
@@ -546,7 +544,8 @@ fn setup_queue_recovery(app: &tauri::App) {
     }
 
     let count = persisted_items.len();
-    let settings = services::config_service::load_settings_at_startup(&app_handle).unwrap_or_default();
+    let settings =
+        services::config_service::load_settings_at_startup(&app_handle).unwrap_or_default();
 
     // Get the queue handle from managed state
     let queue_handle: tauri::State<'_, services::download_queue::QueueHandle> = app.state();
@@ -841,7 +840,11 @@ fn emit_startup_settings_summary(app: &tauri::AppHandle, s: &models::settings::A
     );
 
     // Line 3: Authentication status (redacted — no credentials or paths)
-    let cookies_status = if s.cookies_path.is_some() { "set" } else { "not set" };
+    let cookies_status = if s.cookies_path.is_some() {
+        "set"
+    } else {
+        "not set"
+    };
     let musickit_status = if s.musickit_team_id.is_some() && s.musickit_key_id.is_some() {
         "configured"
     } else {
@@ -1024,24 +1027,25 @@ pub fn run() {
     // the project, not authenticate requests).
     // Sentry DSN via compile-time env var. Without a real DSN, Sentry is a no-op.
     let sentry_dsn = option_env!("SENTRY_DSN").unwrap_or("");
-    let _sentry_guard = if sentry_enabled && !sentry_dsn.is_empty() && !sentry_dsn.contains("examplePublicKey") {
-        Some(sentry::init((
-            sentry_dsn,
-            sentry::ClientOptions {
-                release: Some(std::borrow::Cow::Borrowed(env!("CARGO_PKG_VERSION"))),
-                environment: Some(std::borrow::Cow::Borrowed(if cfg!(debug_assertions) {
-                    "development"
-                } else {
-                    "production"
-                })),
-                sample_rate: 1.0,
-                traces_sample_rate: 0.2,
-                ..Default::default()
-            },
-        )))
-    } else {
-        None
-    };
+    let _sentry_guard =
+        if sentry_enabled && !sentry_dsn.is_empty() && !sentry_dsn.contains("examplePublicKey") {
+            Some(sentry::init((
+                sentry_dsn,
+                sentry::ClientOptions {
+                    release: Some(std::borrow::Cow::Borrowed(env!("CARGO_PKG_VERSION"))),
+                    environment: Some(std::borrow::Cow::Borrowed(if cfg!(debug_assertions) {
+                        "development"
+                    } else {
+                        "production"
+                    })),
+                    sample_rate: 1.0,
+                    traces_sample_rate: 0.2,
+                    ..Default::default()
+                },
+            )))
+        } else {
+            None
+        };
 
     // Initialise the tracing subscriber with dual-output logging (stderr + file).
     // The `_tracing_guard` must be kept alive to ensure the file appender
@@ -1823,7 +1827,10 @@ mod tray_tests {
     #[test]
     fn tray_status_line_shows_the_real_queue_state() {
         assert_eq!(tray_menu_status_text(0, 0, 0), "Downloads: none");
-        assert_eq!(tray_menu_status_text(2, 3, 1), "Downloads: 2 downloading, 3 queued");
+        assert_eq!(
+            tray_menu_status_text(2, 3, 1),
+            "Downloads: 2 downloading, 3 queued"
+        );
         assert_eq!(tray_menu_status_text(0, 4, 1), "Downloads: 4 queued");
         assert_eq!(tray_menu_status_text(0, 0, 5), "Downloads: 5 completed");
     }
@@ -1831,7 +1838,10 @@ mod tray_tests {
     /// The tooltip keeps its existing wording.
     #[test]
     fn tray_tooltip_keeps_its_wording() {
-        assert_eq!(tray_tooltip_text(1, 2, 0), "MeedyaDL — 1 downloading, 2 queued");
+        assert_eq!(
+            tray_tooltip_text(1, 2, 0),
+            "MeedyaDL — 1 downloading, 2 queued"
+        );
         assert_eq!(tray_tooltip_text(0, 0, 3), "MeedyaDL — 3 completed");
         assert_eq!(tray_tooltip_text(0, 0, 0), "MeedyaDL");
     }

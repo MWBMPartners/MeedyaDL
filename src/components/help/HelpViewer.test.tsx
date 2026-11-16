@@ -77,9 +77,7 @@ describe('HelpViewer sidebar', () => {
     // getting-started.md's own "# Getting Started" heading should
     // already be on screen with no click needed -- this is what a user
     // opening the Help page for the first time actually sees.
-    expect(
-      screen.getByRole('heading', { level: 2, name: 'Getting Started' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Getting Started' })).toBeInTheDocument();
   });
 
   it('shows the clicked page and hides the previous one', () => {
@@ -134,7 +132,9 @@ describe('HelpViewer search box', () => {
     const { container } = render(<HelpViewer />);
     expect(container.querySelector('kbd')).toBeNull();
     expect(container.textContent).not.toMatch(/\+K|coming soon/i);
-    expect(container.querySelector('[title*="coming soon" i], [aria-label*="coming soon" i]')).toBeNull();
+    expect(
+      container.querySelector('[title*="coming soon" i], [aria-label*="coming soon" i]')
+    ).toBeNull();
   });
 });
 
@@ -174,9 +174,7 @@ describe('HelpViewer link handling inside rendered Markdown', () => {
   it('opens a link to another help page inside the app, without calling the browser-open function', () => {
     render(<HelpViewer />);
     fireEvent.click(screen.getByRole('button', { name: 'Audio Codecs' }));
-    expect(
-      screen.getByRole('heading', { level: 2, name: 'Audio Codecs' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Audio Codecs' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('link', { name: 'Wrapper Authentication' }));
 
@@ -240,9 +238,7 @@ describe('HelpViewer translated pages (#111)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Keyboard Shortcuts' }));
 
     await waitFor(() => {
-      expect(
-        screen.getByRole('heading', { level: 2, name: 'Tastaturkürzel' })
-      ).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 2, name: 'Tastaturkürzel' })).toBeInTheDocument();
     });
     expect(screen.getByText(/wurde maschinell übersetzt/)).toBeInTheDocument();
   });
@@ -258,9 +254,7 @@ describe('HelpViewer translated pages (#111)', () => {
     await useTestLanguage('de');
     render(<HelpViewer />);
 
-    expect(
-      screen.getByRole('heading', { level: 2, name: 'Getting Started' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Getting Started' })).toBeInTheDocument();
     expect(screen.getByText(/noch nicht auf Deutsch übersetzt/)).toBeInTheDocument();
   });
 

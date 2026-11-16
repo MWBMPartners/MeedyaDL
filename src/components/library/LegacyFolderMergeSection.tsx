@@ -63,10 +63,7 @@ export function LegacyFolderMergeSection() {
       const found = await detectLegacyFolderPairs(selected);
       setPairs(found);
       if (found.length === 0) {
-        addToast(
-          'No split album folders found. Your library is already tidy.',
-          'success'
-        );
+        addToast('No split album folders found. Your library is already tidy.', 'success');
       } else {
         addToast(
           `Found ${found.length} legacy sibling-folder pair${found.length === 1 ? '' : 's'} that can be merged.`,
@@ -89,7 +86,10 @@ export function LegacyFolderMergeSection() {
       const preview = await previewLegacyFolderMerge(pair);
       setActivePreview(preview);
     } catch (err) {
-      showError('MeedyaDL could not work out what merging those two folders would do. Nothing was moved; scan the folder again, then try again.', err);
+      showError(
+        'MeedyaDL could not work out what merging those two folders would do. Nothing was moved; scan the folder again, then try again.',
+        err
+      );
     } finally {
       setPreviewing(false);
     }
@@ -105,11 +105,7 @@ export function LegacyFolderMergeSection() {
       // Drop the now-merged pair from the list so the user can
       // see the remaining work without re-scanning.
       setPairs(
-        (prev) =>
-          prev?.filter(
-            (p) =>
-              p.unsuffixed_path !== report.pair.unsuffixed_path
-          ) ?? null
+        (prev) => prev?.filter((p) => p.unsuffixed_path !== report.pair.unsuffixed_path) ?? null
       );
       setActivePreview(null);
       // Plain words for what moved ("sidecars" meant the lyrics and
@@ -123,13 +119,16 @@ export function LegacyFolderMergeSection() {
           undefined,
           undefined,
           undefined,
-          report.warnings.join('\n'),
+          report.warnings.join('\n')
         );
       } else {
         addToast(`Merged "${report.pair.album_basename}": ${moved}.`, 'success');
       }
     } catch (err) {
-      showError('MeedyaDL could not finish merging those two folders. Scan the folder again to see what is left to merge; the details say what stopped it.', err);
+      showError(
+        'MeedyaDL could not finish merging those two folders. Scan the folder again to see what is left to merge; the details say what stopped it.',
+        err
+      );
     } finally {
       setExecuting(false);
     }
@@ -138,18 +137,14 @@ export function LegacyFolderMergeSection() {
   return (
     <section className="mt-8 pt-6 border-t border-border-light">
       <header className="mb-3">
-        <h2 className="text-lg font-semibold text-content-primary">
-          Legacy Folder Cleanup
-        </h2>
+        <h2 className="text-lg font-semibold text-content-primary">Legacy Folder Cleanup</h2>
         <p className="text-sm text-content-secondary max-w-3xl mt-1">
-          Some albums downloaded by older versions of MeedyaDL, with
-          companion codecs on (for example Dolby Atmos plus a lossless
-          copy) and the{' '}
+          Some albums downloaded by older versions of MeedyaDL, with companion codecs on (for
+          example Dolby Atmos plus a lossless copy) and the{' '}
           <code className="font-mono text-xs">[Explicit]</code> /{' '}
-          <code className="font-mono text-xs">[Clean]</code> label in their
-          names, ended up split across two folders side by side. New
-          downloads are no longer split; this tool merges any pairs left
-          over from those older downloads into one folder.
+          <code className="font-mono text-xs">[Clean]</code> label in their names, ended up split
+          across two folders side by side. New downloads are no longer split; this tool merges any
+          pairs left over from those older downloads into one folder.
         </p>
       </header>
 
@@ -158,7 +153,9 @@ export function LegacyFolderMergeSection() {
           variant="secondary"
           onClick={handleScan}
           disabled={scanning}
-          icon={scanning ? <RefreshCw size={16} className="animate-spin" /> : <FolderOpen size={16} />}
+          icon={
+            scanning ? <RefreshCw size={16} className="animate-spin" /> : <FolderOpen size={16} />
+          }
         >
           {scanning ? 'Scanning…' : 'Scan for legacy folder pairs'}
         </Button>
@@ -192,7 +189,10 @@ export function LegacyFolderMergeSection() {
                   <td className="px-3 py-2 text-content-secondary font-mono text-xs">
                     {pair.suffix}
                   </td>
-                  <td className="px-3 py-2 text-content-tertiary font-mono text-xs truncate max-w-md" title={pair.parent}>
+                  <td
+                    className="px-3 py-2 text-content-tertiary font-mono text-xs truncate max-w-md"
+                    title={pair.parent}
+                  >
                     {pair.parent}
                   </td>
                   <td className="px-3 py-2 text-right">
@@ -232,10 +232,8 @@ export function LegacyFolderMergeSection() {
                 {activePreview.pair.unsuffixed_path}
               </span>{' '}
               will be renamed with the{' '}
-              <code className="font-mono">
-                {activePreview.pair.suffix}
-              </code>{' '}
-              advisory suffix (where appropriate), moved into{' '}
+              <code className="font-mono">{activePreview.pair.suffix}</code> advisory suffix (where
+              appropriate), moved into{' '}
               <span className="font-mono text-content-primary">
                 {activePreview.pair.suffixed_path}
               </span>
@@ -243,9 +241,17 @@ export function LegacyFolderMergeSection() {
             </p>
 
             <ul className="text-content-primary space-y-1 list-disc list-inside">
-              <li>{activePreview.audio_count} audio file{activePreview.audio_count === 1 ? '' : 's'}</li>
-              <li>{activePreview.sidecar_count} lyric / subtitle sidecar{activePreview.sidecar_count === 1 ? '' : 's'}</li>
-              <li>{activePreview.other_count} other file{activePreview.other_count === 1 ? '' : 's'} (cover art, etc.)</li>
+              <li>
+                {activePreview.audio_count} audio file{activePreview.audio_count === 1 ? '' : 's'}
+              </li>
+              <li>
+                {activePreview.sidecar_count} lyric / subtitle sidecar
+                {activePreview.sidecar_count === 1 ? '' : 's'}
+              </li>
+              <li>
+                {activePreview.other_count} other file{activePreview.other_count === 1 ? '' : 's'}{' '}
+                (cover art, etc.)
+              </li>
               {activePreview.will_merge_manifest && (
                 <li>
                   <code className="font-mono text-xs">manifest.meedyadl</code> will be merged
@@ -260,24 +266,16 @@ export function LegacyFolderMergeSection() {
                   Potential filename collisions
                 </div>
                 <p className="text-content-secondary mb-2">
-                  These files already exist in the destination. They
-                  won't be overwritten — colliders will be renamed{' '}
-                  <code className="font-mono">name.1.ext</code>,{' '}
-                  <code className="font-mono">name.2.ext</code>, etc.
-                  so nothing is lost.
+                  These files already exist in the destination. They won't be overwritten —
+                  colliders will be renamed <code className="font-mono">name.1.ext</code>,{' '}
+                  <code className="font-mono">name.2.ext</code>, etc. so nothing is lost.
                 </p>
                 <ul className="font-mono text-xs space-y-0.5">
-                  {activePreview.potential_collisions
-                    .slice(0, 5)
-                    .map((name) => (
-                      <li key={name}>{name}</li>
-                    ))}
+                  {activePreview.potential_collisions.slice(0, 5).map((name) => (
+                    <li key={name}>{name}</li>
+                  ))}
                   {activePreview.potential_collisions.length > 5 && (
-                    <li>
-                      …{' '}
-                      {activePreview.potential_collisions.length - 5}{' '}
-                      more
-                    </li>
+                    <li>… {activePreview.potential_collisions.length - 5} more</li>
                   )}
                 </ul>
               </div>
@@ -295,7 +293,13 @@ export function LegacyFolderMergeSection() {
                 variant="primary"
                 onClick={handleConfirmMerge}
                 disabled={executing}
-                icon={executing ? <RefreshCw size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+                icon={
+                  executing ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : (
+                    <CheckCircle2 size={14} />
+                  )
+                }
               >
                 {executing ? 'Merging…' : 'Merge folders'}
               </Button>

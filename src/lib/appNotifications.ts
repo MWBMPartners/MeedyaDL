@@ -43,10 +43,8 @@ const TOAST_TYPES: readonly ToastType[] = ['success', 'error', 'warning', 'info'
 export function showAppNotification(event: AppNotificationEvent): void {
   if (!event.show_in_app) return;
   const type: ToastType = TOAST_TYPES.includes(event.toast_type) ? event.toast_type : 'info';
-  useUiStore
-    .getState()
-    .addToast(event.body, type, undefined, undefined, undefined, undefined, {
-      kind: event.kind,
-      system: false,
-    });
+  useUiStore.getState().addToast(event.body, type, undefined, undefined, undefined, undefined, {
+    kind: event.kind,
+    system: false,
+  });
 }

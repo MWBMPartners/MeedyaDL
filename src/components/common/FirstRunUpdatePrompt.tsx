@@ -119,8 +119,8 @@ export default function FirstRunUpdatePrompt() {
               (<span className="text-content-primary font-medium">v{info.latestVersion}</span>)
             </>
           )}{' '}
-          is available. You can install it now before setting up MeedyaDL, or continue setup on
-          the version you already have and update later.
+          is available. You can install it now before setting up MeedyaDL, or continue setup on the
+          version you already have and update later.
         </p>
 
         {downloadError && (

@@ -45,9 +45,12 @@ pub async fn detect_bpm(file_path: &Path, ffmpeg_path: Option<&str>) -> Option<f
     // First: check if BPM tag already exists in the file metadata
     let existing = tokio::process::Command::new(&ffprobe)
         .args([
-            "-v", "quiet",
-            "-show_entries", "format_tags=BPM,TBPM,tmpo",
-            "-of", "csv=p=0",
+            "-v",
+            "quiet",
+            "-show_entries",
+            "format_tags=BPM,TBPM,tmpo",
+            "-of",
+            "csv=p=0",
         ])
         .arg(file_path)
         .output()
@@ -59,7 +62,10 @@ pub async fn detect_bpm(file_path: &Path, ffmpeg_path: Option<&str>) -> Option<f
         if !trimmed.is_empty() {
             if let Ok(bpm) = trimmed.parse::<f64>() {
                 if bpm > 0.0 {
-                    log::debug!("BPM from existing tag: {bpm:.0} for {}", file_path.display());
+                    log::debug!(
+                        "BPM from existing tag: {bpm:.0} for {}",
+                        file_path.display()
+                    );
                     return Some(bpm);
                 }
             }
@@ -89,7 +95,9 @@ pub async fn detect_bpm(file_path: &Path, ffmpeg_path: Option<&str>) -> Option<f
             &file_path.to_string_lossy(),
             "-af",
             "aresample=22050,lowpass=f=300,highpass=f=40,silencedetect=noise=-30dB:d=0.1",
-            "-f", "null", "-",
+            "-f",
+            "null",
+            "-",
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
@@ -100,10 +108,7 @@ pub async fn detect_bpm(file_path: &Path, ffmpeg_path: Option<&str>) -> Option<f
         let stderr = String::from_utf8_lossy(&output.stderr);
 
         // Count silence_end markers (each marks the start of a sound onset)
-        let onset_count = stderr
-            .lines()
-            .filter(|l| l.contains("silence_end"))
-            .count();
+        let onset_count = stderr.lines().filter(|l| l.contains("silence_end")).count();
 
         let duration = parse_ffmpeg_duration(&stderr);
 
@@ -218,7 +223,11 @@ pub async fn process_bpm_for_directory(
 
         if let Some(bpm) = detect_bpm(&path, ffmpeg_path).await {
             let bpm_rounded = bpm.round() as u16;
-            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
 
             let write_result = match ext.as_str() {
                 "m4a" | "mp4" => write_bpm_m4a(&path, bpm_rounded),
@@ -238,8 +247,8 @@ pub async fn process_bpm_for_directory(
 
 /// Write BPM to an M4A file using mp4ameta's `tmpo` atom.
 fn write_bpm_m4a(path: &Path, bpm: u16) -> Result<(), String> {
-    let mut tag = mp4ameta::Tag::read_from_path(path)
-        .map_err(|e| format!("Failed to read M4A tags: {e}"))?;
+    let mut tag =
+        mp4ameta::Tag::read_from_path(path).map_err(|e| format!("Failed to read M4A tags: {e}"))?;
     tag.set_bpm(bpm);
     tag.write_to_path(path)
         .map_err(|e| format!("Failed to write M4A tags: {e}"))?;

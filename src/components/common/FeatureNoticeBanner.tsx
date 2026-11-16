@@ -99,7 +99,11 @@ const TOKEN_CLASSES: Record<StatusToken, { bg: string; border: string; text: str
     border: 'border-status-warning',
     text: 'text-status-warning-text',
   },
-  error: { bg: 'bg-status-error-bg', border: 'border-status-error', text: 'text-status-error-text' },
+  error: {
+    bg: 'bg-status-error-bg',
+    border: 'border-status-error',
+    text: 'text-status-error-text',
+  },
 };
 
 /** One icon per status token, matching ToastContainer's icon choices. */

@@ -178,9 +178,7 @@ pub async fn check_internet_connectivity(
 
     if !has_internet {
         log::warn!("Pre-flight internet check: Tier 1 FAILED — no general internet connectivity");
-        log::info!(
-            "Pre-flight internet check: Tier 2 ({tier2_name}) → skipped (no internet)"
-        );
+        log::info!("Pre-flight internet check: Tier 2 ({tier2_name}) → skipped (no internet)");
         return Some(PreflightWarning {
             check: PreflightCheck::Internet,
             message: "No internet connectivity — could not reach Cloudflare or Google. \
@@ -529,10 +527,10 @@ pub async fn check_wrapper_health(wrapper_url: &str) -> Option<PreflightWarning>
 /// Returns:
 /// - `None` if the socket accepts the connection.
 /// - `Some(PreflightWarning)` on parse error, connect refusal, or timeout.
-pub async fn check_wrapper_decrypt_health(
-    wrapper_decrypt_ip: &str,
-) -> Option<PreflightWarning> {
-    let (host, port_str) = match crate::utils::wrapper_address::split_decrypt_address(wrapper_decrypt_ip) {
+pub async fn check_wrapper_decrypt_health(wrapper_decrypt_ip: &str) -> Option<PreflightWarning> {
+    let (host, port_str) = match crate::utils::wrapper_address::split_decrypt_address(
+        wrapper_decrypt_ip,
+    ) {
         Some((h, p)) => (h, p),
         None => {
             return Some(PreflightWarning {
@@ -610,8 +608,7 @@ pub async fn check_wrapper_m3u8_health(wrapper_m3u8_ip: &str) -> Option<Prefligh
         }
     };
 
-    let connect =
-        tokio::net::TcpStream::connect((host, port));
+    let connect = tokio::net::TcpStream::connect((host, port));
     match tokio::time::timeout(std::time::Duration::from_secs(3), connect).await {
         Ok(Ok(_stream)) => None,
         Ok(Err(err)) => Some(PreflightWarning {

@@ -650,9 +650,7 @@ pub(crate) fn normalize_color(value: &str) -> Option<String> {
     // second, belt-and-braces guard rather than a plain `&trimmed[..7]` —
     // if this condition is ever loosened later to accept non-ASCII input,
     // it stays safe instead of quietly becoming a crash again.
-    if trimmed.starts_with('#')
-        && trimmed.is_ascii()
-        && (trimmed.len() == 7 || trimmed.len() == 9)
+    if trimmed.starts_with('#') && trimmed.is_ascii() && (trimmed.len() == 7 || trimmed.len() == 9)
     {
         // Return the first 7 chars (#RRGGBB), strip alpha channel if present (#RRGGBBAA)
         return Some(crate::utils::text::truncate_str(trimmed, 7).to_uppercase());

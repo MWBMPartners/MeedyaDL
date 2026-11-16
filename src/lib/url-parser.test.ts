@@ -38,7 +38,17 @@ import { describe, it, expect } from 'vitest';
  * Import the functions under test from the url-parser module.
  * These are the public API of the parser that components consume.
  */
-import { parseAppleMusicUrl, isAppleMusicUrl, getContentTypeLabel, detectService, parseMediaUrl, isSupportedUrl, parseSubmittableUrl, classifyForSubmission, explainSubmissionCheck } from './url-parser';
+import {
+  parseAppleMusicUrl,
+  isAppleMusicUrl,
+  getContentTypeLabel,
+  detectService,
+  parseMediaUrl,
+  isSupportedUrl,
+  parseSubmittableUrl,
+  classifyForSubmission,
+  explainSubmissionCheck,
+} from './url-parser';
 
 /**
  * Test suite for `isAppleMusicUrl()` - domain validation.
@@ -71,9 +81,9 @@ describe('isAppleMusicUrl', () => {
 
   /** Accepts slug-less Classical URL with locale query — the real live shape */
   it('accepts classical.music.apple.com URLs with slug-less path + locale query', () => {
-    expect(
-      isAppleMusicUrl('https://classical.music.apple.com/gb/album/1844602145?l=en-GB')
-    ).toBe(true);
+    expect(isAppleMusicUrl('https://classical.music.apple.com/gb/album/1844602145?l=en-GB')).toBe(
+      true
+    );
   });
 
   /** Ensures non-Apple domains are rejected, even if the path looks valid */
@@ -347,9 +357,7 @@ describe('parseAppleMusicUrl - classical recording URLs', () => {
   it('does not misclassify album URLs as recordings', () => {
     // Regression canary — `/album/` URLs must NOT accidentally hit the
     // `recording` branch if someone refactors the detection order.
-    const result = parseAppleMusicUrl(
-      'https://classical.music.apple.com/gb/album/1844602145'
-    );
+    const result = parseAppleMusicUrl('https://classical.music.apple.com/gb/album/1844602145');
     expect(result.contentType).toBe('album');
     expect(result.isValid).toBe(true);
   });
@@ -423,7 +431,9 @@ describe('detectService', () => {
     // an `includes()` check, so both of these were misread (stand-in
     // review, 24 Sept 2026).
     expect(detectService('https://www.bbc.co.uk/news/iplayer-changes-123')).not.toBe('bbc-iplayer');
-    expect(detectService('https://www.bbc.co.uk/news/entertainment/iplayer')).not.toBe('bbc-iplayer');
+    expect(detectService('https://www.bbc.co.uk/news/entertainment/iplayer')).not.toBe(
+      'bbc-iplayer'
+    );
     // The service's own address, with nothing after it, still counts.
     expect(detectService('https://www.bbc.co.uk/iplayer')).toBe('bbc-iplayer');
   });
@@ -450,9 +460,7 @@ describe('detectService', () => {
     // This link is really on example.com. It just happens to mention
     // "music.apple.com" inside its own `ref` parameter -- that must not
     // make it count as an Apple Music link.
-    expect(
-      detectService('https://example.com/album/x/1?ref=music.apple.com&i=2')
-    ).toBeNull();
+    expect(detectService('https://example.com/album/x/1?ref=music.apple.com&i=2')).toBeNull();
   });
 
   it('does not classify a look-alike host as Apple Music', () => {
@@ -461,9 +469,7 @@ describe('detectService', () => {
     // "evil.example" -- an entirely different, attacker-controlled
     // domain. A correct host check compares the actual host, not a
     // substring of the URL text.
-    expect(
-      detectService('https://music.apple.com.evil.example/us/album/test/123')
-    ).toBeNull();
+    expect(detectService('https://music.apple.com.evil.example/us/album/test/123')).toBeNull();
   });
 
   it('does not classify a BBC host as BBC iPlayer without the iPlayer/Sounds path', () => {

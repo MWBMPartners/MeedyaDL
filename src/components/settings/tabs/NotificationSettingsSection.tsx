@@ -164,7 +164,9 @@ export function NotificationSettingsSection() {
             options={NOTIFICATION_STYLE_OPTIONS}
             value={style}
             onChange={(e) =>
-              notificationStyle.set(e.target.value as 'in_app_only' | 'native_and_in_app' | 'native_only')
+              notificationStyle.set(
+                e.target.value as 'in_app_only' | 'native_and_in_app' | 'native_only'
+              )
             }
           />
 
@@ -199,8 +201,8 @@ export function NotificationSettingsSection() {
                 Send Test Notification
               </Button>
               <p className="text-xs text-content-tertiary">
-                Sends one system notification now, using the choices on this screen, even
-                before you save them.
+                Sends one system notification now, using the choices on this screen, even before you
+                save them.
               </p>
             </div>
           )}

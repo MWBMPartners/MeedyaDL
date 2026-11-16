@@ -54,13 +54,17 @@ export function CrashScreen({ error, componentStack, reportId, onReload }: Crash
     <main className="h-screen overflow-auto bg-surface-primary text-content-primary flex items-center justify-center p-6">
       <div className="w-full max-w-xl space-y-5">
         <div className="flex items-start gap-3">
-          <AlertTriangle size={28} className="text-status-warning flex-shrink-0 mt-0.5" aria-hidden="true" />
+          <AlertTriangle
+            size={28}
+            className="text-status-warning flex-shrink-0 mt-0.5"
+            aria-hidden="true"
+          />
           <div className="space-y-2">
             <h1 className="text-xl font-semibold">Something went wrong on this screen</h1>
             <p className="text-sm text-content-secondary leading-relaxed">
               MeedyaDL hit a problem it could not recover from while drawing this screen. Reloading
-              usually fixes it. Downloads that were already running carry on in the background,
-              and your settings are not affected.
+              usually fixes it. Downloads that were already running carry on in the background, and
+              your settings are not affected.
             </p>
             <p className="text-sm text-content-secondary leading-relaxed">
               If it keeps happening, please report it. You will see exactly what is sent before

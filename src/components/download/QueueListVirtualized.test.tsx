@@ -30,7 +30,7 @@ describe('QueueListVirtualized column headers', () => {
         onMoveUp={noop}
         onMoveDown={noop}
         onMoveToBottom={noop}
-      />,
+      />
     );
     const headers = screen.getAllByRole('columnheader').map((h) => h.textContent?.trim());
     expect(headers).toContain('Service');

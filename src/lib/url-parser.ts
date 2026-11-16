@@ -300,7 +300,15 @@ export function getContentTypeLabel(contentType: AppleMusicContentType): string 
  * (e.g., music.youtube.com before youtube.com).
  */
 const SERVICE_DOMAINS: Array<{ service: MediaServiceId; domains: string[] }> = [
-  { service: 'apple-music', domains: ['classical.music.apple.com', 'music.apple.com', 'classical.apple.com', 'itunes.apple.com'] },
+  {
+    service: 'apple-music',
+    domains: [
+      'classical.music.apple.com',
+      'music.apple.com',
+      'classical.apple.com',
+      'itunes.apple.com',
+    ],
+  },
   { service: 'youtube-music', domains: ['music.youtube.com'] },
   { service: 'youtube', domains: ['youtube.com', 'youtu.be'] },
   { service: 'spotify', domains: ['open.spotify.com'] },
@@ -543,7 +551,10 @@ export type SubmissionCheck =
  * @param options -- Whether developer-only services (Spotify) are on.
  * @returns Which of the three cases it falls into.
  */
-export function classifyForSubmission(url: string, options: SubmissionOptions = {}): SubmissionCheck {
+export function classifyForSubmission(
+  url: string,
+  options: SubmissionOptions = {}
+): SubmissionCheck {
   const trimmed = url.trim();
   const parsed = parseMediaUrl(trimmed);
 

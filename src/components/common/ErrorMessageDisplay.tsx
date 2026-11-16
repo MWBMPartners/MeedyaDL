@@ -126,9 +126,8 @@ function buildGamdlIssueUrl(message: string, sourceUrl?: string): string {
     : message;
   // Take the first sentence (or first ~80 chars) for the title.
   const firstSentence = stripped.split(/(?<=[.!?])\s/)[0] ?? stripped;
-  const title = firstSentence.length > 80
-    ? firstSentence.slice(0, 77).trimEnd() + '…'
-    : firstSentence;
+  const title =
+    firstSentence.length > 80 ? firstSentence.slice(0, 77).trimEnd() + '…' : firstSentence;
 
   const bodyLines: string[] = [];
   bodyLines.push('### What happened');
@@ -182,7 +181,10 @@ export function ErrorMessageDisplay({
       await navigator.clipboard.writeText(message);
       addToast('Error message copied to clipboard', 'info');
     } catch {
-      addToast('MeedyaDL could not copy the message. Open Details below it, select the text and copy it with Cmd/Ctrl+C.', 'error');
+      addToast(
+        'MeedyaDL could not copy the message. Open Details below it, select the text and copy it with Cmd/Ctrl+C.',
+        'error'
+      );
     }
   }, [addToast, message]);
 
@@ -223,7 +225,10 @@ export function ErrorMessageDisplay({
     try {
       await openExternal(url);
     } catch {
-      addToast('MeedyaDL could not open your web browser. Check that a default browser is set, then try again.', 'error');
+      addToast(
+        'MeedyaDL could not open your web browser. Check that a default browser is set, then try again.',
+        'error'
+      );
     }
   }, [addToast, message, sourceUrl]);
 
@@ -307,9 +312,7 @@ export function ErrorMessageDisplay({
         </button>
       </div>
       <ErrorDetails details={details} className="mt-0.5" />
-      {menuPos && (
-        <ContextMenu items={items} x={menuPos.x} y={menuPos.y} onClose={closeMenu} />
-      )}
+      {menuPos && <ContextMenu items={items} x={menuPos.x} y={menuPos.y} onClose={closeMenu} />}
     </>
   );
 }

@@ -18,9 +18,7 @@
 // own session in its container volume, so MeedyaDL never needs to re-send.
 
 use crate::services::config_service;
-use crate::services::health_check_service::{
-    self, WrapperV2LoginResult,
-};
+use crate::services::health_check_service::{self, WrapperV2LoginResult};
 use tauri::AppHandle;
 
 /// Resolves the configured wrapper-v2 HTTP base URL from settings.

@@ -769,7 +769,8 @@ mod tests {
             .mode(0o600)
             .open(&path)
             .expect("create");
-        file.write_all(b"# Netscape HTTP Cookie File\n").expect("write");
+        file.write_all(b"# Netscape HTTP Cookie File\n")
+            .expect("write");
         drop(file);
 
         let mode = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
@@ -818,7 +819,8 @@ mod tests {
         );
 
         let mut file = file;
-        file.write_all(b"# Netscape HTTP Cookie File\n").expect("write");
+        file.write_all(b"# Netscape HTTP Cookie File\n")
+            .expect("write");
         let mode_after = std::fs::metadata(&path).expect("stat").permissions().mode() & 0o777;
         assert_eq!(mode_after, 0o600, "and still private afterwards");
     }

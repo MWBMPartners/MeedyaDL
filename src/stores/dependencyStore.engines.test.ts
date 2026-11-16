@@ -13,7 +13,9 @@ import { useDependencyStore } from './dependencyStore';
 import { useSettingsStore } from './settingsStore';
 
 const installGamdl = vi.fn().mockResolvedValue('3.9.1');
-const checkGamdlStatus = vi.fn().mockResolvedValue({ name: 'GAMDL', installed: true, version: '3.9.1' });
+const checkGamdlStatus = vi
+  .fn()
+  .mockResolvedValue({ name: 'GAMDL', installed: true, version: '3.9.1' });
 const installVotify = vi.fn().mockResolvedValue('1.0.0');
 
 vi.mock('@/lib/tauri-commands', () => ({

@@ -69,9 +69,7 @@ pub fn delete_history_entry(app: AppHandle, id: String) -> Result<(), String> {
 /// history is small (≤1000 entries per MAX_HISTORY_ENTRIES) and
 /// the aggregation is sub-ms.
 #[tauri::command]
-pub fn get_lifetime_stats(
-    app: AppHandle,
-) -> crate::services::stats_service::LifetimeStats {
+pub fn get_lifetime_stats(app: AppHandle) -> crate::services::stats_service::LifetimeStats {
     crate::services::stats_service::get_lifetime_stats(&app)
 }
 
@@ -377,10 +375,7 @@ mod tests {
     fn a_shortcut_wearing_a_music_name_is_refused() {
         use std::io::Write;
 
-        let dir = std::env::temp_dir().join(format!(
-            "meedyadl-open-test-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("meedyadl-open-test-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
 
         // Something that would run if it were opened.
@@ -458,9 +453,15 @@ mod tests {
         // Before the flag: it passes every other check, which is the
         // whole problem this test exists for.
         let meta = std::fs::symlink_metadata(&disguise).unwrap();
-        assert!(!meta.file_type().is_symlink(), "an alias is not a symbolic link");
+        assert!(
+            !meta.file_type().is_symlink(),
+            "an alias is not a symbolic link"
+        );
         assert!(meta.is_file(), "and it answers yes to being a file");
-        assert!(OPENABLE_EXTENSIONS.contains(&"m4a"), "and its name is allowed");
+        assert!(
+            OPENABLE_EXTENSIONS.contains(&"m4a"),
+            "and its name is allowed"
+        );
 
         // Now mark it the way Finder marks an alias.
         let mut finder_info = [0u8; 32];
@@ -497,7 +498,10 @@ mod tests {
         );
 
         let result = open_downloaded_file(disguise.to_string_lossy().into_owned());
-        assert!(result.is_err(), "an alias must be refused however it is named");
+        assert!(
+            result.is_err(),
+            "an alias must be refused however it is named"
+        );
         assert!(
             result.unwrap_err().contains("alias"),
             "and the person should be told why"
@@ -533,10 +537,7 @@ mod tests {
     /// launching something.
     #[test]
     fn an_ordinary_music_file_still_passes_the_checks() {
-        let dir = std::env::temp_dir().join(format!(
-            "meedyadl-open-ok-{}",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("meedyadl-open-ok-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         let track = dir.join("real track.m4a");
         std::fs::write(&track, b"not really audio, but that is not what is checked").unwrap();

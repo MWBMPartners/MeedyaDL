@@ -76,7 +76,9 @@ export function CrashReportDialog({ open, onClose, report, onReported }: CrashRe
       setIsLoading(true);
       exportCrashReport(report.id)
         .then(setPreview)
-        .catch(() => setPreview('MeedyaDL could not show this report. Close this window and try again.'))
+        .catch(() =>
+          setPreview('MeedyaDL could not show this report. Close this window and try again.')
+        )
         .finally(() => setIsLoading(false));
     }
   }, [open, report]);
@@ -103,7 +105,10 @@ export function CrashReportDialog({ open, onClose, report, onReported }: CrashRe
       onReported?.();
       onClose();
     } catch {
-      addToast('MeedyaDL could not open your web browser, so the report was not sent. Check that a default browser is set, then try again.', 'error');
+      addToast(
+        'MeedyaDL could not open your web browser, so the report was not sent. Check that a default browser is set, then try again.',
+        'error'
+      );
     } finally {
       setIsOpening(false);
     }

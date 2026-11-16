@@ -191,7 +191,13 @@ import {
   type WrapperUrlClass,
 } from '@/lib/wrapper-url-classifier';
 import { whereToLookForNotifications } from '@/lib/notificationAdvice';
-import { LOGS_FOLDER_FAILED, WRAPPER_SIGN_IN_FAILED, explainError, rawError, showError } from '@/lib/errorMessages';
+import {
+  LOGS_FOLDER_FAILED,
+  WRAPPER_SIGN_IN_FAILED,
+  explainError,
+  rawError,
+  showError,
+} from '@/lib/errorMessages';
 
 /**
  * Download mode dropdown options.
@@ -331,10 +337,7 @@ export function AdvancedTab() {
    * network-layer auth, so a LAN-bound wrapper is reachable
    * (and usable) by every device on the network.
    */
-  const wrapperUrlClass = useMemo(
-    () => classifyWrapperUrl(wrapperUrl.value),
-    [wrapperUrl.value],
-  );
+  const wrapperUrlClass = useMemo(() => classifyWrapperUrl(wrapperUrl.value), [wrapperUrl.value]);
   const musickitTeamId = useSettingsField('musickit_team_id');
   const musickitKeyId = useSettingsField('musickit_key_id');
   const acoustidApiKey = useSettingsField('acoustid_api_key');
@@ -420,8 +423,7 @@ export function AdvancedTab() {
   const [auditExpanded, setAuditExpanded] = useState(false);
 
   /** Whether MusicKit credentials are configured (required for audit) */
-  const hasMusicKitCredentials =
-    !!musickitTeamId.value?.trim() && !!musickitKeyId.value?.trim();
+  const hasMusicKitCredentials = !!musickitTeamId.value?.trim() && !!musickitKeyId.value?.trim();
 
   /**
    * Whether to render the "Unlocking Method" section at all (#1189).
@@ -607,7 +609,10 @@ export function AdvancedTab() {
       </SettingsSection>
 
       {/* ── File Options ── */}
-      <SettingsSection title="File Options" description="Filename truncation and metadata tag exclusions.">
+      <SettingsSection
+        title="File Options"
+        description="Filename truncation and metadata tag exclusions."
+      >
         <Input
           label="Truncate Filenames"
           description="Maximum filename length (leave empty for no limit)"
@@ -637,7 +642,10 @@ export function AdvancedTab() {
       </SettingsSection>
 
       {/* ── Error Reporting ── */}
-      <SettingsSection title="Error Reporting" description="Crash report settings and local error history.">
+      <SettingsSection
+        title="Error Reporting"
+        description="Crash report settings and local error history."
+      >
         <Toggle
           label="Send Anonymous Crash Reports"
           description="When enabled, anonymous crash data (error message, stack trace, app version, OS) is sent to our error tracking service to help identify and fix bugs. No personal data, download history, or account information is ever included. Requires an app restart to take effect."
@@ -707,14 +715,14 @@ export function AdvancedTab() {
             </p>
             <p className="text-xs text-status-warning-text">
               Verbose logging includes detailed information that may contain sensitive data such as
-              cookie file paths/values, wrapper URLs with authentication tokens, Apple Music API responses,
-              MusicKit credentials, and full download URLs. Disable this setting before sharing
-              activity logs with others.
+              cookie file paths/values, wrapper URLs with authentication tokens, Apple Music API
+              responses, MusicKit credentials, and full download URLs. Disable this setting before
+              sharing activity logs with others.
             </p>
             <p className="text-xs text-status-warning-text mt-2">
               On alpha, beta and release-candidate builds (and any build before 1.0), this setting
-              is kept across restarts to aid debugging. In full releases, it automatically resets to off on restart. You may need
-              to re-enable it each session in full release builds.
+              is kept across restarts to aid debugging. In full releases, it automatically resets to
+              off on restart. You may need to re-enable it each session in full release builds.
             </p>
           </div>
         )}
@@ -797,10 +805,10 @@ export function AdvancedTab() {
             aria-label="On-disk activity log path override"
           />
           <p className="text-xs text-content-secondary mt-1">
-            Optional. Leave blank to store on-disk activity logs in the default
-            location alongside the tracing log. Pointing at an external drive
-            can save space on the system disk. Files older than 7 days are
-            pruned automatically. <strong>Applies on the next app restart.</strong>
+            Optional. Leave blank to store on-disk activity logs in the default location alongside
+            the tracing log. Pointing at an external drive can save space on the system disk. Files
+            older than 7 days are pruned automatically.{' '}
+            <strong>Applies on the next app restart.</strong>
           </p>
         </div>
 
@@ -872,7 +880,11 @@ export function AdvancedTab() {
       </SettingsSection>
 
       {/* ── Wrapper ── */}
-      <SettingsSection title="Wrapper" description="Alternative authentication via a locally-running wrapper service." defaultOpen={false}>
+      <SettingsSection
+        title="Wrapper"
+        description="Alternative authentication via a locally-running wrapper service."
+        defaultOpen={false}
+      >
         {!supportsWrapper && (
           <p className="text-xs text-content-tertiary bg-surface-secondary rounded-platform p-2">
             The Wrapper service only provides native binaries for Linux x86_64. On this platform you
@@ -1059,17 +1071,27 @@ export function AdvancedTab() {
       )}
 
       {/* ── API Credentials ── */}
-      <SettingsSection title="API Credentials" description="MusicKit, AcoustID, song.link, and developer tools." defaultOpen={false}>
+      <SettingsSection
+        title="API Credentials"
+        description="MusicKit, AcoustID, song.link, and developer tools."
+        defaultOpen={false}
+      >
         {/* MusicKit */}
         <div className="space-y-3">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-medium text-content-secondary">MusicKit (Apple Developer)</h3>
+            <h3 className="text-sm font-medium text-content-secondary">
+              MusicKit (Apple Developer)
+            </h3>
             <HelpButton topic="animated-artwork" />
           </div>
           <p className="text-xs text-content-tertiary">
             Required for animated artwork, API metadata enrichment, and music video companion
             downloads. Get your credentials from an{' '}
-            <TextButton onClick={() => openExternal('https://developer.apple.com/account/resources/authkeys/list')}>
+            <TextButton
+              onClick={() =>
+                openExternal('https://developer.apple.com/account/resources/authkeys/list')
+              }
+            >
               Apple Developer account
             </TextButton>
             .
@@ -1089,7 +1111,10 @@ export function AdvancedTab() {
             onChange={(e) => musickitKeyId.set(e.target.value.toUpperCase() || null)}
           />
           <div className="space-y-2">
-            <label htmlFor={musicKitPrivateKeyId} className="block text-sm font-medium text-content-primary">
+            <label
+              htmlFor={musicKitPrivateKeyId}
+              className="block text-sm font-medium text-content-primary"
+            >
               MusicKit Private Key (.p8)
             </label>
             <p className="text-xs text-content-secondary">
@@ -1119,12 +1144,14 @@ export function AdvancedTab() {
               </Button>
               {/* Fix 13 (a11y audit): same as Test Connection above. */}
               {keyStatus === 'saved' && (
-                <span role="status" className="text-xs text-status-success-text">Saved to keychain</span>
+                <span role="status" className="text-xs text-status-success-text">
+                  Saved to keychain
+                </span>
               )}
               {keyStatus === 'error' && (
                 <span role="alert" className="text-xs text-status-error-text">
-                MeedyaDL could not save the key. Try again.
-              </span>
+                  MeedyaDL could not save the key. Try again.
+                </span>
               )}
               {keyStored && keyStatus === 'idle' && (
                 <span className="text-xs text-status-success-text">Key stored in keychain</span>
@@ -1256,8 +1283,8 @@ export function AdvancedTab() {
             API Field Audit
           </DisclosureButton>
           <p className="text-xs text-content-tertiary leading-relaxed mb-4">
-            Developer tool: fetch an album from the Apple Music API and compare its fields against the
-            known tag definitions in tags.toml. Discovers new or unknown API fields.
+            Developer tool: fetch an album from the Apple Music API and compare its fields against
+            the known tag definitions in tags.toml. Discovers new or unknown API fields.
           </p>
 
           {auditExpanded && (
@@ -1296,7 +1323,9 @@ export function AdvancedTab() {
               {/* Fix 13 (a11y audit): plain text/results after a button
                   press, with nothing announcing them. */}
               {auditError && (
-                <p role="alert" className="text-sm text-status-error-text">{auditError}</p>
+                <p role="alert" className="text-sm text-status-error-text">
+                  {auditError}
+                </p>
               )}
               {auditResult && (
                 <div role="status" className="space-y-3 text-sm">
@@ -1304,9 +1333,7 @@ export function AdvancedTab() {
                     <span className="text-content-primary font-medium">
                       {auditResult.album_name ?? auditResult.album_id}
                     </span>
-                    <span className="text-content-tertiary">
-                      {auditResult.track_count} tracks
-                    </span>
+                    <span className="text-content-tertiary">{auditResult.track_count} tracks</span>
                   </div>
                   <div className="flex gap-4 flex-wrap text-sm">
                     <span className="px-2 py-0.5 rounded-platform-sm bg-green-500/20 text-green-400">
@@ -1335,7 +1362,8 @@ export function AdvancedTab() {
                             <span className="text-content-tertiary">({field.value_type})</span>
                             {field.sample_value && (
                               <span className="text-content-tertiary ml-1">
-                                = {field.sample_value.length > 60
+                                ={' '}
+                                {field.sample_value.length > 60
                                   ? `${field.sample_value.slice(0, 60)}…`
                                   : field.sample_value}
                               </span>
@@ -1363,9 +1391,7 @@ export function AdvancedTab() {
       </SettingsSection>
 
       {/* ── Developer Tools (hidden unless dev access is active) ──── */}
-      {devAccessEnabled.value && (
-        <DevToolsSection />
-      )}
+      {devAccessEnabled.value && <DevToolsSection />}
     </div>
   );
 }
@@ -1415,9 +1441,7 @@ function NotificationDiagnosticsRow() {
   }
 
   if (!diag) {
-    return (
-      <div className="text-xs text-content-tertiary">Loading notification diagnostics…</div>
-    );
+    return <div className="text-xs text-content-tertiary">Loading notification diagnostics…</div>;
   }
 
   // Pretty-format the style key. Falls back to the raw key for unknown
@@ -1516,13 +1540,16 @@ function IntegrityScanSection() {
       } else {
         addToast(
           `Integrity scan found ${r.issues.length} issue(s). See Diagnostics for details.`,
-          'warning',
+          'warning'
         );
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
-      showError('MeedyaDL could not finish checking your downloaded files. Try again; the details say what stopped it.', e);
+      showError(
+        'MeedyaDL could not finish checking your downloaded files. Try again; the details say what stopped it.',
+        e
+      );
     } finally {
       setRunning(false);
     }
@@ -1534,24 +1561,16 @@ function IntegrityScanSection() {
        suffix, it is simply `border-border`. This box had no border. */
     <div className="p-3 rounded-platform-lg bg-surface-secondary border border-border">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-semibold text-content-primary">
-          Integrity Scan
-        </p>
-        <Button
-          variant="secondary"
-          size="sm"
-          onClick={handleRun}
-          disabled={running}
-        >
+        <p className="text-xs font-semibold text-content-primary">Integrity Scan</p>
+        <Button variant="secondary" size="sm" onClick={handleRun} disabled={running}>
           {running ? 'Scanning…' : 'Run Integrity Scan'}
         </Button>
       </div>
       <p className="text-xs text-content-tertiary mb-2">
-        Looks through your output folder for damage left by older
-        versions of MeedyaDL — empty-tag filenames (<code>-.mp4</code>),
-        <code>[Unknown]/</code> folder segments, and zero-byte cover
-        files. <strong>Read-only</strong>: it reports what it finds and
-        changes nothing.
+        Looks through your output folder for damage left by older versions of MeedyaDL — empty-tag
+        filenames (<code>-.mp4</code>),
+        <code>[Unknown]/</code> folder segments, and zero-byte cover files.{' '}
+        <strong>Read-only</strong>: it reports what it finds and changes nothing.
       </p>
       {error && (
         <InlineError
@@ -1616,11 +1635,12 @@ function DevToolsSection() {
   // second tier checked here; it was removed on 2026-07-19, issue #1034 —
   // there is no longer anything to check.)
   useEffect(() => {
-    hasWebplayerToken().then(setWebplayerStatus).catch(() => setWebplayerStatus(false));
+    hasWebplayerToken()
+      .then(setWebplayerStatus)
+      .catch(() => setWebplayerStatus(false));
   }, []);
 
-  const hasUserCreds =
-    !!musickitTeamId.value?.trim() && !!musickitKeyId.value?.trim();
+  const hasUserCreds = !!musickitTeamId.value?.trim() && !!musickitKeyId.value?.trim();
 
   const handleClearWebplayerToken = async () => {
     await clearWebplayerToken();
@@ -1654,7 +1674,12 @@ function DevToolsSection() {
               </span>
               <span>Priority 2: Web session token</span>
               {webplayerStatus && (
-                <TextButton tone="danger" size="xs" className="ml-2" onClick={handleClearWebplayerToken}>
+                <TextButton
+                  tone="danger"
+                  size="xs"
+                  className="ml-2"
+                  onClick={handleClearWebplayerToken}
+                >
                   Clear
                 </TextButton>
               )}
@@ -1692,10 +1717,9 @@ function DevToolsSection() {
           <p className="text-xs text-content-secondary mt-1">
             Emits <code>--log-level</code> to the gamdl subprocess. Default
             <code> INFO</code> matches gamdl's compiled-in default. Switch to
-            <code> DEBUG</code> when filing upstream bug reports — it surfaces
-            v3.5.2+ structlog lines (e.g. <code>m3u8_master_url=</code>) that
-            are otherwise hidden, at the cost of ~10× more activity-log
-            output per track.
+            <code> DEBUG</code> when filing upstream bug reports — it surfaces v3.5.2+ structlog
+            lines (e.g. <code>m3u8_master_url=</code>) that are otherwise hidden, at the cost of
+            ~10× more activity-log output per track.
           </p>
         </div>
 
@@ -1753,7 +1777,10 @@ function DiagnosticBundleSection() {
       });
       setBundle(result);
     } catch (e) {
-      showError('MeedyaDL could not put the diagnostic report together. Try again; if it keeps happening, restart MeedyaDL.', e);
+      showError(
+        'MeedyaDL could not put the diagnostic report together. Try again; if it keeps happening, restart MeedyaDL.',
+        e
+      );
     } finally {
       setBusy(false);
     }
@@ -1765,7 +1792,10 @@ function DiagnosticBundleSection() {
       await navigator.clipboard.writeText(bundle.markdown_body);
       addToast('Bundle copied to clipboard.', 'success');
     } catch (e) {
-      showError('MeedyaDL could not copy the report. Select the report text and copy it with Cmd/Ctrl+C instead.', e);
+      showError(
+        'MeedyaDL could not copy the report. Select the report text and copy it with Cmd/Ctrl+C instead.',
+        e
+      );
     }
   };
 
@@ -1775,22 +1805,21 @@ function DiagnosticBundleSection() {
       const { open } = await import('@tauri-apps/plugin-shell');
       await open(bundle.github_issue_url);
     } catch (e) {
-      showError('MeedyaDL could not open your web browser. Copy the report instead, and paste it into a new issue on GitHub yourself.', e);
+      showError(
+        'MeedyaDL could not open your web browser. Copy the report instead, and paste it into a new issue on GitHub yourself.',
+        e
+      );
     }
   };
 
   return (
     <div className="pt-2 border-t border-border-light mt-2">
-      <h3 className="text-sm font-medium text-content-primary mb-1">
-        Diagnostic Bundle
-      </h3>
+      <h3 className="text-sm font-medium text-content-primary mb-1">Diagnostic Bundle</h3>
       <p className="text-xs text-content-secondary mb-2">
-        Captures the last 200 activity-log entries, component versions,
-        a redacted settings snapshot, and your output-directory tree
-        into a Markdown bundle suitable for pasting into a GitHub
-        issue. Credentials, file contents, and keychain material are
-        never included. Username paths are redacted to{' '}
-        <code>/Users/{'{user}'}</code>.
+        Captures the last 200 activity-log entries, component versions, a redacted settings
+        snapshot, and your output-directory tree into a Markdown bundle suitable for pasting into a
+        GitHub issue. Credentials, file contents, and keychain material are never included. Username
+        paths are redacted to <code>/Users/{'{user}'}</code>.
       </p>
       <Input
         value={summary}
@@ -1832,9 +1861,8 @@ function DiagnosticBundleSection() {
         {bundle && (
           <>
             <p className="text-xs text-content-secondary mb-3">
-              Review the contents below before sharing. Click <strong>Open
-              GitHub Issue</strong> to pop the new-issue form in your
-              browser — MeedyaDL never auto-submits.
+              Review the contents below before sharing. Click <strong>Open GitHub Issue</strong> to
+              pop the new-issue form in your browser — MeedyaDL never auto-submits.
             </p>
             <pre className="text-xs bg-surface-elevated border border-border-light rounded-platform p-3 overflow-auto max-h-[55vh] whitespace-pre-wrap break-all">
               {bundle.markdown_body}
@@ -1904,7 +1932,10 @@ function WrapperSignInSection() {
       await wrapperSignOut();
       addToast('Signed out of wrapper.', 'success');
     } catch (err) {
-      showError('MeedyaDL could not sign out of the wrapper. Check that the wrapper is running, then try again.', err);
+      showError(
+        'MeedyaDL could not sign out of the wrapper. Check that the wrapper is running, then try again.',
+        err
+      );
     } finally {
       setSigningOut(false);
       refreshStatus();
@@ -1982,7 +2013,10 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
   /** Instructional text shown on the 2FA step (echoes the daemon's `message`). */
   const [infoMessage, setInfoMessage] = useState<string | null>(null);
   /** Inline failure text -- from a `failed`/`error` result OR a thrown/rejected call. */
-  const [errorMessage, setErrorMessage] = useState<{ message: string; details: string | null } | null>(null);
+  const [errorMessage, setErrorMessage] = useState<{
+    message: string;
+    details: string | null;
+  } | null>(null);
   /** True while a sign-in or 2FA request is in flight; disables the submit button. */
   const [submitting, setSubmitting] = useState(false);
 
@@ -2021,7 +2055,7 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
       setStep('awaiting_2fa');
       setErrorMessage(null);
       setInfoMessage(
-        result.message ?? 'Enter the 6-digit verification code sent to your trusted device.',
+        result.message ?? 'Enter the 6-digit verification code sent to your trusted device.'
       );
       return;
     }
@@ -2031,7 +2065,11 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
     setErrorMessage(
       result.message
         ? explainError(WRAPPER_SIGN_IN_FAILED, result.message)
-        : { message: 'Apple did not accept that sign-in. Check your Apple ID and password, then try again.', details: null },
+        : {
+            message:
+              'Apple did not accept that sign-in. Check your Apple ID and password, then try again.',
+            details: null,
+          }
     );
   };
 
@@ -2074,8 +2112,8 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
       {step === 'credentials' ? (
         <form className="space-y-3" onSubmit={handleCredentialsSubmit}>
           <p className="text-xs text-content-secondary">
-            wrapper-v2 runs Apple&apos;s own sign-in flow. Your password is sent only to
-            your locally-running wrapper daemon and is never saved by MeedyaDL.
+            wrapper-v2 runs Apple&apos;s own sign-in flow. Your password is sent only to your
+            locally-running wrapper daemon and is never saved by MeedyaDL.
           </p>
           <Input
             label="Apple ID"
@@ -2097,8 +2135,8 @@ function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalPro
               required
             />
             <p className="text-xs text-content-tertiary mt-1">
-              An app-specific password is strongly recommended over your main Apple ID
-              password. Create one at{' '}
+              An app-specific password is strongly recommended over your main Apple ID password.
+              Create one at{' '}
               <TextButton onClick={() => openExternal('https://appleid.apple.com/account/manage')}>
                 appleid.apple.com
               </TextButton>{' '}

@@ -151,11 +151,15 @@ describe('downloadStore', () => {
 
       expect(useDownloadStore.getState().urlIsValid).toBe(true);
       expect(useDownloadStore.getState().urlContentType).toBe('unknown');
-      useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: false } }));
+      useSettingsStore.setState((s) => ({
+        settings: { ...s.settings, dev_access_enabled: false },
+      }));
     });
 
     it('refuses a Spotify URL without developer access -- Spotify is a developer-only preview', () => {
-      useSettingsStore.setState((s) => ({ settings: { ...s.settings, dev_access_enabled: false } }));
+      useSettingsStore.setState((s) => ({
+        settings: { ...s.settings, dev_access_enabled: false },
+      }));
       useDownloadStore.getState().setUrlInput('https://open.spotify.com/track/12345');
 
       expect(useDownloadStore.getState().urlIsValid).toBe(false);
@@ -199,7 +203,7 @@ describe('downloadStore', () => {
           urls: ['https://music.apple.com/us/album/midnights/1649434004'],
           options: undefined,
         },
-        undefined,
+        undefined
       );
       /* Input should be cleared after successful submission */
       expect(useDownloadStore.getState().urlInput).toBe('');
@@ -235,7 +239,7 @@ describe('downloadStore', () => {
           urls: ['https://music.apple.com/us/album/midnights/1649434004'],
           options: { song_codec: 'atmos' },
         },
-        undefined,
+        undefined
       );
     });
 
@@ -475,8 +479,11 @@ describe('downloadStore', () => {
       // "Details" (polish pass M8).
       expect(
         toasts.some(
-          (t) => t.type === 'error' && t.message.includes('could not stop the downloads') && t.details === 'backend unavailable',
-        ),
+          (t) =>
+            t.type === 'error' &&
+            t.message.includes('could not stop the downloads') &&
+            t.details === 'backend unavailable'
+        )
       ).toBe(true);
     });
 
@@ -507,7 +514,9 @@ describe('downloadStore', () => {
       vi.mocked(commands.cancelDownload).mockRejectedValueOnce('Cancel failed');
 
       // Passed on so the caller does not report "cancelled" (polish M8).
-      await expect(useDownloadStore.getState().cancelDownload('dl-1')).rejects.toBe('Cancel failed');
+      await expect(useDownloadStore.getState().cancelDownload('dl-1')).rejects.toBe(
+        'Cancel failed'
+      );
 
       expect(useDownloadStore.getState().error).toBe('Cancel failed');
     });
@@ -534,7 +543,9 @@ describe('downloadStore', () => {
 
     it('passes a refused retry on, so the caller can say why', async () => {
       vi.mocked(commands.retryDownload).mockRejectedValueOnce('Every track is already on disk.');
-      await expect(useDownloadStore.getState().retryDownload('dl-1')).rejects.toBe('Every track is already on disk.');
+      await expect(useDownloadStore.getState().retryDownload('dl-1')).rejects.toBe(
+        'Every track is already on disk.'
+      );
       expect(useDownloadStore.getState().error).toBe('Every track is already on disk.');
     });
   });
@@ -585,9 +596,7 @@ describe('downloadStore', () => {
     it('propagates the backend rejection instead of swallowing it (pre-fix this was caught, written to the never-displayed `error` field, and turned into a silent `return 0`)', async () => {
       vi.mocked(commands.exportQueue).mockRejectedValueOnce('No items to export');
 
-      await expect(useDownloadStore.getState().exportQueue()).rejects.toThrow(
-        'No items to export',
-      );
+      await expect(useDownloadStore.getState().exportQueue()).rejects.toThrow('No items to export');
     });
   });
 
@@ -623,11 +632,11 @@ describe('downloadStore', () => {
 
     it('propagates the backend rejection and never touches the queue', async () => {
       vi.mocked(commands.importQueue).mockRejectedValueOnce(
-        'Invalid queue file format: expected value at line 1 column 1',
+        'Invalid queue file format: expected value at line 1 column 1'
       );
 
       await expect(useDownloadStore.getState().importQueue()).rejects.toThrow(
-        /Invalid queue file format/,
+        /Invalid queue file format/
       );
       // A failed import has nothing new to reflect -- the refresh call
       // must never fire on the failure path (it used to be unreachable
@@ -652,7 +661,7 @@ describe('downloadStore', () => {
       vi.mocked(commands.processQueue).mockRejectedValueOnce('Queue is already running');
 
       await expect(useDownloadStore.getState().processQueue()).rejects.toThrow(
-        'Queue is already running',
+        'Queue is already running'
       );
     });
   });
@@ -679,7 +688,7 @@ describe('downloadStore', () => {
     function urls(count: number): string[] {
       return Array.from(
         { length: count },
-        (_, i) => `https://music.apple.com/us/album/test-${i}/${1000 + i}`,
+        (_, i) => `https://music.apple.com/us/album/test-${i}/${1000 + i}`
       );
     }
 
@@ -838,11 +847,11 @@ describe('downloadStore', () => {
 
     it('re-throws backend errors so callers can show a toast', async () => {
       vi.mocked(commands.deleteQueueItem).mockRejectedValueOnce(
-        new Error('Cannot delete download xyz — currently active. Cancel it first.'),
+        new Error('Cannot delete download xyz — currently active. Cancel it first.')
       );
 
       await expect(useDownloadStore.getState().deleteItem('xyz')).rejects.toThrow(
-        /currently active/,
+        /currently active/
       );
     });
   });
@@ -1005,7 +1014,9 @@ describe('downloadStore', () => {
 
       await vi.waitFor(() => {
         expect(
-          useUiStore.getState().toasts.some((t) => t.type === 'error' && t.message.includes('could not put back'))
+          useUiStore
+            .getState()
+            .toasts.some((t) => t.type === 'error' && t.message.includes('could not put back'))
         ).toBe(true);
       });
     });

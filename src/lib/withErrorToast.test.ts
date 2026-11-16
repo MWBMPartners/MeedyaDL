@@ -67,9 +67,12 @@ describe('withErrorToast', () => {
   // ===========================================================================
 
   it('returns undefined when fn rejects', async () => {
-    const result = await withErrorToast(async () => {
-      throw new Error('boom');
-    }, { errorMsg: PLAIN });
+    const result = await withErrorToast(
+      async () => {
+        throw new Error('boom');
+      },
+      { errorMsg: PLAIN }
+    );
     expect(result).toBeUndefined();
   });
 
@@ -78,7 +81,7 @@ describe('withErrorToast', () => {
       async () => {
         throw new Error('IPC timeout (os error 60)');
       },
-      { errorMsg: PLAIN },
+      { errorMsg: PLAIN }
     );
     const [toast] = getToasts();
     expect(toast.message).toBe(PLAIN);
@@ -89,9 +92,12 @@ describe('withErrorToast', () => {
   });
 
   it('turns a non-Error rejection into text for Details', async () => {
-    await withErrorToast(async () => {
-      throw 'plain string failure';
-    }, { errorMsg: PLAIN });
+    await withErrorToast(
+      async () => {
+        throw 'plain string failure';
+      },
+      { errorMsg: PLAIN }
+    );
     expect(getToasts()[0].details).toBe('plain string failure');
   });
 
@@ -100,9 +106,16 @@ describe('withErrorToast', () => {
       async () => {
         throw new Error('disk full');
       },
-      { errorMsg: (err) => (String(err).includes('disk') ? 'There is no room left on that disk. Free some space, then try again.' : PLAIN) },
+      {
+        errorMsg: (err) =>
+          String(err).includes('disk')
+            ? 'There is no room left on that disk. Free some space, then try again.'
+            : PLAIN,
+      }
     );
-    expect(getToasts()[0].message).toBe('There is no room left on that disk. Free some space, then try again.');
+    expect(getToasts()[0].message).toBe(
+      'There is no room left on that disk. Free some space, then try again.'
+    );
   });
 
   // ===========================================================================
@@ -114,7 +127,7 @@ describe('withErrorToast', () => {
       async () => {
         throw new Error('User Cancelled');
       },
-      { errorMsg: PLAIN, suppressOn: ['cancel'] },
+      { errorMsg: PLAIN, suppressOn: ['cancel'] }
     );
     expect(getToasts()).toHaveLength(0);
   });
@@ -127,7 +140,7 @@ describe('withErrorToast', () => {
       {
         errorMsg: () => 'dismissed by you',
         suppressOn: ['dismissed'],
-      },
+      }
     );
     expect(getToasts()).toHaveLength(0);
   });
@@ -137,7 +150,7 @@ describe('withErrorToast', () => {
       async () => {
         throw new Error('Real failure');
       },
-      { errorMsg: PLAIN, suppressOn: ['cancel'] },
+      { errorMsg: PLAIN, suppressOn: ['cancel'] }
     );
     expect(getToasts()).toHaveLength(1);
   });
@@ -147,7 +160,7 @@ describe('withErrorToast', () => {
       async () => {
         throw new Error('boom');
       },
-      { errorMsg: PLAIN, suppressOn: [] },
+      { errorMsg: PLAIN, suppressOn: [] }
     );
     expect(getToasts()).toHaveLength(1);
   });

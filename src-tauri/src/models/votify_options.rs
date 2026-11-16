@@ -426,13 +426,21 @@ impl VotifyOptions {
         }
 
         // ---- Templates ----
-        push_template(&mut args, "--album-folder-template", &self.album_folder_template);
+        push_template(
+            &mut args,
+            "--album-folder-template",
+            &self.album_folder_template,
+        );
         push_template(
             &mut args,
             "--compilation-folder-template",
             &self.compilation_folder_template,
         );
-        push_template(&mut args, "--podcast-folder-template", &self.podcast_folder_template);
+        push_template(
+            &mut args,
+            "--podcast-folder-template",
+            &self.podcast_folder_template,
+        );
         push_template(
             &mut args,
             "--no-album-folder-template",
@@ -443,10 +451,26 @@ impl VotifyOptions {
             "--single-disc-file-template",
             &self.single_disc_file_template,
         );
-        push_template(&mut args, "--multi-disc-file-template", &self.multi_disc_file_template);
-        push_template(&mut args, "--podcast-file-template", &self.podcast_file_template);
-        push_template(&mut args, "--no-album-file-template", &self.no_album_file_template);
-        push_template(&mut args, "--playlist-file-template", &self.playlist_file_template);
+        push_template(
+            &mut args,
+            "--multi-disc-file-template",
+            &self.multi_disc_file_template,
+        );
+        push_template(
+            &mut args,
+            "--podcast-file-template",
+            &self.podcast_file_template,
+        );
+        push_template(
+            &mut args,
+            "--no-album-file-template",
+            &self.no_album_file_template,
+        );
+        push_template(
+            &mut args,
+            "--playlist-file-template",
+            &self.playlist_file_template,
+        );
         push_template(&mut args, "--date-tag-template", &self.date_tag_template);
 
         // ---- Audio ----
@@ -584,7 +608,10 @@ mod tests {
             ..Default::default()
         };
         let args = opts.to_cli_args();
-        let idx = args.iter().position(|a| a == "--album-folder-template").unwrap();
+        let idx = args
+            .iter()
+            .position(|a| a == "--album-folder-template")
+            .unwrap();
         assert_eq!(args[idx + 1], "{album_artist}/{album}");
         // compilation_folder_template is None — must not appear.
         assert!(!args.iter().any(|a| a == "--compilation-folder-template"));

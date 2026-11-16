@@ -130,9 +130,9 @@ impl PackageManagerKind {
     #[must_use]
     pub fn update_capability(self) -> UpdateCapability {
         match self {
-            PackageManagerKind::Homebrew
-            | PackageManagerKind::Pipx
-            | PackageManagerKind::Scoop => UpdateCapability::Auto,
+            PackageManagerKind::Homebrew | PackageManagerKind::Pipx | PackageManagerKind::Scoop => {
+                UpdateCapability::Auto
+            }
             PackageManagerKind::MacPorts
             | PackageManagerKind::Apt
             | PackageManagerKind::Dnf
@@ -170,9 +170,9 @@ impl PackageManagerKind {
             PackageManagerKind::Dnf => Some(("dnf", owned(&["upgrade", "-y", package]))),
             PackageManagerKind::Snap => Some(("snap", owned(&["refresh", package]))),
             PackageManagerKind::MacPorts => Some(("port", owned(&["upgrade", package]))),
-            PackageManagerKind::Homebrew
-            | PackageManagerKind::Pipx
-            | PackageManagerKind::Scoop => None,
+            PackageManagerKind::Homebrew | PackageManagerKind::Pipx | PackageManagerKind::Scoop => {
+                None
+            }
         }
     }
 
@@ -211,10 +211,16 @@ impl PackageManagerKind {
             PackageManagerKind::Pipx => {
                 pkg_after_component(binary, "venvs").map(|pkg| PackageRef::new(self, pkg))
             }
-            PackageManagerKind::Scoop => scoop_owner(original).map(|pkg| PackageRef::new(self, pkg)),
+            PackageManagerKind::Scoop => {
+                scoop_owner(original).map(|pkg| PackageRef::new(self, pkg))
+            }
             PackageManagerKind::Snap => snap_owner(original).map(|pkg| PackageRef::new(self, pkg)),
-            PackageManagerKind::Apt => dpkg_owner(binary).await.map(|pkg| PackageRef::new(self, pkg)),
-            PackageManagerKind::Dnf => rpm_owner(binary).await.map(|pkg| PackageRef::new(self, pkg)),
+            PackageManagerKind::Apt => dpkg_owner(binary)
+                .await
+                .map(|pkg| PackageRef::new(self, pkg)),
+            PackageManagerKind::Dnf => rpm_owner(binary)
+                .await
+                .map(|pkg| PackageRef::new(self, pkg)),
             PackageManagerKind::MacPorts => macports_owner(binary)
                 .await
                 .map(|pkg| PackageRef::new(self, pkg)),
@@ -231,7 +237,10 @@ impl PackageManagerKind {
     /// exact command the user can run themselves.
     pub async fn upgrade(self, pkg: &PackageRef) -> Result<(), String> {
         if !is_safe_package_name(&pkg.package) {
-            return Err(format!("Refusing to upgrade unsafe package name: {}", pkg.package));
+            return Err(format!(
+                "Refusing to upgrade unsafe package name: {}",
+                pkg.package
+            ));
         }
         match self.update_capability() {
             UpdateCapability::Auto => self.upgrade_auto(&pkg.package).await,
@@ -441,7 +450,10 @@ fn find_homebrew() -> Option<PathBuf> {
 }
 
 fn homebrew_formulae(output: &str) -> impl Iterator<Item = &str> {
-    output.lines().map(str::trim).filter(|line| !line.is_empty())
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
 }
 
 /// Determine which installed formula owns a binary by comparing canonical
@@ -678,9 +690,7 @@ mod tests {
         for pm in PackageManagerKind::ALL {
             let expected = matches!(
                 pm,
-                PackageManagerKind::Homebrew
-                    | PackageManagerKind::Pipx
-                    | PackageManagerKind::Scoop
+                PackageManagerKind::Homebrew | PackageManagerKind::Pipx | PackageManagerKind::Scoop
             );
             assert_eq!(
                 pm.update_capability() == UpdateCapability::Auto,

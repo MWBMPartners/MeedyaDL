@@ -54,7 +54,9 @@ pub(crate) fn load_settings_for_queue(app: &AppHandle) -> AppSettings {
 ///
 /// Merged into the crash report `context` alongside error-specific fields
 /// like `error_category`, `url`, and `gamdl_version`.
-pub(crate) fn settings_snapshot_for_context(app: &AppHandle) -> std::collections::HashMap<String, String> {
+pub(crate) fn settings_snapshot_for_context(
+    app: &AppHandle,
+) -> std::collections::HashMap<String, String> {
     let s = load_settings_for_queue(app);
     let mut m = std::collections::HashMap::new();
 
@@ -123,10 +125,7 @@ pub(crate) fn settings_snapshot_for_context(app: &AppHandle) -> std::collections
     );
 
     // Auth status (redacted — presence only, no values)
-    m.insert(
-        "setting.use_wrapper".to_string(),
-        s.use_wrapper.to_string(),
-    );
+    m.insert("setting.use_wrapper".to_string(), s.use_wrapper.to_string());
     m.insert(
         "setting.cookies_set".to_string(),
         s.cookies_path.is_some().to_string(),
@@ -204,9 +203,7 @@ pub(crate) async fn save_queue_to_disk_inner(app: &AppHandle, queue: &QueueHandl
     // behaviour as the pre-migration site since queue.json corruption
     // is recoverable from the in-memory state on next save.
     let queue_path = crate::utils::platform::get_app_data_dir(app).join("queue.json");
-    if let Err(e) =
-        crate::utils::atomic_write::atomic_write_json(&queue_path, &items, "queue")
-    {
+    if let Err(e) = crate::utils::atomic_write::atomic_write_json(&queue_path, &items, "queue") {
         log::warn!("{e}");
     }
 
@@ -297,7 +294,9 @@ pub fn load_queue_from_disk(app: &AppHandle) -> Vec<PersistedQueueItem> {
 /// is why the very last step reverses it back — so the surviving items
 /// keep the same relative order they had in the original saved queue,
 /// just with the duplicates missing.
-pub(crate) fn dedupe_persisted_queue_items(items: Vec<PersistedQueueItem>) -> Vec<PersistedQueueItem> {
+pub(crate) fn dedupe_persisted_queue_items(
+    items: Vec<PersistedQueueItem>,
+) -> Vec<PersistedQueueItem> {
     let mut seen = HashSet::new();
     let mut deduped = Vec::with_capacity(items.len());
 

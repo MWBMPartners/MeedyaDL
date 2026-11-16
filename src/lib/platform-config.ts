@@ -105,9 +105,7 @@ export function detectPlatform(urls?: string[]): PlatformEntry | undefined {
   try {
     const parsed = new URL(raw);
     const urlStr = parsed.hostname + parsed.pathname;
-    return platformConfig.find((p) =>
-      p.patterns.some((pattern) => urlStr.includes(pattern))
-    );
+    return platformConfig.find((p) => p.patterns.some((pattern) => urlStr.includes(pattern)));
   } catch {
     return undefined;
   }

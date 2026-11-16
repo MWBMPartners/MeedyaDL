@@ -86,10 +86,7 @@ describe('useKeyboardShortcuts', () => {
     // Make sure no earlier test's focused element is still sitting in the
     // document, which would trip the "typing in a form field" guard for a
     // test that isn't about that guard at all.
-    if (
-      document.activeElement instanceof HTMLElement &&
-      document.activeElement !== document.body
-    ) {
+    if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
       document.activeElement.blur();
     }
   });
@@ -230,7 +227,12 @@ describe('useKeyboardShortcuts', () => {
     // preventDefault() that could stop Quit or Hide from working.
     it.each(['q', 'h'])('leaves Cmd+%s to the system (Quit / Hide)', (key) => {
       const { unmount } = renderHook(() => useKeyboardShortcuts());
-      const event = new KeyboardEvent('keydown', { key, metaKey: true, bubbles: true, cancelable: true });
+      const event = new KeyboardEvent('keydown', {
+        key,
+        metaKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
       window.dispatchEvent(event);
       expect(setPageMock).not.toHaveBeenCalled();
       expect(event.defaultPrevented).toBe(false);

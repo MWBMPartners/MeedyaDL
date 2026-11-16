@@ -165,12 +165,7 @@ impl fmt::Display for ProgressStage {
 /// Emits a `queue-updated` Tauri event after the lock-held write so
 /// the frontend re-reads the queue state. Errors swallowed: worst
 /// case is a stale UI until the next transition.
-pub fn set_stage(
-    app: &AppHandle,
-    queue: &QueueHandle,
-    download_id: &str,
-    stage: ProgressStage,
-) {
+pub fn set_stage(app: &AppHandle, queue: &QueueHandle, download_id: &str, stage: ProgressStage) {
     set_stage_with_label(app, queue, download_id, stage, stage.label());
 }
 
@@ -193,12 +188,7 @@ pub fn set_stage(
 /// download). Calling `set_stage_with_label(…, Finalising, …)` in
 /// a tight per-track loop pegs the bar at 0.95 — exactly the bug
 /// #808 reports.
-pub fn set_label_only(
-    app: &AppHandle,
-    queue: &QueueHandle,
-    download_id: &str,
-    label: &str,
-) {
+pub fn set_label_only(app: &AppHandle, queue: &QueueHandle, download_id: &str, label: &str) {
     if let Ok(mut q) = queue.try_lock() {
         // Same Artist: Album suffix logic as `set_stage_with_label`
         // so the caption shape stays consistent across the two
@@ -281,10 +271,7 @@ mod tests {
     fn weights_strictly_increasing() {
         let weights: Vec<f32> = ProgressStage::ALL.iter().map(|s| s.weight()).collect();
         for window in weights.windows(2) {
-            assert!(
-                window[0] < window[1],
-                "non-monotonic weights: {window:?}"
-            );
+            assert!(window[0] < window[1], "non-monotonic weights: {window:?}");
         }
     }
 

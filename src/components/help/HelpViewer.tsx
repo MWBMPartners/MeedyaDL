@@ -315,8 +315,8 @@ export function HelpViewer() {
   // isn't loaded unnecessarily on every app launch.
   useEffect(() => {
     if (activeTopic !== 'about') return;
-    import('@/lib/tauri-commands')
-      .then(({ getComponentVersions, getAcknowledgementsText, getThirdPartyLicensesText }) => {
+    import('@/lib/tauri-commands').then(
+      ({ getComponentVersions, getAcknowledgementsText, getThirdPartyLicensesText }) => {
         getComponentVersions()
           .then((versions) => {
             const rows = versions
@@ -335,7 +335,8 @@ export function HelpViewer() {
         getThirdPartyLicensesText()
           .then(setThirdPartyLicensesMd)
           .catch(() => setThirdPartyLicensesMd('*Unable to load third-party licences.*'));
-      });
+      }
+    );
   }, [activeTopic]);
 
   /* ---- Store bindings for help deep-linking ---- */
@@ -518,7 +519,10 @@ export function HelpViewer() {
         {/* Fix 14 (a11y audit): same fix as SettingsPage.tsx's tab
             <nav> -- an unnamed second navigation landmark reads as a
             duplicate of the sidebar's "Main navigation" one. */}
-        <nav aria-label="Help topics" className="w-56 flex-shrink-0 border-r border-border-light overflow-y-auto flex flex-col">
+        <nav
+          aria-label="Help topics"
+          className="w-56 flex-shrink-0 border-r border-border-light overflow-y-auto flex flex-col"
+        >
           {/* --------------------------------------------------------------
            * Search bar section
            * Positioned at the top of the sidebar with sticky behavior so
@@ -539,7 +543,12 @@ export function HelpViewer() {
               icon={<Search size={14} aria-hidden="true" />}
               suffix={
                 isSearchActive ? (
-                  <IconButton size="sm" icon={<X size={12} />} label={t('help.clearSearch')} onClick={handleClearSearch} />
+                  <IconButton
+                    size="sm"
+                    icon={<X size={12} />}
+                    label={t('help.clearSearch')}
+                    onClick={handleClearSearch}
+                  />
                 ) : undefined
               }
             />

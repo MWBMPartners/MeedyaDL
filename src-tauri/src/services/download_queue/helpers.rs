@@ -638,7 +638,10 @@ pub(crate) fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
 /// message (issue #1231); see the marker's own doc comment for the
 /// full reasoning and the frontend file it must stay byte-identical
 /// with.
-pub(crate) fn integrity_failure_message(checked: usize, suspect_files: &[String]) -> Option<String> {
+pub(crate) fn integrity_failure_message(
+    checked: usize,
+    suspect_files: &[String],
+) -> Option<String> {
     if checked > 0 && suspect_files.len() == checked {
         Some(format!(
             "{}all {checked} probed file(s) appear corrupted or truncated ({}) — a known upstream truncated-write defect (gamdl#328). Try re-downloading.",
@@ -918,7 +921,8 @@ pub(crate) fn write_manifest(
     // storefront into e.g. a Spotify `ManifestSource` would be misleading —
     // it documents "Platform-specific storefront/region" but the value
     // would have nothing to do with the platform it's attached to (A2 fix).
-    let storefront = if platform == crate::models::media_service::MediaServiceId::AppleMusic.to_string()
+    let storefront = if platform
+        == crate::models::media_service::MediaServiceId::AppleMusic.to_string()
         && !settings.storefront.is_empty()
     {
         Some(settings.storefront.clone())
@@ -1061,9 +1065,7 @@ pub(crate) fn rename_cover_art(album_dir: &str, target_stem: &str) {
                 );
             }
             Err(e) => {
-                log::warn!(
-                    "Failed to rename Cover.{ext} → {target_stem}.{ext}: {e}"
-                );
+                log::warn!("Failed to rename Cover.{ext} → {target_stem}.{ext}: {e}");
             }
         }
     }
@@ -1205,4 +1207,3 @@ mod media_kind_tests {
         ]));
     }
 }
-

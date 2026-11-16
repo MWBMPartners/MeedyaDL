@@ -93,7 +93,9 @@ describe('FeatureNoticeBanner', () => {
 
     render(<FeatureNoticeBanner />);
 
-    expect(screen.getByText(/^service\.youtube-music is temporarily unavailable\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(/^service\.youtube-music is temporarily unavailable\./)
+    ).toBeInTheDocument();
   });
 
   it('renders the i18n fallback when disabled and the notice message is blank', () => {

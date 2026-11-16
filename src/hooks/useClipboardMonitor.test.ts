@@ -135,7 +135,7 @@ describe('useClipboardMonitor', () => {
   });
 
   describe('the Download button (fault #1 -- used to do nothing for an already-queued link)', () => {
-    it('shows the backend\'s own reason when download_id is empty, instead of nothing', async () => {
+    it("shows the backend's own reason when download_id is empty, instead of nothing", async () => {
       readClipboardMock.mockResolvedValue(ALBUM_URL);
       const { unmount } = renderHook(() => useClipboardMonitor(true));
       await poll();
@@ -226,7 +226,7 @@ describe('useClipboardMonitor', () => {
         undefined,
         undefined,
         undefined,
-        'network down',
+        'network down'
       );
 
       unmount();
@@ -258,7 +258,7 @@ describe('useClipboardMonitor', () => {
       // actually needs room.
       for (let i = 0; i < 200; i++) {
         readClipboardMock.mockResolvedValueOnce(
-          `https://music.apple.com/us/album/test/${1000000000 + i}`,
+          `https://music.apple.com/us/album/test/${1000000000 + i}`
         );
         await poll();
       }
@@ -345,7 +345,7 @@ describe('useClipboardMonitor', () => {
     unmount();
   });
 
-  describe('basic gating (pre-existing behaviour, protected so future edits don\'t regress it)', () => {
+  describe("basic gating (pre-existing behaviour, protected so future edits don't regress it)", () => {
     it('does nothing while isReady is false', async () => {
       readClipboardMock.mockResolvedValue(ALBUM_URL);
       const { unmount } = renderHook(() => useClipboardMonitor(false));

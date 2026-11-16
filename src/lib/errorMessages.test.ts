@@ -18,20 +18,29 @@ beforeEach(() => {
 
 describe('showError', () => {
   it('shows the plain message and folds the technical text under Details', () => {
-    showError('MeedyaDL could not open the logs folder. Check it still exists, then try again.', new Error('No such file or directory (os error 2)'));
+    showError(
+      'MeedyaDL could not open the logs folder. Check it still exists, then try again.',
+      new Error('No such file or directory (os error 2)')
+    );
     const [toast] = useUiStore.getState().toasts;
     expect(toast.type).toBe('error');
-    expect(toast.message).toBe('MeedyaDL could not open the logs folder. Check it still exists, then try again.');
+    expect(toast.message).toBe(
+      'MeedyaDL could not open the logs folder. Check it still exists, then try again.'
+    );
     expect(toast.details).toBe('No such file or directory (os error 2)');
   });
 
   it('leaves Details out when there is nothing technical to add', () => {
-    showError('That link is not one MeedyaDL can download. Copy the link from Apple Music and try again.');
+    showError(
+      'That link is not one MeedyaDL can download. Copy the link from Apple Music and try again.'
+    );
     expect(useUiStore.getState().toasts[0].details).toBeUndefined();
   });
 
   it('can show a warning instead of an error', () => {
-    showError('Some links were skipped. Check them, then add them again.', undefined, { type: 'warning' });
+    showError('Some links were skipped. Check them, then add them again.', undefined, {
+      type: 'warning',
+    });
     expect(useUiStore.getState().toasts[0].type).toBe('warning');
   });
 });
@@ -44,7 +53,12 @@ describe('rawError and isCancellation', () => {
   });
 
   it('recognises a closed file picker in the wordings the backend uses', () => {
-    for (const text of ['Folder selection cancelled', 'Export cancelled', 'Import cancelled', 'User canceled']) {
+    for (const text of [
+      'Folder selection cancelled',
+      'Export cancelled',
+      'Import cancelled',
+      'User canceled',
+    ]) {
       expect(isCancellation(new Error(text))).toBe(true);
     }
     expect(isCancellation(new Error('Permission denied'))).toBe(false);
@@ -59,22 +73,34 @@ describe('summariseDownloadError', () => {
 
   it('replaces a traceback with a plain summary and keeps the original as details', () => {
     const { summary, details } = summariseDownloadError(TRACEBACK);
-    expect(summary).toBe('MeedyaDL could not reach Apple Music. Check your internet connection, then retry.');
+    expect(summary).toBe(
+      'MeedyaDL could not reach Apple Music. Check your internet connection, then retry.'
+    );
     expect(details).toBe(TRACEBACK);
   });
 
   it('treats a disk problem as a disk problem, even though macOS calls it a time-out', () => {
-    expect(summariseDownloadError('OSError: [Errno 28] No space left on device').summary).toMatch(/^MeedyaDL could not save the files/);
+    expect(summariseDownloadError('OSError: [Errno 28] No space left on device').summary).toMatch(
+      /^MeedyaDL could not save the files/
+    );
   });
 
   it('summarises sign-in, region and slow-down problems', () => {
-    expect(summariseDownloadError('httpx.HTTPStatusError: 401 Unauthorized').summary).toMatch(/did not accept your sign-in/);
-    expect(summariseDownloadError('GamdlInterfaceMediaNotStreamableError: Media is not streamable').summary).toMatch(/does not offer this item/);
-    expect(summariseDownloadError('httpx.HTTPStatusError: 429 Too Many Requests').summary).toMatch(/slow down/);
+    expect(summariseDownloadError('httpx.HTTPStatusError: 401 Unauthorized').summary).toMatch(
+      /did not accept your sign-in/
+    );
+    expect(
+      summariseDownloadError('GamdlInterfaceMediaNotStreamableError: Media is not streamable')
+        .summary
+    ).toMatch(/does not offer this item/);
+    expect(summariseDownloadError('httpx.HTTPStatusError: 429 Too Many Requests').summary).toMatch(
+      /slow down/
+    );
   });
 
   it("keeps the backend's own explanation of a known GAMDL fault, marker and all", () => {
-    const curated = 'GAMDL bug — all 3 probed file(s) appear corrupted or truncated — a known upstream truncated-write defect (gamdl#328). Try re-downloading.';
+    const curated =
+      'GAMDL bug — all 3 probed file(s) appear corrupted or truncated — a known upstream truncated-write defect (gamdl#328). Try re-downloading.';
     expect(summariseDownloadError(curated)).toEqual({ summary: curated, details: null });
   });
 
@@ -90,8 +116,15 @@ describe('summariseDownloadError', () => {
   });
 
   it('every summary ends with something to do', () => {
-    for (const text of [TRACEBACK, 'OSError: [Errno 28] No space left', 'GAMDL bug — KeyError: x', 'RuntimeError: weird']) {
-      expect(summariseDownloadError(text).summary).toMatch(/(retry|Retry|report it|Check that the link)/);
+    for (const text of [
+      TRACEBACK,
+      'OSError: [Errno 28] No space left',
+      'GAMDL bug — KeyError: x',
+      'RuntimeError: weird',
+    ]) {
+      expect(summariseDownloadError(text).summary).toMatch(
+        /(retry|Retry|report it|Check that the link)/
+      );
     }
   });
 });

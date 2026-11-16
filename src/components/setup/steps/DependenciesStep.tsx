@@ -190,17 +190,29 @@ export function DependenciesStep() {
                     word says what the colour means. */}
                 {tool.installed ? (
                   <>
-                    <CheckCircle size={18} className="text-status-success flex-shrink-0" aria-hidden="true" />
+                    <CheckCircle
+                      size={18}
+                      className="text-status-success flex-shrink-0"
+                      aria-hidden="true"
+                    />
                     <span className="sr-only">Installed: </span>
                   </>
                 ) : tool.required ? (
                   <>
-                    <XCircle size={18} className="text-status-error flex-shrink-0" aria-hidden="true" />
+                    <XCircle
+                      size={18}
+                      className="text-status-error flex-shrink-0"
+                      aria-hidden="true"
+                    />
                     <span className="sr-only">Missing (required): </span>
                   </>
                 ) : (
                   <>
-                    <AlertCircle size={18} className="text-content-tertiary flex-shrink-0" aria-hidden="true" />
+                    <AlertCircle
+                      size={18}
+                      className="text-content-tertiary flex-shrink-0"
+                      aria-hidden="true"
+                    />
                     <span className="sr-only">Missing (optional): </span>
                   </>
                 )}
@@ -301,10 +313,12 @@ export function DependenciesStep() {
                               // Refusing is right: guessing a field name
                               // would write the path somewhere wrong and
                               // look like it worked.
-                              useUiStore.getState().addToast(
-                                `MeedyaDL cannot record a location for ${tool.name}. Use its Install button instead.`,
-                                'error'
-                              );
+                              useUiStore
+                                .getState()
+                                .addToast(
+                                  `MeedyaDL cannot record a location for ${tool.name}. Use its Install button instead.`,
+                                  'error'
+                                );
                               return;
                             }
                             const { syncSaved } = (
@@ -328,10 +342,12 @@ export function DependenciesStep() {
                               // nothing else in MeedyaDL sees an unsaved edit,
                               // and opening Settings reloads from disk and
                               // discards it -- stand-in review.)
-                              useUiStore.getState().addToast(
-                                `Could not save where ${tool.name} is, so nothing was changed. Please choose it again.`,
-                                'error'
-                              );
+                              useUiStore
+                                .getState()
+                                .addToast(
+                                  `Could not save where ${tool.name} is, so nothing was changed. Please choose it again.`,
+                                  'error'
+                                );
                               console.error('Could not save the helper program path:', err);
                             }
                           }

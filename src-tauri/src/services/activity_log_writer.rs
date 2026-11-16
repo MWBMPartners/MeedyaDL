@@ -66,8 +66,7 @@ const CHANNEL_CAPACITY: usize = 10_000;
 /// writer channel was full (#896). Surfaced for diagnostic
 /// purposes — non-zero values indicate the writer task is falling
 /// behind the emit-side, usually due to slow-disk I/O.
-static DROPPED_EVENTS: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static DROPPED_EVENTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Snapshot of the dropped-event counter. Test-friendly; exposed
 /// so an observability surface (status bar / settings advanced
@@ -101,8 +100,7 @@ impl ActivityLogWriterHandle {
         match self.tx.try_send(event) {
             Ok(()) => {}
             Err(TrySendError::Full(_)) => {
-                let prev = DROPPED_EVENTS
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                let prev = DROPPED_EVENTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 // Log only the first drop in a cluster — by 100, 1000,
                 // 10_000 — so a slow disk doesn't generate a flood of
                 // log warnings. The counter itself is the source of
@@ -185,10 +183,7 @@ async fn writer_task(
     let mut db = match db_path.as_ref() {
         Some(p) => match crate::services::download_index::DownloadIndex::open(p) {
             Ok(idx) => {
-                log::info!(
-                    "activity_log_writer: dual-writing to DB at {}",
-                    p.display()
-                );
+                log::info!("activity_log_writer: dual-writing to DB at {}", p.display());
                 Some(idx)
             }
             Err(e) => {
@@ -274,9 +269,7 @@ fn write_event_to_db(
         crate::utils::activity_log::LogSeverity::Warning => "WARN",
         crate::utils::activity_log::LogSeverity::Error => "ERROR",
     };
-    let source = if event.download_id
-        == crate::utils::activity_log::SYSTEM_LOG_ID
-    {
+    let source = if event.download_id == crate::utils::activity_log::SYSTEM_LOG_ID {
         "system".to_string()
     } else {
         format!("download:{}", event.download_id)

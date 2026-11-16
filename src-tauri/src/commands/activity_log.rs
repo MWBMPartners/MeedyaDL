@@ -121,8 +121,7 @@ pub async fn export_disk_activity_log(
             let resolved = path
                 .as_path()
                 .ok_or_else(|| "Failed to resolve export file path".to_string())?;
-            std::fs::write(resolved, &buf)
-                .map_err(|e| format!("Failed to write log file: {e}"))?;
+            std::fs::write(resolved, &buf).map_err(|e| format!("Failed to write log file: {e}"))?;
             let bytes = buf.len();
             log::info!(
                 "Exported {} byte(s) of on-disk activity log to {}",

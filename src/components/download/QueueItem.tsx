@@ -78,7 +78,16 @@ import { PlatformIcon } from '@/lib/PlatformIcon';
  * percentage value. Accepts `null` to display an indeterminate state.
  * @see ProgressBar in @/components/common
  */
-import { Button, Checkbox, ContextMenu, ErrorMessageDisplay, ExpandChevron, IconButton, ProgressBar, StatusPill } from '@/components/common';
+import {
+  Button,
+  Checkbox,
+  ContextMenu,
+  ErrorMessageDisplay,
+  ExpandChevron,
+  IconButton,
+  ProgressBar,
+  StatusPill,
+} from '@/components/common';
 import type { ContextMenuItem } from '@/components/common';
 
 /**
@@ -397,8 +406,7 @@ function QueueItemComponent({
    * `<StatusPill>` so the pill flips from green ("Complete") to amber
    * ("Warnings") for the affected row.
    */
-  const hasWarnings =
-    item.state === 'complete' && item.warnings && item.warnings.length > 0;
+  const hasWarnings = item.state === 'complete' && item.warnings && item.warnings.length > 0;
 
   /**
    * Whether this item is currently in an "active" state (downloading or
@@ -636,10 +644,7 @@ function QueueItemComponent({
          * the remaining horizontal space; `min-w-0` lets `truncate`
          * work inside a flex container. */}
         <div className="flex-1 min-w-0">
-          <p
-            className="text-sm text-content-primary truncate"
-            title={item.urls?.[0]}
-          >
+          <p className="text-sm text-content-primary truncate" title={item.urls?.[0]}>
             {primaryIdentifier}
           </p>
 
@@ -710,11 +715,7 @@ function QueueItemComponent({
          * icon + label. Replaces the previous icon-only indicator
          * with a more scan-able pill that pairs colour, icon, and
          * label into a single visual unit. */}
-        <StatusPill
-          state={item.state}
-          hasWarnings={hasWarnings}
-          className="flex-shrink-0"
-        />
+        <StatusPill state={item.state} hasWarnings={hasWarnings} className="flex-shrink-0" />
 
         {/* Tier 1 — inline action buttons (Cancel / Retry). Hover-
          * revealed at 40% opacity by default; full opacity on row
@@ -725,10 +726,19 @@ function QueueItemComponent({
           {(isActive || item.state === 'queued') && (
             // IconButton gives the tooltip and the screen-reader name the
             // same words, as #950 asked.
-            <IconButton tone="danger" icon={<X size={14} />} label="Cancel download" onClick={() => onCancel(item.id)} />
+            <IconButton
+              tone="danger"
+              icon={<X size={14} />}
+              label="Cancel download"
+              onClick={() => onCancel(item.id)}
+            />
           )}
           {(item.state === 'error' || item.state === 'cancelled') && (
-            <IconButton icon={<RotateCcw size={14} />} label="Retry download" onClick={() => onRetry(item.id)} />
+            <IconButton
+              icon={<RotateCcw size={14} />}
+              label="Retry download"
+              onClick={() => onRetry(item.id)}
+            />
           )}
         </div>
 

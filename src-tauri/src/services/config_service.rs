@@ -655,7 +655,11 @@ pub fn load_settings_at_startup(app: &AppHandle) -> Result<AppSettings, String> 
     if previous_version != current_version {
         log::info!(
             "Version changed: {} → {}",
-            if previous_version.is_empty() { "(first run)" } else { &previous_version },
+            if previous_version.is_empty() {
+                "(first run)"
+            } else {
+                &previous_version
+            },
             current_version
         );
         settings.last_seen_version = current_version.to_string();
@@ -1318,9 +1322,7 @@ pub fn validate_path_safe(path: &str) -> Result<&str, String> {
     let p = std::path::Path::new(path);
     for component in p.components() {
         if matches!(component, Component::ParentDir) {
-            return Err(format!(
-                "Path contains directory traversal (..): {path}"
-            ));
+            return Err(format!("Path contains directory traversal (..): {path}"));
         }
     }
     Ok(path)
@@ -1537,7 +1539,10 @@ fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
             sanitize_ini_value(&std::env::temp_dir().join("MeedyaDL").to_string_lossy())
         ));
     } else {
-        lines.push(format!("temp_path = {}", sanitize_ini_value(&settings.temp_path)));
+        lines.push(format!(
+            "temp_path = {}",
+            sanitize_ini_value(&settings.temp_path)
+        ));
     }
     // `overwrite` is deliberately NOT written here (16 Nov 2026). GAMDL 3
     // reads this file as defaults and has no `--no-overwrite` to cancel
@@ -1815,8 +1820,14 @@ fn ini_advanced_section(lines: &mut Vec<String>, settings: &AppSettings) {
                         true,
                     ),
                 ) {
-                    lines.push(format!("wrapper_decrypt_host = {}", sanitize_ini_value(&host)));
-                    lines.push(format!("wrapper_decrypt_port = {}", sanitize_ini_value(&port)));
+                    lines.push(format!(
+                        "wrapper_decrypt_host = {}",
+                        sanitize_ini_value(&host)
+                    ));
+                    lines.push(format!(
+                        "wrapper_decrypt_port = {}",
+                        sanitize_ini_value(&port)
+                    ));
                 }
             }
         } else {
@@ -2016,12 +2027,18 @@ mod tests {
         // an enum. This is what "exercising the writer" has to mean now
         // that the codec chain itself can't carry hostile text.
         let hostile = "h264\nffmpeg_path = /tmp/attacker";
-        let line = format!("music_video_codec_priority = {}", sanitize_ini_value(hostile));
+        let line = format!(
+            "music_video_codec_priority = {}",
+            sanitize_ini_value(hostile)
+        );
 
         // What matters is whether a NEW SETTING was created, and a
         // setting is only a setting when it starts its own line.
         assert!(
-            !line.lines().skip(1).any(|l| l.trim_start().starts_with("ffmpeg_path")),
+            !line
+                .lines()
+                .skip(1)
+                .any(|l| l.trim_start().starts_with("ffmpeg_path")),
             "a line break in the codec priority value started a new setting:\n{line}"
         );
     }
@@ -2034,7 +2051,8 @@ mod tests {
         };
         let ini = super::settings_to_ini(&settings);
         assert!(
-            !ini.lines().any(|l| l.trim_start().starts_with("ffmpeg_path")),
+            !ini.lines()
+                .any(|l| l.trim_start().starts_with("ffmpeg_path")),
             "a carriage return in the remux format started a new setting:\n{ini}"
         );
     }
@@ -2051,7 +2069,10 @@ mod tests {
             ..Default::default()
         };
         let ini = super::settings_to_ini(&settings);
-        assert!(ini.contains("music_video_codec_priority = h265,h264"), "{ini}");
+        assert!(
+            ini.contains("music_video_codec_priority = h265,h264"),
+            "{ini}"
+        );
         assert!(ini.contains("music_video_remux_format = mp4"), "{ini}");
     }
 
@@ -2137,7 +2158,10 @@ mod tests {
             );
             // No spaces: they cause trouble for scripts and older tools people
             // point at their library. Part of the reason this shape was chosen.
-            assert!(!expected.contains(' '), "{expected} must not contain a space");
+            assert!(
+                !expected.contains(' '),
+                "{expected} must not contain a space"
+            );
         }
     }
 
@@ -3207,7 +3231,10 @@ mod tests {
         };
         migrate_settings(&mut s);
         assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
-        assert_eq!(s.compilation_folder_template, "Compilations/{album} ({album_id})");
+        assert_eq!(
+            s.compilation_folder_template,
+            "Compilations/{album} ({album_id})"
+        );
     }
 
     #[test]
@@ -3285,7 +3312,10 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&path).expect("reload"))
                 .expect("parse reloaded");
 
-        assert!(reloaded.sidebar_collapsed, "the one field we changed must be changed");
+        assert!(
+            reloaded.sidebar_collapsed,
+            "the one field we changed must be changed"
+        );
         assert_eq!(
             reloaded.output_path, before.output_path,
             "the output folder must be exactly as it was"
@@ -3360,7 +3390,10 @@ mod tests {
 
         write_settings_to_path(&path, &distinctive_settings()).expect("write");
 
-        let mode = std::fs::metadata(&path).expect("metadata").permissions().mode();
+        let mode = std::fs::metadata(&path)
+            .expect("metadata")
+            .permissions()
+            .mode();
         assert_eq!(
             mode & 0o777,
             0o600,
@@ -3397,7 +3430,10 @@ mod tests {
         // Each is found by its exact name -- the second's name begins with
         // the first's, so a plain prefix search used to find the wrong one.
         for (name, plain_read) in [
-            ("pub fn update_settings_field<", "read_settings_from_disk(app)?"),
+            (
+                "pub fn update_settings_field<",
+                "read_settings_from_disk(app)?",
+            ),
             (
                 "pub fn update_settings_field_and_memory<",
                 "read_settings_from_disk(app).map(",

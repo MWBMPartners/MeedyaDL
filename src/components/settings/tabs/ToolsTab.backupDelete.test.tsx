@@ -34,7 +34,12 @@ import { render, screen, fireEvent, waitFor, within, act } from '@testing-librar
 
 import { ToolsTab } from './ToolsTab';
 import { useDependencyStore } from '@/stores/dependencyStore';
-import { deleteBackup, listBackups, restoreFromBackup, type BackupEntry } from '@/lib/tauri-commands';
+import {
+  deleteBackup,
+  listBackups,
+  restoreFromBackup,
+  type BackupEntry,
+} from '@/lib/tauri-commands';
 
 /**
  * Mock the Tauri IPC command wrappers ToolsTab imports. Only

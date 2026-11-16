@@ -468,10 +468,8 @@ static SAVED_REGEX: LazyLock<Regex> =
 /// v3.0 emits context prefixes like `[Track   1/14 ]` and `[URL   1/1 ]`
 /// after the banner (#521 capture data, 2026-04-23).
 static ERROR_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)^(?:\[[A-Z]+\s+[\d:]+\]\s*)?(?:\[[^\]]+\]\s*)*(?:ERROR|error|Error):?\s+(.+)",
-    )
-    .expect("Invalid error regex")
+    Regex::new(r"(?i)^(?:\[[A-Z]+\s+[\d:]+\]\s*)?(?:\[[^\]]+\]\s*)*(?:ERROR|error|Error):?\s+(.+)")
+        .expect("Invalid error regex")
 });
 
 /// Matches Python exception lines that appear as the final line of a traceback.
@@ -537,9 +535,8 @@ static ANSI_ESCAPE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Strips `(media ID: <digits>)` — the parens and any internal
 /// whitespace. Tolerates variations in spacing.
-static MEDIA_ID_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\s*\(media ID:\s*\d+\)").expect("Invalid media ID regex")
-});
+static MEDIA_ID_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\s*\(media ID:\s*\d+\)").expect("Invalid media ID regex"));
 
 /// #832: strips GAMDL 3.x's verbose `(Unavailable requested format
 /// candidates: ...)` parenthetical. See `humanise_codec_skip_line`
@@ -602,9 +599,7 @@ pub fn is_python_traceback_noise(line: &str) -> bool {
     if trimmed == "Traceback (most recent call last):" {
         return true;
     }
-    if trimmed.starts_with("File \"")
-        && trimmed.contains("\", line ")
-        && trimmed.contains(", in ")
+    if trimmed.starts_with("File \"") && trimmed.contains("\", line ") && trimmed.contains(", in ")
     {
         return true;
     }
@@ -920,12 +915,8 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
             .get(3)
             .map(|m| m.as_str().trim().to_string())
             .unwrap_or_default();
-        let track_number = captures
-            .get(1)
-            .and_then(|m| m.as_str().parse::<u32>().ok());
-        let track_total = captures
-            .get(2)
-            .and_then(|m| m.as_str().parse::<u32>().ok());
+        let track_number = captures.get(1).and_then(|m| m.as_str().parse::<u32>().ok());
+        let track_total = captures.get(2).and_then(|m| m.as_str().parse::<u32>().ok());
 
         return GamdlOutputEvent::TrackInfo {
             title,
@@ -1274,8 +1265,11 @@ pub fn humanise_codec_skip_line(line: &str) -> String {
     if let Some(caps) = LC_LIST_RE.captures(&out.clone()) {
         if let Some(list_match) = caps.get(1) {
             let list_text = list_match.as_str();
-            let codec_tokens: Vec<&str> =
-                list_text.split(',').map(str::trim).filter(|t| !t.is_empty()).collect();
+            let codec_tokens: Vec<&str> = list_text
+                .split(',')
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .collect();
             // Only rewrite when every token is a known codec — avoids
             // accidentally rewriting e.g. "errno 1, errno 2" or any other
             // comma-separated lowercase run that happens to share the
@@ -1295,10 +1289,8 @@ pub fn humanise_codec_skip_line(line: &str) -> String {
                     )
                 });
             if all_known_codecs {
-                let pretty: Vec<String> = codec_tokens
-                    .iter()
-                    .map(|t| pretty_codec_label(t))
-                    .collect();
+                let pretty: Vec<String> =
+                    codec_tokens.iter().map(|t| pretty_codec_label(t)).collect();
                 let replacement = format!("{} not available", pretty.join(", "));
                 out = LC_LIST_RE.replace(&out, replacement.as_str()).to_string();
             }
@@ -1772,8 +1764,7 @@ pub fn is_gamdl_mv_cover_template_bug(error_message: &str) -> bool {
     let lower = error_message.to_lowercase();
     let has_400 = lower.contains("400 bad request") || lower.contains("status code: 400");
     let has_mv_url = lower.contains("mzstatic.com/video");
-    let has_unsubstituted_template = lower.contains("%7bw%7dx%7bh%7d")
-        || lower.contains("{w}x{h}");
+    let has_unsubstituted_template = lower.contains("%7bw%7dx%7bh%7d") || lower.contains("{w}x{h}");
     has_400 && has_mv_url && has_unsubstituted_template
 }
 
@@ -1855,9 +1846,7 @@ pub fn classify_gamdl_traceback(output: &str) -> Option<&'static str> {
         || lower.contains("'nonetype' object has no attribute 'stream_info'")
         || lower.contains("'nonetype' object has no attribute 'audio'")
     {
-        return Some(
-            "this codec is not available for this track on Apple Music — skipping",
-        );
+        return Some("this codec is not available for this track on Apple Music — skipping");
     }
     None
 }
@@ -1924,7 +1913,11 @@ mod tests {
     /// name contains words the other categories look for.
     #[test]
     fn folder_refusal_is_io_whatever_the_folder_is_called() {
-        for folder in ["/Users/author/../x", "/network/../dns", "/drm/../connection"] {
+        for folder in [
+            "/Users/author/../x",
+            "/network/../dns",
+            "/drm/../connection",
+        ] {
             let why = crate::services::config_service::download_folder_refusal(folder).unwrap();
             assert_eq!(classify_error(&why), "io", "{why}");
         }
@@ -2154,7 +2147,9 @@ mod tests {
 
     #[test]
     fn is_python_traceback_noise_recognises_three_forms() {
-        assert!(is_python_traceback_noise("Traceback (most recent call last):"));
+        assert!(is_python_traceback_noise(
+            "Traceback (most recent call last):"
+        ));
         assert!(is_python_traceback_noise(
             r#"  File "/foo/bar.py", line 10, in baz"#
         ));
@@ -2278,7 +2273,9 @@ mod tests {
     #[test]
     fn is_storefront_mismatch_recognises_plain_404_resource_not_found() {
         assert!(is_storefront_mismatch_error("404 Resource Not Found"));
-        assert!(is_storefront_mismatch_error("status code: 404 — Resource Not Found"));
+        assert!(is_storefront_mismatch_error(
+            "status code: 404 — Resource Not Found"
+        ));
     }
 
     #[test]
@@ -2379,8 +2376,7 @@ mod tests {
         match parse_gamdl_output(line) {
             GamdlOutputEvent::Error { message } => {
                 assert!(
-                    message.contains("music.apple.com")
-                        && message.contains("404 Not Found"),
+                    message.contains("music.apple.com") && message.contains("404 Not Found"),
                     "Expected the structlog prefix + `Error` keyword to be \
                      stripped while URL and reason are preserved. \
                      Got: {message}"
@@ -2606,10 +2602,7 @@ mod tests {
             classify_error("RuntimeError: yt-dlp HLS download failed"),
             "network"
         );
-        assert_eq!(
-            classify_error("yt-dlp HTTP download failed"),
-            "network"
-        );
+        assert_eq!(classify_error("yt-dlp HTTP download failed"), "network");
         // Surface-form variations (different case + extra surrounding context).
         assert_eq!(
             classify_error("error: yt-dlp HLS download failed during music-video fetch"),
@@ -2684,7 +2677,9 @@ mod tests {
             "GamdlInterfaceMediaNotStreamableError: Media is not streamable: 1234567890"
         ));
         // Also matches the bare message extracted by `extract_python_exception`.
-        assert!(is_media_not_streamable_error("Media is not streamable: 1568443843"));
+        assert!(is_media_not_streamable_error(
+            "Media is not streamable: 1568443843"
+        ));
         // Case-insensitive — should match even when nested in a traceback
         // with mixed casing or wrapped log decoration.
         assert!(is_media_not_streamable_error(
@@ -2926,7 +2921,9 @@ mod tests {
             classify_error("[Errno 13] Permission denied: '/Volumes/Music/out.m4a'"),
             "io"
         );
-        assert!(error_guidance("io_transient").to_lowercase().contains("antivirus"));
+        assert!(error_guidance("io_transient")
+            .to_lowercase()
+            .contains("antivirus"));
     }
 
     #[test]
@@ -3222,7 +3219,10 @@ mod tests {
         // `parse_gamdl_error_count` reads the "Finished with N error(s)"
         // line — confirm it survives the structlog prefix (the regex is
         // a substring match, so it should).
-        assert_eq!(parse_gamdl_error_count(FIXTURE_V3_SUCCESSFUL_ALBUM), Some(0));
+        assert_eq!(
+            parse_gamdl_error_count(FIXTURE_V3_SUCCESSFUL_ALBUM),
+            Some(0)
+        );
     }
 
     #[test]
@@ -3258,9 +3258,7 @@ mod tests {
         // `is_codec_error` is the signal the fallback chain consumes —
         // it must return true for the skip warnings, otherwise we stay
         // on the failed codec instead of trying the next one.
-        let any_codec = FIXTURE_V3_CODEC_SKIPS
-            .lines()
-            .any(is_codec_error);
+        let any_codec = FIXTURE_V3_CODEC_SKIPS.lines().any(is_codec_error);
         assert!(
             any_codec,
             "v3.0 codec-skip fixture must contain at least one line that \
@@ -3287,9 +3285,9 @@ mod tests {
             })
             .collect();
         assert!(
-            error_messages.iter().any(|m| {
-                m.contains("music.apple.com") && m.contains("404 Not Found")
-            }),
+            error_messages
+                .iter()
+                .any(|m| { m.contains("music.apple.com") && m.contains("404 Not Found") }),
             "Expected URL + reason to be preserved in the Error message, \
              got: {error_messages:?}"
         );
@@ -3338,7 +3336,8 @@ mod tests {
         // which WOULD be picked up by Priority-7 keyword matching — but
         // `File "..."` traceback frames short-circuit that branch.
         // Confirm we still skip the frame line.
-        let frame = r#"  File "httpx/_transports/default.py", line 118, in map_httpcore_exceptions"#;
+        let frame =
+            r#"  File "httpx/_transports/default.py", line 118, in map_httpcore_exceptions"#;
         if let GamdlOutputEvent::Error { .. } = parse_gamdl_output(frame) {
             panic!("Traceback frame must not be captured as an Error");
         }
@@ -3458,7 +3457,9 @@ mod tests {
         // so the captured message starts at `downloading "Title"` — check
         // for the tail, not the prefix.
         assert!(
-            messages.iter().any(|m| m.contains("downloading") && m.contains("Unknown Title")),
+            messages
+                .iter()
+                .any(|m| m.contains("downloading") && m.contains("Unknown Title")),
             "Expected bracketed Track-error line in Error chain, got: {messages:?}"
         );
         assert!(
@@ -3638,8 +3639,14 @@ mod tests {
         // Regression guard: #521's "httpx/httpcore" network rule
         // should NOT fire.
         let cat = classify_error("Failed to parse URL: invalid scheme");
-        assert_ne!(cat, "network", "URL parse error must not be classified as network");
-        assert_ne!(cat, "auth", "URL parse error must not be classified as auth");
+        assert_ne!(
+            cat, "network",
+            "URL parse error must not be classified as network"
+        );
+        assert_ne!(
+            cat, "auth",
+            "URL parse error must not be classified as auth"
+        );
     }
 
     // ========================================================================
@@ -3685,9 +3692,8 @@ mod tests {
             .join("fixtures")
             .join("gamdl-3.2")
             .join(name);
-        std::fs::read_to_string(&path).unwrap_or_else(|e| {
-            panic!("failed to load v3.2 fixture {name} at {path:?}: {e}")
-        })
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to load v3.2 fixture {name} at {path:?}: {e}"))
     }
 
     /// Iterates over lines in a fixture, parses each through
@@ -3760,7 +3766,8 @@ mod tests {
     fn v32_playlist_wrapper_line_not_misclassified_as_track() {
         // Same guard as the album case, for playlists. The `[URL N/M]`
         // prefix is for URL-level progress, not per-track.
-        let line = "[INFO     12:00:01] [URL   1/1  ] Processing \"https://music.apple.com/.../pl.abc\"";
+        let line =
+            "[INFO     12:00:01] [URL   1/1  ] Processing \"https://music.apple.com/.../pl.abc\"";
         if let GamdlOutputEvent::TrackInfo { .. } = parse_gamdl_output(line) {
             panic!("URL-wrapper line must not parse as TrackInfo");
         }
@@ -3784,7 +3791,10 @@ mod tests {
         );
         // And it must not be misclassified as a real error class.
         assert_ne!(cat_new, "auth", "flat-filter excluded is not an auth error");
-        assert_ne!(cat_new, "network", "flat-filter excluded is not a network error");
+        assert_ne!(
+            cat_new, "network",
+            "flat-filter excluded is not a network error"
+        );
         assert_ne!(cat_new, "io", "flat-filter excluded is not an I/O error");
     }
 
@@ -3847,7 +3857,11 @@ mod tests {
     #[test]
     fn v32_fixture_single_song_emits_one_track_event() {
         let events = fixture_track_events("single-song-stderr.log");
-        assert_eq!(events.len(), 1, "single-song fixture must emit exactly one TrackInfo event");
+        assert_eq!(
+            events.len(),
+            1,
+            "single-song fixture must emit exactly one TrackInfo event"
+        );
         let (num, total, title) = &events[0];
         assert_eq!(*num, Some(1));
         assert_eq!(*total, Some(1));
@@ -3866,9 +3880,18 @@ mod tests {
     #[test]
     fn v32_fixture_playlist_emits_four_track_events() {
         let events = fixture_track_events("playlist-stderr.log");
-        assert_eq!(events.len(), 4, "4-track playlist fixture must emit exactly 4 TrackInfo events");
+        assert_eq!(
+            events.len(),
+            4,
+            "4-track playlist fixture must emit exactly 4 TrackInfo events"
+        );
         for (i, (num, total, _)) in events.iter().enumerate() {
-            assert_eq!(*num, Some((i + 1) as u32), "track {} number mismatch", i + 1);
+            assert_eq!(
+                *num,
+                Some((i + 1) as u32),
+                "track {} number mismatch",
+                i + 1
+            );
             assert_eq!(*total, Some(4), "track {} total mismatch", i + 1);
         }
     }
@@ -3930,11 +3953,17 @@ mod tests {
     #[test]
     fn codec_skip_does_not_match_unrelated_skipping_lines() {
         // "Skipping" alone — no format keyword
-        assert!(!is_codec_skip_line("[INFO] Skipping cover art (already downloaded)"));
-        assert!(!is_codec_skip_line("Skipping rate-limited request, retrying in 30s"));
+        assert!(!is_codec_skip_line(
+            "[INFO] Skipping cover art (already downloaded)"
+        ));
+        assert!(!is_codec_skip_line(
+            "Skipping rate-limited request, retrying in 30s"
+        ));
         // "Format" alone — no skip verb
         assert!(!is_codec_skip_line("Requested format: ATMOS"));
-        assert!(!is_codec_skip_line("Format is not available — falling back"));
+        assert!(!is_codec_skip_line(
+            "Format is not available — falling back"
+        ));
     }
 
     /// Non-codec-skip warnings that contain the `"skipping"` substring
@@ -3981,16 +4010,31 @@ mod tests {
         let raw = "[WARNING  13:21:56] [Track   1/1  ] Skipping \"Pickle (3ballMTY Remix)\": Requested format is not available (media ID: 1578734917): [<SongCodec.AC3: 'ac3'>]";
         let humanised = humanise_codec_skip_line(raw);
         // Media ID stripped.
-        assert!(!humanised.contains("media ID"), "should strip media ID: {humanised}");
-        assert!(!humanised.contains("1578734917"), "should strip the numeric ID");
+        assert!(
+            !humanised.contains("media ID"),
+            "should strip media ID: {humanised}"
+        );
+        assert!(
+            !humanised.contains("1578734917"),
+            "should strip the numeric ID"
+        );
         // Codec repr replaced by friendly text.
-        assert!(!humanised.contains("SongCodec"), "should strip Python repr: {humanised}");
+        assert!(
+            !humanised.contains("SongCodec"),
+            "should strip Python repr: {humanised}"
+        );
         // #832: lowercase enum identifier `ac3` is now upgraded to the
         // proper display label `AC3` to match what users see elsewhere
         // in the UI (codec dropdowns, companion filename suffixes).
-        assert!(humanised.contains("AC3 not available"), "should mention AC3: {humanised}");
+        assert!(
+            humanised.contains("AC3 not available"),
+            "should mention AC3: {humanised}"
+        );
         // Track title preserved.
-        assert!(humanised.contains("\"Pickle (3ballMTY Remix)\""), "title preserved: {humanised}");
+        assert!(
+            humanised.contains("\"Pickle (3ballMTY Remix)\""),
+            "title preserved: {humanised}"
+        );
     }
 
     #[test]
@@ -4131,18 +4175,30 @@ mod tests {
         let redacted = redact_cli_args(&args);
         let joined = redacted.join(" ");
 
-        assert!(!joined.contains("SECRET"), "a token must not survive: {joined}");
+        assert!(
+            !joined.contains("SECRET"),
+            "a token must not survive: {joined}"
+        );
         assert!(!joined.contains("ALSOSECRET"), "nor a second one: {joined}");
-        assert!(!joined.contains("hunter2"), "nor a password in the address: {joined}");
+        assert!(
+            !joined.contains("hunter2"),
+            "nor a password in the address: {joined}"
+        );
 
         // What is worth keeping, is kept: somebody debugging needs to
         // know which machine and which port, and the option names have
         // to stay or the line is unreadable.
         assert!(joined.contains("pi.local"), "the host is useful: {joined}");
         assert!(joined.contains("30020"), "the port is useful: {joined}");
-        assert!(joined.contains("--wrapper-account-url"), "option names stay: {joined}");
+        assert!(
+            joined.contains("--wrapper-account-url"),
+            "option names stay: {joined}"
+        );
         // A file path is not a web address and is left alone.
-        assert!(joined.contains("/Users/somebody/Music"), "paths are untouched: {joined}");
+        assert!(
+            joined.contains("/Users/somebody/Music"),
+            "paths are untouched: {joined}"
+        );
     }
 
     #[test]
@@ -4156,9 +4212,18 @@ mod tests {
                 format!("{scheme}://user:hunter2@pi.local/account?token=SECRET"),
             ];
             let joined = redact_cli_args(&args).join(" ");
-            assert!(!joined.contains("SECRET"), "{scheme}: token survived: {joined}");
-            assert!(!joined.contains("hunter2"), "{scheme}: password survived: {joined}");
-            assert!(joined.contains("pi.local"), "{scheme}: host should remain: {joined}");
+            assert!(
+                !joined.contains("SECRET"),
+                "{scheme}: token survived: {joined}"
+            );
+            assert!(
+                !joined.contains("hunter2"),
+                "{scheme}: password survived: {joined}"
+            );
+            assert!(
+                joined.contains("pi.local"),
+                "{scheme}: host should remain: {joined}"
+            );
         }
     }
 
@@ -4172,10 +4237,15 @@ mod tests {
             "https://example.test/path?token=SECRET".to_string(),
         ];
         let joined = redact_cli_args(&args).join(" ");
-        assert!(!joined.contains("SECRET"), "an unknown option is covered too: {joined}");
-        assert!(joined.contains("example.test"), "and still says where it points: {joined}");
+        assert!(
+            !joined.contains("SECRET"),
+            "an unknown option is covered too: {joined}"
+        );
+        assert!(
+            joined.contains("example.test"),
+            "and still says where it points: {joined}"
+        );
     }
-
 }
 
 #[cfg(test)]
@@ -4258,10 +4328,7 @@ mod gamdl_v4_output_tests {
             "Errors (2):",
         ] {
             assert!(
-                matches!(
-                    parse_gamdl_output(info),
-                    GamdlOutputEvent::Unknown { .. }
-                ),
+                matches!(parse_gamdl_output(info), GamdlOutputEvent::Unknown { .. }),
                 "{info}"
             );
         }

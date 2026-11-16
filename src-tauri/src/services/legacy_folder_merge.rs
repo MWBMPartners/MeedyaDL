@@ -187,8 +187,7 @@ fn detect_pairs_in_parent(parent: &Path) -> Vec<SiblingPair> {
         })
         .collect();
 
-    let folder_set: HashSet<&str> =
-        folders.iter().map(|(n, _)| n.as_str()).collect();
+    let folder_set: HashSet<&str> = folders.iter().map(|(n, _)| n.as_str()).collect();
 
     // Track which suffixed folders have already been claimed so the
     // same `Album [Explicit]` isn't paired with two different
@@ -225,9 +224,7 @@ fn detect_pairs_in_parent(parent: &Path) -> Vec<SiblingPair> {
             // `&str` borrowed from `folders` — that's fine as long
             // as the name is in the set. We use the *folders'*
             // owned string by lookup.
-            if let Some(borrowed) =
-                folder_set.get(suffixed_name.as_str()).copied()
-            {
+            if let Some(borrowed) = folder_set.get(suffixed_name.as_str()).copied() {
                 seen_suffixed.insert(borrowed);
             }
             break;
@@ -283,7 +280,10 @@ fn classify_file(path: &Path) -> FileBucket {
         return FileBucket::Other;
     };
     let ext_lc = ext.to_ascii_lowercase();
-    if AUDIO_EXTENSIONS.iter().any(|a| a.eq_ignore_ascii_case(&ext_lc)) {
+    if AUDIO_EXTENSIONS
+        .iter()
+        .any(|a| a.eq_ignore_ascii_case(&ext_lc))
+    {
         FileBucket::Audio
     } else if SIDECAR_EXTENSIONS.contains(&ext_lc.as_str()) {
         FileBucket::Sidecar
@@ -315,20 +315,19 @@ pub fn preview_merge(pair: &SiblingPair) -> Result<MergePreview, String> {
     // Snapshot destination filenames once so collision checks are
     // O(1) per source file (and a missing dest folder is treated as
     // empty rather than blocking the preview).
-    let dest_names: HashSet<String> =
-        std::fs::read_dir(&pair.suffixed_path)
-            .ok()
-            .map(|it| {
-                it.flatten()
-                    .filter_map(|e| {
-                        e.path()
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .map(String::from)
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
+    let dest_names: HashSet<String> = std::fs::read_dir(&pair.suffixed_path)
+        .ok()
+        .map(|it| {
+            it.flatten()
+                .filter_map(|e| {
+                    e.path()
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .map(String::from)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     let mut audio = 0;
     let mut sidecar = 0;
@@ -464,10 +463,7 @@ pub fn execute_merge(pair: &SiblingPair) -> Result<MergeReport, String> {
                 }
             }
             Err(e) => {
-                warnings.push(format!(
-                    "Failed to move {}: {e}",
-                    src.display()
-                ));
+                warnings.push(format!("Failed to move {}: {e}", src.display()));
             }
         }
     }
@@ -479,9 +475,7 @@ pub fn execute_merge(pair: &SiblingPair) -> Result<MergeReport, String> {
         Ok(mut it) => {
             if it.next().is_none() {
                 if let Err(e) = std::fs::remove_dir(&pair.unsuffixed_path) {
-                    warnings.push(format!(
-                        "Source folder is empty but removal failed: {e}"
-                    ));
+                    warnings.push(format!("Source folder is empty but removal failed: {e}"));
                     false
                 } else {
                     true
@@ -495,9 +489,7 @@ pub fn execute_merge(pair: &SiblingPair) -> Result<MergeReport, String> {
             }
         }
         Err(e) => {
-            warnings.push(format!(
-                "Failed to check source folder for removal: {e}"
-            ));
+            warnings.push(format!("Failed to check source folder for removal: {e}"));
             false
         }
     };
@@ -526,11 +518,7 @@ pub fn execute_merge(pair: &SiblingPair) -> Result<MergeReport, String> {
 ///   - Neither exists → nothing to do; return false.
 ///
 /// Returns `true` iff a merge actually happened (matrix row 1).
-fn merge_manifests(
-    source_folder: &Path,
-    dest_folder: &Path,
-    warnings: &mut Vec<String>,
-) -> bool {
+fn merge_manifests(source_folder: &Path, dest_folder: &Path, warnings: &mut Vec<String>) -> bool {
     let source_manifest = source_folder.join("manifest.meedyadl");
     let dest_manifest = dest_folder.join("manifest.meedyadl");
 
@@ -543,9 +531,7 @@ fn merge_manifests(
         match fs_safe::safe_rename(&source_manifest, &dest_manifest) {
             Ok(_) => return false, // moved, not "merged"
             Err(e) => {
-                warnings.push(format!(
-                    "Failed to move source manifest: {e}"
-                ));
+                warnings.push(format!("Failed to move source manifest: {e}"));
                 return false;
             }
         }
@@ -620,11 +606,7 @@ mod tests {
     /// Create a directory layout for testing without touching real
     /// audio files. `pair_basename` becomes the album base; the test
     /// creates both `Foo` and `Foo {suffix}` under the parent.
-    fn setup_pair(
-        parent: &Path,
-        pair_basename: &str,
-        suffix: &str,
-    ) -> (PathBuf, PathBuf) {
+    fn setup_pair(parent: &Path, pair_basename: &str, suffix: &str) -> (PathBuf, PathBuf) {
         let unsuffixed = parent.join(pair_basename);
         let suffixed = parent.join(format!("{pair_basename} {suffix}"));
         std::fs::create_dir_all(&unsuffixed).unwrap();
@@ -635,11 +617,7 @@ mod tests {
     /// Write a minimal M4A with the given advisory rating into
     /// `folder/name`. Uses `mp4ameta` to construct a tag-only file
     /// (no actual audio data — sufficient for the rtng-check).
-    fn write_audio_with_rating(
-        folder: &Path,
-        name: &str,
-        rating: mp4ameta::AdvisoryRating,
-    ) {
+    fn write_audio_with_rating(folder: &Path, name: &str, rating: mp4ameta::AdvisoryRating) {
         let path = folder.join(name);
         // mp4ameta needs an existing MP4 container to write tags
         // into. Build a minimal one with the `mp4` crate would be
@@ -706,8 +684,7 @@ mod tests {
     #[test]
     fn audio_rating_matches_suffix_handles_unreadable_audio() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("01 Track.m4a"), b"not really an mp4")
-            .unwrap();
+        std::fs::write(dir.path().join("01 Track.m4a"), b"not really an mp4").unwrap();
         assert!(!audio_rating_matches_suffix(dir.path(), "[Explicit]"));
     }
 
@@ -721,8 +698,7 @@ mod tests {
     #[test]
     fn preview_classifies_files_and_detects_collisions() {
         let dir = TempDir::new().unwrap();
-        let (unsuffixed, suffixed) =
-            setup_pair(dir.path(), "Album", "[Explicit]");
+        let (unsuffixed, suffixed) = setup_pair(dir.path(), "Album", "[Explicit]");
 
         std::fs::write(unsuffixed.join("01 Track [Lossless].m4a"), b"a").unwrap();
         std::fs::write(unsuffixed.join("01 Track [Lossless].lrc"), b"b").unwrap();
@@ -749,8 +725,7 @@ mod tests {
     #[test]
     fn preview_reports_manifest_merge_when_both_present() {
         let dir = TempDir::new().unwrap();
-        let (unsuffixed, suffixed) =
-            setup_pair(dir.path(), "Album", "[Explicit]");
+        let (unsuffixed, suffixed) = setup_pair(dir.path(), "Album", "[Explicit]");
         std::fs::write(unsuffixed.join("manifest.meedyadl"), b"{}").unwrap();
         std::fs::write(suffixed.join("manifest.meedyadl"), b"{}").unwrap();
 
@@ -821,17 +796,19 @@ mod tests {
         assert!(merged, "both manifests present → merge runs");
         assert!(warnings.is_empty(), "warnings: {warnings:?}");
 
-        let merged_data: ManifestFile = serde_json::from_str(
-            &std::fs::read_to_string(dst.join("manifest.meedyadl")).unwrap(),
-        )
-        .unwrap();
+        let merged_data: ManifestFile =
+            serde_json::from_str(&std::fs::read_to_string(dst.join("manifest.meedyadl")).unwrap())
+                .unwrap();
         assert_eq!(
             merged_data.sources.len(),
             2,
             "primary + companion sources both kept"
         );
-        let codecs: HashSet<Option<String>> =
-            merged_data.sources.iter().map(|s| s.codec.clone()).collect();
+        let codecs: HashSet<Option<String>> = merged_data
+            .sources
+            .iter()
+            .map(|s| s.codec.clone())
+            .collect();
         assert!(codecs.contains(&Some("atmos".to_string())));
         assert!(codecs.contains(&Some("alac".to_string())));
         assert!(
@@ -865,8 +842,7 @@ mod tests {
     #[test]
     fn execute_safe_renames_colliding_cover_art() {
         let dir = TempDir::new().unwrap();
-        let (unsuffixed, suffixed) =
-            setup_pair(dir.path(), "Album", "[Explicit]");
+        let (unsuffixed, suffixed) = setup_pair(dir.path(), "Album", "[Explicit]");
         std::fs::write(unsuffixed.join("Cover.jpg"), b"src-cover").unwrap();
         std::fs::write(suffixed.join("Cover.jpg"), b"dst-cover").unwrap();
 
@@ -888,15 +864,10 @@ mod tests {
             b"dst-cover"
         );
         // Source's cover landed under a disambiguated name.
-        let disambiguated = std::fs::read_dir(&suffixed)
-            .unwrap()
-            .flatten()
-            .find(|e| {
-                e.file_name()
-                    .to_string_lossy()
-                    .starts_with("Cover")
-                    && e.file_name().to_string_lossy() != "Cover.jpg"
-            });
+        let disambiguated = std::fs::read_dir(&suffixed).unwrap().flatten().find(|e| {
+            e.file_name().to_string_lossy().starts_with("Cover")
+                && e.file_name().to_string_lossy() != "Cover.jpg"
+        });
         assert!(
             disambiguated.is_some(),
             "src Cover.jpg should have been disambiguated"

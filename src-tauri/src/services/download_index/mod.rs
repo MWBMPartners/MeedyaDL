@@ -174,11 +174,9 @@ impl DownloadIndex {
     pub fn meta_get(&self, key: &str) -> Result<Option<String>, IndexError> {
         let value: Option<String> = self
             .conn
-            .query_row(
-                "SELECT value FROM meta WHERE key = ?1",
-                [key],
-                |row| row.get(0),
-            )
+            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |row| {
+                row.get(0)
+            })
             .optional()?;
         Ok(value)
     }

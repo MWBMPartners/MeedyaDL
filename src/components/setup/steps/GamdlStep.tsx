@@ -165,8 +165,8 @@ export function GamdlStep() {
             <div>
               <p className="text-sm font-medium text-content-primary">GAMDL Not Found</p>
               <p className="text-xs text-content-secondary mt-1">
-                Install GAMDL, the download engine MeedyaDL uses for Apple Music. It goes into
-                the Python set up in the previous step.
+                Install GAMDL, the download engine MeedyaDL uses for Apple Music. It goes into the
+                Python set up in the previous step.
               </p>
             </div>
 
@@ -191,8 +191,8 @@ export function GamdlStep() {
           <p>
             GAMDL v{externalGamdl.version} is also installed on your system
             {externalGamdl.source.startsWith('pipx') ? ' via pipx' : ''}. MeedyaDL keeps its own
-            tested copy so downloads stay on a supported version — your other installation isn&apos;t
-            changed.
+            tested copy so downloads stay on a supported version — your other installation
+            isn&apos;t changed.
           </p>
         </div>
       )}

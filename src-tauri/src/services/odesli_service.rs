@@ -236,7 +236,10 @@ impl OdesliError {
     /// on its own).
     #[must_use]
     pub fn is_user_actionable(&self) -> bool {
-        matches!(self, OdesliError::PublicAccessClosed | OdesliError::KeyRejected)
+        matches!(
+            self,
+            OdesliError::PublicAccessClosed | OdesliError::KeyRejected
+        )
     }
 }
 
@@ -590,7 +593,10 @@ async fn paced_attempt(
     };
     let response = match client
         .get(&url)
-        .header("User-Agent", crate::utils::http_client::browser_user_agent())
+        .header(
+            "User-Agent",
+            crate::utils::http_client::browser_user_agent(),
+        )
         .send()
         .await
     {
@@ -601,7 +607,9 @@ async fn paced_attempt(
         // carries the access key as `&key=...`. `without_url()` removes
         // that address before we turn the error into text, so the key
         // can't end up in a log line.
-        Err(e) => return AttemptOutcome::Failed(OdesliError::Network(format!("{}", e.without_url()))),
+        Err(e) => {
+            return AttemptOutcome::Failed(OdesliError::Network(format!("{}", e.without_url())))
+        }
     };
 
     let status = response.status();
@@ -771,7 +779,13 @@ pub async fn lookup(
     if let Ok(urls) = &result {
         let mut guard = CACHE.lock().await;
         let file = guard.get_or_insert_with(|| load_cache(path));
-        cache_put(file, &key, urls.clone().unwrap_or_default(), now, CACHE_MAX_ENTRIES);
+        cache_put(
+            file,
+            &key,
+            urls.clone().unwrap_or_default(),
+            now,
+            CACHE_MAX_ENTRIES,
+        );
         save_cache(path, file);
     }
 
@@ -989,20 +1003,30 @@ mod tests {
         let is_one_song = |u: &str| u.contains("?i=") || u.contains("&i=") || u.contains("/song/");
 
         // One song, in both the shapes Apple Music uses.
-        assert!(is_one_song("https://music.apple.com/gb/album/abbey-road/401186200?i=401186286"));
-        assert!(is_one_song("https://music.apple.com/gb/song/come-together/401186286"));
+        assert!(is_one_song(
+            "https://music.apple.com/gb/album/abbey-road/401186200?i=401186286"
+        ));
+        assert!(is_one_song(
+            "https://music.apple.com/gb/song/come-together/401186286"
+        ));
         assert!(is_one_song("https://music.apple.com/gb/album/x/1?l=en&i=2"));
 
         // Whole albums, playlists and artists are not one song.
-        assert!(!is_one_song("https://music.apple.com/gb/album/abbey-road/401186200"));
+        assert!(!is_one_song(
+            "https://music.apple.com/gb/album/abbey-road/401186200"
+        ));
         assert!(!is_one_song("https://music.apple.com/gb/playlist/x/pl.abc"));
-        assert!(!is_one_song("https://music.apple.com/gb/artist/the-beatles/136975"));
+        assert!(!is_one_song(
+            "https://music.apple.com/gb/artist/the-beatles/136975"
+        ));
     }
 
     #[test]
     fn urlencoded_escapes_specials() {
-        assert_eq!(urlencoded("https://music.apple.com/gb/album/foo/123"),
-            "https%3A%2F%2Fmusic.apple.com%2Fgb%2Falbum%2Ffoo%2F123");
+        assert_eq!(
+            urlencoded("https://music.apple.com/gb/album/foo/123"),
+            "https%3A%2F%2Fmusic.apple.com%2Fgb%2Falbum%2Ffoo%2F123"
+        );
         assert_eq!(urlencoded("a b"), "a%20b");
         assert_eq!(urlencoded("a-b_c.d~e"), "a-b_c.d~e"); // unreserved
     }
@@ -1086,7 +1110,10 @@ mod tests {
 
     #[test]
     fn atom_name_for_platform_capitalises_and_appends_url() {
-        assert_eq!(atom_name_for_platform("spotify").as_deref(), Some("SpotifyUrl"));
+        assert_eq!(
+            atom_name_for_platform("spotify").as_deref(),
+            Some("SpotifyUrl")
+        );
         assert_eq!(
             atom_name_for_platform("youtubeMusic").as_deref(),
             Some("YoutubeMusicUrl")

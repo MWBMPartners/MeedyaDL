@@ -112,9 +112,7 @@ export function useConfirmation(opts: UseConfirmationOptions): UseConfirmationRe
 
   const modal = (
     <Modal open={isOpen} onClose={handleCancel} title={opts.title}>
-      <div className="text-sm text-content-secondary mb-6">
-        {opts.description}
-      </div>
+      <div className="text-sm text-content-secondary mb-6">{opts.description}</div>
       <div className="flex justify-end gap-2">
         <Button variant="ghost" onClick={handleCancel}>
           {opts.cancelLabel ?? 'Cancel'}

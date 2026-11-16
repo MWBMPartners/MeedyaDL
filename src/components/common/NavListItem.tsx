@@ -50,13 +50,13 @@ export function NavListItem({
         ? 'text-accent-hover hover:bg-sidebar-hover'
         : 'text-content-tertiary hover:text-content-primary hover:bg-sidebar-hover'
       : tone === 'sidebar'
-      ? active
-        ? 'bg-sidebar-active text-sidebar-text-active font-medium'
-        : 'text-sidebar-text hover:bg-sidebar-hover'
-      : active
-        ? // text-accent-hover, not the plain accent: it clears 4.5:1 as small text (see base.css)
-          'bg-accent-light text-accent-hover font-medium'
-        : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary';
+        ? active
+          ? 'bg-sidebar-active text-sidebar-text-active font-medium'
+          : 'text-sidebar-text hover:bg-sidebar-hover'
+        : active
+          ? // text-accent-hover, not the plain accent: it clears 4.5:1 as small text (see base.css)
+            'bg-accent-light text-accent-hover font-medium'
+          : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary';
   return (
     <button
       type={type}

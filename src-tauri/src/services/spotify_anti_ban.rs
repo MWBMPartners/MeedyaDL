@@ -281,9 +281,7 @@ pub fn load_counter(app: &AppHandle) -> DailyCapCounter {
     let parsed: DailyCapCounter = match serde_json::from_str(&raw) {
         Ok(c) => c,
         Err(e) => {
-            log::warn!(
-                "spotify_daily_counter.json was unreadable; starting fresh — {e}"
-            );
+            log::warn!("spotify_daily_counter.json was unreadable; starting fresh — {e}");
             return DailyCapCounter::fresh_today();
         }
     };
@@ -419,20 +417,14 @@ mod tests {
         s.inter_track_delay_seconds = 8;
         s.inter_track_jitter_seconds = 0;
         // rng_value irrelevant when jitter is 0.
-        assert_eq!(
-            compute_inter_track_delay(&s, 0.0),
-            Duration::from_secs(8)
-        );
-        assert_eq!(
-            compute_inter_track_delay(&s, 0.999),
-            Duration::from_secs(8)
-        );
+        assert_eq!(compute_inter_track_delay(&s, 0.0), Duration::from_secs(8));
+        assert_eq!(compute_inter_track_delay(&s, 0.999), Duration::from_secs(8));
     }
 
     #[test]
     fn inter_track_delay_clamps_within_jitter_window() {
         let s = settings_default(); // 10 + uniform [0,5)
-        // Minimum: rng_value=0 → base
+                                    // Minimum: rng_value=0 → base
         assert_eq!(compute_inter_track_delay(&s, 0.0), Duration::from_secs(10));
         // Maximum (clamped): rng_value=1.0 → just under base+jitter
         assert_eq!(compute_inter_track_delay(&s, 1.0), Duration::from_secs(14));
@@ -444,7 +436,10 @@ mod tests {
     fn inter_track_delay_handles_nan_safely() {
         let s = settings_default();
         // NaN clamps to 0 → minimum delay.
-        assert_eq!(compute_inter_track_delay(&s, f64::NAN), Duration::from_secs(10));
+        assert_eq!(
+            compute_inter_track_delay(&s, f64::NAN),
+            Duration::from_secs(10)
+        );
     }
 
     // ---- DailyCapCounter ----
@@ -495,7 +490,10 @@ mod tests {
             date: today_iso(),
             count: 99,
         };
-        assert!(!counter.would_exceed(&s), "below cap → next download allowed");
+        assert!(
+            !counter.would_exceed(&s),
+            "below cap → next download allowed"
+        );
     }
 
     #[test]

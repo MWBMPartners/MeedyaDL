@@ -277,8 +277,7 @@ pub fn pip_target_spec(target: &str) -> String {
 ///
 /// `None` means "we haven't probed yet or votify isn't installed". See
 /// the module-level docs for how unknown versions are handled.
-static DETECTED_VERSION: LazyLock<RwLock<Option<String>>> =
-    LazyLock::new(|| RwLock::new(None));
+static DETECTED_VERSION: LazyLock<RwLock<Option<String>>> = LazyLock::new(|| RwLock::new(None));
 
 /// Records the currently installed votify version.
 ///
@@ -297,10 +296,7 @@ pub fn set_detected_version(version: Option<String>) {
 /// Returns the currently cached votify version string, if any.
 #[must_use]
 pub fn detected_version() -> Option<String> {
-    DETECTED_VERSION
-        .read()
-        .ok()
-        .and_then(|guard| guard.clone())
+    DETECTED_VERSION.read().ok().and_then(|guard| guard.clone())
 }
 
 /// Individual CLI / config features whose availability differs across
@@ -393,7 +389,10 @@ pub fn active_capabilities_summary() -> String {
     };
 
     let all = [
-        (VotifyFeature::DesktopAacAndMp4Flac, "desktop-aac-and-mp4-flac"),
+        (
+            VotifyFeature::DesktopAacAndMp4Flac,
+            "desktop-aac-and-mp4-flac",
+        ),
         (VotifyFeature::UpcTag, "upc-tag"),
     ];
 
@@ -434,7 +433,10 @@ mod tests {
         // matching the expected shape. The actual values are tested in
         // `support_window_has_recommended_inside_range` below.
         assert!(!window.minimum.is_empty(), "minimum should parse");
-        assert!(!window.maximum_tested.is_empty(), "maximum_tested should parse");
+        assert!(
+            !window.maximum_tested.is_empty(),
+            "maximum_tested should parse"
+        );
         assert!(!window.recommended.is_empty(), "recommended should parse");
     }
 
@@ -466,7 +468,9 @@ mod tests {
         let _lock = test_lock();
         let window = support_window();
         let result = classify(Some("0.1.0"));
-        assert!(matches!(result, VersionSupport::Unsupported { ref minimum, .. } if minimum == &window.minimum));
+        assert!(
+            matches!(result, VersionSupport::Unsupported { ref minimum, .. } if minimum == &window.minimum)
+        );
     }
 
     #[test]
@@ -475,7 +479,11 @@ mod tests {
         let window = support_window();
         // Use the minimum itself — boundary case that should always pass.
         let result = classify(Some(&window.minimum));
-        assert!(result.is_supported(), "minimum ({}) should be supported, got {result:?}", window.minimum);
+        assert!(
+            result.is_supported(),
+            "minimum ({}) should be supported, got {result:?}",
+            window.minimum
+        );
     }
 
     #[test]
@@ -517,15 +525,21 @@ mod tests {
     fn should_offer_upgrade_rejects_garbage() {
         assert!(!should_offer_upgrade("not-a-version"));
         assert!(!should_offer_upgrade(""));
-        assert!(!should_offer_upgrade("v1.9"));  // leading "v" breaks the first.parse::<u32>() guard
+        assert!(!should_offer_upgrade("v1.9")); // leading "v" breaks the first.parse::<u32>() guard
     }
 
     #[test]
     fn pip_version_spec_contains_bounds() {
         let spec = pip_version_spec();
         let window = support_window();
-        assert!(spec.contains(&format!(">={}", window.minimum)), "spec '{spec}' should bound below");
-        assert!(spec.contains(&format!("<={}", window.maximum_tested)), "spec '{spec}' should bound above");
+        assert!(
+            spec.contains(&format!(">={}", window.minimum)),
+            "spec '{spec}' should bound below"
+        );
+        assert!(
+            spec.contains(&format!("<={}", window.maximum_tested)),
+            "spec '{spec}' should bound above"
+        );
         assert!(spec.starts_with("votify"));
     }
 
@@ -616,7 +630,7 @@ mod tests {
     #[test]
     fn is_version_at_least_basic_orderings() {
         assert!(is_version_at_least("1.9.9", "1.9.0"));
-        assert!(is_version_at_least("1.9.0", "1.9.0"));  // equality
+        assert!(is_version_at_least("1.9.0", "1.9.0")); // equality
         assert!(is_version_at_least("2.0.0", "1.9.9"));
         assert!(!is_version_at_least("1.8.9", "1.9.0"));
     }

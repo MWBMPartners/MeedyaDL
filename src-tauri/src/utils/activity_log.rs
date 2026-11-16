@@ -57,9 +57,7 @@ static DISK_WRITER: OnceLock<crate::services::activity_log_writer::ActivityLogWr
 /// Registers the on-disk activity log writer. Called once from the
 /// Tauri `setup` closure after `activity_log_writer::start()` has
 /// spawned the background task.
-pub fn register_disk_writer(
-    handle: crate::services::activity_log_writer::ActivityLogWriterHandle,
-) {
+pub fn register_disk_writer(handle: crate::services::activity_log_writer::ActivityLogWriterHandle) {
     if DISK_WRITER.set(handle).is_err() {
         log::warn!("activity_log: disk writer already registered — ignoring second call");
     }
@@ -214,16 +212,7 @@ fn append_label(message: &str, label: Option<String>) -> String {
 /// via `default_severity()`, so the entire migration to severity-
 /// tagged emits is incremental: only sites that genuinely represent
 /// a warning or error need to opt in via the dedicated helpers.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogSeverity {
     #[default]

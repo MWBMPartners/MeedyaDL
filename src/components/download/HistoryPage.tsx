@@ -16,7 +16,14 @@
 import { useEffect, useId, useMemo, useState, useCallback } from 'react';
 
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Button, ContextMenu, ErrorMessageDisplay, IconButton, Input, Modal } from '@/components/common';
+import {
+  Button,
+  ContextMenu,
+  ErrorMessageDisplay,
+  IconButton,
+  Input,
+  Modal,
+} from '@/components/common';
 import type { ContextMenuItem } from '@/components/common';
 import {
   Trash2,
@@ -139,9 +146,12 @@ export function HistoryPage() {
   // Load entries on mount and when search query changes
   useEffect(() => {
     // Debounce search queries by 300ms
-    const timer = setTimeout(() => {
-      loadEntries();
-    }, searchQuery ? 300 : 0);
+    const timer = setTimeout(
+      () => {
+        loadEntries();
+      },
+      searchQuery ? 300 : 0
+    );
     return () => clearTimeout(timer);
   }, [loadEntries, searchQuery]);
 
@@ -168,7 +178,10 @@ export function HistoryPage() {
       addToast('Download history cleared', 'info');
     } catch (err) {
       console.error('Failed to clear history:', err);
-      showError('MeedyaDL could not clear the history. Try again; if it keeps happening, restart MeedyaDL.', err);
+      showError(
+        'MeedyaDL could not clear the history. Try again; if it keeps happening, restart MeedyaDL.',
+        err
+      );
     }
   }, [addToast]);
 
@@ -225,10 +238,13 @@ export function HistoryPage() {
         setEntries((current) => current.filter((item) => item.id !== entry.id));
         addToast(`Re-queued: ${getDisplayLabel(entry)}`, 'success');
       } catch (err) {
-        showBackendError('MeedyaDL could not add that download to the queue again. Try again in a moment.', err);
+        showBackendError(
+          'MeedyaDL could not add that download to the queue again. Try again in a moment.',
+          err
+        );
       }
     },
-    [addToast, loadEntries],
+    [addToast, loadEntries]
   );
 
   /**
@@ -245,7 +261,7 @@ export function HistoryPage() {
         addToast('MeedyaDL could not copy the link. Try again in a moment.', 'error');
       }
     },
-    [addToast],
+    [addToast]
   );
 
   /**
@@ -282,7 +298,7 @@ export function HistoryPage() {
                 failedCount - uniqueUrls.length !== 1 ? 's' : ''
               } skipped)`
             : ''),
-        'success',
+        'success'
       );
     } catch (err) {
       showError('MeedyaDL could not retry the failed downloads. Try again in a moment.', err);
@@ -303,18 +319,18 @@ export function HistoryPage() {
       setEntries((current) => current.filter((entry) => entry.id !== target.id));
       addToast('History entry removed', 'info');
     } catch (err) {
-      showError('MeedyaDL could not remove that entry from the history. Try again in a moment.', err);
+      showError(
+        'MeedyaDL could not remove that entry from the history. Try again in a moment.',
+        err
+      );
     }
   }, [deleteTarget, addToast]);
 
   /** Right-click handler — opens the per-row context menu at the cursor. */
-  const handleContextMenu = useCallback(
-    (event: React.MouseEvent, entry: HistoryEntry) => {
-      event.preventDefault();
-      setContextMenu({ entry, x: event.clientX, y: event.clientY });
-    },
-    [],
-  );
+  const handleContextMenu = useCallback((event: React.MouseEvent, entry: HistoryEntry) => {
+    event.preventDefault();
+    setContextMenu({ entry, x: event.clientX, y: event.clientY });
+  }, []);
 
   /**
    * Opens the same per-row menu from a visible "⋯" button (a11y audit
@@ -328,7 +344,7 @@ export function HistoryPage() {
       const rect = event.currentTarget.getBoundingClientRect();
       setContextMenu({ entry, x: rect.left, y: rect.bottom });
     },
-    [],
+    []
   );
 
   /**
@@ -370,7 +386,7 @@ export function HistoryPage() {
       });
       return items;
     },
-    [handleCopyUrl, handleRetryOne, handleOpenFolder],
+    [handleCopyUrl, handleRetryOne, handleOpenFolder]
   );
 
   const subtitle = searchQuery
@@ -433,7 +449,12 @@ export function HistoryPage() {
             icon={<Search size={16} aria-hidden="true" />}
             suffix={
               searchQuery ? (
-                <IconButton size="sm" icon={<X size={14} />} label="Clear search" onClick={() => setSearchQuery('')} />
+                <IconButton
+                  size="sm"
+                  icon={<X size={14} />}
+                  label="Clear search"
+                  onClick={() => setSearchQuery('')}
+                />
               ) : undefined
             }
           />
@@ -453,9 +474,7 @@ export function HistoryPage() {
               {searchQuery ? 'No matching downloads found.' : 'No download history yet.'}
             </p>
             {!searchQuery && (
-              <p className="text-xs mt-1">
-                Completed and failed downloads will appear here.
-              </p>
+              <p className="text-xs mt-1">Completed and failed downloads will appear here.</p>
             )}
           </div>
         ) : (
@@ -551,10 +570,7 @@ export function HistoryPage() {
                         native browser tooltip so long Apple Music URLs
                         — which often run past the visible row width — are
                         readable on hover without resizing the window. */}
-                    <p
-                      className="text-2xs text-content-tertiary mt-0.5 truncate"
-                      title={entry.url}
-                    >
+                    <p className="text-2xs text-content-tertiary mt-0.5 truncate" title={entry.url}>
                       {entry.url}
                     </p>
                   </div>
@@ -565,10 +581,20 @@ export function HistoryPage() {
                       power-user workflows (#665). */}
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {isFailed(entry) && (
-                      <IconButton size="sm" icon={<RotateCcw size={14} />} label="Retry download" onClick={() => handleRetryOne(entry)} />
+                      <IconButton
+                        size="sm"
+                        icon={<RotateCcw size={14} />}
+                        label="Retry download"
+                        onClick={() => handleRetryOne(entry)}
+                      />
                     )}
                     {entry.file_path && (
-                      <IconButton size="sm" icon={<FolderOpen size={14} />} label="Open folder" onClick={() => handleOpenFolder(entry.file_path!)} />
+                      <IconButton
+                        size="sm"
+                        icon={<FolderOpen size={14} />}
+                        label="Open folder"
+                        onClick={() => handleOpenFolder(entry.file_path!)}
+                      />
                     )}
                     {/* Overflow ("⋯") button — a11y audit Fix 1. Deleting
                         or copying a history row used to be reachable
@@ -605,8 +631,8 @@ export function HistoryPage() {
         title="Remove history entry"
       >
         <p className="text-sm text-content-secondary mb-4">
-          Remove this entry from your download history? Already-downloaded
-          files on disk are not deleted — only the history record.
+          Remove this entry from your download history? Already-downloaded files on disk are not
+          deleted — only the history record.
         </p>
         {deleteTarget && (
           <p className="text-xs text-content-tertiary mb-6 break-all">
@@ -631,12 +657,12 @@ export function HistoryPage() {
       >
         <p className="text-sm text-content-secondary mb-4">
           This will re-enqueue {failedCount} failed download
-          {failedCount !== 1 ? 's' : ''} from your history. Duplicate URLs are
-          deduplicated automatically — each unique URL is queued once.
+          {failedCount !== 1 ? 's' : ''} from your history. Duplicate URLs are deduplicated
+          automatically — each unique URL is queued once.
         </p>
         <p className="text-sm text-content-secondary mb-6">
-          The history entries themselves are kept. Successful retries will write
-          new history entries on completion.
+          The history entries themselves are kept. Successful retries will write new history entries
+          on completion.
         </p>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setShowRetryAllConfirm(false)}>
@@ -659,14 +685,13 @@ export function HistoryPage() {
         title="Clear Download History"
       >
         <p className="text-sm text-content-secondary mb-4">
-          This will permanently delete all {entries.length}{' '}
-          entr{entries.length === 1 ? 'y' : 'ies'} in your download history. This cannot be
-          undone.
+          This will permanently delete all {entries.length} entr{entries.length === 1 ? 'y' : 'ies'}{' '}
+          in your download history. This cannot be undone.
         </p>
         <p className="text-sm text-content-secondary mb-6">
-          Your history isn't only a list on this page — MeedyaDL also checks it to spot
-          duplicate downloads and to tell you when something has already been downloaded,
-          so clearing it changes what happens the next time you download something too.
+          Your history isn't only a list on this page — MeedyaDL also checks it to spot duplicate
+          downloads and to tell you when something has already been downloaded, so clearing it
+          changes what happens the next time you download something too.
         </p>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setShowClearConfirm(false)}>

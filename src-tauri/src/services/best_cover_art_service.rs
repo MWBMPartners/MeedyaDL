@@ -182,7 +182,11 @@ pub fn pick_best(mut candidates: Vec<CoverArtCandidate>) -> Option<CoverArtCandi
             .cmp(&a.pixel_area())
             // Secondary key: source priority, ascending (lower → better).
             // Apple Music's priority is 0 so it wins ties.
-            .then_with(|| a.source.tiebreak_priority().cmp(&b.source.tiebreak_priority()))
+            .then_with(|| {
+                a.source
+                    .tiebreak_priority()
+                    .cmp(&b.source.tiebreak_priority())
+            })
     });
     candidates.into_iter().next()
 }
@@ -292,7 +296,9 @@ fn parse_spotify_oembed_json(
     json: &serde_json::Value,
 ) -> Result<Option<CoverArtCandidate>, String> {
     let url = json.get("thumbnail_url").and_then(|v| v.as_str());
-    let width = json.get("thumbnail_width").and_then(serde_json::Value::as_u64);
+    let width = json
+        .get("thumbnail_width")
+        .and_then(serde_json::Value::as_u64);
     let height = json
         .get("thumbnail_height")
         .and_then(serde_json::Value::as_u64);
@@ -543,7 +549,12 @@ pub async fn upgrade_cover_if_better(
 
     let bytes = crate::services::cover_art_fallback::fetch_artwork_bytes(&best.url)
         .await
-        .map_err(|e| log::debug!("cover art: could not fetch from {}: {e}", best.source.kebab_id()))
+        .map_err(|e| {
+            log::debug!(
+                "cover art: could not fetch from {}: {e}",
+                best.source.kebab_id()
+            )
+        })
         .ok()?;
 
     // Name the file after what it actually is, not after the setting.
@@ -581,7 +592,10 @@ pub async fn upgrade_cover_if_better(
         downloaded.width,
         downloaded.height,
         best.source.kebab_id(),
-        target.file_name().and_then(|n| n.to_str()).unwrap_or("cover")
+        target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("cover")
     );
     Some(CoverArtCandidate {
         width: downloaded.width,
@@ -676,7 +690,11 @@ mod tests {
         assert_eq!(picked, landscape);
     }
 
-    fn metadata_with_artwork(template: Option<&str>, w: Option<u32>, h: Option<u32>) -> AlbumMetadata {
+    fn metadata_with_artwork(
+        template: Option<&str>,
+        w: Option<u32>,
+        h: Option<u32>,
+    ) -> AlbumMetadata {
         // Centralised fixture builder so adding a new AlbumMetadata
         // field doesn't require editing every test in this module.
         AlbumMetadata {
@@ -885,7 +903,11 @@ mod tests {
         std::fs::write(dir.path().join("Cover.png"), png_of(3000, 3000)).unwrap();
 
         let found = find_existing_covers(dir.path(), "Cover");
-        assert_eq!(found.len(), 2, "both covers should be seen, not just the first");
+        assert_eq!(
+            found.len(),
+            2,
+            "both covers should be seen, not just the first"
+        );
 
         let biggest = found
             .iter()
@@ -914,7 +936,10 @@ mod tests {
         let path = dir.path().join("Cover.png");
         std::fs::write(&path, png_of(3000, 3000)).unwrap();
 
-        let found = find_existing_covers(dir.path(), "Cover").into_iter().next().expect("should find it");
+        let found = find_existing_covers(dir.path(), "Cover")
+            .into_iter()
+            .next()
+            .expect("should find it");
         let info = crate::utils::image_info::read_image_info_from_file(&found)
             .expect("should read its size");
         assert_eq!(info.pixels(), 9_000_000);
@@ -928,7 +953,10 @@ mod tests {
         let path = dir.path().join("Cover.jpg");
         std::fs::write(&path, b"this is not really a picture").unwrap();
 
-        let found = find_existing_covers(dir.path(), "Cover").into_iter().next().expect("the file exists");
+        let found = find_existing_covers(dir.path(), "Cover")
+            .into_iter()
+            .next()
+            .expect("the file exists");
         assert!(
             crate::utils::image_info::read_image_info_from_file(&found).is_none(),
             "its size should not be readable, which is what makes us leave it alone"
@@ -976,7 +1004,13 @@ mod tests {
     async fn a_barcode_that_is_not_digits_is_refused_without_asking() {
         // Keeps arbitrary text out of a URL, and such a barcode would not
         // match anything anyway. No network call is made.
-        for bad in ["", "   ", "not-a-barcode", "0602445790098; DROP", "../../etc"] {
+        for bad in [
+            "",
+            "   ",
+            "not-a-barcode",
+            "0602445790098; DROP",
+            "../../etc",
+        ] {
             assert!(
                 fetch_deezer_candidate(bad).await.unwrap().is_none(),
                 "{bad:?} should be refused before any request"
@@ -1002,5 +1036,4 @@ mod tests {
         let picked = pick_best(vec![apple, deezer.clone()]).unwrap();
         assert_eq!(picked, deezer);
     }
-
 }

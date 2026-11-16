@@ -51,8 +51,9 @@ import { useTestLanguage } from '@/testing/i18n';
  */
 vi.mock('lucide-react', () => {
   /** Factory that creates a stub span component for a given icon name */
-  const stub = (name: string) =>
-    (props: Record<string, unknown>) => <span data-testid={`icon-${name}`} {...props} />;
+  const stub = (name: string) => (props: Record<string, unknown>) => (
+    <span data-testid={`icon-${name}`} {...props} />
+  );
 
   return {
     /* Common components */
@@ -218,7 +219,9 @@ describe('GeneralTab', () => {
     expect(screen.getByRole('button', { name: 'Full Copy of MeedyaDL' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Export Full Copy/ })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Import Full Copy/ })).toBeInTheDocument();
-    expect(screen.queryByText(/Profile Bundle|Export Profile|Import Profile/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Profile Bundle|Export Profile|Import Profile/)
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /^Backups?$/ })).not.toBeInTheDocument();
   });
 
@@ -392,7 +395,7 @@ describe('GeneralTab', () => {
     // Named in the interface language first, then in its own language with
     // its own notes (BCP 47 policy UI-011, polish pass M10).
     expect(Array.from(select.options).find((o) => o.value === 'de')?.textContent).toBe(
-      'German — Deutsch (unvollständige Übersetzung, automatische Übersetzung)',
+      'German — Deutsch (unvollständige Übersetzung, automatische Übersetzung)'
     );
     // French was never chosen, so it is not offered.
     expect(Array.from(select.options).some((o) => o.value === 'fr')).toBe(false);
@@ -430,9 +433,7 @@ describe('GeneralTab', () => {
   it('does not show the machine-assisted note while the app is displaying English', () => {
     render(<GeneralTab />);
 
-    expect(
-      screen.queryByText(/was made by a machine/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/was made by a machine/i)).not.toBeInTheDocument();
   });
 
   /**
@@ -446,9 +447,7 @@ describe('GeneralTab', () => {
     await useTestLanguage('de');
     try {
       render(<GeneralTab />);
-      expect(
-        screen.getByText(/wurde maschinell erstellt/),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/wurde maschinell erstellt/)).toBeInTheDocument();
     } finally {
       await useTestLanguage('en');
     }
@@ -459,9 +458,7 @@ describe('GeneralTab', () => {
     await useTestLanguage('fr');
     try {
       render(<GeneralTab />);
-      expect(
-        screen.getByText(/réalisée par une machine/),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/réalisée par une machine/)).toBeInTheDocument();
     } finally {
       await useTestLanguage('en');
     }
@@ -749,7 +746,9 @@ describe('AdvancedTab', () => {
     fireEvent.click(wrapperHeader);
 
     /* The auto-retry toggle and URL input should not be present */
-    expect(screen.queryByRole('switch', { name: /auto-retry without wrapper/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('switch', { name: /auto-retry without wrapper/i })
+    ).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/wrapper account url/i)).not.toBeInTheDocument();
   });
 
@@ -971,9 +970,7 @@ describe('CoverArtTab', () => {
     fireEvent.blur(input);
 
     /* Says what is allowed, instead of silently doing nothing. */
-    expect(
-      screen.getByText(/enter a whole number between 100 and 10000/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/enter a whole number between 100 and 10000/i)).toBeInTheDocument();
     /* What was typed is still visible -- not silently reverted. */
     expect(input).toHaveValue(50);
     /* The invalid value never reached the stored setting. */

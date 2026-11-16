@@ -69,13 +69,8 @@ where
     results
 }
 
-fn walk_inner<T, F>(
-    dir: &Path,
-    depth: u32,
-    max_depth: u32,
-    visit: &mut F,
-    results: &mut Vec<T>,
-) where
+fn walk_inner<T, F>(dir: &Path, depth: u32, max_depth: u32, visit: &mut F, results: &mut Vec<T>)
+where
     F: FnMut(&Path) -> Option<T>,
 {
     if depth > max_depth {
@@ -121,12 +116,7 @@ where
     walk_inner_find(base, 0, max_depth, &mut visit)
 }
 
-fn walk_inner_find<T, F>(
-    dir: &Path,
-    depth: u32,
-    max_depth: u32,
-    visit: &mut F,
-) -> Option<T>
+fn walk_inner_find<T, F>(dir: &Path, depth: u32, max_depth: u32, visit: &mut F) -> Option<T>
 where
     F: FnMut(&Path) -> Option<T>,
 {
@@ -162,10 +152,7 @@ mod tests {
         ext: &'a str,
     ) -> impl FnMut(&Path) -> Option<std::path::PathBuf> + 'a {
         move |p: &Path| {
-            if p.is_file()
-                && p.extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case(ext))
-            {
+            if p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext)) {
                 Some(p.to_path_buf())
             } else {
                 None
@@ -216,8 +203,11 @@ mod tests {
 
     #[test]
     fn returns_empty_on_missing_dir() {
-        let result =
-            walk_dir_depth(Path::new("/definitely/does/not/exist"), 10, collect_files_with_ext("m4a"));
+        let result = walk_dir_depth(
+            Path::new("/definitely/does/not/exist"),
+            10,
+            collect_files_with_ext("m4a"),
+        );
         assert!(result.is_empty());
     }
 
@@ -266,9 +256,7 @@ mod tests {
         target: &'a str,
     ) -> impl FnMut(&Path) -> Option<std::path::PathBuf> + 'a {
         move |p: &Path| {
-            if p.is_file()
-                && p.file_name().and_then(|n| n.to_str()) == Some(target)
-            {
+            if p.is_file() && p.file_name().and_then(|n| n.to_str()) == Some(target) {
                 Some(p.to_path_buf())
             } else {
                 None
@@ -349,8 +337,11 @@ mod tests {
 
     #[test]
     fn find_first_returns_none_on_missing_dir() {
-        let result =
-            walk_dir_find_first(Path::new("/definitely/does/not/exist"), 5, match_file_named("x"));
+        let result = walk_dir_find_first(
+            Path::new("/definitely/does/not/exist"),
+            5,
+            match_file_named("x"),
+        );
         assert!(result.is_none());
     }
 }

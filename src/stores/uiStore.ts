@@ -97,16 +97,12 @@ function ensureDismissalWorker(): void {
     const now = Date.now();
     const store = useUiStore.getState();
     const before = store.toasts.length;
-    const filtered = store.toasts.filter(
-      (t) => t.expiresAt == null || t.expiresAt > now,
-    );
+    const filtered = store.toasts.filter((t) => t.expiresAt == null || t.expiresAt > now);
     if (filtered.length !== before) {
       useUiStore.setState({ toasts: filtered });
     }
     // Stop the worker when no toast has a non-null expiresAt.
-    const hasExpiring = useUiStore
-      .getState()
-      .toasts.some((t) => t.expiresAt != null);
+    const hasExpiring = useUiStore.getState().toasts.some((t) => t.expiresAt != null);
     if (!hasExpiring && dismissalWorkerHandle !== null) {
       clearInterval(dismissalWorkerHandle);
       dismissalWorkerHandle = null;

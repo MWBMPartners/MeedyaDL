@@ -169,9 +169,7 @@ describe('SetupWizard', () => {
 
   it('hides Back button on first step', () => {
     render(<SetupWizard />);
-    expect(
-      screen.queryByRole('button', { name: /^back$/i })
-    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^back$/i })).not.toBeInTheDocument();
   });
 
   it('shows Back button on non-first steps', () => {
@@ -219,12 +217,8 @@ describe('SetupWizard', () => {
   it('on the last step, Continue is replaced by "Get Started"', () => {
     goToStep(SETUP_STEPS.length - 1, [...SETUP_STEPS]);
     render(<SetupWizard />);
-    expect(
-      screen.queryByRole('button', { name: /continue/i })
-    ).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: /get started/i })
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /continue/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /get started/i })).toBeInTheDocument();
   });
 
   it('Get Started fires the full finish flow, and records setup as finished ON DISK', async () => {
@@ -295,7 +289,10 @@ describe('SetupWizard', () => {
 // bottom edge while there is more below, and goes once the end is reached.
 // The test environment does no layout, so the sizes are set by hand.
 describe('SetupWizard -- "more below" fade', () => {
-  function setSizes(el: HTMLElement, sizes: { scrollHeight: number; clientHeight: number; scrollTop: number }) {
+  function setSizes(
+    el: HTMLElement,
+    sizes: { scrollHeight: number; clientHeight: number; scrollTop: number }
+  ) {
     Object.defineProperty(el, 'scrollHeight', { configurable: true, value: sizes.scrollHeight });
     Object.defineProperty(el, 'clientHeight', { configurable: true, value: sizes.clientHeight });
     el.scrollTop = sizes.scrollTop;

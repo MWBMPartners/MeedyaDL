@@ -43,12 +43,7 @@ interface Props {
  * from the Stable channel (or any more-stable channel) to a less-stable
  * channel. The user must explicitly accept the listed risks to proceed.
  */
-export default function ChannelSwitchWarning({
-  open,
-  targetChannel,
-  onConfirm,
-  onCancel,
-}: Props) {
+export default function ChannelSwitchWarning({ open, targetChannel, onConfirm, onCancel }: Props) {
   const channelLabel = CHANNEL_LABELS[targetChannel];
 
   return (
@@ -60,9 +55,9 @@ export default function ChannelSwitchWarning({
     >
       <div className="space-y-4 text-sm text-content-secondary">
         <p>
-          The <strong className="text-content-primary">{channelLabel}</strong> channel ships
-          builds before they have completed full release validation. By continuing you accept
-          the following:
+          The <strong className="text-content-primary">{channelLabel}</strong> channel ships builds
+          before they have completed full release validation. By continuing you accept the
+          following:
         </p>
 
         <ul className="list-disc pl-5 space-y-2">
@@ -77,10 +72,9 @@ export default function ChannelSwitchWarning({
             MeedyaDL data directory before continuing.
           </li>
           <li>
-            <strong className="text-content-primary">No guaranteed update path.</strong>{' '}
-            Pre-release builds may be superseded, withdrawn, or never reach Stable. There is no
-            guarantee that a future Stable release will be backwards-compatible with state
-            written by this channel.
+            <strong className="text-content-primary">No guaranteed update path.</strong> Pre-release
+            builds may be superseded, withdrawn, or never reach Stable. There is no guarantee that a
+            future Stable release will be backwards-compatible with state written by this channel.
           </li>
           <li>
             <strong className="text-content-primary">No support obligation.</strong> Bug reports
@@ -89,8 +83,8 @@ export default function ChannelSwitchWarning({
         </ul>
 
         <p className="text-xs text-content-tertiary">
-          You can switch back to Stable at any time. The installer refuses to apply updates from
-          a less-stable channel than your current selection, so moving up the ladder is always a
+          You can switch back to Stable at any time. The installer refuses to apply updates from a
+          less-stable channel than your current selection, so moving up the ladder is always a
           deliberate action.
         </p>
 

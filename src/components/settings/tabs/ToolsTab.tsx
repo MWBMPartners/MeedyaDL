@@ -83,7 +83,17 @@ import { useConfirmation } from '@/lib/useConfirmation';
 import { withErrorToast } from '@/lib/withErrorToast';
 import { sourceLabel } from '@/lib/pm-source';
 
-import { Button, ExpandChevron, IconButton, Input, LoadingSpinner, FilePickerButton, InlineError, SettingsSection, Modal } from '@/components/common';
+import {
+  Button,
+  ExpandChevron,
+  IconButton,
+  Input,
+  LoadingSpinner,
+  FilePickerButton,
+  InlineError,
+  SettingsSection,
+  Modal,
+} from '@/components/common';
 
 import { useState } from 'react';
 import { GAMDL_INSTALL_FAILED, explainError, showError } from '@/lib/errorMessages';
@@ -114,9 +124,12 @@ const TOOL_PATH_DESCRIPTIONS: Record<string, string> = {
   // you, then where in Settings it is chosen, if anywhere.
   FFmpeg: 'Converts and packages audio and video. Needed for most downloads.',
   mp4decrypt: 'Unlocks the protected files Apple Music sends (part of Bento4).',
-  'N_m3u8DL-RE': 'Fetches audio and video. Used when Settings > Advanced > Download Mode is set to N_m3u8DL-RE.',
-  MP4Box: 'Packages music videos into their final file (part of GPAC). Used when Settings > Advanced > Remux Mode is set to MP4Box.',
-  MediaInfo: 'Works out exactly which format each downloaded file is in, such as Dolby Atmos, AC-3, ALAC or AAC.',
+  'N_m3u8DL-RE':
+    'Fetches audio and video. Used when Settings > Advanced > Download Mode is set to N_m3u8DL-RE.',
+  MP4Box:
+    'Packages music videos into their final file (part of GPAC). Used when Settings > Advanced > Remux Mode is set to MP4Box.',
+  MediaInfo:
+    'Works out exactly which format each downloaded file is in, such as Dolby Atmos, AC-3, ALAC or AAC.',
 };
 
 /**
@@ -200,7 +213,7 @@ export function ToolsTab() {
         successMsg: `${name} has been reinstalled.`,
         // A working copy is never lost (#1225), so the message can say so.
         errorMsg: `MeedyaDL could not reinstall ${name}. If your copy was working, it has been kept. Check your internet connection, then try again.`,
-      },
+      }
     );
     // `installTool` already refreshes the tool list after a success. After
     // a failure it does not, but the backend may have put the previous
@@ -228,9 +241,9 @@ export function ToolsTab() {
     title: reinstallTarget ? `Reinstall ${reinstallTarget}?` : 'Reinstall this tool?',
     description: reinstallManager ? (
       <p>
-        This copy of {reinstallTarget ?? 'this tool'} came from {reinstallManager}. MeedyaDL may
-        ask {reinstallManager} to update it, which can ask for your password. If your copy will
-        not start afterwards, MeedyaDL tells you.
+        This copy of {reinstallTarget ?? 'this tool'} came from {reinstallManager}. MeedyaDL may ask{' '}
+        {reinstallManager} to update it, which can ask for your password. If your copy will not
+        start afterwards, MeedyaDL tells you.
       </p>
     ) : (
       // "Kept" is promised only when it is true. The backend keeps the
@@ -307,7 +320,6 @@ export function ToolsTab() {
         title="Core Dependencies"
         description="Python and GAMDL are required for the app to function. They are automatically installed during first-time setup."
       >
-
         {isChecking && !python && !gamdl ? (
           <LoadingSpinner label="Checking dependencies…" />
         ) : (
@@ -320,12 +332,20 @@ export function ToolsTab() {
               <div className="flex items-center gap-3 p-3 rounded-platform border border-border-light bg-surface-elevated">
                 {python.installed ? (
                   <>
-                    <CheckCircle size={18} className="text-status-success flex-shrink-0" aria-hidden="true" />
+                    <CheckCircle
+                      size={18}
+                      className="text-status-success flex-shrink-0"
+                      aria-hidden="true"
+                    />
                     <span className="sr-only">Installed: </span>
                   </>
                 ) : (
                   <>
-                    <XCircle size={18} className="text-status-error flex-shrink-0" aria-hidden="true" />
+                    <XCircle
+                      size={18}
+                      className="text-status-error flex-shrink-0"
+                      aria-hidden="true"
+                    />
                     <span className="sr-only">Not installed: </span>
                   </>
                 )}
@@ -355,12 +375,20 @@ export function ToolsTab() {
               <div className="flex items-center gap-3 p-3 rounded-platform border border-border-light bg-surface-elevated">
                 {gamdl.installed ? (
                   <>
-                    <CheckCircle size={18} className="text-status-success flex-shrink-0" aria-hidden="true" />
+                    <CheckCircle
+                      size={18}
+                      className="text-status-success flex-shrink-0"
+                      aria-hidden="true"
+                    />
                     <span className="sr-only">Installed: </span>
                   </>
                 ) : (
                   <>
-                    <XCircle size={18} className="text-status-error flex-shrink-0" aria-hidden="true" />
+                    <XCircle
+                      size={18}
+                      className="text-status-error flex-shrink-0"
+                      aria-hidden="true"
+                    />
                     <span className="sr-only">Not installed: </span>
                   </>
                 )}
@@ -406,7 +434,6 @@ export function ToolsTab() {
         title="External Tools"
         description="Required tools must be installed for downloads to work. To use a copy of a tool that you installed yourself, open it with the arrow on its right."
       >
-
         {/* Action buttons */}
         <div className="flex gap-2 mb-3">
           <Button
@@ -457,17 +484,29 @@ export function ToolsTab() {
                         carry installed/missing/optional. */}
                     {tool.installed ? (
                       <>
-                        <CheckCircle size={18} className="text-status-success flex-shrink-0" aria-hidden="true" />
+                        <CheckCircle
+                          size={18}
+                          className="text-status-success flex-shrink-0"
+                          aria-hidden="true"
+                        />
                         <span className="sr-only">Installed: </span>
                       </>
                     ) : tool.required ? (
                       <>
-                        <XCircle size={18} className="text-status-error flex-shrink-0" aria-hidden="true" />
+                        <XCircle
+                          size={18}
+                          className="text-status-error flex-shrink-0"
+                          aria-hidden="true"
+                        />
                         <span className="sr-only">Missing (required): </span>
                       </>
                     ) : (
                       <>
-                        <AlertCircle size={18} className="text-content-tertiary flex-shrink-0" aria-hidden="true" />
+                        <AlertCircle
+                          size={18}
+                          className="text-content-tertiary flex-shrink-0"
+                          aria-hidden="true"
+                        />
                         <span className="sr-only">Missing (optional): </span>
                       </>
                     )}
@@ -575,7 +614,9 @@ export function ToolsTab() {
                   {isExpanded && pathKey && (
                     <div className="px-3 pb-3 pt-0 border-t border-border-light">
                       <p className="text-xs text-content-secondary mt-2 mb-2">{description}</p>
-                      <GamdlFourNote show={gamdlCaps.gamdl_v4 && NOT_USED_BY_GAMDL_FOUR.has(tool.name)}>
+                      <GamdlFourNote
+                        show={gamdlCaps.gamdl_v4 && NOT_USED_BY_GAMDL_FOUR.has(tool.name)}
+                      >
                         Apple Music downloads do not use this tool; GAMDL 4 does this work itself.
                         Keep it installed if you might go back to GAMDL 3.
                       </GamdlFourNote>
@@ -647,7 +688,7 @@ export function ToolsTab() {
  * styling already in this file.
  */
 function classifyFromBackend(
-  classification: string | null | undefined,
+  classification: string | null | undefined
 ): { label: string; tone: 'success' | 'warning' | 'error' | 'neutral' } | null {
   switch (classification) {
     case 'supported':
@@ -675,7 +716,7 @@ function classifyFromBackend(
 function classifyLocally(
   v: string | null,
   minimum: string,
-  maximumTested: string,
+  maximumTested: string
 ): { label: string; tone: 'success' | 'warning' | 'error' | 'neutral' } {
   if (!v) return { label: 'Unknown', tone: 'neutral' };
   if (compareVersions(v, minimum) < 0) return { label: 'Unsupported', tone: 'error' };
@@ -883,7 +924,8 @@ function GamdlVersionManagement({
             </Button>
           </div>
           <p id="gamdl-version-help" className="mt-1 text-xs text-content-tertiary">
-            Any PyPI-compatible GAMDL version. Versions outside the tested range install with a warning.
+            Any PyPI-compatible GAMDL version. Versions outside the tested range install with a
+            warning.
           </p>
         </div>
       </div>
@@ -968,11 +1010,14 @@ function BackupManagement() {
       const summary = await createBackup();
       addToast(
         `Snapshot created with ${summary.files.length} file${summary.files.length === 1 ? '' : 's'}`,
-        'success',
+        'success'
       );
       await refresh();
     } catch (e) {
-      showError('MeedyaDL could not take a snapshot. Check there is free space on this computer, then try again.', e);
+      showError(
+        'MeedyaDL could not take a snapshot. Check there is free space on this computer, then try again.',
+        e
+      );
     } finally {
       setBusy(false);
     }
@@ -987,10 +1032,13 @@ function BackupManagement() {
       const summary = await restoreFromBackup(target.path);
       addToast(
         `Restored ${summary.restored.length} file${summary.restored.length === 1 ? '' : 's'} — please restart MeedyaDL to apply.`,
-        'warning',
+        'warning'
       );
     } catch (e) {
-      showError('MeedyaDL could not restore that snapshot. Try again; the details say what went wrong.', e);
+      showError(
+        'MeedyaDL could not restore that snapshot. Try again; the details say what went wrong.',
+        e
+      );
     } finally {
       setBusy(false);
     }
@@ -1036,7 +1084,12 @@ function BackupManagement() {
           >
             Create snapshot now
           </Button>
-          <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={() => refresh()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<RefreshCw size={14} />}
+            onClick={() => refresh()}
+          >
             Refresh
           </Button>
         </div>
@@ -1139,9 +1192,9 @@ function BackupManagement() {
               cannot be undone.
             </p>
             <p className="text-sm text-content-secondary mb-6">
-              Only the 10 most recent snapshots are kept, and each one holds your settings,
-              queue, and history together. If this was the snapshot you'd need to undo a
-              mistake, deleting it removes that option.
+              Only the 10 most recent snapshots are kept, and each one holds your settings, queue,
+              and history together. If this was the snapshot you'd need to undo a mistake, deleting
+              it removes that option.
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setDeleteTarget(null)}>

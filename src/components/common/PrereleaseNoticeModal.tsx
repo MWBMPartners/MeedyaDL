@@ -63,7 +63,6 @@ export default function PrereleaseNoticeModal() {
 
   // ── Effects ────────────────────────────────────────────────────────
 
-
   // ── Handlers ───────────────────────────────────────────────────────
 
   /** Dismiss the modal — user acknowledges the pre-release notice */
@@ -97,27 +96,32 @@ export default function PrereleaseNoticeModal() {
         {/* Warning message */}
         <div className="space-y-3">
           <p>
-            You are running a <strong className="text-content-primary">pre-release version</strong> of
-            MeedyaDL. Please be aware of the following:
+            You are running a <strong className="text-content-primary">pre-release version</strong>{' '}
+            of MeedyaDL. Please be aware of the following:
           </p>
 
           <ul className="list-disc pl-5 space-y-2">
             <li>
-              This version <strong className="text-content-primary">may contain bugs</strong>, including
-              some that could be critical or cause data loss.
+              This version <strong className="text-content-primary">may contain bugs</strong>,
+              including some that could be critical or cause data loss.
             </li>
             <li>
-              Features may be <strong className="text-content-primary">incomplete or unstable</strong> and
-              could change without notice.
+              Features may be{' '}
+              <strong className="text-content-primary">incomplete or unstable</strong> and could
+              change without notice.
             </li>
             <li>
-              Error logging may contain <strong className="text-content-primary">more detail than
-              normal</strong> to assist with issue tracking and debugging. The Verbose Activity Log setting
-              is preserved across restarts in pre-release builds.
+              Error logging may contain{' '}
+              <strong className="text-content-primary">more detail than normal</strong> to assist
+              with issue tracking and debugging. The Verbose Activity Log setting is preserved
+              across restarts in pre-release builds.
             </li>
             <li>
               If you encounter issues, please report them via{' '}
-              <strong className="text-content-primary">Settings &gt; Advanced &gt; Error Reporting</strong>.
+              <strong className="text-content-primary">
+                Settings &gt; Advanced &gt; Error Reporting
+              </strong>
+              .
             </li>
           </ul>
         </div>
@@ -129,8 +133,8 @@ export default function PrereleaseNoticeModal() {
               Stable Release Available
             </p>
             <p className="text-xs text-content-secondary">
-              A stable release ({latestUpdate.latest_version}) is available. If you prefer a
-              more reliable experience, you can switch to the stable version.
+              A stable release ({latestUpdate.latest_version}) is available. If you prefer a more
+              reliable experience, you can switch to the stable version.
             </p>
           </div>
         )}

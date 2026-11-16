@@ -25,7 +25,14 @@ interface TextButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: 'xs' | 'sm';
 }
 
-export function TextButton({ children, tone = 'default', size, className = '', type = 'button', ...rest }: TextButtonProps) {
+export function TextButton({
+  children,
+  tone = 'default',
+  size,
+  className = '',
+  type = 'button',
+  ...rest
+}: TextButtonProps) {
   return (
     <button
       type={type}

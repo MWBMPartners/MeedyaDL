@@ -38,7 +38,14 @@ interface FilterChipProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
   tone?: FilterChipTone;
 }
 
-export function FilterChip({ pressed, onClick, children, tone = 'accent', className = '', ...rest }: FilterChipProps) {
+export function FilterChip({
+  pressed,
+  onClick,
+  children,
+  tone = 'accent',
+  className = '',
+  ...rest
+}: FilterChipProps) {
   return (
     <button
       type="button"

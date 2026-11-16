@@ -81,10 +81,7 @@ function QueueColumnHeader({ hasSelection }: { hasSelection: boolean }) {
        * "Svc" (shown as "SVC") in a column only 20px wide; the whole
        * word needs about 50px, so both this header and the row's icon
        * cell are now `w-14` (56px), with the icon centred under it. */}
-      <div
-        role="columnheader"
-        className="hidden md:flex flex-shrink-0 w-14 justify-center"
-      >
+      <div role="columnheader" className="hidden md:flex flex-shrink-0 w-14 justify-center">
         Service
       </div>
 
@@ -179,9 +176,7 @@ export function QueueListVirtualized({
    * mutates frequently (progress events, state transitions, reorders).
    * Cheap: linear scan + linear filter over `queueItems`.
    */
-  const queuedIds = queueItems
-    .filter((i) => i.state === 'queued')
-    .map((i) => i.id);
+  const queuedIds = queueItems.filter((i) => i.state === 'queued').map((i) => i.id);
 
   /**
    * Defensive measurement closure (#911 Phase 1 sub-item — virtualiser
@@ -197,9 +192,8 @@ export function QueueListVirtualized({
    * null — happens only momentarily during initial mount.
    */
   const measureElement = useCallback(
-    (element: Element | null | undefined) =>
-      element?.getBoundingClientRect().height ?? 80,
-    [],
+    (element: Element | null | undefined) => element?.getBoundingClientRect().height ?? 80,
+    []
   );
 
   /**
@@ -214,10 +208,7 @@ export function QueueListVirtualized({
    * only when the queue array itself changes — minor optimisation
    * for the memoised render path.
    */
-  const getItemKey = useCallback(
-    (index: number) => queueItems[index]?.id ?? index,
-    [queueItems],
-  );
+  const getItemKey = useCallback((index: number) => queueItems[index]?.id ?? index, [queueItems]);
 
   /**
    * Virtualizer config mirrors `ActivityLog.tsx`:
@@ -250,9 +241,8 @@ export function QueueListVirtualized({
           <Download size={40} className="mb-4 opacity-30" />
           <p className="text-sm font-medium">No downloads in queue</p>
           <p className="text-xs mt-1 text-center max-w-xs">
-            Paste an Apple Music URL on the Download page to get started, or
-            copy a URL to your clipboard and MeedyaDL will detect it
-            automatically.
+            Paste an Apple Music URL on the Download page to get started, or copy a URL to your
+            clipboard and MeedyaDL will detect it automatically.
           </p>
         </div>
       </div>
@@ -284,11 +274,9 @@ export function QueueListVirtualized({
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const item = queueItems[virtualRow.index];
           if (!item) return null;
-          const queuedPos =
-            item.state === 'queued' ? queuedIds.indexOf(item.id) : -1;
+          const queuedPos = item.state === 'queued' ? queuedIds.indexOf(item.id) : -1;
           const canMoveUp = queuedPos > 0;
-          const canMoveDown =
-            queuedPos >= 0 && queuedPos < queuedIds.length - 1;
+          const canMoveDown = queuedPos >= 0 && queuedPos < queuedIds.length - 1;
           return (
             <div
               key={item.id}
@@ -315,9 +303,7 @@ export function QueueListVirtualized({
                 onMoveToBottom={onMoveToBottom}
                 canMoveUp={canMoveUp}
                 canMoveDown={canMoveDown}
-                isSelected={
-                  selectedIds === undefined ? undefined : selectedIds.has(item.id)
-                }
+                isSelected={selectedIds === undefined ? undefined : selectedIds.has(item.id)}
                 onToggleSelect={onToggleSelect}
               />
             </div>

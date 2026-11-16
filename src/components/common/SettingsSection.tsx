@@ -70,16 +70,14 @@ export function SettingsSection({
         {description && (
           // ml-5.5 lines the description up under the title: the chevron
           // is 14px wide plus the 8px gap (gap-2) beside it.
-          <p className="text-xs text-content-tertiary mt-0.5 ml-5.5 leading-relaxed">{description}</p>
+          <p className="text-xs text-content-tertiary mt-0.5 ml-5.5 leading-relaxed">
+            {description}
+          </p>
         )}
       </div>
 
       {/* Collapsible content */}
-      {open && (
-        <div className="px-4 pb-4 pt-1 space-y-4 border-t border-border/50">
-          {children}
-        </div>
-      )}
+      {open && <div className="px-4 pb-4 pt-1 space-y-4 border-t border-border/50">{children}</div>}
     </div>
   );
 }

@@ -110,9 +110,9 @@ impl EngineRegistry {
     /// Detects the platform from a URL by matching against url_patterns.
     pub fn detect_platform(&self, url: &str) -> Option<&Platform> {
         let lower = url.to_lowercase();
-        self.platforms.values().find(|p| {
-            p.enabled && p.url_patterns.iter().any(|pat| lower.contains(pat))
-        })
+        self.platforms
+            .values()
+            .find(|p| p.enabled && p.url_patterns.iter().any(|pat| lower.contains(pat)))
     }
 
     fn parse_engines(parsed: &toml::Value) -> HashMap<String, Engine> {
@@ -126,14 +126,34 @@ impl EngineRegistry {
                 Some(Engine {
                     id: id.clone(),
                     name: def.get("name")?.as_str()?.to_string(),
-                    required: def.get("required").and_then(|v| v.as_bool()).unwrap_or(false),
-                    enabled: def.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false),
-                    bundled: def.get("bundled").and_then(|v| v.as_bool()).unwrap_or(false),
+                    required: def
+                        .get("required")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    enabled: def
+                        .get("enabled")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                    bundled: def
+                        .get("bundled")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
                     install_method: def.get("install_method")?.as_str()?.to_string(),
-                    pip_package: def.get("pip_package").and_then(|v| v.as_str()).map(String::from),
+                    pip_package: def
+                        .get("pip_package")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
                     cli_command: def.get("cli_command")?.as_str()?.to_string(),
-                    homepage: def.get("homepage").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                    description: def.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                    homepage: def
+                        .get("homepage")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    description: def
+                        .get("description")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
                 })
             })
             .map(|e| (e.id.clone(), e))
@@ -151,7 +171,10 @@ impl EngineRegistry {
                 Some(Platform {
                     id: id.clone(),
                     name: def.get("name")?.as_str()?.to_string(),
-                    enabled: def.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false),
+                    enabled: def
+                        .get("enabled")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
                     icon: def.get("icon").and_then(|v| v.as_str()).map(String::from),
                     url_patterns: def
                         .get("url_patterns")?
@@ -168,7 +191,11 @@ impl EngineRegistry {
                     content_types: def
                         .get("content_types")
                         .and_then(|v| v.as_array())
-                        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
                         .unwrap_or_default(),
                 })
             })
@@ -241,6 +268,8 @@ mod tests {
     #[test]
     fn test_unknown_url() {
         let registry = EngineRegistry::load();
-        assert!(registry.detect_platform("https://example.com/foo").is_none());
+        assert!(registry
+            .detect_platform("https://example.com/foo")
+            .is_none());
     }
 }

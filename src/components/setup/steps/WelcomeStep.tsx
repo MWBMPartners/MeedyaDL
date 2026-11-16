@@ -61,9 +61,7 @@ export function WelcomeStep() {
   const addToast = useUiStore((s) => s.addToast);
 
   /** #876 P5: bundles discovered on disk by `scanForBundles`. */
-  const [discoveredBundles, setDiscoveredBundles] = useState<
-    DiscoveredBundle[]
-  >([]);
+  const [discoveredBundles, setDiscoveredBundles] = useState<DiscoveredBundle[]>([]);
   /** Whether the restore-from-bundle handler is currently running. */
   const [isRestoringBundle, setIsRestoringBundle] = useState(false);
 
@@ -120,11 +118,14 @@ export function WelcomeStep() {
    */
   const handleRestoreBundle = async (bundle: DiscoveredBundle) => {
     const confirmed = window.confirm(
-      `Restore from "${bundle.path}"?\n\nMeedyaDL will overwrite its current files for: ${
-        ['settings', ...bundle.summary.sections]
-          .filter((s) => s !== 'credentials')
-          .join(', ')
-      }.\n\nSign-in details (if present) are NOT restored here — import the full copy again later from Settings > General > Full Copy of MeedyaDL.`,
+      `Restore from "${bundle.path}"?\n\nMeedyaDL will overwrite its current files for: ${[
+        'settings',
+        ...bundle.summary.sections,
+      ]
+        .filter((s) => s !== 'credentials')
+        .join(
+          ', '
+        )}.\n\nSign-in details (if present) are NOT restored here — import the full copy again later from Settings > General > Full Copy of MeedyaDL.`
     );
     if (!confirmed) return;
     setIsRestoringBundle(true);
@@ -133,18 +134,10 @@ export function WelcomeStep() {
         source_path: bundle.path,
         settings: 'replace',
         queue: bundle.summary.sections.includes('queue') ? 'replace' : 'skip',
-        history: bundle.summary.sections.includes('history')
-          ? 'replace'
-          : 'skip',
-        database: bundle.summary.sections.includes('database')
-          ? 'replace'
-          : 'skip',
-        activity_log: bundle.summary.sections.includes('activity_log')
-          ? 'replace'
-          : 'skip',
-        manifests: bundle.summary.sections.includes('manifests')
-          ? 'replace'
-          : 'skip',
+        history: bundle.summary.sections.includes('history') ? 'replace' : 'skip',
+        database: bundle.summary.sections.includes('database') ? 'replace' : 'skip',
+        activity_log: bundle.summary.sections.includes('activity_log') ? 'replace' : 'skip',
+        manifests: bundle.summary.sections.includes('manifests') ? 'replace' : 'skip',
         credentials: 'skip',
       });
       // Reload the live settings store so subsequent wizard steps
@@ -156,20 +149,20 @@ export function WelcomeStep() {
       if (result.history_restored) restored.push('history');
       if (result.database_restored) restored.push('database');
       if (result.activity_log_files_restored > 0)
-        restored.push(
-          `${result.activity_log_files_restored} activity-log file(s)`,
-        );
-      if (result.manifests_restored > 0)
-        restored.push(`${result.manifests_restored} manifest(s)`);
+        restored.push(`${result.activity_log_files_restored} activity-log file(s)`);
+      if (result.manifests_restored > 0) restored.push(`${result.manifests_restored} manifest(s)`);
       addToast(
         `Restored: ${restored.join(', ') || 'nothing'}. Continue through the wizard to finish setup.`,
-        'success',
+        'success'
       );
       // The banner stays open — the user might want to compare,
       // or restore a different bundle. They can simply ignore it
       // and click Continue.
     } catch (err) {
-      showError('MeedyaDL could not restore from that file. Check the password and that the file is complete, then try again — or carry on setting up from scratch.', err);
+      showError(
+        'MeedyaDL could not restore from that file. Check the password and that the file is complete, then try again — or carry on setting up from scratch.',
+        err
+      );
     } finally {
       setIsRestoringBundle(false);
     }
@@ -177,7 +170,6 @@ export function WelcomeStep() {
 
   return (
     <div className="text-center space-y-6">
-
       {/* MeedyaDL's own logo -- the same file the sidebar shows. This used
           to be a generic download arrow in a blue square, under the heading
           "Welcome to GAMDL" / "Apple Music Downloader": the first screen a
@@ -207,13 +199,15 @@ export function WelcomeStep() {
             <Package size={18} className="text-accent flex-shrink-0 mt-0.5" />
             <div>
               <h2 className="text-sm font-semibold text-content-primary">
-                Found {discoveredBundles.length === 1 ? 'a full copy' : `${discoveredBundles.length} full copies`} of
-                MeedyaDL from before
+                Found{' '}
+                {discoveredBundles.length === 1
+                  ? 'a full copy'
+                  : `${discoveredBundles.length} full copies`}{' '}
+                of MeedyaDL from before
               </h2>
               <p className="text-xs text-content-secondary mt-0.5">
-                Restore your settings, queue, history, and library index in
-                one click. You can still continue with a fresh setup if you'd
-                rather.
+                Restore your settings, queue, history, and library index in one click. You can still
+                continue with a fresh setup if you'd rather.
               </p>
             </div>
           </div>
@@ -226,9 +220,9 @@ export function WelcomeStep() {
                 <div className="min-w-0 flex-1">
                   <div className="font-medium truncate">{b.path}</div>
                   <div className="text-content-tertiary">
-                    {b.summary.producer} {b.summary.producer_version} ·
-                    exported {b.summary.exported_at.slice(0, 10)} ·{' '}
-                    {b.summary.sections.length} optional section
+                    {b.summary.producer} {b.summary.producer_version} · exported{' '}
+                    {b.summary.exported_at.slice(0, 10)} · {b.summary.sections.length} optional
+                    section
                     {b.summary.sections.length === 1 ? '' : 's'}
                     {!b.summary.produced_by_this_app && (
                       <span className="ml-2 text-status-warning-text">
@@ -265,9 +259,8 @@ export function WelcomeStep() {
             things that can happen, so it now says both. */}
         <ol className="list-decimal list-inside space-y-2 ml-2">
           <li>
-            <strong className="text-content-primary">Set up Python</strong> — reuse a Python
-            you already have (version 3.10 or newer), or let MeedyaDL download its own private
-            copy
+            <strong className="text-content-primary">Set up Python</strong> — reuse a Python you
+            already have (version 3.10 or newer), or let MeedyaDL download its own private copy
           </li>
           <li>
             <strong className="text-content-primary">Install the download engine</strong> — GAMDL,
@@ -275,13 +268,12 @@ export function WelcomeStep() {
             Python
           </li>
           <li>
-            <strong className="text-content-primary">Install tools</strong> — FFmpeg,
-            mp4decrypt and the other helper programs are downloaded, or copies you already have
-            are used
+            <strong className="text-content-primary">Install tools</strong> — FFmpeg, mp4decrypt and
+            the other helper programs are downloaded, or copies you already have are used
           </li>
           <li>
-            <strong className="text-content-primary">Sign in to Apple Music</strong> — so
-            MeedyaDL can download with your subscription
+            <strong className="text-content-primary">Sign in to Apple Music</strong> — so MeedyaDL
+            can download with your subscription
           </li>
         </ol>
 

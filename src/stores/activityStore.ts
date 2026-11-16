@@ -31,9 +31,7 @@ function tagEntry(entry: ActivityLogEntry): ActivityLogEntry {
  */
 function persistTrimmedEntries(entries: ActivityLogEntry[]): void {
   if (entries.length === 0) return;
-  const lines = entries.map(
-    (e) => `${e.timestamp} [${e.download_id}] [${e.stream}] ${e.line}`
-  );
+  const lines = entries.map((e) => `${e.timestamp} [${e.download_id}] [${e.stream}] ${e.line}`);
   saveSessionLog(lines).catch((err) => {
     console.warn('Failed to save trimmed activity log entries:', err);
   });

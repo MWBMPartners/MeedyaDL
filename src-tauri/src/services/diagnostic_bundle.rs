@@ -231,9 +231,8 @@ pub fn build_diagnostic_bundle(
     // form_urlencoded path (same pattern as crash_report_service so
     // every special char — backticks, newlines, pipes — is escaped
     // correctly).
-    let mut issue_url =
-        url::Url::parse("https://github.com/MWBMPartners/MeedyaDL/issues/new")
-            .map_err(|e| format!("parse base url: {e}"))?;
+    let mut issue_url = url::Url::parse("https://github.com/MWBMPartners/MeedyaDL/issues/new")
+        .map_err(|e| format!("parse base url: {e}"))?;
     issue_url
         .query_pairs_mut()
         .append_pair("title", &title)
@@ -258,15 +257,13 @@ pub fn build_diagnostic_bundle(
 pub(crate) fn collect_redacted_settings(app: &AppHandle) -> Result<String, String> {
     use crate::utils::platform::get_app_data_dir;
     let settings_path = get_app_data_dir(app).join("settings.json");
-    let raw = fs::read_to_string(&settings_path)
-        .map_err(|e| format!("read settings.json: {e}"))?;
+    let raw = fs::read_to_string(&settings_path).map_err(|e| format!("read settings.json: {e}"))?;
     let mut value: serde_json::Value = match serde_json::from_str(&raw) {
         Ok(v) => v,
         Err(_) => return Ok(redact_path_usernames(&raw)),
     };
     redact_credential_fields(&mut value);
-    let pretty =
-        serde_json::to_string_pretty(&value).map_err(|e| format!("serialize: {e}"))?;
+    let pretty = serde_json::to_string_pretty(&value).map_err(|e| format!("serialize: {e}"))?;
     Ok(redact_path_usernames(&pretty))
 }
 
@@ -323,12 +320,10 @@ fn redact_credential_fields(value: &mut serde_json::Value) {
 /// the operator's account name.
 pub fn redact_path_usernames(input: &str) -> String {
     use std::sync::LazyLock;
-    static UNIX: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r"(/Users/|/home/)[^/\s\\]+").expect("unix regex")
-    });
-    static WIN: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r"(?i)([A-Z]:\\Users\\)[^\\/\s]+").expect("win regex")
-    });
+    static UNIX: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"(/Users/|/home/)[^/\s\\]+").expect("unix regex"));
+    static WIN: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"(?i)([A-Z]:\\Users\\)[^\\/\s]+").expect("win regex"));
     let after_unix = UNIX.replace_all(input, "${1}{user}").into_owned();
     WIN.replace_all(&after_unix, "${1}{user}").into_owned()
 }

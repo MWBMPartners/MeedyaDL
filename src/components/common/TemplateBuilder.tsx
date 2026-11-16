@@ -82,7 +82,7 @@ export function TemplateBuilder({
   // Filter variables by allowed categories
   const filteredVariables = useMemo(
     () => TEMPLATE_VARIABLES.filter((v) => variableCategories.includes(v.category)),
-    [variableCategories],
+    [variableCategories]
   );
 
   // Close menu when clicking outside
@@ -109,7 +109,7 @@ export function TemplateBuilder({
       onChange(serializeTemplate(newSegments));
       setMenuOpen(false);
     },
-    [segments, onChange],
+    [segments, onChange]
   );
 
   const addLiteral = useCallback(
@@ -120,7 +120,7 @@ export function TemplateBuilder({
       setMenuOpen(false);
       setCustomText('');
     },
-    [segments, onChange],
+    [segments, onChange]
   );
 
   const removeSegment = useCallback(
@@ -128,7 +128,7 @@ export function TemplateBuilder({
       const newSegments = segments.filter((_, i) => i !== index);
       onChange(serializeTemplate(newSegments));
     },
-    [segments, onChange],
+    [segments, onChange]
   );
 
   // Generate a deterministic id from the label for accessibility
@@ -317,9 +317,7 @@ export function TemplateBuilder({
 
       {/* ---- Preview ---- */}
       {preview && (
-        <p className="text-xs font-mono text-content-secondary truncate">
-          Preview: {preview}
-        </p>
+        <p className="text-xs font-mono text-content-secondary truncate">Preview: {preview}</p>
       )}
 
       {/* ---- Description ---- */}

@@ -225,8 +225,7 @@ pub async fn upgrade_votify(
         log::info!("Upgrading votify...");
         emit_app_log(&app, "Upgrading votify...");
     }
-    match crate::services::spotify_service::install_votify(&app, target_version.as_deref()).await
-    {
+    match crate::services::spotify_service::install_votify(&app, target_version.as_deref()).await {
         Ok(version) => {
             log::info!("votify upgraded to {version}");
             emit_app_log(&app, &format!("votify upgraded to v{version}"));
@@ -362,8 +361,7 @@ pub async fn check_component_update(
     // Load settings for the pre-release preference, then run all update checks
     // (currently no way to check individual components independently)
     let settings = config_service::load_settings(&app).unwrap_or_default();
-    let include_prereleases =
-        settings.update_channel != UpdateChannel::Stable;
+    let include_prereleases = settings.update_channel != UpdateChannel::Stable;
     let result = update_checker::check_all_updates(
         &app,
         include_prereleases,

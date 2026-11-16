@@ -118,9 +118,7 @@ pub async fn run_engine(
     engine_id: &str,
     mut cmd: Command,
 ) -> Result<(), String> {
-    log::info!(
-        "Starting {engine_id} download {download_id}"
-    );
+    log::info!("Starting {engine_id} download {download_id}");
 
     // Configure piped stdio for real-time output streaming
     cmd.stdout(std::process::Stdio::piped());
@@ -179,10 +177,7 @@ pub async fn run_engine(
                 // the frontend still listens to the legacy "gamdl-output"
                 // alias for backwards compatibility.
                 let _ = app.emit("engine-output", &progress);
-                let legacy = super::gamdl_service::GamdlProgress {
-                    download_id,
-                    event,
-                };
+                let legacy = super::gamdl_service::GamdlProgress { download_id, event };
                 let _ = app.emit("gamdl-output", &legacy);
             }
         }
@@ -248,9 +243,7 @@ pub async fn run_engine_with_queue(
     mut cmd: Command,
     queue: super::download_queue::QueueHandle,
 ) -> Result<(), String> {
-    log::info!(
-        "Starting {engine_id} download {download_id} (queue-aware)"
-    );
+    log::info!("Starting {engine_id} download {download_id} (queue-aware)");
 
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
@@ -310,9 +303,7 @@ pub async fn run_engine_with_queue(
     let status = loop {
         let cancelled = { queue.lock().await.is_cancelled(download_id) };
         if cancelled {
-            log::info!(
-                "{engine_id} download {download_id} cancelled — killing process"
-            );
+            log::info!("{engine_id} download {download_id} cancelled — killing process");
             let _ = child.kill().await;
             let _ = child.wait().await;
             let _ = stdout_task.await;

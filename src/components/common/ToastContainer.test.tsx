@@ -22,10 +22,14 @@ const LONG = 'Could not save your settings. '.repeat(20);
 
 /** Make every <p> look taller than its box (text cut) or not. */
 function pretendTextIsCut(cut: boolean) {
-  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (this: HTMLElement) {
+  vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockImplementation(function (
+    this: HTMLElement
+  ) {
     return this.tagName === 'P' && cut ? 200 : 0;
   });
-  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (this: HTMLElement) {
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockImplementation(function (
+    this: HTMLElement
+  ) {
     return this.tagName === 'P' ? 60 : 0;
   });
 }
@@ -41,22 +45,33 @@ afterEach(() => {
 describe('ToastContainer', () => {
   it('cuts a long message to three lines and offers "Show more"', () => {
     pretendTextIsCut(true);
-    act(() => useUiStore.setState({ toasts: [{ id: 't1', message: LONG, type: 'error', duration: 0 }] }));
+    act(() =>
+      useUiStore.setState({ toasts: [{ id: 't1', message: LONG, type: 'error', duration: 0 }] })
+    );
     render(<ToastContainer />);
     // Scoped to the visible stack: the hidden screen-reader announcers
     // (#1431) carry the same text.
-    const message = within(screen.getByTestId('toast-stack')).getByText(LONG.trim(), { exact: false });
+    const message = within(screen.getByTestId('toast-stack')).getByText(LONG.trim(), {
+      exact: false,
+    });
     expect(message.className).toContain('line-clamp-3');
     const more = screen.getByRole('button', { name: 'Show more' });
     expect(more).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(more);
     expect(message.className).not.toContain('line-clamp-3');
-    expect(screen.getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Show less' })).toHaveAttribute(
+      'aria-expanded',
+      'true'
+    );
   });
 
   it('offers no "Show more" when the whole message already fits', () => {
     pretendTextIsCut(false);
-    act(() => useUiStore.setState({ toasts: [{ id: 't1', message: 'Saved.', type: 'success', duration: 0 }] }));
+    act(() =>
+      useUiStore.setState({
+        toasts: [{ id: 't1', message: 'Saved.', type: 'success', duration: 0 }],
+      })
+    );
     render(<ToastContainer />);
     expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull();
   });
@@ -64,10 +79,22 @@ describe('ToastContainer', () => {
   it('starts the stack below an area the page marks to keep clear', () => {
     const toolbar = document.createElement('div');
     toolbar.setAttribute(KEEP_CLEAR_ATTRIBUTE, '');
-    toolbar.getBoundingClientRect = () => ({ top: 135, bottom: 225, left: 0, right: 500, width: 500, height: 90, x: 0, y: 135, toJSON: () => ({}) });
+    toolbar.getBoundingClientRect = () => ({
+      top: 135,
+      bottom: 225,
+      left: 0,
+      right: 500,
+      width: 500,
+      height: 90,
+      x: 0,
+      y: 135,
+      toJSON: () => ({}),
+    });
     document.body.appendChild(toolbar);
     expect(toastStackTop()).toBe(233);
-    act(() => useUiStore.setState({ toasts: [{ id: 't1', message: 'Hello', type: 'info', duration: 0 }] }));
+    act(() =>
+      useUiStore.setState({ toasts: [{ id: 't1', message: 'Hello', type: 'info', duration: 0 }] })
+    );
     render(<ToastContainer />);
     expect(screen.getByTestId('toast-stack').style.top).toBe('233px');
   });
@@ -118,7 +145,9 @@ describe('ToastContainer', () => {
   it('announces only a toast that has just arrived, and falls silent when it goes', () => {
     act(() =>
       useUiStore.setState({
-        toasts: [{ id: 'old', message: 'Older error', type: 'error', duration: 0, expiresAt: null }],
+        toasts: [
+          { id: 'old', message: 'Older error', type: 'error', duration: 0, expiresAt: null },
+        ],
       })
     );
     render(<ToastContainer />);

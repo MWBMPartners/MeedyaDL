@@ -128,7 +128,9 @@ export function PageHeader({ title, subtitle, actions }: PageHeaderProps) {
       {/* `whitespace-nowrap` (inherited by every button inside): a label
           that breaks in two looks broken. If the buttons do not fit, they
           wrap as whole buttons instead. */}
-      {actions && <div className="flex flex-wrap items-center gap-2 whitespace-nowrap">{actions}</div>}
+      {actions && (
+        <div className="flex flex-wrap items-center gap-2 whitespace-nowrap">{actions}</div>
+      )}
     </header>
   );
 }

@@ -36,7 +36,18 @@ import { useActivityStore } from '@/stores/activityStore';
 import { Button, FilterChip, IconButton, Input, MenuButton, Toggle } from '@/components/common';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { StatisticsPanel } from '@/components/download/StatisticsPanel';
-import { ArrowDown, Download, Trash2, Search, X, Copy, ScrollText, HardDrive, FolderOpen, MoreHorizontal } from 'lucide-react';
+import {
+  ArrowDown,
+  Download,
+  Trash2,
+  Search,
+  X,
+  Copy,
+  ScrollText,
+  HardDrive,
+  FolderOpen,
+  MoreHorizontal,
+} from 'lucide-react';
 import { exportActivityLog, exportDiskActivityLog, getLogsFolderPath } from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
 import { useLocalWallClock } from '@/hooks/useLocalWallClock';
@@ -394,8 +405,9 @@ export function ActivityLog() {
    * (often 1–10) = ~600/sec, three orders of magnitude less work.
    */
   const predicateKey = useMemo(
-    () => `${searchQuery.trim().toLowerCase()}|${showSystem ? 1 : 0}|${showDownload ? 1 : 0}|${showVerbose ? 1 : 0}`,
-    [searchQuery, showSystem, showDownload, showVerbose],
+    () =>
+      `${searchQuery.trim().toLowerCase()}|${showSystem ? 1 : 0}|${showDownload ? 1 : 0}|${showVerbose ? 1 : 0}`,
+    [searchQuery, showSystem, showDownload, showVerbose]
   );
 
   // Cache spans renders without triggering them. Stored as a ref so
@@ -533,9 +545,8 @@ export function ActivityLog() {
    * text regression reported in #575.
    */
   const measureElement = useCallback(
-    (element: Element | null | undefined) =>
-      element?.getBoundingClientRect().height ?? 26,
-    [],
+    (element: Element | null | undefined) => element?.getBoundingClientRect().height ?? 26,
+    []
   );
 
   /*
@@ -563,7 +574,7 @@ export function ActivityLog() {
    */
   const getItemKey = useCallback(
     (index: number) => displayItems[index]?.key ?? index,
-    [displayItems],
+    [displayItems]
   );
 
   /** Virtualizer for efficient rendering of large entry lists.
@@ -665,7 +676,10 @@ export function ActivityLog() {
       addToast(`Exported on-disk activity log (${kb} KB, last 3 days)`, 'success');
     } catch (err) {
       if (!isCancellation(err)) {
-        showError('MeedyaDL could not export the full log. Choose a folder you can save to, then try again.', err);
+        showError(
+          'MeedyaDL could not export the full log. Choose a folder you can save to, then try again.',
+          err
+        );
       }
     }
   };
@@ -823,7 +837,12 @@ export function ActivityLog() {
           icon={<Search size={16} />}
           suffix={
             searchQuery ? (
-              <IconButton size="sm" icon={<X size={14} />} label="Clear search" onClick={handleClearSearch} />
+              <IconButton
+                size="sm"
+                icon={<X size={14} />}
+                label="Clear search"
+                onClick={handleClearSearch}
+              />
             ) : undefined
           }
           aria-label="Search activity log"
@@ -864,70 +883,96 @@ export function ActivityLog() {
           "Jump to latest" pill can be absolute-positioned over the
           bottom-right corner when auto-scroll is paused. */}
       <div className="relative flex-1 mx-6 mb-4 min-h-0">
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="h-full overflow-y-auto bg-surface-secondary rounded-platform p-3 font-mono text-xs leading-relaxed select-text"
-        // Fix 12 (a11y audit): `role="log"` carries an implicit
-        // `aria-live="polite"` of its own -- removing the explicit
-        // `aria-live` attribute alone would NOT have stopped this
-        // being a live region, the role itself had to change too.
-        // `role="region"` keeps this a named, navigable landmark
-        // (a plain <div> has ARIA role "generic", which -- like the
-        // other "aria-label ignored" cases fixed elsewhere in this
-        // audit -- is not allowed to take a name from aria-label at
-        // all) without making every line insertion an announcement.
-        role="region"
-        aria-label="Activity log"
-      >
-        {/* Fix 12 (a11y audit): only ~150 of up to 10,000 entries are
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="h-full overflow-y-auto bg-surface-secondary rounded-platform p-3 font-mono text-xs leading-relaxed select-text"
+          // Fix 12 (a11y audit): `role="log"` carries an implicit
+          // `aria-live="polite"` of its own -- removing the explicit
+          // `aria-live` attribute alone would NOT have stopped this
+          // being a live region, the role itself had to change too.
+          // `role="region"` keeps this a named, navigable landmark
+          // (a plain <div> has ARIA role "generic", which -- like the
+          // other "aria-label ignored" cases fixed elsewhere in this
+          // audit -- is not allowed to take a name from aria-label at
+          // all) without making every line insertion an announcement.
+          role="region"
+          aria-label="Activity log"
+        >
+          {/* Fix 12 (a11y audit): only ~150 of up to 10,000 entries are
             ever actually in the DOM at once (virtualised rendering, for
             performance) -- someone reading through with a screen reader
             would hit the last rendered row and find nothing telling
             them there was more below. This line is a real, always-
             present child of the log (not part of the virtualised list),
             so it's always reachable, and says both numbers plainly. */}
-        {entries.length > 0 && (
-          <p className="font-sans text-content-tertiary text-xs mb-2 select-none">
-            {isFiltered
-              ? `Showing ${filteredEntries.length} of ${entries.length} lines in total (filtered). Only the lines near your current scroll position are shown at once — scroll to bring more into view.`
-              : `${entries.length} line${entries.length !== 1 ? 's' : ''} in total. Only the lines near your current scroll position are shown at once — scroll to bring more into view.`}
-          </p>
-        )}
-        {entries.length === 0 ? (
-          // `font-sans`: the log itself is monospace, and the empty state
-          // used to inherit that, so it looked like a log line rather
-          // than a message (polish audit L4).
-          <div className="flex flex-col items-center justify-center py-12 text-content-tertiary font-sans">
-            <ScrollText size={32} className="mb-3 opacity-40" />
-            <p className="text-sm font-medium">No activity yet</p>
-            <p className="text-xs mt-1">Start a download to see live output here. The log resets on app restart.</p>
-          </div>
-        ) : filteredEntries.length === 0 ? (
-          <p className="font-sans text-sm text-content-tertiary text-center py-8">
-            No entries match the current search or filter criteria.
-          </p>
-        ) : (
-          <div
-            style={{
-              height: `${virtualizer.getTotalSize()}px`,
-              width: '100%',
-              position: 'relative',
-            }}
-          >
-            {virtualizer.getVirtualItems().map((virtualRow) => {
-              const item = displayItems[virtualRow.index];
+          {entries.length > 0 && (
+            <p className="font-sans text-content-tertiary text-xs mb-2 select-none">
+              {isFiltered
+                ? `Showing ${filteredEntries.length} of ${entries.length} lines in total (filtered). Only the lines near your current scroll position are shown at once — scroll to bring more into view.`
+                : `${entries.length} line${entries.length !== 1 ? 's' : ''} in total. Only the lines near your current scroll position are shown at once — scroll to bring more into view.`}
+            </p>
+          )}
+          {entries.length === 0 ? (
+            // `font-sans`: the log itself is monospace, and the empty state
+            // used to inherit that, so it looked like a log line rather
+            // than a message (polish audit L4).
+            <div className="flex flex-col items-center justify-center py-12 text-content-tertiary font-sans">
+              <ScrollText size={32} className="mb-3 opacity-40" />
+              <p className="text-sm font-medium">No activity yet</p>
+              <p className="text-xs mt-1">
+                Start a download to see live output here. The log resets on app restart.
+              </p>
+            </div>
+          ) : filteredEntries.length === 0 ? (
+            <p className="font-sans text-sm text-content-tertiary text-center py-8">
+              No entries match the current search or filter criteria.
+            </p>
+          ) : (
+            <div
+              style={{
+                height: `${virtualizer.getTotalSize()}px`,
+                width: '100%',
+                position: 'relative',
+              }}
+            >
+              {virtualizer.getVirtualItems().map((virtualRow) => {
+                const item = displayItems[virtualRow.index];
 
-              // Cross-day banner row (#801) — purely visual marker
-              // between two entries that fall on different local
-              // calendar dates. Not a real log entry; not exported.
-              if (item.kind === 'banner') {
+                // Cross-day banner row (#801) — purely visual marker
+                // between two entries that fall on different local
+                // calendar dates. Not a real log entry; not exported.
+                if (item.kind === 'banner') {
+                  return (
+                    <div
+                      key={item.key}
+                      ref={virtualizer.measureElement}
+                      data-index={virtualRow.index}
+                      data-banner-date={item.date}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${virtualRow.start}px)`,
+                      }}
+                      className="flex items-center gap-2 py-1 px-1 font-mono text-2xs text-content-tertiary select-none"
+                      role="separator"
+                      aria-label={`Date changed to ${item.date}`}
+                    >
+                      <span className="flex-1 border-t border-border/40" aria-hidden="true" />
+                      <span className="tabular-nums tracking-wide">{item.date}</span>
+                      <span className="flex-1 border-t border-border/40" aria-hidden="true" />
+                    </div>
+                  );
+                }
+
+                const entry = item.entry;
                 return (
                   <div
                     key={item.key}
                     ref={virtualizer.measureElement}
                     data-index={virtualRow.index}
-                    data-banner-date={item.date}
                     style={{
                       position: 'absolute',
                       top: 0,
@@ -935,67 +980,43 @@ export function ActivityLog() {
                       width: '100%',
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
-                    className="flex items-center gap-2 py-1 px-1 font-mono text-2xs text-content-tertiary select-none"
-                    role="separator"
-                    aria-label={`Date changed to ${item.date}`}
+                    className={`group relative whitespace-pre-wrap break-words pr-6 py-0.5 px-1 font-mono text-xs leading-relaxed border-b border-border/20 ${
+                      virtualRow.index % 2 === 0 ? '' : 'bg-surface-primary/30'
+                    } ${textColourForEntry(entry)}`}
                   >
-                    <span className="flex-1 border-t border-border/40" aria-hidden="true" />
-                    <span className="tabular-nums tracking-wide">{item.date}</span>
-                    <span className="flex-1 border-t border-border/40" aria-hidden="true" />
-                  </div>
-                );
-              }
-
-              const entry = item.entry;
-              return (
-                <div
-                  key={item.key}
-                  ref={virtualizer.measureElement}
-                  data-index={virtualRow.index}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
-                  className={`group relative whitespace-pre-wrap break-words pr-6 py-0.5 px-1 font-mono text-xs leading-relaxed border-b border-border/20 ${
-                    virtualRow.index % 2 === 0 ? '' : 'bg-surface-primary/30'
-                  } ${textColourForEntry(entry)}`}
-                >
-                  <span className="text-content-tertiary">{formatTime(entry.timestamp)} </span>
-                  {entry.download_id === 'system' ? (
-                    <span className="text-status-info-text font-medium">[System] </span>
-                  ) : (
-                    <>
-                      <span className="text-accent-hover">[{shortId(entry.download_id)}] </span>
-                      {entry.stream === 'internal' && (
-                        <span className="text-accent-hover font-medium">[MeedyaDL] </span>
-                      )}
-                    </>
-                  )}
-                  {entry.line}
-                  {/* Fix 14 (a11y audit): this button only revealed itself on
+                    <span className="text-content-tertiary">{formatTime(entry.timestamp)} </span>
+                    {entry.download_id === 'system' ? (
+                      <span className="text-status-info-text font-medium">[System] </span>
+                    ) : (
+                      <>
+                        <span className="text-accent-hover">[{shortId(entry.download_id)}] </span>
+                        {entry.stream === 'internal' && (
+                          <span className="text-accent-hover font-medium">[MeedyaDL] </span>
+                        )}
+                      </>
+                    )}
+                    {entry.line}
+                    {/* Fix 14 (a11y audit): this button only revealed itself on
                       mouse hover -- Tab still landed on it, invisibly. With
                       ~150 rows rendered, that was ~150 silent stops for a
                       keyboard user. `focus-visible:!opacity-100` reveals it
                       on keyboard focus the same way hover does for a mouse.
                       The shared IconButton since the polish pass (M17). */}
-                  <IconButton
-                    size="sm"
-                    className="absolute right-0 top-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:!opacity-100 transition-opacity"
-                    label="Copy log entry"
-                    icon={<Copy size={10} />}
-                    onClick={() => {
-                      navigator.clipboard.writeText(entry.line);
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                    <IconButton
+                      size="sm"
+                      className="absolute right-0 top-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 focus-visible:!opacity-100 transition-opacity"
+                      label="Copy log entry"
+                      icon={<Copy size={10} />}
+                      onClick={() => {
+                        navigator.clipboard.writeText(entry.line);
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Floating "Jump to latest" pill — visible only when the user
             has scrolled away from the bottom (auto-scroll paused).

@@ -34,10 +34,10 @@
 // activity-log emission of progress lines, and metadata tagging stay
 // in `download_queue.rs` and `services/`.
 
-use std::pin::Pin;
 use std::future::Future;
-use std::sync::Arc;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tauri::AppHandle;
@@ -87,8 +87,7 @@ type EmitFuture = Pin<Box<dyn Future<Output = Option<String>> + Send>>;
 /// the supervisor can record the most recent one for error surfacing.
 ///
 /// Arguments to the callback are `(app, dl_id, stream_label, line)`.
-pub type LineEmitter =
-    Arc<dyn Fn(AppHandle, String, String, String) -> EmitFuture + Send + Sync>;
+pub type LineEmitter = Arc<dyn Fn(AppHandle, String, String, String) -> EmitFuture + Send + Sync>;
 
 // ============================================================
 // Public entry point

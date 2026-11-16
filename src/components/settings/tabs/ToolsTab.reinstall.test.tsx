@@ -123,8 +123,8 @@ describe('ToolsTab -- Reinstall button', () => {
     // only when IT works and the new one does not.
     expect(
       within(dialog).getByText(
-        /If your current copy starts and reports a version MeedyaDL recognises, and the new copy does not, your current copy is kept\./,
-      ),
+        /If your current copy starts and reports a version MeedyaDL recognises, and the new copy does not, your current copy is kept\./
+      )
     ).toBeInTheDocument();
     expect(installDependency).not.toHaveBeenCalled();
   });
@@ -133,7 +133,9 @@ describe('ToolsTab -- Reinstall button', () => {
     render(<ToolsTab />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Reinstall FFmpeg' }));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Reinstall$/ }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: /^Reinstall$/ })
+    );
 
     // Exactly one argument: no "for update" flag, so the backend treats it
     // as an install or repair, like the Install button.
@@ -147,15 +149,19 @@ describe('ToolsTab -- Reinstall button', () => {
 
   it('shows a failure, and still refreshes the tool list', async () => {
     vi.mocked(installDependency).mockRejectedValue(
-      'The new copy of FFmpeg would not start on this computer (it printed "dyld: Library not loaded" instead of its version), so it has been removed. The copy of FFmpeg you had before has been kept, and works as it did.',
+      'The new copy of FFmpeg would not start on this computer (it printed "dyld: Library not loaded" instead of its version), so it has been removed. The copy of FFmpeg you had before has been kept, and works as it did.'
     );
     render(<ToolsTab />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Reinstall FFmpeg' }));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Reinstall$/ }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: /^Reinstall$/ })
+    );
 
     await waitFor(() =>
-      expect(toastMessages().some((m) => m.startsWith('MeedyaDL could not reinstall FFmpeg.'))).toBe(true),
+      expect(
+        toastMessages().some((m) => m.startsWith('MeedyaDL could not reinstall FFmpeg.'))
+      ).toBe(true)
     );
     expect(toastMessages().some((m) => m.includes('has been kept'))).toBe(true);
     await waitFor(() => expect(checkAll).toHaveBeenCalledTimes(2)); // on mount, and after the failure

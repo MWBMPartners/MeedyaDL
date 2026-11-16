@@ -76,7 +76,9 @@ describe('HistoryPage -- "Clear History" confirmation', () => {
     vi.mocked(listHistory).mockResolvedValue([makeEntry({ id: 'a' }), makeEntry({ id: 'b' })]);
 
     render(<HistoryPage />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument()
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /clear history/i }));
 
@@ -89,7 +91,9 @@ describe('HistoryPage -- "Clear History" confirmation', () => {
     vi.mocked(listHistory).mockResolvedValue([makeEntry({ id: 'a' })]);
 
     render(<HistoryPage />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument()
+    );
     fireEvent.click(screen.getByRole('button', { name: /clear history/i }));
 
     // "Cannot be undone" -- the plain-English promise every other
@@ -106,7 +110,9 @@ describe('HistoryPage -- "Clear History" confirmation', () => {
     vi.mocked(listHistory).mockResolvedValue([makeEntry({ id: 'a' })]);
 
     render(<HistoryPage />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument()
+    );
     fireEvent.click(screen.getByRole('button', { name: /clear history/i }));
 
     // Confirm inside the modal -- its button carries the same visible
@@ -114,13 +120,13 @@ describe('HistoryPage -- "Clear History" confirmation', () => {
     // one inside the open dialog rather than assuming there's only one
     // match on the page.
     const dialog = screen.getByRole('dialog');
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: /clear history/i })
-    );
+    fireEvent.click(within(dialog).getByRole('button', { name: /clear history/i }));
 
     await waitFor(() => expect(clearHistory).toHaveBeenCalledTimes(1));
     // Modal closes and the list empties once the clear resolves.
-    await waitFor(() => expect(screen.queryByText('Clear Download History')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByText('Clear Download History')).not.toBeInTheDocument()
+    );
     expect(screen.getByText(/no download history yet/i)).toBeInTheDocument();
   });
 
@@ -128,7 +134,9 @@ describe('HistoryPage -- "Clear History" confirmation', () => {
     vi.mocked(listHistory).mockResolvedValue([makeEntry({ id: 'a' })]);
 
     render(<HistoryPage />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument()
+    );
     fireEvent.click(screen.getByRole('button', { name: /clear history/i }));
     expect(screen.getByText('Clear Download History')).toBeInTheDocument();
 
@@ -162,10 +170,14 @@ describe('HistoryPage -- retry that queues nothing (#1235)', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^retry download$/i }));
     await waitFor(() => expect(startDownload).toHaveBeenCalled());
     await waitFor(() =>
-      expect(useUiStore.getState().toasts.some((t) => t.message === 'Already in the queue')).toBe(true),
+      expect(useUiStore.getState().toasts.some((t) => t.message === 'Already in the queue')).toBe(
+        true
+      )
     );
     expect(useUiStore.getState().toasts.some((t) => /Re-queued/.test(t.message))).toBe(false);
-    await waitFor(() => expect(screen.queryByRole('button', { name: /^retry download$/i })).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /^retry download$/i })).not.toBeInTheDocument()
+    );
     expect(listHistory).toHaveBeenCalledTimes(2);
   });
 });

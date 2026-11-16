@@ -89,7 +89,17 @@ import {
 } from '@/lib/tauri-commands';
 
 /** Reusable UI components from the common library. */
-import { Button, Checkbox, FilterChip, IconButton, Input, MenuButton, Modal, TextButton, getStatusLabel } from '@/components/common';
+import {
+  Button,
+  Checkbox,
+  FilterChip,
+  IconButton,
+  Input,
+  MenuButton,
+  Modal,
+  TextButton,
+  getStatusLabel,
+} from '@/components/common';
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
@@ -225,7 +235,6 @@ export function DownloadQueue() {
    */
   const [abortDontAskAgain, setAbortDontAskAgain] = useState(false);
 
-
   /**
    * Queue-level status announcer (a11y audit Fix 3).
    *
@@ -310,7 +319,8 @@ export function DownloadQueue() {
   const toggleStatusFilter = useCallback((state: DownloadState) => {
     setStatusFilters((prev) => {
       const next = new Set(prev);
-      if (next.has(state)) next.delete(state); else next.add(state);
+      if (next.has(state)) next.delete(state);
+      else next.add(state);
       return next;
     });
   }, []);
@@ -318,7 +328,8 @@ export function DownloadQueue() {
   const toggleSelected = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }, []);
@@ -404,7 +415,10 @@ export function DownloadQueue() {
         addToast('Queue paused — running items will complete', 'info');
       }
     } catch (err) {
-      showError(`MeedyaDL could not ${isPaused ? 'resume' : 'pause'} the queue. Try again in a moment.`, err);
+      showError(
+        `MeedyaDL could not ${isPaused ? 'resume' : 'pause'} the queue. Try again in a moment.`,
+        err
+      );
     }
   }, [isPaused, addToast]);
 
@@ -556,46 +570,34 @@ export function DownloadQueue() {
    * themselves are module-level imports, so `[addToast]` is the only
    * real dep.
    */
-  const handleMoveToTop = useCallback(
-    async (id: string) => {
-      try {
-        await moveQueueItemToTop(id);
-      } catch (err) {
-        showError(MOVE_FAILED, err);
-      }
-    },
-    []
-  );
-  const handleMoveUp = useCallback(
-    async (id: string) => {
-      try {
-        await moveQueueItemUp(id);
-      } catch (err) {
-        showError(MOVE_FAILED, err);
-      }
-    },
-    []
-  );
-  const handleMoveDown = useCallback(
-    async (id: string) => {
-      try {
-        await moveQueueItemDown(id);
-      } catch (err) {
-        showError(MOVE_FAILED, err);
-      }
-    },
-    []
-  );
-  const handleMoveToBottom = useCallback(
-    async (id: string) => {
-      try {
-        await moveQueueItemToBottom(id);
-      } catch (err) {
-        showError(MOVE_FAILED, err);
-      }
-    },
-    []
-  );
+  const handleMoveToTop = useCallback(async (id: string) => {
+    try {
+      await moveQueueItemToTop(id);
+    } catch (err) {
+      showError(MOVE_FAILED, err);
+    }
+  }, []);
+  const handleMoveUp = useCallback(async (id: string) => {
+    try {
+      await moveQueueItemUp(id);
+    } catch (err) {
+      showError(MOVE_FAILED, err);
+    }
+  }, []);
+  const handleMoveDown = useCallback(async (id: string) => {
+    try {
+      await moveQueueItemDown(id);
+    } catch (err) {
+      showError(MOVE_FAILED, err);
+    }
+  }, []);
+  const handleMoveToBottom = useCallback(async (id: string) => {
+    try {
+      await moveQueueItemToBottom(id);
+    } catch (err) {
+      showError(MOVE_FAILED, err);
+    }
+  }, []);
 
   /**
    * Export the current queue to a `.meedyadl` file.
@@ -624,7 +626,10 @@ export function DownloadQueue() {
         addToast('There is nothing in the queue to export yet', 'info');
         return;
       }
-      showBackendError('MeedyaDL could not save the queue file. Choose a folder you can save to, then try again.', e);
+      showBackendError(
+        'MeedyaDL could not save the queue file. Choose a folder you can save to, then try again.',
+        e
+      );
     }
   };
 
@@ -647,13 +652,16 @@ export function DownloadQueue() {
         showBackendError(
           'The import finished, but MeedyaDL could not refresh the queue on screen. Choose Refresh in the More menu to see the new items.',
           refreshError,
-          { type: 'warning' },
+          { type: 'warning' }
         );
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === 'Import cancelled') return;
-      showBackendError('MeedyaDL could not import that queue file. Check that it is a queue file saved by MeedyaDL (.meedyadl), then try again.', e);
+      showBackendError(
+        'MeedyaDL could not import that queue file. Check that it is a queue file saved by MeedyaDL (.meedyadl), then try again.',
+        e
+      );
     }
   };
 
@@ -727,9 +735,7 @@ export function DownloadQueue() {
     // (~10×/sec for active downloads), defeating the React.memo
     // comparator on QueueItem. The getState read happens at click
     // time, so the lookup is still correct against current state.
-    const target = useDownloadStore
-      .getState()
-      .queueItems.find((i) => i.id === id);
+    const target = useDownloadStore.getState().queueItems.find((i) => i.id === id);
     if (!target) return;
     setDeleteTarget(target);
   }, []);
@@ -749,7 +755,10 @@ export function DownloadQueue() {
     } catch (e) {
       // The backend's refusal ("cannot remove an item that is
       // downloading") is a plain sentence and is shown as it is.
-      showBackendError('MeedyaDL could not remove that item. Choose Refresh in the More menu, then try again.', e);
+      showBackendError(
+        'MeedyaDL could not remove that item. Choose Refresh in the More menu, then try again.',
+        e
+      );
     }
   };
 
@@ -777,7 +786,7 @@ export function DownloadQueue() {
     // the bulk IPC.
     addToast(
       `Retrying ${failedItems.length} failed download${failedItems.length !== 1 ? 's' : ''}…`,
-      'info',
+      'info'
     );
 
     // Single bulk IPC (#835). Replaces the N-parallel `retryDownload`
@@ -790,7 +799,7 @@ export function DownloadQueue() {
       if (report.skipped.length === 0) {
         addToast(
           `Re-queued ${report.retried} failed download${report.retried !== 1 ? 's' : ''}`,
-          'success',
+          'success'
         );
       } else {
         // Two-line breakdown so the user can act on the skips. Skips
@@ -802,11 +811,10 @@ export function DownloadQueue() {
           .map((s) => s.reason)
           .filter((r, i, arr) => arr.indexOf(r) === i)
           .join('; ');
-        const extra =
-          report.skipped.length > 3 ? ` (and ${report.skipped.length - 3} more)` : '';
+        const extra = report.skipped.length > 3 ? ` (and ${report.skipped.length - 3} more)` : '';
         addToast(
           `Re-queued ${report.retried} of ${report.requested}. ${report.skipped.length} skipped: ${reasonSummary}${extra}`,
-          'warning',
+          'warning'
         );
       }
     } catch (e) {
@@ -896,11 +904,11 @@ export function DownloadQueue() {
         showError(
           `${past} ${done} of ${noun(total)}; ${failures.length} ${whyNot}. Choose Refresh in the More menu to see where things stand.`,
           failures[0],
-          { type: done > 0 ? 'warning' : 'error' },
+          { type: done > 0 ? 'warning' : 'error' }
         );
       }
     },
-    [addToast],
+    [addToast]
   );
 
   const handleBulkCancel = useCallback(async () => {
@@ -909,7 +917,7 @@ export function DownloadQueue() {
       .queueItems.filter(
         (i) =>
           selectedVisibleIds.includes(i.id) &&
-          (i.state === 'queued' || i.state === 'downloading' || i.state === 'processing'),
+          (i.state === 'queued' || i.state === 'downloading' || i.state === 'processing')
       );
     // Per-item failures do not stop the loop (one glitch should not halt
     // the rest), but they are counted: the message used to say "Cancelled N
@@ -922,7 +930,12 @@ export function DownloadQueue() {
         failures.push(e);
       }
     }
-    reportBulkResult('Cancelled', targets.length, failures, 'could not be cancelled — they may already have finished');
+    reportBulkResult(
+      'Cancelled',
+      targets.length,
+      failures,
+      'could not be cancelled — they may already have finished'
+    );
     clearSelection();
   }, [cancelDownload, reportBulkResult, selectedVisibleIds, clearSelection]);
 
@@ -930,7 +943,7 @@ export function DownloadQueue() {
     const targets = useDownloadStore
       .getState()
       .queueItems.filter(
-        (i) => selectedVisibleIds.includes(i.id) && (i.state === 'error' || i.state === 'cancelled'),
+        (i) => selectedVisibleIds.includes(i.id) && (i.state === 'error' || i.state === 'cancelled')
       );
     // Per-item failures do not stop the loop (one glitch should not halt
     // the rest), but they are counted: the message used to say "Retried N
@@ -956,9 +969,7 @@ export function DownloadQueue() {
       .getState()
       .queueItems.filter(
         (i) =>
-          selectedVisibleIds.includes(i.id) &&
-          i.state !== 'downloading' &&
-          i.state !== 'processing',
+          selectedVisibleIds.includes(i.id) && i.state !== 'downloading' && i.state !== 'processing'
       );
     // Per-item failures do not stop the loop (one glitch should not halt
     // the rest), but they are counted: the message used to say "Removed N
@@ -973,7 +984,12 @@ export function DownloadQueue() {
         failedIds.add(t.id);
       }
     }
-    reportBulkResult('Removed', targets.length, failures, 'could not be removed — items that are downloading cannot be removed');
+    reportBulkResult(
+      'Removed',
+      targets.length,
+      failures,
+      'could not be removed — items that are downloading cannot be removed'
+    );
     // Keep the rows that were NOT removed selected, so the person can see
     // which ones they are and try again; everything else leaves the
     // selection (#1232).
@@ -1050,11 +1066,14 @@ export function DownloadQueue() {
      * state icon colours from QueueItem's STATE_CONFIG.
      */
     const segments: { label: string; colorClass: string }[] = [];
-    if (active > 0) segments.push({ label: `${active} active`, colorClass: 'text-status-info-text' });
-    if (queued > 0) segments.push({ label: `${queued} queued`, colorClass: 'text-content-tertiary' });
+    if (active > 0)
+      segments.push({ label: `${active} active`, colorClass: 'text-status-info-text' });
+    if (queued > 0)
+      segments.push({ label: `${queued} queued`, colorClass: 'text-content-tertiary' });
     if (completed > 0)
       segments.push({ label: `${completed} completed`, colorClass: 'text-status-success-text' });
-    if (failed > 0) segments.push({ label: `${failed} failed`, colorClass: 'text-status-error-text' });
+    if (failed > 0)
+      segments.push({ label: `${failed} failed`, colorClass: 'text-status-error-text' });
 
     return { total, completed, overallProgress, segments };
   }, [queueItems]);
@@ -1080,13 +1099,12 @@ export function DownloadQueue() {
       <>
         <p className="mb-4">
           This will re-queue {failedCount} failed download
-          {failedCount !== 1 ? 's' : ''}. The smart retry path skips
-          already-downloaded tracks via the manifest, so only the
-          actually-failed tracks will be re-fetched.
+          {failedCount !== 1 ? 's' : ''}. The smart retry path skips already-downloaded tracks via
+          the manifest, so only the actually-failed tracks will be re-fetched.
         </p>
         <p>
-          For wrapper-related failures, use the per-item &quot;Retry
-          without Wrapper&quot; option instead.
+          For wrapper-related failures, use the per-item &quot;Retry without Wrapper&quot; option
+          instead.
         </p>
       </>
     ),
@@ -1100,8 +1118,8 @@ export function DownloadQueue() {
       <>
         <p className="mb-4">
           This will remove {selectedVisibleIds.length} selected item
-          {selectedVisibleIds.length === 1 ? '' : 's'} from the download
-          queue. Items that are downloading or processing are not removed.
+          {selectedVisibleIds.length === 1 ? '' : 's'} from the download queue. Items that are
+          downloading or processing are not removed.
         </p>
         <p>This action cannot be undone.</p>
       </>
@@ -1115,9 +1133,8 @@ export function DownloadQueue() {
     description: (
       <>
         <p className="mb-4">
-          This will remove all queued, completed, failed, and cancelled
-          items from the download queue. Active downloads will not be
-          interrupted.
+          This will remove all queued, completed, failed, and cancelled items from the download
+          queue. Active downloads will not be interrupted.
         </p>
         <p>This action cannot be undone.</p>
       </>
@@ -1237,9 +1254,16 @@ export function DownloadQueue() {
               title="More queue actions"
               icon={<MoreHorizontal size={14} />}
               items={[
-                { label: 'Import a queue file…', icon: <Download size={14} />, onClick: () => void handleImport() },
                 {
-                  label: exportableCount > 0 ? `Export the queue (${exportableCount})` : 'Export the queue',
+                  label: 'Import a queue file…',
+                  icon: <Download size={14} />,
+                  onClick: () => void handleImport(),
+                },
+                {
+                  label:
+                    exportableCount > 0
+                      ? `Export the queue (${exportableCount})`
+                      : 'Export the queue',
                   icon: <Upload size={14} />,
                   onClick: () => void handleExport(),
                   disabled: exportableCount === 0,
@@ -1252,7 +1276,8 @@ export function DownloadQueue() {
                   separator: true,
                 },
                 {
-                  label: finishedCount > 0 ? `Clear completed (${finishedCount})` : 'Clear completed',
+                  label:
+                    finishedCount > 0 ? `Clear completed (${finishedCount})` : 'Clear completed',
                   icon: <Trash2 size={14} />,
                   onClick: () => void handleClearFinished(),
                   disabled: finishedCount === 0,
@@ -1295,28 +1320,40 @@ export function DownloadQueue() {
             icon={<Search size={16} aria-hidden="true" />}
             suffix={
               searchQuery ? (
-                <IconButton size="sm" icon={<X size={14} />} label="Clear search" onClick={() => setSearchQuery('')} />
+                <IconButton
+                  size="sm"
+                  icon={<X size={14} />}
+                  label="Clear search"
+                  onClick={() => setSearchQuery('')}
+                />
               ) : undefined
             }
           />
           <div className="flex items-center gap-2 flex-wrap text-xs">
             <span className="text-content-tertiary">Filter:</span>
-            {(['downloading', 'processing', 'queued', 'complete', 'error', 'cancelled'] as DownloadState[]).map(
-              (state) => {
-                const active = statusFilters.has(state);
-                const count = queueItems.filter((i) => i.state === state).length;
-                if (count === 0 && !active) return null;
-                return (
-                  // The shared FilterChip (also used on the Activity page).
-                  // The label uses the same words as the status pills on
-                  // each row ("Complete", "Cancelled"); it used to show the
-                  // program's own lowercase state names.
-                  <FilterChip key={state} pressed={active} onClick={() => toggleStatusFilter(state)}>
-                    {getStatusLabel(state)} ({count})
-                  </FilterChip>
-                );
-              },
-            )}
+            {(
+              [
+                'downloading',
+                'processing',
+                'queued',
+                'complete',
+                'error',
+                'cancelled',
+              ] as DownloadState[]
+            ).map((state) => {
+              const active = statusFilters.has(state);
+              const count = queueItems.filter((i) => i.state === state).length;
+              if (count === 0 && !active) return null;
+              return (
+                // The shared FilterChip (also used on the Activity page).
+                // The label uses the same words as the status pills on
+                // each row ("Complete", "Cancelled"); it used to show the
+                // program's own lowercase state names.
+                <FilterChip key={state} pressed={active} onClick={() => toggleStatusFilter(state)}>
+                  {getStatusLabel(state)} ({count})
+                </FilterChip>
+              );
+            })}
             {(statusFilters.size > 0 || searchQuery) && (
               <TextButton
                 size="xs"
@@ -1362,10 +1399,20 @@ export function DownloadQueue() {
           <Button variant="ghost" size="sm" icon={<Square size={14} />} onClick={handleBulkCancel}>
             Cancel selected
           </Button>
-          <Button variant="ghost" size="sm" icon={<RotateCcw size={14} />} onClick={handleBulkRetry}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<RotateCcw size={14} />}
+            onClick={handleBulkRetry}
+          >
             Retry selected
           </Button>
-          <Button variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={bulkDeleteConfirm.open}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<Trash2 size={14} />}
+            onClick={bulkDeleteConfirm.open}
+          >
             Remove selected
           </Button>
         </div>
@@ -1429,8 +1476,8 @@ export function DownloadQueue() {
         title="Remove queue item"
       >
         <p className="text-sm text-content-secondary mb-4">
-          Remove this item from the download queue? Already-downloaded
-          files on disk are not deleted — only the queue entry.
+          Remove this item from the download queue? Already-downloaded files on disk are not deleted
+          — only the queue entry.
         </p>
         {deleteTarget && (
           <p className="text-xs text-content-tertiary mb-6 break-all">
@@ -1448,19 +1495,14 @@ export function DownloadQueue() {
       </Modal>
 
       {/* Confirmation modal for "Abort Queue" (#620) */}
-      <Modal
-        open={showAbortConfirm}
-        onClose={() => setShowAbortConfirm(false)}
-        title="Abort Queue"
-      >
+      <Modal open={showAbortConfirm} onClose={() => setShowAbortConfirm(false)} title="Abort Queue">
         <p className="text-sm text-content-secondary mb-4">
-          This will stop the current download <em>immediately</em> and cancel
-          every item that is still queued or processing. Already-completed
-          downloads are kept so you don&apos;t lose your history.
+          This will stop the current download <em>immediately</em> and cancel every item that is
+          still queued or processing. Already-completed downloads are kept so you don&apos;t lose
+          your history.
         </p>
         <p className="text-sm text-content-secondary mb-4">
-          This action cannot be undone. Cancelled items can be retried
-          individually from the queue.
+          This action cannot be undone. Cancelled items can be retried individually from the queue.
         </p>
         <Checkbox
           className="mb-6"
@@ -1468,9 +1510,8 @@ export function DownloadQueue() {
           onChange={setAbortDontAskAgain}
           label={
             <>
-              Don&apos;t ask again — single-click abort from now on. You can
-              turn this question back on in Settings &gt; General &gt;
-              Preferences.
+              Don&apos;t ask again — single-click abort from now on. You can turn this question back
+              on in Settings &gt; General &gt; Preferences.
             </>
           }
         />

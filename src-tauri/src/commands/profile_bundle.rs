@@ -181,10 +181,8 @@ pub async fn export_profile(
                     _ => continue,
                 };
                 if let Ok(bytes) = std::fs::read(&p) {
-                    writer.add_optional_file(
-                        format!("{}{name}", entry::ACTIVITY_LOG_PREFIX),
-                        bytes,
-                    );
+                    writer
+                        .add_optional_file(format!("{}{name}", entry::ACTIVITY_LOG_PREFIX), bytes);
                 }
             }
             writer.declare_section(BundleSection::ActivityLog);
@@ -225,13 +223,14 @@ pub async fn export_profile(
         }
         match collect_credentials_blob(&app) {
             Ok(plaintext) if !plaintext.is_empty() => {
-                let encrypted = encrypt_credentials(password, &plaintext).map_err(|e| {
-                    format!("Failed to encrypt credentials: {e}")
-                })?;
-                let EncryptedCredentials { ciphertext, kdf_params } = encrypted;
-                let kdf_json = serde_json::to_vec(&kdf_params).map_err(|e| {
-                    format!("Failed to serialise credentials KDF params: {e}")
-                })?;
+                let encrypted = encrypt_credentials(password, &plaintext)
+                    .map_err(|e| format!("Failed to encrypt credentials: {e}"))?;
+                let EncryptedCredentials {
+                    ciphertext,
+                    kdf_params,
+                } = encrypted;
+                let kdf_json = serde_json::to_vec(&kdf_params)
+                    .map_err(|e| format!("Failed to serialise credentials KDF params: {e}"))?;
                 writer.add_optional_file(entry::CREDENTIALS, ciphertext);
                 writer.add_optional_file(entry::CREDENTIALS_KDF, kdf_json);
                 writer.declare_section(BundleSection::Credentials);
@@ -332,11 +331,7 @@ fn collect_manifests_into_bundle(root: &std::path::Path, writer: &mut BundleWrit
             return None;
         }
         let rel = path.strip_prefix(root).ok()?;
-        let archive_path = format!(
-            "{}{}",
-            entry::MANIFESTS_PREFIX,
-            rel.to_string_lossy()
-        );
+        let archive_path = format!("{}{}", entry::MANIFESTS_PREFIX, rel.to_string_lossy());
         let bytes = std::fs::read(path).ok()?;
         writer.add_optional_file(archive_path, bytes);
         count += 1;
@@ -431,11 +426,7 @@ pub async fn scan_for_bundles() -> Result<Vec<DiscoveredBundle>, String> {
                 exported_at: m.exported_at,
                 exported_by: m.exported_by,
                 note: m.note,
-                sections: m
-                    .contents
-                    .iter()
-                    .map(|s| s.as_str().to_string())
-                    .collect(),
+                sections: m.contents.iter().map(|s| s.as_str().to_string()).collect(),
                 source_path: path.to_string_lossy().to_string(),
                 produced_by_this_app,
             },
@@ -499,17 +490,13 @@ fn collect_credentials_blob(app: &AppHandle) -> Result<Vec<u8>, String> {
         }
     }
 
-    if let Ok(Some(pem)) =
-        crate::services::apple_music_api::get_private_key_from_keychain()
-    {
+    if let Ok(Some(pem)) = crate::services::apple_music_api::get_private_key_from_keychain() {
         if !pem.trim().is_empty() {
             blob.musickit_private_key = Some(pem);
         }
     }
 
-    if let Ok(Some(token)) =
-        crate::services::apple_music_api::get_webplayer_token_from_keychain()
-    {
+    if let Ok(Some(token)) = crate::services::apple_music_api::get_webplayer_token_from_keychain() {
         if !token.trim().is_empty() {
             blob.webplayer_developer_token = Some(token);
         }
@@ -521,8 +508,7 @@ fn collect_credentials_blob(app: &AppHandle) -> Result<Vec<u8>, String> {
     {
         return Ok(Vec::new());
     }
-    serde_json::to_vec(&blob)
-        .map_err(|e| format!("Failed to serialise credentials blob: {e}"))
+    serde_json::to_vec(&blob).map_err(|e| format!("Failed to serialise credentials blob: {e}"))
 }
 
 /// Restore the credentials blob into the install: cookies file
@@ -551,8 +537,7 @@ fn restore_credentials_blob(
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
-        std::fs::write(&path, content)
-            .map_err(|e| format!("Failed to write cookies file: {e}"))?;
+        std::fs::write(&path, content).map_err(|e| format!("Failed to write cookies file: {e}"))?;
     }
 
     if let Some(pem) = blob.musickit_private_key {
@@ -708,10 +693,9 @@ pub async fn peek_profile_bundle(
         }
     };
 
-    let bytes = std::fs::read(&resolved)
-        .map_err(|e| format!("Failed to read bundle file: {e}"))?;
-    let reader = BundleReader::from_bytes(bytes)
-        .map_err(|e| format!("Failed to open bundle: {e}"))?;
+    let bytes = std::fs::read(&resolved).map_err(|e| format!("Failed to read bundle file: {e}"))?;
+    let reader =
+        BundleReader::from_bytes(bytes).map_err(|e| format!("Failed to open bundle: {e}"))?;
     let meta = reader.meta().clone();
     let produced_by_this_app = meta.is_produced_by_this_app();
 
@@ -1024,7 +1008,8 @@ pub async fn import_profile(
             .read_entry(entry::CREDENTIALS)
             .map_err(|e| format!("Failed to read credentials.encrypted: {e}"))?
             .ok_or_else(|| {
-                "Bundle declared a credentials section but credentials.encrypted is missing".to_string()
+                "Bundle declared a credentials section but credentials.encrypted is missing"
+                    .to_string()
             })?;
         let kdf_bytes = reader
             .read_entry(entry::CREDENTIALS_KDF)
@@ -1097,9 +1082,7 @@ fn safe_bundle_dest(base: &std::path::Path, rel: &str) -> Option<std::path::Path
 /// restore loops which deal with N files under a single section
 /// directory.
 fn collect_archive_entries_with_prefix(reader: &mut BundleReader, prefix: &str) -> Vec<String> {
-    reader
-        .file_names_starting_with(prefix)
-        .unwrap_or_default()
+    reader.file_names_starting_with(prefix).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -1185,12 +1168,13 @@ mod tests {
             musickit_team_id: Some("  abcde12345  ".to_string()),
             ..Default::default()
         };
-        apply_bundle_settings_rules(&mut imported, &crate::models::settings::AppSettings::default())
-            .expect("valid once tidied");
+        apply_bundle_settings_rules(
+            &mut imported,
+            &crate::models::settings::AppSettings::default(),
+        )
+        .expect("valid once tidied");
         assert_eq!(imported.musickit_team_id, Some("ABCDE12345".to_string()));
     }
-
-
 
     use super::*;
 

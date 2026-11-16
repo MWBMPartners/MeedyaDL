@@ -36,9 +36,7 @@ use crate::models::ytdlp_options::YtdlpOptions;
 /// # Returns
 /// * `Ok(String)` - The installed version string.
 /// * `Err(String)` - yt-dlp is not installed or version check failed.
-pub async fn check_ytdlp_version(
-    _app: &tauri::AppHandle,
-) -> Result<String, String> {
+pub async fn check_ytdlp_version(_app: &tauri::AppHandle) -> Result<String, String> {
     Err("YouTube downloads are not yet implemented. Coming soon!".to_string())
 }
 
@@ -47,9 +45,7 @@ pub async fn check_ytdlp_version(
 /// # Returns
 /// * `Ok(())` - yt-dlp was installed successfully.
 /// * `Err(String)` - Installation failed.
-pub async fn install_ytdlp(
-    _app: &tauri::AppHandle,
-) -> Result<(), String> {
+pub async fn install_ytdlp(_app: &tauri::AppHandle) -> Result<(), String> {
     Err("YouTube downloads are not yet implemented. Coming soon!".to_string())
 }
 

@@ -437,9 +437,7 @@ export function DownloadForm() {
    * - Single URL mode: uses the store's `urlIsValid` flag.
    * - Multi-URL mode: requires at least one valid URL in the batch.
    */
-  const canSubmit = isMultiUrl
-    ? (multiUrlInfo?.validUrls.length ?? 0) > 0
-    : urlIsValid;
+  const canSubmit = isMultiUrl ? (multiUrlInfo?.validUrls.length ?? 0) > 0 : urlIsValid;
 
   // ---------------------------------------------------------------
   // Event handlers
@@ -577,11 +575,9 @@ export function DownloadForm() {
             // accept callback. Re-invoking runPreflightAndSubmit
             // ensures we rebuild request state from current store
             // values (rather than risking stale captures).
-            useUiStore.getState().setPendingSpotifyConsentCallback(
-              async () => {
-                await runPreflightAndSubmit();
-              }
-            );
+            useUiStore.getState().setPendingSpotifyConsentCallback(async () => {
+              await runPreflightAndSubmit();
+            });
             useUiStore.getState().setShowSpotifyConsent(true);
             return;
           }
@@ -699,9 +695,7 @@ export function DownloadForm() {
         if (multiUrlInfo.notYetSupportedCount > 0) {
           const services = multiUrlInfo.notYetSupportedServices.join(' and ');
           const n = multiUrlInfo.notYetSupportedCount;
-          parts.push(
-            `${n} ${services} link${n !== 1 ? 's' : ''} skipped — not supported yet`
-          );
+          parts.push(`${n} ${services} link${n !== 1 ? 's' : ''} skipped — not supported yet`);
         }
         if (multiUrlInfo.unrecognisedCount > 0) {
           const n = multiUrlInfo.unrecognisedCount;
@@ -795,7 +789,10 @@ export function DownloadForm() {
       const urls = await importManifest();
       if (urls.length > 0) {
         setUrlInput(urls.join('\n'));
-        addToast(`Imported ${urls.length} URL${urls.length !== 1 ? 's' : ''} from manifest`, 'success');
+        addToast(
+          `Imported ${urls.length} URL${urls.length !== 1 ? 's' : ''} from manifest`,
+          'success'
+        );
       }
     } catch {
       // User cancelled the dialog — silently ignore
@@ -822,7 +819,7 @@ export function DownloadForm() {
       const trackTotal = manifests.reduce((sum, m) => sum + m.track_count, 0);
       addToast(
         `Found ${albumCount} album${albumCount !== 1 ? 's' : ''} (${trackTotal} tracks, ${allUrls.length} URLs) — review and submit to re-download`,
-        'success',
+        'success'
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -853,14 +850,18 @@ export function DownloadForm() {
       if (!selected) return; // User cancelled
       const filePath = String(selected);
       const content = await readTextFile(filePath);
-      const lines = content.split('\n')
+      const lines = content
+        .split('\n')
         .map((l: string) => l.trim())
         .filter((l: string) => l.length > 0 && !l.startsWith('#'));
       if (lines.length > 0) {
         setUrlInput(lines.join('\n'));
         addToast(`Loaded ${lines.length} URL${lines.length !== 1 ? 's' : ''} from file`, 'success');
       } else {
-        addToast('That file has no links in it. Put one Apple Music link on each line, then try again.', 'warning');
+        addToast(
+          'That file has no links in it. Put one Apple Music link on each line, then try again.',
+          'warning'
+        );
       }
     } catch {
       // User cancelled the dialog — silently ignore
@@ -932,13 +933,15 @@ export function DownloadForm() {
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
-
   const setAfterQueueOnce = useCallback(async (action: AfterQueueAction) => {
     if (afterQueueChoiceBusy.value) {
       setContextMenu(null);
       useUiStore
         .getState()
-        .addToast('Still saving your previous after-queue choice -- try again in a moment.', 'info');
+        .addToast(
+          'Still saving your previous after-queue choice -- try again in a moment.',
+          'info'
+        );
       return;
     }
     afterQueueChoiceBusy.value = true;
@@ -1070,20 +1073,31 @@ export function DownloadForm() {
 
       useUiStore
         .getState()
-        .addToast(
-          `MeedyaDL could not save that after-queue action. ${stillArmed}`,
-          'error'
-        );
+        .addToast(`MeedyaDL could not save that after-queue action. ${stillArmed}`, 'error');
     }
   }, []);
 
   const afterQueueMenuItems = [
     { label: 'After Queue: Do nothing', onClick: () => setAfterQueueOnce('do_nothing') },
-    { label: 'After Queue: Open output folder', onClick: () => setAfterQueueOnce('open_output_folder') },
+    {
+      label: 'After Queue: Open output folder',
+      onClick: () => setAfterQueueOnce('open_output_folder'),
+    },
     { label: 'After Queue: Play sound', onClick: () => setAfterQueueOnce('play_sound') },
-    { label: 'After Queue: Close MeedyaDL', onClick: () => setAfterQueueOnce('close_meedyadl'), separator: true },
-    { label: 'After Queue: Restart computer', onClick: () => setAfterQueueOnce('restart_computer'), separator: true },
-    { label: 'After Queue: Hibernate / Sleep', onClick: () => setAfterQueueOnce('hibernate_computer') },
+    {
+      label: 'After Queue: Close MeedyaDL',
+      onClick: () => setAfterQueueOnce('close_meedyadl'),
+      separator: true,
+    },
+    {
+      label: 'After Queue: Restart computer',
+      onClick: () => setAfterQueueOnce('restart_computer'),
+      separator: true,
+    },
+    {
+      label: 'After Queue: Hibernate / Sleep',
+      onClick: () => setAfterQueueOnce('hibernate_computer'),
+    },
     { label: 'After Queue: Shut down', onClick: () => setAfterQueueOnce('shutdown_computer') },
   ];
 
@@ -1171,26 +1185,28 @@ export function DownloadForm() {
                 )}
               </div>
             )}
-            {!isMultiUrl && urlIsValid && (() => {
-              // #983: non-Apple services (currently just Spotify) have no
-              // Apple Music content type — fall back to the service name
-              // with a generic Music icon instead of "Unknown".
-              const singleService = detectService(urlInput.trim());
-              const isNonApple = singleService !== null && singleService !== 'apple-music';
-              const BadgeIcon = isNonApple ? Music : ContentIcon;
-              const badgeLabel = isNonApple
-                ? MEDIA_SERVICE_LABELS[singleService]
-                : CONTENT_TYPE_LABELS[contentType];
-              return (
-                <div
-                  data-testid="url-badge"
-                  className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium"
-                >
-                  <BadgeIcon size={12} />
-                  {badgeLabel}
-                </div>
-              );
-            })()}
+            {!isMultiUrl &&
+              urlIsValid &&
+              (() => {
+                // #983: non-Apple services (currently just Spotify) have no
+                // Apple Music content type — fall back to the service name
+                // with a generic Music icon instead of "Unknown".
+                const singleService = detectService(urlInput.trim());
+                const isNonApple = singleService !== null && singleService !== 'apple-music';
+                const BadgeIcon = isNonApple ? Music : ContentIcon;
+                const badgeLabel = isNonApple
+                  ? MEDIA_SERVICE_LABELS[singleService]
+                  : CONTENT_TYPE_LABELS[contentType];
+                return (
+                  <div
+                    data-testid="url-badge"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-accent-light text-accent text-xs font-medium"
+                  >
+                    <BadgeIcon size={12} />
+                    {badgeLabel}
+                  </div>
+                );
+              })()}
           </div>
 
           {/*
@@ -1217,53 +1233,56 @@ export function DownloadForm() {
               Link List and Scan): the toast stack starts below it. See
               KEEP_CLEAR_ATTRIBUTE in ToastContainer. */}
           <div className="@container" data-toasts-keep-clear="">
-          <div data-testid="url-input-row" className="flex flex-col gap-2 @5xl:flex-row @5xl:items-start">
-            {/*
-             * URL text input. Takes the full width when the buttons are
-             * underneath it, and the remaining width when they are beside it.
-             */}
-            <div className="w-full @5xl:flex-1 @5xl:min-w-0">
+            <div
+              data-testid="url-input-row"
+              className="flex flex-col gap-2 @5xl:flex-row @5xl:items-start"
+            >
               {/*
-               * Controlled textarea bound to `downloadStore.urlInput`.
-               *
-               * Supports both single-URL and multi-URL (one per line) input.
-               * Auto-resizes vertically to fit content, capped at 200px.
-               *
-               * onChange: calls `setUrlInput()` which validates the URL
-               *   in real-time via `parseAppleMusicUrl()` from
-               *   `@/lib/url-parser.ts`. Also triggers auto-resize.
-               * onKeyDown: Enter submits (Shift+Enter inserts newline).
-               *
-               * Border colour changes based on validation state:
-               *  - Red (`border-status-error`) when input is non-empty
-               *    but neither single-URL nor multi-URL is valid.
-               *  - Default (`border-border`) otherwise, with accent
-               *    colour on focus (`focus:border-accent`).
-               *
-               * @see https://react.dev/reference/react-dom/components/textarea
+               * URL text input. Takes the full width when the buttons are
+               * underneath it, and the remaining width when they are beside it.
                */}
-              <textarea
-                ref={textareaRef}
-                id="url-input"
-                aria-label="Media URL input"
-                aria-describedby={urlHelpId}
-                aria-invalid={Boolean(urlInput && !canSubmit)}
-                value={urlInput}
-                onChange={(e) => {
-                  setUrlInput(e.target.value);
-                  // Clear cookie error when URL changes (user is retrying)
-                  if (cookieError) setCookieError(null);
-                  // Auto-resize textarea to fit content after React updates the value
-                  requestAnimationFrame(autoResizeTextarea);
-                }}
-                onKeyDown={handleKeyDown}
-                placeholder={
-                  spotifyEnabled
-                    ? 'Paste one or more Apple Music or Spotify URLs (one per line)'
-                    : 'Paste one or more Apple Music URLs (one per line)'
-                }
-                rows={1}
-                className={`
+              <div className="w-full @5xl:flex-1 @5xl:min-w-0">
+                {/*
+                 * Controlled textarea bound to `downloadStore.urlInput`.
+                 *
+                 * Supports both single-URL and multi-URL (one per line) input.
+                 * Auto-resizes vertically to fit content, capped at 200px.
+                 *
+                 * onChange: calls `setUrlInput()` which validates the URL
+                 *   in real-time via `parseAppleMusicUrl()` from
+                 *   `@/lib/url-parser.ts`. Also triggers auto-resize.
+                 * onKeyDown: Enter submits (Shift+Enter inserts newline).
+                 *
+                 * Border colour changes based on validation state:
+                 *  - Red (`border-status-error`) when input is non-empty
+                 *    but neither single-URL nor multi-URL is valid.
+                 *  - Default (`border-border`) otherwise, with accent
+                 *    colour on focus (`focus:border-accent`).
+                 *
+                 * @see https://react.dev/reference/react-dom/components/textarea
+                 */}
+                <textarea
+                  ref={textareaRef}
+                  id="url-input"
+                  aria-label="Media URL input"
+                  aria-describedby={urlHelpId}
+                  aria-invalid={Boolean(urlInput && !canSubmit)}
+                  value={urlInput}
+                  onChange={(e) => {
+                    setUrlInput(e.target.value);
+                    // Clear cookie error when URL changes (user is retrying)
+                    if (cookieError) setCookieError(null);
+                    // Auto-resize textarea to fit content after React updates the value
+                    requestAnimationFrame(autoResizeTextarea);
+                  }}
+                  onKeyDown={handleKeyDown}
+                  placeholder={
+                    spotifyEnabled
+                      ? 'Paste one or more Apple Music or Spotify URLs (one per line)'
+                      : 'Paste one or more Apple Music URLs (one per line)'
+                  }
+                  rows={1}
+                  className={`
                   w-full px-3 py-2 text-sm rounded-platform border
                   bg-surface-secondary text-content-primary
                   placeholder-content-tertiary
@@ -1271,81 +1290,80 @@ export function DownloadForm() {
                   focus:ring-1 focus:ring-accent
                   ${urlInput && !canSubmit ? 'border-status-error focus:border-status-error' : 'border-border focus:border-accent'}
                 `}
-                style={{ minHeight: '38px' }}
-              />
+                  style={{ minHeight: '38px' }}
+                />
+              </div>
 
-            </div>
-
-            {/*
-             * The buttons, as one group: beside the box on a wide row,
-             * on their own row (wrapping if they must) on a narrow one.
-             * `whitespace-nowrap` keeps each label on one line -- a
-             * button whose label breaks in two looks broken.
-             */}
-            <div className="flex flex-wrap items-start gap-2 whitespace-nowrap">
-            {/*
-             * "Add to Queue" button.
-             *
-             * Disabled when the URL is invalid (`!urlIsValid`).
-             * Shows a loading spinner when `isSubmitting` is true.
-             * The Plus icon prefixes the button label.
-             *
-             * @see Button component in @/components/common
-             */}
-            <Button
-              variant="primary"
-              icon={<Plus size={16} />}
-              loading={isSubmitting || isChecking}
-              disabled={!canSubmit || isChecking}
-              onClick={handleSubmit}
-            >
-              Add to Queue
-            </Button>
-            <Button
-              variant="secondary"
-              icon={<FileDown size={16} />}
-              onClick={handleImportManifest}
-              title="Import a MeedyaDL download record (.meedyadl file)"
-            >
-              Import
-            </Button>
-            {/*
-             * Adds every link in a plain text file. This used to be a
-             * smaller button labelled just ".txt" -- shorter than its
-             * neighbours, with a label that said what kind of file it
-             * wanted but not what it did. Same size and shape as Import
-             * and Scan now, with an icon and a label that says it.
-             */}
-            <Button
-              variant="secondary"
-              icon={<ListPlus size={16} />}
-              onClick={handleImportTxtFile}
-              title="Add every link in a text file (.txt, one link per line)"
-            >
-              Link List
-            </Button>
-            <Button
-              variant="secondary"
-              icon={<FolderSearch size={16} />}
-              onClick={handleScanFolder}
-              title="Scan a folder for MeedyaDL download records to download again"
-            >
-              Scan
-            </Button>
-            {/* Icon-only, so the compact padding keeps it from pushing the
+              {/*
+               * The buttons, as one group: beside the box on a wide row,
+               * on their own row (wrapping if they must) on a narrow one.
+               * `whitespace-nowrap` keeps each label on one line -- a
+               * button whose label breaks in two looks broken.
+               */}
+              <div className="flex flex-wrap items-start gap-2 whitespace-nowrap">
+                {/*
+                 * "Add to Queue" button.
+                 *
+                 * Disabled when the URL is invalid (`!urlIsValid`).
+                 * Shows a loading spinner when `isSubmitting` is true.
+                 * The Plus icon prefixes the button label.
+                 *
+                 * @see Button component in @/components/common
+                 */}
+                <Button
+                  variant="primary"
+                  icon={<Plus size={16} />}
+                  loading={isSubmitting || isChecking}
+                  disabled={!canSubmit || isChecking}
+                  onClick={handleSubmit}
+                >
+                  Add to Queue
+                </Button>
+                <Button
+                  variant="secondary"
+                  icon={<FileDown size={16} />}
+                  onClick={handleImportManifest}
+                  title="Import a MeedyaDL download record (.meedyadl file)"
+                >
+                  Import
+                </Button>
+                {/*
+                 * Adds every link in a plain text file. This used to be a
+                 * smaller button labelled just ".txt" -- shorter than its
+                 * neighbours, with a label that said what kind of file it
+                 * wanted but not what it did. Same size and shape as Import
+                 * and Scan now, with an icon and a label that says it.
+                 */}
+                <Button
+                  variant="secondary"
+                  icon={<ListPlus size={16} />}
+                  onClick={handleImportTxtFile}
+                  title="Add every link in a text file (.txt, one link per line)"
+                >
+                  Link List
+                </Button>
+                <Button
+                  variant="secondary"
+                  icon={<FolderSearch size={16} />}
+                  onClick={handleScanFolder}
+                  title="Scan a folder for MeedyaDL download records to download again"
+                >
+                  Scan
+                </Button>
+                {/* Icon-only, so the compact padding keeps it from pushing the
                 row onto a second line at the minimum window; `self-stretch`
                 gives it the same height as the labelled buttons beside it. */}
-            <Button
-              variant="ghost"
-              size="sm"
-              className="self-stretch"
-              icon={<MoreVertical size={16} />}
-              onClick={handleAfterQueueOverflowClick}
-              title="Set a one-off action to run after the queue finishes"
-              aria-label="After-queue actions"
-            />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="self-stretch"
+                  icon={<MoreVertical size={16} />}
+                  onClick={handleAfterQueueOverflowClick}
+                  title="Set a one-off action to run after the queue finishes"
+                  aria-label="After-queue actions"
+                />
+              </div>
             </div>
-          </div>
           </div>
 
           {/*
@@ -1392,15 +1410,15 @@ export function DownloadForm() {
            * batch mode). Anti-pattern 3: this card is the approved
            * alternative to auto-opening the service Settings tab on
            * paste. */}
-          {urlInput && urlIsValid && (() => {
-            const primaryUrl = isMultiUrl
-              ? multiUrlInfo?.validUrls[0] ?? ''
-              : urlInput.trim();
-            const detected = detectService(primaryUrl);
-            return detected ? (
-              <ServiceDownloadPreview service={detected} urls={[primaryUrl]} />
-            ) : null;
-          })()}
+          {urlInput &&
+            urlIsValid &&
+            (() => {
+              const primaryUrl = isMultiUrl ? (multiUrlInfo?.validUrls[0] ?? '') : urlInput.trim();
+              const detected = detectService(primaryUrl);
+              return detected ? (
+                <ServiceDownloadPreview service={detected} urls={[primaryUrl]} />
+              ) : null;
+            })()}
 
           {/* Cookie validation warning -- shown when cookies are expired,
               missing, or invalid. Blocks downloads until cookies are fixed. */}
@@ -1409,7 +1427,10 @@ export function DownloadForm() {
             // button press with nothing to announce it otherwise -- a
             // screen reader user would only find out cookies had expired
             // by stumbling onto this box, not by anything telling them.
-            <div role="alert" className="flex items-start gap-2 p-3 rounded-platform bg-status-warning/10 border border-status-warning/30">
+            <div
+              role="alert"
+              className="flex items-start gap-2 p-3 rounded-platform bg-status-warning/10 border border-status-warning/30"
+            >
               <span className="text-status-warning-text text-sm mt-0.5">&#9888;</span>
               <div className="flex-1 text-xs text-content-primary">
                 <p>{cookieError}</p>

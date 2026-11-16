@@ -100,9 +100,7 @@ export const PYTHON_COMPONENT_NAME = 'Python Runtime';
  * @returns The app's `ComponentUpdate`, or `undefined` if no actionable
  *   app update is present
  */
-export function findAppComponentUpdate(
-  components: ComponentUpdate[]
-): ComponentUpdate | undefined {
+export function findAppComponentUpdate(components: ComponentUpdate[]): ComponentUpdate | undefined {
   return components.find(
     (c) => c.name === APP_COMPONENT_NAME && c.update_available && c.is_compatible
   );
@@ -463,7 +461,12 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
       set({ isDownloadingUpdate: false, updateInstalled: true });
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      set({ error: message, isDownloadingUpdate: false, downloadProgress: null, downloadError: message });
+      set({
+        error: message,
+        isDownloadingUpdate: false,
+        downloadProgress: null,
+        downloadError: message,
+      });
       throw new Error(message, { cause: e });
     } finally {
       // Always clean up the event listener

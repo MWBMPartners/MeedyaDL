@@ -12,7 +12,10 @@
 
 import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 
-interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'aria-label' | 'title'> {
+interface IconButtonProps extends Omit<
+  ButtonHTMLAttributes<HTMLButtonElement>,
+  'aria-label' | 'title'
+> {
   /** The icon (a Lucide icon, about 14px). */
   icon: ReactNode;
   /** What the button does; its accessible name and its tooltip. */
@@ -25,7 +28,15 @@ interface IconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
   ref?: Ref<HTMLButtonElement>;
 }
 
-export function IconButton({ icon, label, size = 'md', tone = 'default', className = '', type = 'button', ...rest }: IconButtonProps) {
+export function IconButton({
+  icon,
+  label,
+  size = 'md',
+  tone = 'default',
+  className = '',
+  type = 'button',
+  ...rest
+}: IconButtonProps) {
   return (
     <button
       type={type}

@@ -152,14 +152,11 @@ mod tests {
 
         // Create a dummy media file and its matching TTML source
         create_dummy_media(dir, "01 Test Song");
-        fs::write(dir.join("01 Test Song.ttml"), TTML_BASIC)
-            .expect("Failed to write TTML");
+        fs::write(dir.join("01 Test Song.ttml"), TTML_BASIC).expect("Failed to write TTML");
 
         // Run the directory-level conversion
-        let count = rich_srt_service::generate_rich_srt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_rich_srt_for_directory failed");
+        let count = rich_srt_service::generate_rich_srt_for_directory(dir.to_str().unwrap())
+            .expect("generate_rich_srt_for_directory failed");
 
         assert_eq!(count, 1, "Expected 1 rich SRT file generated");
 
@@ -175,8 +172,14 @@ mod tests {
             srt_content.contains("00:00:05,200 --> 00:00:08,100"),
             "Missing first timestamp"
         );
-        assert!(srt_content.contains("Hello world"), "Missing first cue text");
-        assert!(srt_content.contains("Second line here"), "Missing second cue text");
+        assert!(
+            srt_content.contains("Hello world"),
+            "Missing first cue text"
+        );
+        assert!(
+            srt_content.contains("Second line here"),
+            "Missing second cue text"
+        );
     }
 
     #[test]
@@ -187,24 +190,27 @@ mod tests {
         let dir = tmp.path();
 
         create_dummy_media(dir, "02 Styled Song");
-        fs::write(dir.join("02 Styled Song.ttml"), TTML_STYLED)
-            .expect("Failed to write TTML");
+        fs::write(dir.join("02 Styled Song.ttml"), TTML_STYLED).expect("Failed to write TTML");
 
-        let count = rich_srt_service::generate_rich_srt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_rich_srt_for_directory failed");
+        let count = rich_srt_service::generate_rich_srt_for_directory(dir.to_str().unwrap())
+            .expect("generate_rich_srt_for_directory failed");
 
         assert_eq!(count, 1);
 
-        let srt_content = fs::read_to_string(dir.join("02 Styled Song.srt"))
-            .expect("Failed to read SRT");
+        let srt_content =
+            fs::read_to_string(dir.join("02 Styled Song.srt")).expect("Failed to read SRT");
 
         // Bold line should have <b> tags
-        assert!(srt_content.contains("<b>Bold line</b>"), "Missing bold styling");
+        assert!(
+            srt_content.contains("<b>Bold line</b>"),
+            "Missing bold styling"
+        );
 
         // Italic line should have <i> tags
-        assert!(srt_content.contains("<i>Italic line</i>"), "Missing italic styling");
+        assert!(
+            srt_content.contains("<i>Italic line</i>"),
+            "Missing italic styling"
+        );
 
         // Named style (chorus) should have <font color> and <b>
         assert!(
@@ -235,19 +241,21 @@ mod tests {
         // Create two tracks with TTML sources
         create_dummy_media(dir, "01 Track One");
         create_dummy_media(dir, "02 Track Two");
-        fs::write(dir.join("01 Track One.ttml"), TTML_BASIC)
-            .expect("Failed to write TTML 1");
-        fs::write(dir.join("02 Track Two.ttml"), TTML_STYLED)
-            .expect("Failed to write TTML 2");
+        fs::write(dir.join("01 Track One.ttml"), TTML_BASIC).expect("Failed to write TTML 1");
+        fs::write(dir.join("02 Track Two.ttml"), TTML_STYLED).expect("Failed to write TTML 2");
 
-        let count = rich_srt_service::generate_rich_srt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_rich_srt_for_directory failed");
+        let count = rich_srt_service::generate_rich_srt_for_directory(dir.to_str().unwrap())
+            .expect("generate_rich_srt_for_directory failed");
 
         assert_eq!(count, 2, "Expected 2 rich SRT files generated");
-        assert!(dir.join("01 Track One.srt").exists(), "Missing SRT for track 1");
-        assert!(dir.join("02 Track Two.srt").exists(), "Missing SRT for track 2");
+        assert!(
+            dir.join("01 Track One.srt").exists(),
+            "Missing SRT for track 1"
+        );
+        assert!(
+            dir.join("02 Track Two.srt").exists(),
+            "Missing SRT for track 2"
+        );
     }
 
     #[test]
@@ -260,10 +268,8 @@ mod tests {
         create_dummy_media(dir, "01 No Source");
         // No .ttml or .vtt file — should be skipped
 
-        let count = rich_srt_service::generate_rich_srt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_rich_srt_for_directory failed");
+        let count = rich_srt_service::generate_rich_srt_for_directory(dir.to_str().unwrap())
+            .expect("generate_rich_srt_for_directory failed");
 
         assert_eq!(count, 0, "Expected 0 files generated when no source exists");
     }
@@ -289,13 +295,10 @@ mod tests {
         let dir = tmp.path();
 
         create_dummy_media(dir, "01 Test Song");
-        fs::write(dir.join("01 Test Song.ttml"), TTML_BASIC)
-            .expect("Failed to write TTML");
+        fs::write(dir.join("01 Test Song.ttml"), TTML_BASIC).expect("Failed to write TTML");
 
-        let count = webvtt_service::generate_webvtt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_webvtt_for_directory failed");
+        let count = webvtt_service::generate_webvtt_for_directory(dir.to_str().unwrap())
+            .expect("generate_webvtt_for_directory failed");
 
         assert_eq!(count, 1, "Expected 1 VTT file generated");
 
@@ -309,8 +312,14 @@ mod tests {
             vtt_content.contains("00:00:05.200 --> 00:00:08.100"),
             "Missing TTML-derived timestamp with dot separator"
         );
-        assert!(vtt_content.contains("Hello world"), "Missing first cue text");
-        assert!(vtt_content.contains("Second line here"), "Missing second cue text");
+        assert!(
+            vtt_content.contains("Hello world"),
+            "Missing first cue text"
+        );
+        assert!(
+            vtt_content.contains("Second line here"),
+            "Missing second cue text"
+        );
     }
 
     #[test]
@@ -324,15 +333,12 @@ mod tests {
         // No .ttml — provide only .srt
         fs::write(dir.join("01 Song.srt"), SRT_BASIC).expect("Failed to write SRT");
 
-        let count = webvtt_service::generate_webvtt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_webvtt_for_directory failed");
+        let count = webvtt_service::generate_webvtt_for_directory(dir.to_str().unwrap())
+            .expect("generate_webvtt_for_directory failed");
 
         assert_eq!(count, 1, "Expected 1 VTT file generated from SRT source");
 
-        let vtt_content = fs::read_to_string(dir.join("01 Song.vtt"))
-            .expect("Failed to read VTT");
+        let vtt_content = fs::read_to_string(dir.join("01 Song.vtt")).expect("Failed to read VTT");
         assert!(vtt_content.starts_with("WEBVTT"), "Missing WEBVTT header");
         // Comma from SRT should be converted to dot in WebVTT
         assert!(
@@ -353,18 +359,18 @@ mod tests {
         // No .ttml, no .srt — provide only .lrc
         fs::write(dir.join("01 Song.lrc"), LRC_BASIC).expect("Failed to write LRC");
 
-        let count = webvtt_service::generate_webvtt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_webvtt_for_directory failed");
+        let count = webvtt_service::generate_webvtt_for_directory(dir.to_str().unwrap())
+            .expect("generate_webvtt_for_directory failed");
 
         assert_eq!(count, 1, "Expected 1 VTT file generated from LRC source");
 
-        let vtt_content = fs::read_to_string(dir.join("01 Song.vtt"))
-            .expect("Failed to read VTT");
+        let vtt_content = fs::read_to_string(dir.join("01 Song.vtt")).expect("Failed to read VTT");
         assert!(vtt_content.starts_with("WEBVTT"), "Missing WEBVTT header");
         assert!(vtt_content.contains("Hello from LRC"), "Missing LRC text");
-        assert!(vtt_content.contains("Second LRC line"), "Missing second LRC line");
+        assert!(
+            vtt_content.contains("Second LRC line"),
+            "Missing second LRC line"
+        );
     }
 
     #[test]
@@ -380,15 +386,12 @@ mod tests {
         fs::write(dir.join("01 Song.srt"), SRT_BASIC).expect("Failed to write SRT");
         fs::write(dir.join("01 Song.lrc"), LRC_BASIC).expect("Failed to write LRC");
 
-        let count = webvtt_service::generate_webvtt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_webvtt_for_directory failed");
+        let count = webvtt_service::generate_webvtt_for_directory(dir.to_str().unwrap())
+            .expect("generate_webvtt_for_directory failed");
 
         assert_eq!(count, 1);
 
-        let vtt_content = fs::read_to_string(dir.join("01 Song.vtt"))
-            .expect("Failed to read VTT");
+        let vtt_content = fs::read_to_string(dir.join("01 Song.vtt")).expect("Failed to read VTT");
         // TTML has "Hello world", SRT has "Hello from SRT", LRC has "Hello from LRC"
         assert!(
             vtt_content.contains("Hello world"),
@@ -407,19 +410,15 @@ mod tests {
         fs::write(dir.join("01 Song.ttml"), TTML_BASIC).expect("Failed to write TTML");
         // Pre-create a .vtt file that should NOT be overwritten
         let existing_content = "WEBVTT\n\nExisting content, do not overwrite\n";
-        fs::write(dir.join("01 Song.vtt"), existing_content)
-            .expect("Failed to write existing VTT");
+        fs::write(dir.join("01 Song.vtt"), existing_content).expect("Failed to write existing VTT");
 
-        let count = webvtt_service::generate_webvtt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_webvtt_for_directory failed");
+        let count = webvtt_service::generate_webvtt_for_directory(dir.to_str().unwrap())
+            .expect("generate_webvtt_for_directory failed");
 
         assert_eq!(count, 0, "Expected 0 — existing VTT should be skipped");
 
         // Verify original content is preserved
-        let vtt_content = fs::read_to_string(dir.join("01 Song.vtt"))
-            .expect("Failed to read VTT");
+        let vtt_content = fs::read_to_string(dir.join("01 Song.vtt")).expect("Failed to read VTT");
         assert!(
             vtt_content.contains("Existing content, do not overwrite"),
             "Existing VTT was overwritten"
@@ -429,9 +428,8 @@ mod tests {
     #[test]
     /// Test WebVTT generation for an invalid directory.
     fn webvtt_invalid_directory() {
-        let result = webvtt_service::generate_webvtt_for_directory(
-            "/nonexistent/path/that/does/not/exist",
-        );
+        let result =
+            webvtt_service::generate_webvtt_for_directory("/nonexistent/path/that/does/not/exist");
         assert!(result.is_err(), "Expected error for invalid directory");
     }
 
@@ -449,8 +447,7 @@ mod tests {
         // Write the TTML with word-level timing — no media file needed
         // for the LRC sidecar write (only needed for embedding, which
         // we skip by not providing a valid .m4a)
-        fs::write(dir.join("01 Test Song.ttml"), TTML_WORD_TIMING)
-            .expect("Failed to write TTML");
+        fs::write(dir.join("01 Test Song.ttml"), TTML_WORD_TIMING).expect("Failed to write TTML");
 
         let count = enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
             dir.to_str().unwrap(),
@@ -521,8 +518,7 @@ mod tests {
   </body>
 </tt>"#;
 
-        fs::write(dir.join("01 Line Level.ttml"), ttml_line_level)
-            .expect("Failed to write TTML");
+        fs::write(dir.join("01 Line Level.ttml"), ttml_line_level).expect("Failed to write TTML");
 
         let count = enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
             dir.to_str().unwrap(),
@@ -532,8 +528,8 @@ mod tests {
 
         assert_eq!(count, 1);
 
-        let lrc_content = fs::read_to_string(dir.join("01 Line Level.lrc"))
-            .expect("Failed to read LRC");
+        let lrc_content =
+            fs::read_to_string(dir.join("01 Line Level.lrc")).expect("Failed to read LRC");
 
         // Standard LRC format: [mm:ss.xx]text (no inline <> word timestamps)
         assert!(
@@ -559,10 +555,8 @@ mod tests {
         let tmp = tempdir().expect("Failed to create temp dir");
         let dir = tmp.path();
 
-        fs::write(dir.join("01 Song One.ttml"), TTML_WORD_TIMING)
-            .expect("Failed to write TTML 1");
-        fs::write(dir.join("02 Song Two.ttml"), TTML_BASIC)
-            .expect("Failed to write TTML 2");
+        fs::write(dir.join("01 Song One.ttml"), TTML_WORD_TIMING).expect("Failed to write TTML 1");
+        fs::write(dir.join("02 Song Two.ttml"), TTML_BASIC).expect("Failed to write TTML 2");
 
         let count = enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
             dir.to_str().unwrap(),
@@ -571,8 +565,14 @@ mod tests {
         .expect("process_enhanced_lyrics_for_directory failed");
 
         assert_eq!(count, 2, "Expected 2 LRC files generated");
-        assert!(dir.join("01 Song One.lrc").exists(), "Missing LRC for track 1");
-        assert!(dir.join("02 Song Two.lrc").exists(), "Missing LRC for track 2");
+        assert!(
+            dir.join("01 Song One.lrc").exists(),
+            "Missing LRC for track 1"
+        );
+        assert!(
+            dir.join("02 Song Two.lrc").exists(),
+            "Missing LRC for track 2"
+        );
     }
 
     #[test]
@@ -597,13 +597,10 @@ mod tests {
         let dir = tmp.path();
 
         create_dummy_media(dir, "01 Test Song");
-        fs::write(dir.join("01 Test Song.ttml"), TTML_BASIC)
-            .expect("Failed to write TTML");
+        fs::write(dir.join("01 Test Song.ttml"), TTML_BASIC).expect("Failed to write TTML");
 
-        let count = ass_subtitle_service::generate_ass_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_ass_for_directory failed");
+        let count = ass_subtitle_service::generate_ass_for_directory(dir.to_str().unwrap())
+            .expect("generate_ass_for_directory failed");
 
         assert_eq!(count, 1, "Expected 1 ASS file generated");
 
@@ -613,7 +610,10 @@ mod tests {
         let ass_content = fs::read_to_string(&ass_path).expect("Failed to read ASS");
 
         // Verify mandatory ASS sections
-        assert!(ass_content.contains("[Script Info]"), "Missing [Script Info]");
+        assert!(
+            ass_content.contains("[Script Info]"),
+            "Missing [Script Info]"
+        );
         assert!(ass_content.contains("[V4+ Styles]"), "Missing [V4+ Styles]");
         assert!(ass_content.contains("[Events]"), "Missing [Events]");
 
@@ -636,18 +636,15 @@ mod tests {
         let dir = tmp.path();
 
         create_dummy_media(dir, "02 Styled");
-        fs::write(dir.join("02 Styled.ttml"), TTML_STYLED)
-            .expect("Failed to write TTML");
+        fs::write(dir.join("02 Styled.ttml"), TTML_STYLED).expect("Failed to write TTML");
 
-        let count = ass_subtitle_service::generate_ass_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_ass_for_directory failed");
+        let count = ass_subtitle_service::generate_ass_for_directory(dir.to_str().unwrap())
+            .expect("generate_ass_for_directory failed");
 
         assert_eq!(count, 1);
 
-        let ass_content = fs::read_to_string(dir.join("02 Styled.ass"))
-            .expect("Failed to read ASS");
+        let ass_content =
+            fs::read_to_string(dir.join("02 Styled.ass")).expect("Failed to read ASS");
 
         // Bold → ASS override tags
         assert!(
@@ -681,20 +678,19 @@ mod tests {
 
         create_dummy_media(dir, "01 Song");
         // No TTML — provide only .vtt
-        fs::write(dir.join("01 Song.vtt"), WEBVTT_STYLED)
-            .expect("Failed to write VTT");
+        fs::write(dir.join("01 Song.vtt"), WEBVTT_STYLED).expect("Failed to write VTT");
 
-        let count = ass_subtitle_service::generate_ass_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_ass_for_directory failed");
+        let count = ass_subtitle_service::generate_ass_for_directory(dir.to_str().unwrap())
+            .expect("generate_ass_for_directory failed");
 
         assert_eq!(count, 1, "Expected 1 ASS file generated from VTT source");
 
-        let ass_content = fs::read_to_string(dir.join("01 Song.ass"))
-            .expect("Failed to read ASS");
+        let ass_content = fs::read_to_string(dir.join("01 Song.ass")).expect("Failed to read ASS");
 
-        assert!(ass_content.contains("[Script Info]"), "Missing [Script Info]");
+        assert!(
+            ass_content.contains("[Script Info]"),
+            "Missing [Script Info]"
+        );
         assert!(ass_content.contains("[Events]"), "Missing [Events]");
 
         // WebVTT bold/italic should be converted to ASS overrides
@@ -718,22 +714,15 @@ mod tests {
         fs::write(dir.join("01 Song.ttml"), TTML_BASIC).expect("Failed to write TTML");
         // Pre-create .ass
         let existing = "Existing ASS content\n";
-        fs::write(dir.join("01 Song.ass"), existing)
-            .expect("Failed to write existing ASS");
+        fs::write(dir.join("01 Song.ass"), existing).expect("Failed to write existing ASS");
 
-        let count = ass_subtitle_service::generate_ass_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_ass_for_directory failed");
+        let count = ass_subtitle_service::generate_ass_for_directory(dir.to_str().unwrap())
+            .expect("generate_ass_for_directory failed");
 
         assert_eq!(count, 0, "Expected 0 — existing ASS should be skipped");
 
-        let ass_content = fs::read_to_string(dir.join("01 Song.ass"))
-            .expect("Failed to read ASS");
-        assert_eq!(
-            ass_content, existing,
-            "Existing ASS file was overwritten"
-        );
+        let ass_content = fs::read_to_string(dir.join("01 Song.ass")).expect("Failed to read ASS");
+        assert_eq!(ass_content, existing, "Existing ASS file was overwritten");
     }
 
     #[test]
@@ -762,15 +751,16 @@ mod tests {
         fs::write(dir.join(format!("{stem}.ttml")), TTML_BASIC)
             .expect("Failed to write TTML with Japanese name");
 
-        let count = rich_srt_service::generate_rich_srt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_rich_srt_for_directory failed with Japanese filename");
+        let count = rich_srt_service::generate_rich_srt_for_directory(dir.to_str().unwrap())
+            .expect("generate_rich_srt_for_directory failed with Japanese filename");
 
         assert_eq!(count, 1, "Expected 1 rich SRT file for Japanese filename");
 
         let srt_path = dir.join(format!("{stem}.srt"));
-        assert!(srt_path.exists(), "SRT file not created for Japanese filename");
+        assert!(
+            srt_path.exists(),
+            "SRT file not created for Japanese filename"
+        );
 
         let srt_content = fs::read_to_string(&srt_path).expect("Failed to read SRT");
         assert!(srt_content.contains("Hello world"), "Missing cue text");
@@ -787,15 +777,13 @@ mod tests {
         fs::write(dir.join(format!("{stem}.ttml")), TTML_BASIC)
             .expect("Failed to write TTML with Korean name");
 
-        let count = webvtt_service::generate_webvtt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_webvtt_for_directory failed with Korean filename");
+        let count = webvtt_service::generate_webvtt_for_directory(dir.to_str().unwrap())
+            .expect("generate_webvtt_for_directory failed with Korean filename");
 
         assert_eq!(count, 1, "Expected 1 VTT file for Korean filename");
 
-        let vtt_content = fs::read_to_string(dir.join(format!("{stem}.vtt")))
-            .expect("Failed to read VTT");
+        let vtt_content =
+            fs::read_to_string(dir.join(format!("{stem}.vtt"))).expect("Failed to read VTT");
         assert!(vtt_content.starts_with("WEBVTT"), "Missing WEBVTT header");
         assert!(vtt_content.contains("Hello world"), "Missing cue text");
     }
@@ -811,16 +799,17 @@ mod tests {
         fs::write(dir.join(format!("{stem}.ttml")), TTML_BASIC)
             .expect("Failed to write TTML with emoji name");
 
-        let count = ass_subtitle_service::generate_ass_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_ass_for_directory failed with emoji filename");
+        let count = ass_subtitle_service::generate_ass_for_directory(dir.to_str().unwrap())
+            .expect("generate_ass_for_directory failed with emoji filename");
 
         assert_eq!(count, 1, "Expected 1 ASS file for emoji filename");
 
-        let ass_content = fs::read_to_string(dir.join(format!("{stem}.ass")))
-            .expect("Failed to read ASS");
-        assert!(ass_content.contains("[Script Info]"), "Missing [Script Info]");
+        let ass_content =
+            fs::read_to_string(dir.join(format!("{stem}.ass"))).expect("Failed to read ASS");
+        assert!(
+            ass_content.contains("[Script Info]"),
+            "Missing [Script Info]"
+        );
         assert!(ass_content.contains("Hello world"), "Missing cue text");
     }
 
@@ -843,8 +832,8 @@ mod tests {
 
         assert_eq!(count, 1, "Expected 1 LRC file for mixed CJK filename");
 
-        let lrc_content = fs::read_to_string(dir.join(format!("{stem}.lrc")))
-            .expect("Failed to read LRC");
+        let lrc_content =
+            fs::read_to_string(dir.join(format!("{stem}.lrc"))).expect("Failed to read LRC");
         assert!(
             lrc_content.contains("[ti:Integration Test Song]"),
             "Missing title in LRC header"
@@ -875,31 +864,24 @@ mod tests {
 
         // Set up a track with TTML source (used by all services)
         create_dummy_media(dir, "01 Full Pipeline");
-        fs::write(dir.join("01 Full Pipeline.ttml"), TTML_STYLED)
-            .expect("Failed to write TTML");
+        fs::write(dir.join("01 Full Pipeline.ttml"), TTML_STYLED).expect("Failed to write TTML");
 
         // Step 2d: Rich SRT
-        let srt_count = rich_srt_service::generate_rich_srt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("Rich SRT failed");
+        let srt_count = rich_srt_service::generate_rich_srt_for_directory(dir.to_str().unwrap())
+            .expect("Rich SRT failed");
         assert_eq!(srt_count, 1, "Rich SRT should produce 1 file");
 
         // Step 2c: WebVTT (should not regenerate from the .srt we just created,
         // because TTML is still the preferred source)
-        let vtt_count = webvtt_service::generate_webvtt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("WebVTT failed");
+        let vtt_count = webvtt_service::generate_webvtt_for_directory(dir.to_str().unwrap())
+            .expect("WebVTT failed");
         assert_eq!(vtt_count, 1, "WebVTT should produce 1 file");
 
         // Step 2f: ASS (should skip since WebVTT is not the trigger — wait,
         // ASS also takes TTML as source, so it should produce 1 file)
         // Note: ASS skips if .ass already exists, but we haven't created one.
-        let ass_count = ass_subtitle_service::generate_ass_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("ASS failed");
+        let ass_count = ass_subtitle_service::generate_ass_for_directory(dir.to_str().unwrap())
+            .expect("ASS failed");
         assert_eq!(ass_count, 1, "ASS should produce 1 file");
 
         // Verify all output files coexist
@@ -908,18 +890,18 @@ mod tests {
         assert!(dir.join("01 Full Pipeline.ass").exists(), "ASS missing");
 
         // Verify SRT has styling
-        let srt = fs::read_to_string(dir.join("01 Full Pipeline.srt"))
-            .expect("Failed to read SRT");
+        let srt = fs::read_to_string(dir.join("01 Full Pipeline.srt")).expect("Failed to read SRT");
         assert!(srt.contains("<b>"), "SRT should have bold tags");
 
         // Verify VTT has WEBVTT header
-        let vtt = fs::read_to_string(dir.join("01 Full Pipeline.vtt"))
-            .expect("Failed to read VTT");
-        assert!(vtt.starts_with("WEBVTT"), "VTT should start with WEBVTT header");
+        let vtt = fs::read_to_string(dir.join("01 Full Pipeline.vtt")).expect("Failed to read VTT");
+        assert!(
+            vtt.starts_with("WEBVTT"),
+            "VTT should start with WEBVTT header"
+        );
 
         // Verify ASS has ASS sections
-        let ass = fs::read_to_string(dir.join("01 Full Pipeline.ass"))
-            .expect("Failed to read ASS");
+        let ass = fs::read_to_string(dir.join("01 Full Pipeline.ass")).expect("Failed to read ASS");
         assert!(ass.contains("[Events]"), "ASS should have [Events] section");
     }
 
@@ -931,8 +913,7 @@ mod tests {
         let dir = tmp.path();
 
         create_dummy_media(dir, "01 Chain Test");
-        fs::write(dir.join("01 Chain Test.ttml"), TTML_WORD_TIMING)
-            .expect("Failed to write TTML");
+        fs::write(dir.join("01 Chain Test.ttml"), TTML_WORD_TIMING).expect("Failed to write TTML");
 
         // Step 2: Enhanced LRC from TTML
         let lrc_count = enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
@@ -944,14 +925,11 @@ mod tests {
         assert!(dir.join("01 Chain Test.lrc").exists(), "LRC should exist");
 
         // Step 2c: WebVTT — should use TTML source (priority over LRC)
-        let vtt_count = webvtt_service::generate_webvtt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("WebVTT failed");
+        let vtt_count = webvtt_service::generate_webvtt_for_directory(dir.to_str().unwrap())
+            .expect("WebVTT failed");
         assert_eq!(vtt_count, 1);
 
-        let vtt = fs::read_to_string(dir.join("01 Chain Test.vtt"))
-            .expect("Failed to read VTT");
+        let vtt = fs::read_to_string(dir.join("01 Chain Test.vtt")).expect("Failed to read VTT");
         assert!(vtt.starts_with("WEBVTT"), "VTT header missing");
         // TTML source text should appear (not Enhanced LRC inline timestamps)
         assert!(vtt.contains("Hello"), "VTT should contain lyrics text");
@@ -966,17 +944,13 @@ mod tests {
 
         create_dummy_media(dir, "01 Fallback");
         // Only .lrc available — no .ttml, no .srt
-        fs::write(dir.join("01 Fallback.lrc"), LRC_BASIC)
-            .expect("Failed to write LRC");
+        fs::write(dir.join("01 Fallback.lrc"), LRC_BASIC).expect("Failed to write LRC");
 
-        let vtt_count = webvtt_service::generate_webvtt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("WebVTT failed");
+        let vtt_count = webvtt_service::generate_webvtt_for_directory(dir.to_str().unwrap())
+            .expect("WebVTT failed");
         assert_eq!(vtt_count, 1);
 
-        let vtt = fs::read_to_string(dir.join("01 Fallback.vtt"))
-            .expect("Failed to read VTT");
+        let vtt = fs::read_to_string(dir.join("01 Fallback.vtt")).expect("Failed to read VTT");
         assert!(vtt.starts_with("WEBVTT"), "VTT header missing");
         assert!(
             vtt.contains("Hello from LRC"),
@@ -995,22 +969,16 @@ mod tests {
         let tmp = tempdir().expect("Failed to create temp dir");
         let dir = tmp.path();
 
-        let srt_count = rich_srt_service::generate_rich_srt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("Rich SRT should not error on empty dir");
+        let srt_count = rich_srt_service::generate_rich_srt_for_directory(dir.to_str().unwrap())
+            .expect("Rich SRT should not error on empty dir");
         assert_eq!(srt_count, 0);
 
-        let vtt_count = webvtt_service::generate_webvtt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("WebVTT should not error on empty dir");
+        let vtt_count = webvtt_service::generate_webvtt_for_directory(dir.to_str().unwrap())
+            .expect("WebVTT should not error on empty dir");
         assert_eq!(vtt_count, 0);
 
-        let ass_count = ass_subtitle_service::generate_ass_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("ASS should not error on empty dir");
+        let ass_count = ass_subtitle_service::generate_ass_for_directory(dir.to_str().unwrap())
+            .expect("ASS should not error on empty dir");
         assert_eq!(ass_count, 0);
     }
 
@@ -1031,10 +999,8 @@ mod tests {
         fs::write(dir.join("02 Video.ttml"), TTML_BASIC).expect("Failed to write TTML");
         fs::write(dir.join("03 Movie.ttml"), TTML_BASIC).expect("Failed to write TTML");
 
-        let count = rich_srt_service::generate_rich_srt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_rich_srt_for_directory failed");
+        let count = rich_srt_service::generate_rich_srt_for_directory(dir.to_str().unwrap())
+            .expect("generate_rich_srt_for_directory failed");
 
         assert_eq!(count, 3, "All three media extensions should be processed");
         assert!(dir.join("01 Audio.srt").exists(), "SRT for .m4a missing");
@@ -1051,13 +1017,10 @@ mod tests {
 
         let stem = "01 Don't Stop (Remix) - Radio Edit [Explicit]";
         create_dummy_media(dir, stem);
-        fs::write(dir.join(format!("{stem}.ttml")), TTML_BASIC)
-            .expect("Failed to write TTML");
+        fs::write(dir.join(format!("{stem}.ttml")), TTML_BASIC).expect("Failed to write TTML");
 
-        let count = rich_srt_service::generate_rich_srt_for_directory(
-            dir.to_str().unwrap(),
-        )
-        .expect("generate_rich_srt_for_directory failed");
+        let count = rich_srt_service::generate_rich_srt_for_directory(dir.to_str().unwrap())
+            .expect("generate_rich_srt_for_directory failed");
 
         assert_eq!(count, 1, "Should handle special characters in filenames");
         assert!(
@@ -1117,7 +1080,10 @@ mod tests {
         // A well-known public album URL
         let url = "https://music.apple.com/us/album/abbey-road/401186199";
         let parsed = apple_music_api::parse_apple_music_url(url);
-        assert!(parsed.is_some(), "Should parse a valid Apple Music album URL");
+        assert!(
+            parsed.is_some(),
+            "Should parse a valid Apple Music album URL"
+        );
         let parsed = parsed.unwrap();
         assert_eq!(parsed.storefront, "us");
         assert_eq!(parsed.album_id, "401186199");

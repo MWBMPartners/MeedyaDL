@@ -487,7 +487,7 @@ describe('settingsStore', () => {
     it('refuses to save before a load has succeeded (#1237)', async () => {
       useSettingsStore.setState({ hasLoaded: false });
       await expect(useSettingsStore.getState().saveSettings()).rejects.toThrow(
-        'Settings could not be loaded, so they were not saved. Try again or restart MeedyaDL.',
+        'Settings could not be loaded, so they were not saved. Try again or restart MeedyaDL.'
       );
       expect(commands.saveSettings).not.toHaveBeenCalled();
     });
@@ -723,7 +723,7 @@ describe('settingsStore', () => {
       expect(settings.output_path).toBe('/edited/during/save');
     });
 
-    it('saveSettings keeps savedSettings.after_queue_once as it already was, not the snapshot\'s copy', async () => {
+    it("saveSettings keeps savedSettings.after_queue_once as it already was, not the snapshot's copy", async () => {
       /*
        * The backend restores `after_queue_once` from disk on every
        * whole-settings save, regardless of what the payload says (see
@@ -739,9 +739,7 @@ describe('settingsStore', () => {
 
       /* savedSettings already knows the one-off is armed, via its own narrow write. */
       useSettingsStore.getState().syncAfterQueueOnce('hibernate_computer');
-      expect(useSettingsStore.getState().savedSettings.after_queue_once).toBe(
-        'hibernate_computer'
-      );
+      expect(useSettingsStore.getState().savedSettings.after_queue_once).toBe('hibernate_computer');
 
       /*
        * Simulate the Settings screen's in-memory copy going stale for
@@ -754,12 +752,10 @@ describe('settingsStore', () => {
 
       await useSettingsStore.getState().saveSettings();
 
-      expect(useSettingsStore.getState().savedSettings.after_queue_once).toBe(
-        'hibernate_computer'
-      );
+      expect(useSettingsStore.getState().savedSettings.after_queue_once).toBe('hibernate_computer');
     });
 
-    it('saveSettings keeps savedSettings.dev_access_enabled as it already was, not the snapshot\'s copy', async () => {
+    it("saveSettings keeps savedSettings.dev_access_enabled as it already was, not the snapshot's copy", async () => {
       /*
        * Same rule as the one-off above: the backend always keeps
        * `dev_access_enabled` from disk on a whole-settings save, so the

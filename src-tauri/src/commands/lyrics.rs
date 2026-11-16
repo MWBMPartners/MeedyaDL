@@ -56,7 +56,9 @@ pub struct TestLyricsConnectionResult {
 ///
 /// Pure function (no I/O) so it's covered directly by unit tests below --
 /// the async network probe itself is not something CI can exercise.
-fn classify_probe_outcome(outcome: &Result<Option<String>, String>) -> (String, Option<String>, bool) {
+fn classify_probe_outcome(
+    outcome: &Result<Option<String>, String>,
+) -> (String, Option<String>, bool) {
     match outcome {
         Ok(Some(ttml)) => {
             if enhanced_lyrics_service::ttml_has_word_timing(ttml) {

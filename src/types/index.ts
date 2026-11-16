@@ -80,14 +80,7 @@ export type SongCodec =
  * @see {@link https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#literal-types}
  */
 export type VideoResolution =
-  | '2160p'
-  | '1440p'
-  | '1080p'
-  | '720p'
-  | '540p'
-  | '480p'
-  | '360p'
-  | '240p';
+  '2160p' | '1440p' | '1080p' | '720p' | '540p' | '480p' | '360p' | '240p';
 
 /**
  * Video codec options for GAMDL's `--music-video-codec-priority` CLI flag.
@@ -167,12 +160,7 @@ export type AnimatedArtworkResolution = 'fhd' | 'uhd' | 'max';
  * - `three_digits`: 3 digits (`001`, ..., `999`).
  * - `four_digits`: 4 digits (`0001`, ..., `9999`).
  */
-export type TrackNumberPadding =
-  | 'auto'
-  | 'none'
-  | 'two_digits'
-  | 'three_digits'
-  | 'four_digits';
+export type TrackNumberPadding = 'auto' | 'none' | 'two_digits' | 'three_digits' | 'four_digits';
 
 /**
  * Zero-padding strategy for the `{disc}` placeholder in filename templates (#587).
@@ -265,11 +253,7 @@ export type LogLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
  * Ordered from least to most stable; the updater blocks installs whose
  * channel is less stable than the user's selection.
  */
-export type UpdateChannel =
-  | 'alpha'
-  | 'beta'
-  | 'rc'
-  | 'stable';
+export type UpdateChannel = 'alpha' | 'beta' | 'rc' | 'stable';
 
 /**
  * Channels that are gated behind Dev Access (Konami-code activation).
@@ -279,19 +263,13 @@ export type UpdateChannel =
  *
  * Nightly/Weekly/Monthly were removed in v1.11.0 (cron-channel cleanup).
  */
-export const DEV_ACCESS_CHANNELS: ReadonlyArray<UpdateChannel> = [
-  'alpha',
-];
+export const DEV_ACCESS_CHANNELS: ReadonlyArray<UpdateChannel> = ['alpha'];
 
 /**
  * Channels less stable than `stable`. Switching to any of these triggers
  * a stability-warning confirmation modal in the UI.
  */
-export const PRE_RELEASE_CHANNELS: ReadonlyArray<UpdateChannel> = [
-  'alpha',
-  'beta',
-  'rc',
-];
+export const PRE_RELEASE_CHANNELS: ReadonlyArray<UpdateChannel> = ['alpha', 'beta', 'rc'];
 
 /**
  * Numeric stability rank used for "is channel A more stable than channel B"
@@ -1117,12 +1095,7 @@ export interface StartDownloadResult {
  * - cancelled -> queued (on retry)
  */
 export type DownloadState =
-  | 'queued'
-  | 'downloading'
-  | 'processing'
-  | 'complete'
-  | 'error'
-  | 'cancelled';
+  'queued' | 'downloading' | 'processing' | 'complete' | 'error' | 'cancelled';
 
 /**
  * Detailed status of a single download queue item.
@@ -1604,7 +1577,14 @@ export interface CookieImportResult {
  * @see {@link https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions} - Discriminated unions
  */
 export type GamdlOutputEvent =
-  | { type: 'track_info'; title: string; artist: string; album: string; track_number?: number; track_total?: number }
+  | {
+      type: 'track_info';
+      title: string;
+      artist: string;
+      album: string;
+      track_number?: number;
+      track_total?: number;
+    }
   | { type: 'download_progress'; percent: number; speed: string; eta: string }
   | { type: 'processing_step'; step: string }
   | { type: 'error'; message: string }
@@ -1802,14 +1782,7 @@ export interface CrashReport {
  * structure doesn't match any known pattern.
  */
 export type AppleMusicContentType =
-  | 'song'
-  | 'album'
-  | 'playlist'
-  | 'music-video'
-  | 'artist'
-  | 'library'
-  | 'recording'
-  | 'unknown';
+  'song' | 'album' | 'playlist' | 'music-video' | 'artist' | 'library' | 'recording' | 'unknown';
 
 /**
  * Artist content auto-selection modes for GAMDL's --artist-auto-select flag.
@@ -1831,20 +1804,14 @@ export type ArtistAutoSelect =
  * Mirrors `DuplicateDetectionScope` in `src-tauri/src/models/settings.rs`.
  */
 export type DuplicateDetectionScope =
-  | 'off'
-  | 'intra_session'
-  | 'intra_and_queued'
-  | 'intra_and_queued_and_history';
+  'off' | 'intra_session' | 'intra_and_queued' | 'intra_and_queued_and_history';
 
 /**
  * Which key is used to match two tracks as duplicates (#510).
  *
  * Mirrors `DedupKeyStrategy` in `src-tauri/src/models/settings.rs`.
  */
-export type DedupKeyStrategy =
-  | 'song_id_isrc_fallback'
-  | 'isrc_only'
-  | 'song_id_only';
+export type DedupKeyStrategy = 'song_id_isrc_fallback' | 'isrc_only' | 'song_id_only';
 
 /**
  * Pre-queue duplicate detection settings (#510).
@@ -2093,7 +2060,8 @@ export type SetupStep = 'welcome' | 'python' | 'gamdl' | 'dependencies' | 'cooki
  * Used by the DownloadForm to determine which URL patterns and options
  * are applicable for a given download.
  */
-export type MediaServiceId = 'apple-music' | 'youtube-music' | 'youtube' | 'spotify' | 'bbc-iplayer';
+export type MediaServiceId =
+  'apple-music' | 'youtube-music' | 'youtube' | 'spotify' | 'bbc-iplayer';
 
 /**
  * Display labels for music services, shown in UI dropdowns and badges.

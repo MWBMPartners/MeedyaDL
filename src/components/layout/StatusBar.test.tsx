@@ -41,7 +41,7 @@ function createItem(state: QueueItemStatus['state'], id?: string): QueueItemStat
     speed: null,
     eta: null,
     processing_label: null,
-  processing_progress: null,
+    processing_progress: null,
     error: state === 'error' ? 'Test error' : null,
     output_path: state === 'complete' ? '/tmp/output' : null,
     codec_used: 'alac',
@@ -311,7 +311,9 @@ describe('StatusBar', () => {
     const abortButton = within(bar).getByRole('button', { name: /abort queue/i });
     const completed = within(bar).getByText(/1 completed/);
     // DOCUMENT_POSITION_FOLLOWING: the button comes after the last count.
-    expect(completed.compareDocumentPosition(abortButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      completed.compareDocumentPosition(abortButton) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
     expect(abortButton.className).toContain('px-1.5 py-0.5');
   });
 

@@ -338,8 +338,8 @@ describe('changeUiLanguage fetches the file itself, rather than assuming it is a
           new Promise<Response>((resolve) => {
             releaseGerman = () =>
               resolve({ ok: true, json: () => Promise.resolve(deTranslations) } as Response);
-          }),
-      ),
+          })
+      )
     );
     // Make sure German is not already loaded from an earlier test.
     i18n.removeResourceBundle('de', 'translation');
@@ -363,8 +363,8 @@ describe('changeUiLanguage fetches the file itself, rather than assuming it is a
         () =>
           new Promise<Response>((resolve) => {
             failZz = () => resolve({ ok: false } as Response);
-          }),
-      ),
+          })
+      )
     );
     const overtaken = changeUiLanguage('zz');
     await changeUiLanguage('en');
@@ -442,7 +442,10 @@ describe('startup on a system whose language MeedyaDL does not have', () => {
     // initI18n() and loads settings after it, so a failure here used to
     // stop the whole app from starting (Codex, batch-3 review).
     vi.stubGlobal('navigator', { language: 'es-ES', languages: ['es-ES'] });
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false } as Response)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ ok: false } as Response))
+    );
 
     await expect(initI18n()).resolves.toBeUndefined();
     expect(baseLanguageOf(i18n.language)).toBe('en');
@@ -624,7 +627,11 @@ describe('uiLanguageOptions (polish pass M10)', () => {
 
   it('every language marked complete has a file with every English key (the audit check enforces the rest)', () => {
     const enKeys = flattenKeys(enTranslations);
-    const files: Record<string, unknown> = { en: enTranslations, de: deTranslations, fr: frTranslations };
+    const files: Record<string, unknown> = {
+      en: enTranslations,
+      de: deTranslations,
+      fr: frTranslations,
+    };
     for (const code of OFFERED_LOCALES) {
       const keys = flattenKeys(files[code]);
       expect([...enKeys.keys()].filter((k) => !keys.has(k))).toEqual([]);

@@ -92,11 +92,22 @@ export function showError(message: string, err?: unknown, opts: ShowErrorOptions
  * toast. Rust error strings ("No such file or directory (os error 2)")
  * fail that test and get the fallback.
  */
-export function showBackendError(fallback: string, err: unknown, opts: ShowErrorOptions = {}): void {
+export function showBackendError(
+  fallback: string,
+  err: unknown,
+  opts: ShowErrorOptions = {}
+): void {
   const { message, details } = explainError(fallback, err);
   useUiStore
     .getState()
-    .addToast(message, opts.type ?? 'error', undefined, opts.key, opts.action, details ?? undefined);
+    .addToast(
+      message,
+      opts.type ?? 'error',
+      undefined,
+      opts.key,
+      opts.action,
+      details ?? undefined
+    );
 }
 
 /**
@@ -105,7 +116,10 @@ export function showBackendError(fallback: string, err: unknown, opts: ShowError
  * words when they are already a plain sentence, otherwise `fallback` with
  * the technical text as `details`.
  */
-export function explainError(fallback: string, err: unknown): { message: string; details: string | null } {
+export function explainError(
+  fallback: string,
+  err: unknown
+): { message: string; details: string | null } {
   const raw = rawError(err).trim();
   if (raw && /[.!?]$/.test(raw) && summariseDownloadError(raw).details === null) {
     return { message: raw, details: null };
@@ -188,8 +202,7 @@ const SUMMARIES: Array<{ test: RegExp; summary: string }> = [
   },
   {
     test: /connect(?:ing|ion)?\b.*(?:timed? ?out|refused|reset|failed)|timed out while connecting|ConnectError|ConnectTimeout|ReadTimeout|network is unreachable|name or service not known|nodename nor servname|getaddrinfo|\bdns\b/i,
-    summary:
-      'MeedyaDL could not reach Apple Music. Check your internet connection, then retry.',
+    summary: 'MeedyaDL could not reach Apple Music. Check your internet connection, then retry.',
   },
   {
     test: /format is not available|no compatible format|codec.*not available|not available in (?:the )?(?:requested|selected) (?:codec|format|quality)/i,
@@ -245,7 +258,8 @@ export function summariseDownloadError(raw: string): DownloadErrorSummary {
   // the last part says nothing recognisable.
   const lastException = [...text.matchAll(/[A-Za-z_][\w.]*(?:Error|Exception):/g)].pop();
   const tail = lastException?.index !== undefined ? text.slice(lastException.index) : text;
-  const match = SUMMARIES.find((s) => s.test.test(tail)) ?? SUMMARIES.find((s) => s.test.test(text));
+  const match =
+    SUMMARIES.find((s) => s.test.test(tail)) ?? SUMMARIES.find((s) => s.test.test(text));
   const summary = match?.summary ?? (isGamdlBug ? GAMDL_BUG_SUMMARY : GENERIC_SUMMARY);
   return { summary, details: text };
 }
@@ -259,7 +273,8 @@ export const UPDATE_FAILED =
   'MeedyaDL could not download or install the update. Check your internet connection, then try again from the Updates page.';
 
 /** MeedyaDL could not restart itself after an update. */
-export const RESTART_FAILED = 'MeedyaDL could not restart itself. Quit MeedyaDL and open it again to finish the update.';
+export const RESTART_FAILED =
+  'MeedyaDL could not restart itself. Quit MeedyaDL and open it again to finish the update.';
 
 /** GAMDL, the download tool, could not be updated. */
 export const GAMDL_UPDATE_FAILED =
@@ -279,9 +294,11 @@ export const LOGS_FOLDER_FAILED =
   'MeedyaDL could not open the logs folder. Check its location in Settings > Advanced > Diagnostics, then try again.';
 
 /** Links could not be added to the queue (Download page). */
-export const ADD_FAILED_MANY = 'MeedyaDL could not add those links to the queue. Check the links, then try again.';
+export const ADD_FAILED_MANY =
+  'MeedyaDL could not add those links to the queue. Check the links, then try again.';
 /** A link could not be added to the queue (Download page). */
-export const ADD_FAILED_ONE = 'MeedyaDL could not add that link to the queue. Check the link, then try again.';
+export const ADD_FAILED_ONE =
+  'MeedyaDL could not add that link to the queue. Check the link, then try again.';
 
 /** A queue item could not be moved. */
 export const MOVE_FAILED =

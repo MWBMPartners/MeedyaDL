@@ -43,7 +43,14 @@ interface MenuButtonProps {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
 }
 
-export function MenuButton({ label, icon, items, title, size = 'sm', variant = 'ghost' }: MenuButtonProps) {
+export function MenuButton({
+  label,
+  icon,
+  items,
+  title,
+  size = 'sm',
+  variant = 'ghost',
+}: MenuButtonProps) {
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuId = useId();
@@ -90,7 +97,14 @@ export function MenuButton({ label, icon, items, title, size = 'sm', variant = '
         <ChevronDown size={12} aria-hidden="true" />
       </Button>
       {anchor && (
-        <ContextMenu id={menuId} label={title ?? label} items={items} x={anchor.x} y={anchor.y} onClose={close} />
+        <ContextMenu
+          id={menuId}
+          label={title ?? label}
+          items={items}
+          x={anchor.x}
+          y={anchor.y}
+          onClose={close}
+        />
       )}
     </>
   );

@@ -491,7 +491,10 @@ fn cmp_versions(a: &str, b: &str) -> std::cmp::Ordering {
 /// Classifies a resolved interpreter path into a UI-friendly provenance label.
 fn classify_source(exe: &str) -> String {
     let lower = exe.to_lowercase();
-    if lower.contains("/opt/homebrew") || lower.contains("/usr/local/cellar") || lower.contains("homebrew") {
+    if lower.contains("/opt/homebrew")
+        || lower.contains("/usr/local/cellar")
+        || lower.contains("homebrew")
+    {
         "Homebrew".to_string()
     } else if lower.contains("python.framework") || lower.contains("/library/frameworks") {
         "python.org".to_string()
@@ -697,7 +700,10 @@ pub async fn provision_venv_from_system_python(
         )
     })?;
     let (major, minor, _) = parse_version_tuple(&probe.version).ok_or_else(|| {
-        format!("Unrecognised Python version reported by '{interpreter}': {}", probe.version)
+        format!(
+            "Unrecognised Python version reported by '{interpreter}': {}",
+            probe.version
+        )
     })?;
     if !version_meets_floor(major, minor) {
         return Err(format!(
@@ -711,11 +717,17 @@ pub async fn provision_venv_from_system_python(
     let app_data_dir = platform::get_app_data_dir(app);
     if python_dir.exists() {
         std::fs::remove_dir_all(&python_dir).map_err(|e| {
-            format!("Failed to remove existing Python directory {}: {e}", python_dir.display())
+            format!(
+                "Failed to remove existing Python directory {}: {e}",
+                python_dir.display()
+            )
         })?;
     }
     std::fs::create_dir_all(&app_data_dir).map_err(|e| {
-        format!("Failed to create app data directory {}: {e}", app_data_dir.display())
+        format!(
+            "Failed to create app data directory {}: {e}",
+            app_data_dir.display()
+        )
     })?;
 
     // Step 3: create the venv. Uses the interpreter's own `venv` module — no
@@ -922,9 +934,7 @@ async fn diagnose_python_venv_at(python_dir: &Path) -> PythonVenvHealth {
     match get_python_version_from_binary(&python_bin).await {
         Ok(version) => PythonVenvHealth::Ok { version },
         Err(e) => {
-            log::warn!(
-                "Python binary exists but failed to run while diagnosing venv health: {e}"
-            );
+            log::warn!("Python binary exists but failed to run while diagnosing venv health: {e}");
             // The binary exists but won't run. Only a system-venv provenance
             // marker turns this into an explainable, recoverable state —
             // anything else (portable, or no marker) falls back to the
@@ -988,7 +998,10 @@ mod tests {
     fn version_ordering_is_numeric_not_lexical() {
         // "3.9" must sort BELOW "3.10" (lexical string compare would get this wrong).
         assert_eq!(cmp_versions("3.9.0", "3.10.0"), std::cmp::Ordering::Less);
-        assert_eq!(cmp_versions("3.14.6", "3.12.8"), std::cmp::Ordering::Greater);
+        assert_eq!(
+            cmp_versions("3.14.6", "3.12.8"),
+            std::cmp::Ordering::Greater
+        );
         assert_eq!(cmp_versions("3.12.0", "3.12.0"), std::cmp::Ordering::Equal);
     }
 
@@ -999,7 +1012,10 @@ mod tests {
             classify_source("/Library/Frameworks/Python.framework/Versions/3.12/bin/python3"),
             "python.org"
         );
-        assert_eq!(classify_source("/Users/x/.pyenv/versions/3.11.0/bin/python3"), "pyenv");
+        assert_eq!(
+            classify_source("/Users/x/.pyenv/versions/3.11.0/bin/python3"),
+            "pyenv"
+        );
         assert_eq!(classify_source("/usr/bin/python3"), "System");
     }
 
@@ -1014,7 +1030,10 @@ mod tests {
         let json = serde_json::to_string(&venv).unwrap();
         let back: PythonSourceRecord = serde_json::from_str(&json).unwrap();
         assert!(back.is_system_venv());
-        assert_eq!(back.interpreter.as_deref(), Some("/opt/homebrew/bin/python3.14"));
+        assert_eq!(
+            back.interpreter.as_deref(),
+            Some("/opt/homebrew/bin/python3.14")
+        );
 
         let portable = PythonSourceRecord {
             source: PYTHON_SOURCE_PORTABLE.to_string(),
@@ -1074,7 +1093,10 @@ mod tests {
         // installed, so key the "gone" case off the tempdir instead.)
         let gone = tmp.path().join("gone/python@3.14/3.14.6/bin/python3.14");
         let gone_str = gone.to_string_lossy().to_string();
-        assert!(!gone.exists(), "test precondition: recorded interpreter must be absent");
+        assert!(
+            !gone.exists(),
+            "test precondition: recorded interpreter must be absent"
+        );
         write_source_marker(
             tmp.path(),
             &PythonSourceRecord {

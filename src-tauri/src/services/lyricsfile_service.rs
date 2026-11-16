@@ -76,8 +76,7 @@ pub fn generate_lyricsfile_for_directory(
         return Err(format!("Not a directory: {album_dir}"));
     }
 
-    let entries =
-        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {e}"))?;
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {e}"))?;
 
     let mut generated = 0usize;
 
@@ -141,9 +140,7 @@ pub fn generate_lyricsfile_for_directory(
         let lyricsfile = match Lyricsfile::from_ttml(&ttml, title, default_artist) {
             Ok(lf) => lf,
             Err(e) => {
-                log::debug!(
-                    "Lyricsfile: TTML conversion failed for {stem}: {e} — skipping"
-                );
+                log::debug!("Lyricsfile: TTML conversion failed for {stem}: {e} — skipping");
                 continue;
             }
         };
@@ -151,9 +148,7 @@ pub fn generate_lyricsfile_for_directory(
         let yaml = match lyricsfile.to_yaml() {
             Ok(s) => s,
             Err(e) => {
-                log::debug!(
-                    "Lyricsfile: YAML serialise failed for {stem}: {e} — skipping"
-                );
+                log::debug!("Lyricsfile: YAML serialise failed for {stem}: {e} — skipping");
                 continue;
             }
         };
@@ -236,10 +231,7 @@ mod tests {
 
     #[test]
     fn derives_title_from_simple_track_number() {
-        assert_eq!(
-            derive_title_from_stem("01 Hello").as_deref(),
-            Some("Hello")
-        );
+        assert_eq!(derive_title_from_stem("01 Hello").as_deref(), Some("Hello"));
     }
 
     #[test]
@@ -285,8 +277,7 @@ mod tests {
 
     #[test]
     fn non_directory_path_returns_err() {
-        let err = generate_lyricsfile_for_directory("/nonexistent/path", "t", "a")
-            .unwrap_err();
+        let err = generate_lyricsfile_for_directory("/nonexistent/path", "t", "a").unwrap_err();
         assert!(err.contains("Not a directory"));
     }
 }

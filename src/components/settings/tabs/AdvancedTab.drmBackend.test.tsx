@@ -53,8 +53,9 @@ import { getGamdlCapabilities, type GamdlCapabilities } from '@/lib/tauri-comman
  * icons; a stub is needed for each or the render throws.
  */
 vi.mock('lucide-react', () => {
-  const stub = (name: string) =>
-    (props: Record<string, unknown>) => <span data-testid={`icon-${name}`} {...props} />;
+  const stub = (name: string) => (props: Record<string, unknown>) => (
+    <span data-testid={`icon-${name}`} {...props} />
+  );
 
   return {
     CheckCircle: stub('CheckCircle'),
@@ -259,7 +260,11 @@ describe('AdvancedTab -- Wrapper Decryption Address on GAMDL 3.8.2+ (#1433)', ()
 
   it('is hidden with the newer layout on GAMDL older than 3.8.2', async () => {
     useSettingsStore.setState({
-      settings: { ...useSettingsStore.getState().settings, use_wrapper: true, wrapper_url: 'http://192.168.1.20:80' },
+      settings: {
+        ...useSettingsStore.getState().settings,
+        use_wrapper: true,
+        wrapper_url: 'http://192.168.1.20:80',
+      },
     });
     await openWrapper({ wrapper_v2: true });
     expect(screen.queryByLabelText('Wrapper Decryption Address')).not.toBeInTheDocument();

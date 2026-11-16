@@ -15,19 +15,28 @@ import { makeQueueItem } from '@/testing/fixtures';
 describe('formatActiveItemCaption', () => {
   it('says "Downloading:" in sentence case, with a space before the name', () => {
     const caption = formatActiveItemCaption(
-      makeQueueItem({ state: 'downloading', artist_name: 'Mozart', album_name: 'Requiem', current_track: 'Lacrimosa' }),
+      makeQueueItem({
+        state: 'downloading',
+        artist_name: 'Mozart',
+        album_name: 'Requiem',
+        current_track: 'Lacrimosa',
+      })
     );
     expect(caption).toBe('Downloading: Mozart — Requiem — "Lacrimosa"');
     expect(caption).not.toMatch(/DOWNLOADING|\.\.\./);
   });
 
   it('uses the same wording when only the album is known', () => {
-    const caption = formatActiveItemCaption(makeQueueItem({ state: 'downloading', album_name: 'Requiem', current_track: null }));
+    const caption = formatActiveItemCaption(
+      makeQueueItem({ state: 'downloading', album_name: 'Requiem', current_track: null })
+    );
     expect(caption).toBe('Downloading: Requiem');
   });
 
   it('adds nothing when the item is not downloading', () => {
-    const caption = formatActiveItemCaption(makeQueueItem({ state: 'queued', album_name: 'Requiem', current_track: null }));
+    const caption = formatActiveItemCaption(
+      makeQueueItem({ state: 'queued', album_name: 'Requiem', current_track: null })
+    );
     expect(caption).toBe('Requiem');
   });
 });

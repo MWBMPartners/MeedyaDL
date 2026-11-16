@@ -88,70 +88,76 @@ export function MetadataTab() {
           Section 2: AcoustID Fingerprinting (opt-in)
           ================================================================ */}
       <SettingsSection title="AcoustID Fingerprinting">
-          <Toggle
-            label="Enable AcoustID Fingerprinting"
-            description="Generate audio fingerprints and look up AcoustID identifiers for each track. Enables music identification via MusicBrainz. Processes each file individually."
-            checked={acoustidEnabled.value}
-            onChange={acoustidEnabled.set}
-          />
+        <Toggle
+          label="Enable AcoustID Fingerprinting"
+          description="Generate audio fingerprints and look up AcoustID identifiers for each track. Enables music identification via MusicBrainz. Processes each file individually."
+          checked={acoustidEnabled.value}
+          onChange={acoustidEnabled.set}
+        />
 
-          {acoustidEnabled.value && (
-            <p className="text-xs text-content-tertiary">
-              Release builds include a built-in API key. To use your own key, configure it in
-              Settings &gt; Advanced &gt; API Credentials.
-            </p>
-          )}
+        {acoustidEnabled.value && (
+          <p className="text-xs text-content-tertiary">
+            Release builds include a built-in API key. To use your own key, configure it in Settings
+            &gt; Advanced &gt; API Credentials.
+          </p>
+        )}
       </SettingsSection>
 
       {/* ================================================================
           Section 3: ReplayGain Analysis (opt-in)
           ================================================================ */}
       <SettingsSection title="ReplayGain Analysis">
-          <Toggle
-            label="Enable ReplayGain Analysis"
-            description="Analyse audio loudness using FFmpeg and embed non-destructive ReplayGain metadata. Compatible players (foobar2000, VLC, Kodi, AIMP, Poweramp) use these tags to normalise volume without altering the audio."
-            checked={replaygainEnabled.value}
-            onChange={replaygainEnabled.set}
-          />
+        <Toggle
+          label="Enable ReplayGain Analysis"
+          description="Analyse audio loudness using FFmpeg and embed non-destructive ReplayGain metadata. Compatible players (foobar2000, VLC, Kodi, AIMP, Poweramp) use these tags to normalise volume without altering the audio."
+          checked={replaygainEnabled.value}
+          onChange={replaygainEnabled.set}
+        />
 
-          {replaygainEnabled.value && (
-            <>
-              <p className="text-xs text-content-secondary mt-2 mb-3 p-3 rounded-platform bg-surface-elevated border border-border-light">
-                <strong>What&apos;s written to each file:</strong><br />
-                <span className="text-content-tertiary">
-                  <strong>Track gain</strong> — per-song loudness adjustment (used in shuffle mode).<br />
-                  <strong>Album gain</strong> — average loudness across the album (used when listening to an album in order — preserves the intended dynamic range between quiet and loud tracks).<br />
-                  <strong>Peak values</strong> — true peak for both track and album (used by players to prevent clipping).
-                </span>
-              </p>
+        {replaygainEnabled.value && (
+          <>
+            <p className="text-xs text-content-secondary mt-2 mb-3 p-3 rounded-platform bg-surface-elevated border border-border-light">
+              <strong>What&apos;s written to each file:</strong>
+              <br />
+              <span className="text-content-tertiary">
+                <strong>Track gain</strong> — per-song loudness adjustment (used in shuffle mode).
+                <br />
+                <strong>Album gain</strong> — average loudness across the album (used when listening
+                to an album in order — preserves the intended dynamic range between quiet and loud
+                tracks).
+                <br />
+                <strong>Peak values</strong> — true peak for both track and album (used by players
+                to prevent clipping).
+              </span>
+            </p>
 
-              {/* The shared Select (polish pass M17); it was a hand-made
+            {/* The shared Select (polish pass M17); it was a hand-made
                   <select> with its own colours. Fix 9 (a11y audit): the
                   id ties the label to the box. */}
-              <Select
-                id={referenceLevelId}
-                label="Reference Level"
-                options={REFERENCE_LEVEL_OPTIONS}
-                value={String(replaygainReferenceLevel.value)}
-                onChange={(e) => replaygainReferenceLevel.set(parseFloat(e.target.value))}
-                description="Target loudness. All tracks are adjusted to match this level. Most music players default to -18 LUFS (EBU R128). Choose -14 LUFS for louder playback similar to Spotify, or -23 LUFS for conservative broadcast levels."
-              />
+            <Select
+              id={referenceLevelId}
+              label="Reference Level"
+              options={REFERENCE_LEVEL_OPTIONS}
+              value={String(replaygainReferenceLevel.value)}
+              onChange={(e) => replaygainReferenceLevel.set(parseFloat(e.target.value))}
+              description="Target loudness. All tracks are adjusted to match this level. Most music players default to -18 LUFS (EBU R128). Choose -14 LUFS for louder playback similar to Spotify, or -23 LUFS for conservative broadcast levels."
+            />
 
-              <Toggle
-                label="Prevent Clipping"
-                description="Limit gain so that the loudest peak in each track never exceeds 0 dBFS after the gain adjustment. Recommended for tracks mastered at high loudness (modern pop, EDM). Disabling allows more precise loudness matching but risks distortion on some tracks."
-                checked={replaygainPreventClipping.value}
-                onChange={replaygainPreventClipping.set}
-              />
+            <Toggle
+              label="Prevent Clipping"
+              description="Limit gain so that the loudest peak in each track never exceeds 0 dBFS after the gain adjustment. Recommended for tracks mastered at high loudness (modern pop, EDM). Disabling allows more precise loudness matching but risks distortion on some tracks."
+              checked={replaygainPreventClipping.value}
+              onChange={replaygainPreventClipping.set}
+            />
 
-              <Toggle
-                label="Include Album Gain"
-                description="Compute and write album-level ReplayGain tags alongside track tags. Album gain preserves the intended dynamic range between quiet and loud tracks when listening to an album in order. When disabled, only per-track gain tags are written (better for shuffle-only listeners)."
-                checked={replaygainAlbumGain.value}
-                onChange={replaygainAlbumGain.set}
-              />
-            </>
-          )}
+            <Toggle
+              label="Include Album Gain"
+              description="Compute and write album-level ReplayGain tags alongside track tags. Album gain preserves the intended dynamic range between quiet and loud tracks when listening to an album in order. When disabled, only per-track gain tags are written (better for shuffle-only listeners)."
+              checked={replaygainAlbumGain.value}
+              onChange={replaygainAlbumGain.set}
+            />
+          </>
+        )}
       </SettingsSection>
 
       {/* ================================================================
@@ -172,7 +178,6 @@ export function MetadataTab() {
           </p>
         )}
       </SettingsSection>
-
     </div>
   );
 }

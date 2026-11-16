@@ -281,41 +281,45 @@ pub struct KnownBadVersion {
 /// is a refusal and not a warning. Upstream fixed it the next day in
 /// 3.9.1, which restores the old behaviour whenever the labelled
 /// lookup comes back empty.
-pub const KNOWN_BAD_VERSIONS: &[KnownBadVersion] = &[KnownBadVersion {
-    version: "3.9",
-    reason: "GAMDL 3.9 cannot download Apple's web AAC formats at all — it looks for the \
+pub const KNOWN_BAD_VERSIONS: &[KnownBadVersion] = &[
+    KnownBadVersion {
+        version: "3.9",
+        reason: "GAMDL 3.9 cannot download Apple's web AAC formats at all — it looks for the \
              track's copy-protection key by a label that Apple's web streams do not put on \
              it, and stops when it finds none. Those formats are the last resort in MeedyaDL's \
              fallback chain, so downloads that would otherwise have recovered simply fail.",
-    fixed_in: "3.9.1",
-}, KnownBadVersion {
-    // Read in GAMDL 4.0.0's own source (`download/publication.py`,
-    // `download/organizer.py`), 15 Nov 2026. When a file is saved without
-    // overwriting, 4.0.0 copies it beside its destination and then makes a
-    // hard link to it, with no fallback if the drive cannot hold hard
-    // links. exFAT and FAT32 drives (the usual format for portable drives)
-    // and many network shares and cloud folders cannot, so every download
-    // to them fails. 4.0.1 replaced the link with an ordinary copy and
-    // rename ("unsupported hard links" in its release notes).
-    version: "4.0.0",
-    reason: "GAMDL 4.0.0 cannot save downloads to drives that do not support hard links, \
+        fixed_in: "3.9.1",
+    },
+    KnownBadVersion {
+        // Read in GAMDL 4.0.0's own source (`download/publication.py`,
+        // `download/organizer.py`), 15 Nov 2026. When a file is saved without
+        // overwriting, 4.0.0 copies it beside its destination and then makes a
+        // hard link to it, with no fallback if the drive cannot hold hard
+        // links. exFAT and FAT32 drives (the usual format for portable drives)
+        // and many network shares and cloud folders cannot, so every download
+        // to them fails. 4.0.1 replaced the link with an ordinary copy and
+        // rename ("unsupported hard links" in its release notes).
+        version: "4.0.0",
+        reason: "GAMDL 4.0.0 cannot save downloads to drives that do not support hard links, \
              which includes most portable drives and many network or cloud folders, so \
              downloads to them fail. It can also save some short songs still locked, so \
              they will not play, while reporting them as downloaded.",
-    fixed_in: "4.0.2",
-}, KnownBadVersion {
-    // Read in GAMDL's own source, 16 Nov 2026. Upstream's filter that
-    // discards Apple's generic key address came in with commit 9a78275,
-    // already in 4.0.0, and 4.0.0 has the pass-through test too, so
-    // 4.0.0 AND 4.0.1 both have the fault: some songs can be saved still
-    // locked (they will not play) while the run reports them as
-    // downloaded. Commits a06ea3cd and fd725b6c (4.0.2) recognise that
-    // address again and the pass-through test is removed.
-    version: "4.0.1",
-    reason: "GAMDL 4.0.1 can save some short songs still locked, so they will not play, \
+        fixed_in: "4.0.2",
+    },
+    KnownBadVersion {
+        // Read in GAMDL's own source, 16 Nov 2026. Upstream's filter that
+        // discards Apple's generic key address came in with commit 9a78275,
+        // already in 4.0.0, and 4.0.0 has the pass-through test too, so
+        // 4.0.0 AND 4.0.1 both have the fault: some songs can be saved still
+        // locked (they will not play) while the run reports them as
+        // downloaded. Commits a06ea3cd and fd725b6c (4.0.2) recognise that
+        // address again and the pass-through test is removed.
+        version: "4.0.1",
+        reason: "GAMDL 4.0.1 can save some short songs still locked, so they will not play, \
              while reporting them as downloaded.",
-    fixed_in: "4.0.2",
-}];
+        fixed_in: "4.0.2",
+    },
+];
 
 /// Splits a version string into its first three numbers, or `None` if
 /// any of them is not a plain number.
@@ -705,7 +709,9 @@ fn is_parseable_semver(version: &str) -> bool {
     if parts.len() < 2 || parts.len() > 3 {
         return false;
     }
-    parts.iter().all(|p| !p.is_empty() && p.parse::<u32>().is_ok())
+    parts
+        .iter()
+        .all(|p| !p.is_empty() && p.parse::<u32>().is_ok())
 }
 
 /// Pip version specifier string for `pip install --upgrade`.
@@ -739,10 +745,7 @@ pub fn pip_version_spec() -> String {
 pub fn pip_version_spec_for_platform(platform_id: &str) -> String {
     let window = support_window();
     let maximum = effective_maximum_tested(platform_id);
-    let mut spec = format!(
-        "gamdl>={minimum},<={maximum}",
-        minimum = window.minimum,
-    );
+    let mut spec = format!("gamdl>={minimum},<={maximum}", minimum = window.minimum,);
 
     // Shut out every release we know to be broken, by name.
     //
@@ -1010,7 +1013,12 @@ pub fn known_bad_upgrade_target_for_platform(installed: &str, platform_id: &str)
 /// future ceiling entry would quietly get wrong. The user's options are
 /// the same either way, so the sentence stays true for all of them.
 #[must_use]
-pub fn known_bad_advice(reason: &str, fixed_in: &str, installed: &str, platform_id: &str) -> String {
+pub fn known_bad_advice(
+    reason: &str,
+    fixed_in: &str,
+    installed: &str,
+    platform_id: &str,
+) -> String {
     let ceiling = effective_maximum_tested(platform_id);
 
     if is_version_at_least(&ceiling, fixed_in) {
@@ -1101,8 +1109,7 @@ pub fn fix_is_an_untested_release_this_platform_may_install(
 ///
 /// `None` means "we haven't probed yet or GAMDL isn't installed". See the
 /// module-level docs for how unknown versions are handled.
-static DETECTED_VERSION: LazyLock<RwLock<Option<String>>> =
-    LazyLock::new(|| RwLock::new(None));
+static DETECTED_VERSION: LazyLock<RwLock<Option<String>>> = LazyLock::new(|| RwLock::new(None));
 
 /// Records the currently installed GAMDL version.
 ///
@@ -1124,10 +1131,7 @@ pub fn set_detected_version(version: Option<String>) {
 /// Returns the currently cached GAMDL version string, if any.
 #[must_use]
 pub fn detected_version() -> Option<String> {
-    DETECTED_VERSION
-        .read()
-        .ok()
-        .and_then(|guard| guard.clone())
+    DETECTED_VERSION.read().ok().and_then(|guard| guard.clone())
 }
 
 /// Individual CLI / config.ini features whose availability differs across
@@ -1767,7 +1771,10 @@ pub fn active_capabilities_summary() -> String {
 
     let all = [
         (GamdlFeature::NativeCodecPriority, "native_codec_priority"),
-        (GamdlFeature::PlaylistFolderTemplate, "playlist_folder_template"),
+        (
+            GamdlFeature::PlaylistFolderTemplate,
+            "playlist_folder_template",
+        ),
         (GamdlFeature::WrapperM3u8Ip, "wrapper_m3u8_ip"),
         (GamdlFeature::NoExceptionsFlag, "no_exceptions_flag"),
         (GamdlFeature::WrapperUrl, "wrapper_url"),
@@ -1775,9 +1782,18 @@ pub fn active_capabilities_summary() -> String {
         (GamdlFeature::NativeMuxing, "native_muxing"),
         (GamdlFeature::MusicVideoRemuxMode, "music_video_remux_mode"),
         (GamdlFeature::FFmpegPath, "ffmpeg_path"),
-        (GamdlFeature::ClassicalMusicHostRequired, "classical_music_host_required"),
-        (GamdlFeature::StorefrontIniKeyStripped, "storefront_ini_key_stripped"),
-        (GamdlFeature::WrapperDecryptHostPort, "wrapper_decrypt_host_port"),
+        (
+            GamdlFeature::ClassicalMusicHostRequired,
+            "classical_music_host_required",
+        ),
+        (
+            GamdlFeature::StorefrontIniKeyStripped,
+            "storefront_ini_key_stripped",
+        ),
+        (
+            GamdlFeature::WrapperDecryptHostPort,
+            "wrapper_decrypt_host_port",
+        ),
         (
             GamdlFeature::AssetsApiUnlocksLossyCodecs,
             "assets_api_unlocks_lossy_codecs",
@@ -1816,8 +1832,7 @@ pub fn active_capabilities_summary() -> String {
 ///
 /// Public-but-gated so production code can't accidentally hold it.
 #[cfg(test)]
-pub fn capability_cache_test_lock(
-) -> std::sync::MutexGuard<'static, ()> {
+pub fn capability_cache_test_lock() -> std::sync::MutexGuard<'static, ()> {
     static SHARED: std::sync::Mutex<()> = std::sync::Mutex::new(());
     SHARED.lock().unwrap_or_else(|p| p.into_inner())
 }
@@ -2256,7 +2271,10 @@ mod tests {
 
     #[test]
     fn known_bad_upgrade_target_is_none_for_a_clean_release() {
-        assert_eq!(known_bad_upgrade_target_for_platform("3.9.1", "macos"), None);
+        assert_eq!(
+            known_bad_upgrade_target_for_platform("3.9.1", "macos"),
+            None
+        );
         assert_eq!(
             known_bad_upgrade_target_for_platform(&support_window().minimum, "macos"),
             None
@@ -2408,7 +2426,9 @@ mod tests {
              as a downgrade, got: {advice}"
         );
         assert!(
-            advice.contains(&format!("install GAMDL up to {ceiling} — install that version")),
+            advice.contains(&format!(
+                "install GAMDL up to {ceiling} — install that version"
+            )),
             "{platform_id}: must name the capped version as the thing to install, got: {advice}"
         );
         assert!(
@@ -2434,9 +2454,8 @@ mod tests {
         // fourth component (`3.8.5.99`) is NOT usable here: the version
         // comparison reads three numbers, so a four-part string is not
         // the "clearly newer" value it looks like.
-        let far_future = |version: &str| {
-            format!("{}.999.0", version.split('.').next().unwrap_or("3"))
-        };
+        let far_future =
+            |version: &str| format!("{}.999.0", version.split('.').next().unwrap_or("3"));
 
         for (platform_id, ceiling) in &window.platform_ceilings {
             let above = far_future(ceiling);
@@ -2580,7 +2599,16 @@ mod tests {
         for good in ["3.9", "3.9.1", "3.0", "10.20.30"] {
             assert!(is_parseable_semver(good), "{good} should be readable");
         }
-        for bad in ["3.garbage", "3.8.6rc1", "3", "", "3.", "3.8.6.1", "v3.9", "3.9.1-beta"] {
+        for bad in [
+            "3.garbage",
+            "3.8.6rc1",
+            "3",
+            "",
+            "3.",
+            "3.8.6.1",
+            "v3.9",
+            "3.9.1-beta",
+        ] {
             assert!(!is_parseable_semver(bad), "{bad} should NOT be readable");
         }
 
@@ -2635,7 +2663,10 @@ mod tests {
         // `3.9`, because the comparison read three numbers and stopped.
         // Refusing a release that is actually fine costs a user an
         // install and tells them something untrue about it.
-        assert!(known_bad_version("3.9").is_some(), "3.9 itself is on the list");
+        assert!(
+            known_bad_version("3.9").is_some(),
+            "3.9 itself is on the list"
+        );
         assert!(
             known_bad_version("3.9.0.1").is_none(),
             "3.9.0.1 is a different release from 3.9 and is not on the list"
@@ -2904,10 +2935,7 @@ mod tests {
         // regardless of `use_wrapper`.
         let installed = support_window().minimum.clone();
         let expected = recommended_for_platform(current_platform_id());
-        assert_eq!(
-            recommended_upgrade_target(Some(&installed), true),
-            expected
-        );
+        assert_eq!(recommended_upgrade_target(Some(&installed), true), expected);
         assert_eq!(
             recommended_upgrade_target(Some(&installed), false),
             expected
@@ -3090,10 +3118,7 @@ mod tests {
                 "linux-x86_64 (no override) must match classify() for {v}"
             );
         }
-        assert_eq!(
-            classify_for_platform(None, "linux-x86_64"),
-            classify(None)
-        );
+        assert_eq!(classify_for_platform(None, "linux-x86_64"), classify(None));
     }
 
     #[test]
@@ -3116,9 +3141,7 @@ mod tests {
         // ceiling: Untested on ARMv7 specifically, even though the same
         // version is Supported globally.
         let global_ceiling = window.maximum_tested.clone();
-        if is_version_at_least(&global_ceiling, &armv7_ceiling)
-            && global_ceiling != armv7_ceiling
-        {
+        if is_version_at_least(&global_ceiling, &armv7_ceiling) && global_ceiling != armv7_ceiling {
             let armv7_result = classify_for_platform(Some(&global_ceiling), "linux-armv7");
             assert!(
                 matches!(armv7_result, VersionSupport::Untested { .. }),

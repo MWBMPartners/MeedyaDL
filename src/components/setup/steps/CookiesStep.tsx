@@ -127,7 +127,9 @@ function BrowserRow({
         <div>
           <span className="text-sm font-medium text-content-primary">{browser.name}</span>
           {browser.requires_fda && (
-            <span className="ml-2 text-xs text-status-warning-text">(Full Disk Access required)</span>
+            <span className="ml-2 text-xs text-status-warning-text">
+              (Full Disk Access required)
+            </span>
           )}
         </div>
       </div>
@@ -614,9 +616,9 @@ export function CookiesStep() {
               browser", in bold, right above a Sign in button that needs no
               browser at all -- it opens its own sign-in window. Being signed
               in to a browser only matters for importing from that browser. */}
-          MeedyaDL needs to sign in to Apple Music to download with your subscription. The
-          quickest way is the Sign in button below. You can also import the sign-in from a
-          browser where you are already signed in to Apple Music.
+          MeedyaDL needs to sign in to Apple Music to download with your subscription. The quickest
+          way is the Sign in button below. You can also import the sign-in from a browser where you
+          are already signed in to Apple Music.
         </p>
       </div>
 
@@ -784,10 +786,12 @@ export function CookiesStep() {
                   useSettingsStore.getState().syncSaved({ cookies_path: path });
                 })
                 .catch((err) => {
-                  useUiStore.getState().addToast(
-                    'Could not save that cookies file, so nothing was changed. Please choose it again.',
-                    'error'
-                  );
+                  useUiStore
+                    .getState()
+                    .addToast(
+                      'Could not save that cookies file, so nothing was changed. Please choose it again.',
+                      'error'
+                    );
                   console.error('Could not save the cookies file path:', err);
                 });
             }}
@@ -882,13 +886,13 @@ export function CookiesStep() {
           <p className="text-xs text-content-secondary">
             Only Apple Music&apos;s own cookies (from{' '}
             <span className="font-medium text-content-primary">apple.com</span> and{' '}
-            <span className="font-medium text-content-primary">mzstatic.com</span>) are read; nothing
-            else in your browser is touched.
+            <span className="font-medium text-content-primary">mzstatic.com</span>) are read;
+            nothing else in your browser is touched.
             {isMacOS && !showFdaPanel && !importResult && (
               <>
                 {' '}
-                Importing from Chrome, Edge or another Chromium-based browser may make your Mac ask for
-                your password; that is macOS&apos;s own standard prompt.
+                Importing from Chrome, Edge or another Chromium-based browser may make your Mac ask
+                for your password; that is macOS&apos;s own standard prompt.
               </>
             )}
           </p>

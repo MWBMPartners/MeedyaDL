@@ -365,10 +365,15 @@ mod tests {
             ("deprecated", NoticeSeverity::Deprecated),
             ("critical", NoticeSeverity::Critical),
         ] {
-            let parsed: NoticeSeverity =
-                serde_json::from_str(&format!("\"{wire}\"")).unwrap();
-            assert_eq!(parsed, expected, "wire value {wire} should parse to {expected:?}");
-            assert_eq!(serde_json::to_string(&expected).unwrap(), format!("\"{wire}\""));
+            let parsed: NoticeSeverity = serde_json::from_str(&format!("\"{wire}\"")).unwrap();
+            assert_eq!(
+                parsed, expected,
+                "wire value {wire} should parse to {expected:?}"
+            );
+            assert_eq!(
+                serde_json::to_string(&expected).unwrap(),
+                format!("\"{wire}\"")
+            );
             assert_eq!(parsed.render_as(), expected);
         }
     }

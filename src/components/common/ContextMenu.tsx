@@ -135,9 +135,7 @@ export function ContextMenu({ items, x, y, onClose, label, id }: ContextMenuProp
    * commits refs before running effects), so no extra tick is needed.
    */
   useEffect(() => {
-    const firstEnabled = itemRefs.current.find(
-      (el) => el && !el.disabled
-    );
+    const firstEnabled = itemRefs.current.find((el) => el && !el.disabled);
     firstEnabled?.focus();
     // Deliberately empty deps -- this should fire exactly once, when
     // the menu first appears, not every time the item list re-renders.
@@ -171,9 +169,7 @@ export function ContextMenu({ items, x, y, onClose, label, id }: ContextMenuProp
   // the arrow-key / Home / End navigation between items.
   useEffect(() => {
     const enabledIndexes = () =>
-      itemRefs.current
-        .map((el, i) => (el && !el.disabled ? i : -1))
-        .filter((i) => i !== -1);
+      itemRefs.current.map((el, i) => (el && !el.disabled ? i : -1)).filter((i) => i !== -1);
 
     const focusAt = (index: number) => {
       itemRefs.current[index]?.focus();
@@ -196,9 +192,7 @@ export function ContextMenu({ items, x, y, onClose, label, id }: ContextMenuProp
       const enabled = enabledIndexes();
       if (enabled.length === 0) return;
 
-      const activeIndex = itemRefs.current.findIndex(
-        (el) => el === document.activeElement
-      );
+      const activeIndex = itemRefs.current.findIndex((el) => el === document.activeElement);
       const posInEnabled = enabled.indexOf(activeIndex);
 
       if (e.key === 'ArrowDown') {

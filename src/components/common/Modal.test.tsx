@@ -272,11 +272,7 @@ describe('Modal', () => {
               every real caller in this codebase (DownloadQueue, GeneralTab,
               App.tsx, HistoryPage, SettingsPage, LibraryScanPage, etc). */}
           <Modal open={open} onClose={() => setOpen(false)}>
-            <input
-              aria-label="secret"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-            />
+            <input aria-label="secret" value={value} onChange={(e) => setValue(e.target.value)} />
           </Modal>
         </div>
       );
@@ -421,7 +417,7 @@ describe('Modal', () => {
    * LAST focusable element (matching the ordinary "wrap from first to
    * last" direction the existing trap already used), not the first.
    */
-  it('recaptures focus to the dialog\'s last element on Shift+Tab when focus was on the page body', () => {
+  it("recaptures focus to the dialog's last element on Shift+Tab when focus was on the page body", () => {
     render(
       <Modal open={true} onClose={vi.fn()} title="Test">
         <button>First body button</button>

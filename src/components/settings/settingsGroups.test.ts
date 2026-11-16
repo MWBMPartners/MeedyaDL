@@ -27,7 +27,9 @@ describe('visibleSettingsGroups', () => {
   });
 
   it('hides nothing but the developer-only tabs', () => {
-    const hidden = allTabs(SETTINGS_GROUPS).filter((t) => !allTabs(visibleSettingsGroups(false)).includes(t));
+    const hidden = allTabs(SETTINGS_GROUPS).filter(
+      (t) => !allTabs(visibleSettingsGroups(false)).includes(t)
+    );
     expect(hidden).toEqual(['spotify']);
   });
 });

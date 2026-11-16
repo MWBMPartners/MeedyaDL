@@ -42,8 +42,14 @@ pub fn is_safe_pip_package_name(name: &str) -> bool {
         return false;
     }
 
-    let first_is_alnum = name.chars().next().is_some_and(|c| c.is_ascii_alphanumeric());
-    let last_is_alnum = name.chars().next_back().is_some_and(|c| c.is_ascii_alphanumeric());
+    let first_is_alnum = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphanumeric());
+    let last_is_alnum = name
+        .chars()
+        .next_back()
+        .is_some_and(|c| c.is_ascii_alphanumeric());
     if !first_is_alnum || !last_is_alnum {
         return false;
     }
@@ -214,10 +220,7 @@ pub async fn uninstall_pip_engine(app: &AppHandle, package: &str) -> Result<(), 
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "pip uninstall {package} failed: {}",
-            stderr.trim()
-        ));
+        return Err(format!("pip uninstall {package} failed: {}", stderr.trim()));
     }
 
     log::info!("{package} uninstalled successfully");
@@ -236,7 +239,10 @@ pub async fn check_latest_pypi_version(package: &str) -> Result<Option<String>, 
 
     let response = client
         .get(&url)
-        .header("User-Agent", crate::utils::http_client::browser_user_agent())
+        .header(
+            "User-Agent",
+            crate::utils::http_client::browser_user_agent(),
+        )
         .send()
         .await
         .map_err(|e| format!("PyPI request failed for {package}: {e}"))?;

@@ -116,9 +116,7 @@ impl BoundedLineBuffer {
             }
             let original_len = line.len();
             let mut truncated = line[..cut].to_string();
-            truncated.push_str(&format!(
-                " …(truncated, {original_len} bytes total)"
-            ));
+            truncated.push_str(&format!(" …(truncated, {original_len} bytes total)"));
             truncated
         } else {
             line
