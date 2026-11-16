@@ -1731,7 +1731,7 @@ mod tests {
         let src = include_str!("companion_lyrics.rs");
         // Assembled so this test's own text does not trip the check.
         for call in [["remove", "_file"].concat(), ["remove", "_dir"].concat()] {
-            let outside_tests = src.split("#[cfg(test)]\nmod tests").next().unwrap();
+            let outside_tests = src.split("#[cfg(test)]").next().unwrap();
             assert!(
                 !outside_tests.contains(&call),
                 "companion_lyrics.rs calls {call}"

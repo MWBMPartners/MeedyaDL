@@ -132,6 +132,7 @@ pub async fn process_acoustid_for_directory(
     api_key: &str,
     on_progress: impl Fn(usize, usize) + Send,
     file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
+    in_flight: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
 ) -> Result<usize, String> {
     if api_key.is_empty() {
         return Err("AcoustID API key not configured".to_string());
@@ -158,7 +159,7 @@ pub async fn process_acoustid_for_directory(
             sleep(API_RATE_LIMIT_DELAY).await;
         }
 
-        match process_single_file(file_path, api_key, file_locks).await {
+        match process_single_file(file_path, api_key, file_locks, in_flight).await {
             Ok(true) => tagged_count += 1,
             Ok(false) => {
                 log::debug!("No AcoustID match for {}", file_path.display());
@@ -197,6 +198,7 @@ async fn process_single_file(
     file_path: &Path,
     api_key: &str,
     file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
+    in_flight: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
 ) -> Result<bool, String> {
     // Step 1: Generate Chromaprint fingerprint (embedded, no external binary).
     // This is CPU-intensive (decodes the entire audio file), so we run it
@@ -212,22 +214,13 @@ async fn process_single_file(
         return Ok(false); // No match found
     };
 
-    // Step 3: Acquire the per-file write lock (#779 Option 2). When
-    // supplied, this serialises against any other enrichment stage
-    // (notably ReplayGain) writing to the same file. Acquired BEFORE
-    // the spawn_blocking so the blocking task itself is short — read,
-    // mutate, write, release. The slow CPU-bound fingerprint work above
-    // already completed on its own thread without holding the lock.
-    let _write_guard = match file_locks {
-        Some(locks) => Some(locks.lock(file_path).await),
-        None => None,
-    };
-
-    // Step 4: Write tags on a blocking thread to avoid starving the async
-    // runtime. Tag::read_from_path / Tag::write_to_path are sync I/O that
-    // can block for seconds on slow FUSE mounts (CloudMounter, NFS, etc.).
+    // Step 3: Write tags on a blocking thread (sync I/O can block for
+    // seconds on slow FUSE mounts). The per-file write lock (#779 Option 2)
+    // and the download's in-flight-writes hold are taken here and MOVED
+    // into the blocking closure (`run_blocking_locked`), so they last until
+    // the write really ends even if this future is abandoned (#1442).
     let tag_path = file_path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
+    crate::utils::file_locks::run_blocking_locked(file_locks, in_flight, file_path, move || {
         let mut tag =
             Tag::read_from_path(&tag_path).map_err(|e| format!("Failed to read M4A: {e}"))?;
 

@@ -827,6 +827,7 @@ pub async fn write_url_atoms(
     album_dir: &str,
     urls: &CrossPlatformUrls,
     file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
+    in_flight: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
     should_stop: impl Fn() -> bool + Send,
 ) -> usize {
     let pairs: Vec<(String, String)> = urls
@@ -849,29 +850,31 @@ pub async fn write_url_atoms(
             break;
         }
 
-        let _write_guard = match file_locks {
-            Some(locks) => Some(locks.lock(&file_path).await),
-            None => None,
-        };
-
         let pairs_for_task = pairs.clone();
         let path_for_task = file_path.clone();
-        let outcome = tokio::task::spawn_blocking(move || -> Result<(), String> {
-            let mut tag = Tag::read_from_path(&path_for_task)
-                .map_err(|e| format!("Failed to read M4A: {e}"))?;
-            for (name, url) in &pairs_for_task {
-                tag.set_data(
-                    FreeformIdent::new_borrowed(
-                        crate::services::metadata_tag_service::MEEDYADL_NAMESPACE,
-                        name,
-                    ),
-                    Data::Utf8(url.clone()),
-                );
-            }
-            tag.write_to_path(&path_for_task)
-                .map_err(|e| format!("Failed to write M4A: {e}"))?;
-            Ok(())
-        })
+        // The file lock and the in-flight hold move INTO the blocking job
+        // (#1442), so they last until the write really ends.
+        let outcome = crate::utils::file_locks::run_blocking_locked(
+            file_locks,
+            in_flight,
+            &file_path,
+            move || -> Result<(), String> {
+                let mut tag = Tag::read_from_path(&path_for_task)
+                    .map_err(|e| format!("Failed to read M4A: {e}"))?;
+                for (name, url) in &pairs_for_task {
+                    tag.set_data(
+                        FreeformIdent::new_borrowed(
+                            crate::services::metadata_tag_service::MEEDYADL_NAMESPACE,
+                            name,
+                        ),
+                        Data::Utf8(url.clone()),
+                    );
+                }
+                tag.write_to_path(&path_for_task)
+                    .map_err(|e| format!("Failed to write M4A: {e}"))?;
+                Ok(())
+            },
+        )
         .await;
 
         match outcome {

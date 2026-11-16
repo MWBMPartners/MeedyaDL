@@ -100,6 +100,7 @@ pub struct ReplayGainResult {
 /// # Returns
 /// * `Ok(count)` - Number of files successfully analysed and tagged
 /// * `Err(message)` - `FFmpeg` not installed or output path invalid
+#[allow(clippy::too_many_arguments)] // lock map + in-flight tracker are two separate shared handles
 pub async fn process_replaygain_for_directory(
     app: &AppHandle,
     output_path: &str,
@@ -108,6 +109,7 @@ pub async fn process_replaygain_for_directory(
     include_album_gain: bool,
     on_progress: impl Fn(usize, usize) + Send,
     file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
+    in_flight: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
 ) -> Result<usize, String> {
     let ffmpeg_path = get_ffmpeg_path(app)?;
 
@@ -216,6 +218,7 @@ pub async fn process_replaygain_for_directory(
             album_gain_db,
             album_peak,
             file_locks,
+            in_flight,
         )
         .await
         {
@@ -283,6 +286,7 @@ async fn write_replaygain_tags(
     album_gain_db: Option<f64>,
     album_peak: Option<f64>,
     file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
+    in_flight: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
 ) -> Result<(), String> {
     let format = detect_format(file_path).ok_or_else(|| {
         format!(
@@ -291,16 +295,9 @@ async fn write_replaygain_tags(
         )
     })?;
 
-    // Acquire the per-file write lock (#779 Option 2) BEFORE the
-    // backend dispatch — whether it's mp4ameta or lofty doing the
-    // write, it's the SAME file on disk that AcoustID might also
-    // be writing to. Held for the full read-modify-write cycle of
-    // the format-specific writer.
-    let _write_guard = match file_locks {
-        Some(locks) => Some(locks.lock(file_path).await),
-        None => None,
-    };
-
+    // The per-file write lock (#779 Option 2) and the download's in-flight
+    // hold are taken inside the blocking write and last until it really
+    // ends (#1442), whether mp4ameta or lofty does the write.
     match format {
         AudioFormat::Mp4 => {
             write_replaygain_mp4(
@@ -309,6 +306,8 @@ async fn write_replaygain_tags(
                 track_peak,
                 album_gain_db,
                 album_peak,
+                file_locks,
+                in_flight,
             )
             .await
         }
@@ -319,6 +318,8 @@ async fn write_replaygain_tags(
                 track_peak,
                 album_gain_db,
                 album_peak,
+                file_locks,
+                in_flight,
             )
             .await
         }
@@ -335,9 +336,11 @@ async fn write_replaygain_mp4(
     track_peak: f64,
     album_gain_db: Option<f64>,
     album_peak: Option<f64>,
+    file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
+    in_flight: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
 ) -> Result<(), String> {
     let tag_path = file_path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
+    crate::utils::file_locks::run_blocking_locked(file_locks, in_flight, file_path, move || {
         let mut tag =
             Tag::read_from_path(&tag_path).map_err(|e| format!("Failed to read MP4: {e}"))?;
 
@@ -385,9 +388,11 @@ async fn write_replaygain_lofty(
     track_peak: f64,
     album_gain_db: Option<f64>,
     album_peak: Option<f64>,
+    file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
+    in_flight: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
 ) -> Result<(), String> {
     let tag_path = file_path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
+    crate::utils::file_locks::run_blocking_locked(file_locks, in_flight, file_path, move || {
         use lofty::config::WriteOptions;
         use lofty::prelude::*;
 

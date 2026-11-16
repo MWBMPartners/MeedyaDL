@@ -199,6 +199,45 @@ impl FileWriteLocks {
     }
 }
 
+/// Runs `job` on a blocking thread with the file's write lock (and, when
+/// given, a shared hold on the download's in-flight-writes tracker) held
+/// for as long as the job REALLY runs (#1442).
+///
+/// Both holds are taken on the async side and then MOVED into the
+/// blocking closure. Aborting the caller (enrichment's deadline) cannot
+/// stop a blocking closure that has started, so a guard left on the async
+/// side would be released while the write was still going, and another
+/// writer could lock the same file mid-write.
+///
+/// Order: the tracker first, then the file lock. The catch-up takes the
+/// tracker exclusively and then file locks, so the opposite order could
+/// deadlock.
+pub async fn run_blocking_locked<T, F>(
+    locks: Option<&Arc<FileWriteLocks>>,
+    in_flight: Option<&Arc<tokio::sync::RwLock<()>>>,
+    path: &Path,
+    job: F,
+) -> Result<T, tokio::task::JoinError>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let held = match in_flight {
+        Some(t) => Some(t.clone().read_owned().await),
+        None => None,
+    };
+    let guard = match locks {
+        Some(l) => Some(l.lock(path).await),
+        None => None,
+    };
+    tokio::task::spawn_blocking(move || {
+        let _held = held;
+        let _guard = guard;
+        job()
+    })
+    .await
+}
+
 // ============================================================
 // Unit tests
 // ============================================================
@@ -473,5 +512,84 @@ mod tests {
             vec![1, 2, 3, 4],
             "distinct paths must not serialise"
         );
+    }
+
+    /// Aborting the caller mid-write must not release the lock: it lasts
+    /// until the blocking job really ends (#1442).
+    #[tokio::test]
+    async fn lock_outlives_an_aborted_caller_until_the_blocking_job_ends() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let locks = Arc::new(FileWriteLocks::new());
+        let path = PathBuf::from("/tmp/track-abort.m4a");
+        let started = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
+        let (l, p, s, r) = (
+            locks.clone(),
+            path.clone(),
+            started.clone(),
+            release.clone(),
+        );
+        let caller = tokio::spawn(async move {
+            let _ = run_blocking_locked(Some(&l), None, &p, move || {
+                s.store(true, Ordering::SeqCst);
+                // Bounded, so a failing test can never leave this thread spinning.
+                for _ in 0..2000 {
+                    if r.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            })
+            .await;
+        });
+        while !started.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        caller.abort();
+        let _ = caller.await;
+        // The job is still running: a second writer must still wait.
+        let second = tokio::time::timeout(Duration::from_millis(150), locks.lock(&path)).await;
+        assert!(
+            second.is_err(),
+            "lock was released while the write still ran"
+        );
+        release.store(true, Ordering::SeqCst);
+        let got = tokio::time::timeout(Duration::from_secs(5), locks.lock(&path)).await;
+        assert!(got.is_ok(), "lock not released after the job ended");
+    }
+
+    /// The in-flight tracker is held until the job ends too, so the lyrics
+    /// catch-up (exclusive hold) waits for it.
+    #[tokio::test]
+    async fn tracker_is_held_until_the_blocking_job_ends_even_if_caller_aborted() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let tracker: Arc<tokio::sync::RwLock<()>> = Arc::new(tokio::sync::RwLock::new(()));
+        let started = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(AtomicBool::new(false));
+        let (t, s, r) = (tracker.clone(), started.clone(), release.clone());
+        let caller = tokio::spawn(async move {
+            let _ = run_blocking_locked(None, Some(&t), Path::new("/tmp/x.m4a"), move || {
+                s.store(true, Ordering::SeqCst);
+                // Bounded, so a failing test can never leave this thread spinning.
+                for _ in 0..2000 {
+                    if r.load(Ordering::SeqCst) {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            })
+            .await;
+        });
+        while !started.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        caller.abort();
+        let _ = caller.await;
+        let w =
+            tokio::time::timeout(Duration::from_millis(150), tracker.clone().write_owned()).await;
+        assert!(w.is_err(), "tracker released while the write still ran");
+        release.store(true, Ordering::SeqCst);
+        let w = tokio::time::timeout(Duration::from_secs(5), tracker.clone().write_owned()).await;
+        assert!(w.is_ok());
     }
 }

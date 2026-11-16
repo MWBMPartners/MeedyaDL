@@ -6011,8 +6011,34 @@ fn function_text<'a>(src: &'a str, marker: &str) -> &'a str {
         .find(marker)
         .unwrap_or_else(|| panic!("`{marker}` not found"));
     let rest = &src[start..];
-    let end = rest.find("\n}\n").map_or(rest.len(), |e| e + 3);
-    &rest[..end]
+    &rest[..end_of_function(rest)]
+}
+
+/// Where the function at the start of `rest` ends: the first closing brace
+/// in the first column, with Unix or Windows (CRLF) line endings. Windows
+/// checkouts turn `\n` into `\r\n`, which a plain `"\n}\n"` search misses.
+fn end_of_function(rest: &str) -> usize {
+    ["\n}\n", "\n}\r\n"]
+        .iter()
+        .filter_map(|m| rest.find(m).map(|e| e + m.len()))
+        .min()
+        .unwrap_or(rest.len())
+}
+
+/// A function written with Windows line endings is cut at its own closing
+/// brace, not run on to the end of the file.
+#[test]
+fn function_text_handles_windows_line_endings() {
+    let unix = "fn a() {\n    x();\n}\nfn b() {\n    lock_blocking();\n}\n";
+    let crlf = unix.replace('\n', "\r\n");
+    for src in [unix.to_string(), crlf] {
+        let a = function_text(&src, "fn a(");
+        assert!(a.contains("x()"));
+        assert!(
+            !a.contains("lock_blocking"),
+            "ran on past its closing brace"
+        );
+    }
 }
 
 /// Whether `lock_text` appears in `text` before the first `write_text`.
@@ -6196,6 +6222,58 @@ fn every_tag_write_site_takes_the_app_wide_lock() {
         !processing.contains("FileWriteLocks::new()"),
         "a per-download map came back"
     );
+    // The guard must live INSIDE the blocking closure, never on the async
+    // side, or aborting enrichment would release it mid-write.
+    for (name, src, marker) in [
+        (
+            "acoustid",
+            include_str!("../acoustid_service.rs"),
+            "async fn process_single_file(",
+        ),
+        (
+            "replaygain tags",
+            include_str!("../replaygain_service.rs"),
+            "async fn write_replaygain_tags(",
+        ),
+        (
+            "replaygain mp4",
+            include_str!("../replaygain_service.rs"),
+            "async fn write_replaygain_mp4(",
+        ),
+        (
+            "replaygain lofty",
+            include_str!("../replaygain_service.rs"),
+            "async fn write_replaygain_lofty(",
+        ),
+        (
+            "song.link",
+            include_str!("../odesli_service.rs"),
+            "pub async fn write_url_atoms(",
+        ),
+    ] {
+        let text = function_text(src, marker);
+        assert!(
+            !text.contains(".lock(") && !text.contains("lock_blocking("),
+            "{name}: the lock is taken outside the blocking job"
+        );
+        if name != "replaygain tags" {
+            assert!(
+                text.contains("run_blocking_locked("),
+                "{name}: the write does not hold the lock inside its blocking job"
+            );
+            // AcoustID's fingerprint step legitimately runs on its own blocking
+            // thread; it takes no lock and writes nothing.
+            assert!(
+                name == "acoustid" || !text.contains("spawn_blocking("),
+                "{name}: a bare spawn_blocking came back"
+            );
+        }
+    }
+    // All three get the download's in-flight tracker.
+    assert!(
+        processing.matches("Some(&enrich_in_flight),").count() >= 4,
+        "the in-flight tracker is not passed to AcoustID, ReplayGain and song.link"
+    );
     // T8: the music-video cover embed.
     assert!(
         locks_before(
@@ -6244,7 +6322,7 @@ fn the_write_functions_never_take_the_lock() {
     let mut seen = 0;
     while let Some(i) = rest.find("pub(crate) fn step_") {
         let body = &rest[i..];
-        let end = body.find("\n}\n").map_or(body.len(), |e| e + 3);
+        let end = end_of_function(body);
         let body = &body[..end];
         for taker in [".lock(", "lock_blocking(", "file_locks::"] {
             assert!(
@@ -6256,4 +6334,86 @@ fn the_write_functions_never_take_the_lock() {
         rest = &rest[i + 1..];
     }
     assert!(seen >= 6, "found only {seen} step functions");
+}
+
+/// The tag folder is the folder known to hold this download, else the
+/// output folder; never a name lookup.
+#[test]
+fn the_tier_tag_folder_prefers_the_known_download_folder() {
+    let root = tempfile::tempdir().unwrap();
+    let renamed = root.path().join("Album [Explicit]");
+    std::fs::create_dir_all(&renamed).unwrap();
+    let gone = root.path().join("Gone");
+    let f = super::companions::tier_tag_folder;
+    assert_eq!(f(root.path(), Some(&renamed), None), renamed);
+    assert_eq!(f(root.path(), None, Some(&renamed)), renamed);
+    // The recorded folder wins over the gate's.
+    let other = root.path().join("Other");
+    std::fs::create_dir_all(&other).unwrap();
+    assert_eq!(f(root.path(), Some(&renamed), Some(&other)), renamed);
+    // Nothing known, or the folder is gone: the output folder.
+    assert_eq!(f(root.path(), None, None), root.path());
+    assert_eq!(f(root.path(), Some(&gone), None), root.path());
+}
+
+/// Review finding: new copies landing in the renamed folder (the old
+/// unsuffixed one still exists beside it) are all tagged, including ones in
+/// a disc subfolder.
+#[tokio::test]
+async fn copies_in_the_renamed_folder_and_its_disc_folders_are_tagged() {
+    use crate::services::metadata_tag_service::test_support::minimal_m4a;
+    let root = tempfile::tempdir().unwrap();
+    let old = root.path().join("Album");
+    let renamed = root.path().join("Album [Explicit]");
+    let disc2 = renamed.join("Disc 2");
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::create_dir_all(&disc2).unwrap();
+    minimal_m4a(&old.join("01 Old.m4a"), 1, 1, false);
+    let before = super::lyrics_pass::audio_files_in(root.path());
+    let a = renamed.join("01 A [Lossless].m4a");
+    let b = disc2.join("01 B [Lossless].m4a");
+    minimal_m4a(&a, 1, 1, false);
+    minimal_m4a(&b, 1, 2, false);
+    let after = super::lyrics_pass::audio_files_in(root.path());
+    let (a0, b0) = (std::fs::read(&a).unwrap(), std::fs::read(&b).unwrap());
+    // The name lookup would have returned the old folder; the known folder
+    // is the renamed one.
+    let folder = super::companions::tier_tag_folder(root.path(), Some(&renamed), None);
+    let tagged = super::companions::tag_tier_additions(
+        &before,
+        &after,
+        Some(folder.as_path()),
+        &SongCodec::Alac,
+        "test",
+    )
+    .await;
+    assert_eq!(tagged, 2);
+    assert_ne!(std::fs::read(&a).unwrap(), a0);
+    assert_ne!(std::fs::read(&b).unwrap(), b0);
+}
+
+/// With no known folder, the before/after set is used unnarrowed, still
+/// inside the output folder.
+#[tokio::test]
+async fn with_no_known_folder_the_before_after_set_is_tagged() {
+    use crate::services::metadata_tag_service::test_support::minimal_m4a;
+    let root = tempfile::tempdir().unwrap();
+    let before = std::collections::BTreeSet::new();
+    let sub = root.path().join("Somewhere Else");
+    std::fs::create_dir_all(&sub).unwrap();
+    let copy = sub.join("01 A [Lossless].m4a");
+    minimal_m4a(&copy, 1, 1, false);
+    let after = super::lyrics_pass::audio_files_in(root.path());
+    let c0 = std::fs::read(&copy).unwrap();
+    let folder = super::companions::tier_tag_folder(root.path(), None, None);
+    let tagged = super::companions::tag_tier_additions(
+        &before,
+        &after,
+        Some(folder.as_path()),
+        &SongCodec::Alac,
+        "test",
+    )
+    .await;
+    assert_eq!(tagged, 1);
+    assert_ne!(std::fs::read(&copy).unwrap(), c0);
 }

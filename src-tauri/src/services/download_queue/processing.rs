@@ -3944,6 +3944,7 @@ pub fn process_queue(
                                         );
                                     },
                                     Some(&acoustid_file_locks),
+                                    Some(&enrich_in_flight),
                                 )
                                 .await
                                 {
@@ -4100,6 +4101,7 @@ pub fn process_queue(
                                         );
                                     },
                                     Some(&replaygain_file_locks),
+                                    Some(&enrich_in_flight),
                                 )
                                 .await
                                 {
@@ -4413,6 +4415,7 @@ pub fn process_queue(
                                         &album_dir,
                                         urls,
                                         Some(&enrich_file_locks),
+                                        Some(&enrich_in_flight),
                                         || enrich_shutdown.is_triggered(),
                                     )
                                     .await;

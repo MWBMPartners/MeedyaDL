@@ -803,6 +803,29 @@ pub(crate) fn tier_new_m4a(
         .collect()
 }
 
+/// The folder a tier's new files may be tagged inside. Before and after
+/// the tier's run already isolate the files it added, so this only keeps out
+/// files another download wrote into the output folder meanwhile. It is the
+/// folder known to hold THIS download (where enrichment recorded the main
+/// files, then the folder the gate reported), including its disc
+/// subfolders; with neither known (or gone from disk) it is the output
+/// folder itself. It is never a folder looked up by album name: that lookup
+/// can return a different folder than the copies landed in (an old
+/// unsuffixed folder beside the renamed `Album [Explicit]`, or one disc
+/// folder), which dropped every new copy.
+pub(crate) fn tier_tag_folder(
+    output_dir: &std::path::Path,
+    recorded_scope_dir: Option<&std::path::Path>,
+    gate_album_dir: Option<&std::path::Path>,
+) -> std::path::PathBuf {
+    [recorded_scope_dir, gate_album_dir]
+        .into_iter()
+        .flatten()
+        .find(|d| d.is_dir() && d.starts_with(output_dir))
+        .unwrap_or(output_dir)
+        .to_path_buf()
+}
+
 /// Writes an extra-format tier's format tags to the files that tier added
 /// (see [`tier_new_m4a`]), each under the app-wide write lock. With
 /// `within`, files outside that folder are left out. Returns how many files
@@ -3827,22 +3850,32 @@ pub(crate) fn spawn_companion_downloads(
                                     album_hint.as_deref(),
                                 )
                                 .unwrap_or_else(|| output_dir.clone());
+                                // Used for the log line only; it does not decide
+                                // which files are tagged (see `tier_tag_folder`).
                                 // **Only the files THIS tier added** get its format
                                 // tags (#1442). The folder-wide pass used to write
                                 // this tier's tags (for example "lossless") into the
                                 // main download's files, earlier copies and older
-                                // downloads in the same folder. When the album
-                                // folder was found, files outside it are left out
-                                // too (another download's files can appear while
-                                // this tier runs). Each file is tagged under the
+                                // downloads in the same folder. Files outside
+                                // the folder known to hold this download are left
+                                // out too (another download's files can appear
+                                // while this tier runs). Each file is tagged under the
                                 // app-wide write lock; the tagging function itself
                                 // takes no lock.
-                                let album_dir = std::path::Path::new(&tag_pass_target);
-                                let narrowed = album_dir.is_dir() && tag_pass_target != *output_dir;
+                                let recorded_dir = lyrics_scope_handle.as_ref().and_then(|h| {
+                                    h.lock()
+                                        .ok()
+                                        .and_then(|g| g.as_ref().map(|sc| sc.dir.clone()))
+                                });
+                                let tag_folder = tier_tag_folder(
+                                    std::path::Path::new(output_dir),
+                                    recorded_dir.as_deref(),
+                                    companion_album_dir.as_deref(),
+                                );
                                 let tagged = tag_tier_additions(
                                     &before_tier,
                                     &after_tier,
-                                    narrowed.then_some(album_dir),
+                                    Some(tag_folder.as_path()),
                                     codec,
                                     &comp_dl_id,
                                 )
