@@ -1431,6 +1431,13 @@ pub async fn check_latest_gamdl_version(installed: Option<&str>) -> Result<Strin
 /// (`KNOWN_BAD_VERSIONS`), because the installer would refuse it on click:
 /// the choice then goes through `newest_release_up_to_major`, which skips
 /// refused releases.
+///
+/// Never an answer from a lower major version than the one installed:
+/// with every usable release of that major version gone (for example
+/// refused or withdrawn), the person has nothing to update to, and
+/// reporting an older major version as "the latest" would only show a
+/// confusing number beside what they have. That case is an error, the
+/// same "no answer" as finding nothing at all.
 fn pick_latest_gamdl_release(
     json: &serde_json::Value,
     installed: Option<&str>,
@@ -1441,15 +1448,26 @@ fn pick_latest_gamdl_release(
         .map(std::string::ToString::to_string)
         .ok_or_else(|| "Could not find version in PyPI response".to_string())?;
     let ceiling = update_major_ceiling(installed);
-    if major_version_of(&newest).is_none_or(|m| m > ceiling) || known_bad_version(&newest).is_some()
+    let picked = if major_version_of(&newest).is_none_or(|m| m > ceiling)
+        || known_bad_version(&newest).is_some()
     {
-        return newest_release_up_to_major(json, ceiling).ok_or_else(|| {
+        newest_release_up_to_major(json, ceiling).ok_or_else(|| {
             format!(
                 "The newest GAMDL on PyPI is {newest}, and no earlier release usable here was found"
             )
-        });
+        })?
+    } else {
+        newest
+    };
+    let installed_major = installed.and_then(major_version_of);
+    if let (Some(have), Some(got)) = (installed_major, major_version_of(&picked)) {
+        if got < have {
+            return Err(format!(
+                "No usable GAMDL {have} release newer than the installed one was found"
+            ));
+        }
     }
-    Ok(newest)
+    Ok(picked)
 }
 
 /// The newest finished release in a PyPI project document whose major
@@ -1700,16 +1718,17 @@ mod tests {
             serde_json::json!({"info": {"version": latest}, "releases": rel})
         };
         // 4.0.2 withdrawn, PyPI says 4.0.1, person is on 4.0.0: 4.0.1 would
-        // be refused on click, so it is not offered (nothing usable in 4.x;
-        // the 3.x fallback is the newest that is not refused).
+        // be refused on click, so it is not offered, and nothing usable is
+        // left in 4.x. A 3.x release is never reported to a 4.x user as
+        // "the latest" either, so there is no answer.
         let withdrawn = doc(
             "4.0.1",
             &[("3.9.1", false), ("4.0.0", false), ("4.0.1", false), ("4.0.2", true)],
         );
-        assert_eq!(
-            pick_latest_gamdl_release(&withdrawn, Some("4.0.0")).unwrap(),
-            "3.9.1"
-        );
+        assert!(pick_latest_gamdl_release(&withdrawn, Some("4.0.0")).is_err());
+        // Nothing installed with the same document: the tested 3.x is
+        // still offered.
+        assert_eq!(pick_latest_gamdl_release(&withdrawn, None).unwrap(), "3.9.1");
         let nothing = doc("4.0.1", &[("4.0.0", false), ("4.0.1", false), ("4.0.2", true)]);
         assert!(pick_latest_gamdl_release(&nothing, Some("4.0.0")).is_err());
         // Normal case: 4.0.2 is offered to a 4.x user.
