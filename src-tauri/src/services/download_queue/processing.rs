@@ -3277,6 +3277,7 @@ pub fn process_queue(
                                 split.tracks,
                                 album_tracks,
                                 split.unplaceable,
+                                album_metadata.as_ref().and_then(|m| m.album_name.clone()),
                             );
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));

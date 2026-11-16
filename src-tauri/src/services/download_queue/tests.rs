@@ -2970,6 +2970,25 @@
         crate::services::gamdl_capabilities::set_detected_version(None);
     }
 
+    /// The Library re-download sends `overwrite: false`; it must beat the
+    /// "Overwrite" setting, so filling an album's gaps never replaces the
+    /// files already there.
+    #[test]
+    fn a_library_redownload_never_overwrites_even_with_the_setting_on() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("3.9.1".to_string()));
+        let mut settings = test_settings();
+        settings.overwrite = true;
+        let overrides = GamdlOptions {
+            overwrite: Some(false),
+            ..GamdlOptions::default()
+        };
+        let merged = merge_options(Some(&overrides), &settings, None);
+        assert_eq!(merged.overwrite, Some(false));
+        assert!(!merged.to_cli_args().iter().any(|a| a == "--overwrite"));
+        crate::services::gamdl_capabilities::set_detected_version(None);
+    }
+
     /// Every companion run forces overwrite off, on every path.
     #[test]
     fn companions_never_overwrite() {
@@ -3018,6 +3037,57 @@
         // passes none, and the normal request runs.
         assert_eq!(
             attempt_links(&SongCodec::Aac, false, &album, &primary, &tracks, &[], &[]),
+            AttemptLinks::All
+        );
+    }
+
+    /// A run that produced nothing is "done" only when the copies already
+    /// there cover every song asked for.
+    #[test]
+    fn a_tier_is_done_only_when_every_requested_copy_was_already_there() {
+        // Ten songs asked for; 8 already there, 2 not offered: not done, so
+        // the next format in the tier is tried.
+        let primary: Vec<(SongCodec, u32, u32)> =
+            (1..=10).map(|t| (SongCodec::Atmos, 1, t)).collect();
+        let wanted = songs_wanted_in(&SongCodec::Alac, &primary, &[]);
+        assert_eq!(wanted, 10);
+        assert!(!copies_all_there(8, wanted));
+        assert!(copies_all_there(10, wanted));
+        // Per-song run of 2 links: 1 there + 1 unavailable is not done.
+        assert!(!copies_all_there(1, 2));
+        assert!(copies_all_there(2, 2));
+        // Unknown expectation never counts as done.
+        assert!(!copies_all_there(3, 0));
+        // Songs already in this format, or unreadable ones in it, are not
+        // asked for; unreadable ones in another format are.
+        let mixed = vec![(SongCodec::Atmos, 1, 1), (SongCodec::Alac, 1, 2)];
+        assert_eq!(
+            songs_wanted_in(&SongCodec::Alac, &mixed, &[SongCodec::Alac, SongCodec::Atmos]),
+            2
+        );
+    }
+
+    /// Not a mixed album: when some songs cannot be asked for on their own
+    /// (no song ID, unreadable numbers), the whole album is requested so no
+    /// song is quietly left without a copy.
+    #[test]
+    fn songs_that_cannot_be_asked_for_alone_make_it_a_whole_album_request() {
+        let album = vec!["https://music.apple.com/us/album/x/1440857781".to_string()];
+        let primary = vec![(SongCodec::Atmos, 1, 1), (SongCodec::Atmos, 1, 2), (SongCodec::Atmos, 1, 3)];
+        // Track 3 has no song ID; track 1 already has its copy.
+        let tracks = vec![(1, 1, "11".to_string()), (1, 2, "12".to_string())];
+        assert_eq!(
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[(1, 1)]),
+            AttemptLinks::All
+        );
+        // An unreadable song in another format does the same.
+        let full = vec![
+            (1, 1, "11".to_string()),
+            (1, 2, "12".to_string()),
+            (1, 3, "13".to_string()),
+        ];
+        assert_eq!(
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &full, &[SongCodec::Atmos], &[(1, 1)]),
             AttemptLinks::All
         );
     }

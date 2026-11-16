@@ -748,6 +748,9 @@ pub(crate) struct CompanionGateState {
     /// The album's tracks from Apple Music: disc, track, song ID — to build
     /// per-track song links.
     pub album_tracks: Vec<(u32, u32, String)>,
+    /// The album's name from Apple Music, to tell its existing copies from
+    /// another release's when a file has no song ID.
+    pub album_name: Option<String>,
     /// The format of each of this download's primary files whose disc or
     /// track number could not be read: they cannot be requested on their
     /// own, and are counted in the "left without an extra copy" line.
@@ -783,6 +786,7 @@ impl CompanionGate {
         primary_tracks: Vec<(SongCodec, u32, u32)>,
         album_tracks: Vec<(u32, u32, String)>,
         unplaceable: Vec<SongCodec>,
+        album_name: Option<String>,
     ) {
         self.0.send_modify(|s| {
             s.renames_done = renames_done;
@@ -790,6 +794,7 @@ impl CompanionGate {
             s.primary_tracks = primary_tracks;
             s.album_tracks = album_tracks;
             s.unplaceable = unplaceable;
+            s.album_name = album_name;
         });
         // `Drop` sets `released`.
     }
@@ -1060,17 +1065,84 @@ pub(crate) fn other_track_links(
     (links, unmapped)
 }
 
-/// The tracks (disc, track) that already have a copy in the attempt's
-/// format in `dir`: an .m4a whose name ENDS with that format's suffix
-/// (`suffix`, e.g. `[Lossless]`) — so an advisory label before it, as in
-/// `01 Song [Explicit] [Lossless]`, still counts — read by `numbers` (tags,
-/// else name). GAMDL itself only checks the exact name it would write
-/// (`01 Song [Lossless]`), so a labelled copy from an earlier run would be
-/// downloaded again and kept as a numbered duplicate.
+/// What an existing file in the folder says about itself, to decide
+/// whether it is this album's copy of a track ([`copy_belongs_to_album`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct CopyEvidence {
+    pub disc: u32,
+    pub track: u32,
+    /// Apple Music's song ID from the file's `cnID` atom, when present.
+    pub song_id: Option<String>,
+    /// The album name from the file's tags, when present.
+    pub album: Option<String>,
+}
+
+/// Reads [`CopyEvidence`] from a file: disc and track (tags, else name),
+/// the `cnID` song ID and the album name. `None` when the disc or track
+/// cannot be read.
+pub(crate) fn read_copy_evidence(path: &Path) -> Option<CopyEvidence> {
+    let numbers = read_audio_numbers(path, false, None);
+    let (disc, track) = numbers.disc.zip(numbers.track)?;
+    let tag = mp4ameta::Tag::read_from_path(path).ok();
+    let song_id = tag.as_ref().and_then(|t| {
+        t.data_of(&mp4ameta::Fourcc(*b"cnID"))
+            .find_map(|d| match d {
+                mp4ameta::Data::BeSigned(bytes) | mp4ameta::Data::Reserved(bytes)
+                    if !bytes.is_empty() && bytes.len() <= 8 =>
+                {
+                    let mut value: i64 = 0;
+                    for b in bytes {
+                        value = (value << 8) | i64::from(*b);
+                    }
+                    (value > 0).then(|| value.to_string())
+                }
+                _ => None,
+            })
+    });
+    let album = tag.as_ref().and_then(|t| t.album().map(str::to_string));
+    Some(CopyEvidence {
+        disc,
+        track,
+        song_id,
+        album,
+    })
+}
+
+/// Whether an existing file is this album's copy of its track: its song
+/// ID equals the album's song ID for that disc and track; or, without a
+/// song ID, its album name matches the album's. Neither readable: not
+/// counted (better to ask GAMDL than to wrongly skip a wanted copy — a
+/// different release with the same name can share the folder).
+pub(crate) fn copy_belongs_to_album(
+    e: &CopyEvidence,
+    album_tracks: &[(u32, u32, String)],
+    album_name: Option<&str>,
+) -> bool {
+    if let Some(id) = &e.song_id {
+        return album_tracks
+            .iter()
+            .any(|(d, t, sid)| *d == e.disc && *t == e.track && sid == id);
+    }
+    match (e.album.as_deref(), album_name) {
+        (Some(file_album), Some(name)) => metadata_tag_service::album_names_match(file_album, name),
+        _ => false,
+    }
+}
+
+/// The tracks (disc, track) that already have THIS album's copy in the
+/// attempt's format in `dir`: an .m4a whose name ENDS with that format's
+/// suffix (`suffix`, e.g. `[Lossless]`) — so an advisory label before it,
+/// as in `01 Song [Explicit] [Lossless]`, still counts — and that belongs to
+/// this album ([`copy_belongs_to_album`]). GAMDL itself only checks the
+/// exact name it would write (`01 Song [Lossless]`), so a labelled copy
+/// from an earlier run would be downloaded again and kept as a numbered
+/// duplicate.
 pub(crate) fn tracks_with_existing_copy(
     dir: &Path,
     suffix: &str,
-    numbers: impl Fn(&Path) -> Option<(u32, u32)>,
+    evidence: impl Fn(&Path) -> Option<CopyEvidence>,
+    album_tracks: &[(u32, u32, String)],
+    album_name: Option<&str>,
 ) -> Vec<(u32, u32)> {
     if suffix.is_empty() {
         return Vec::new();
@@ -1082,11 +1154,14 @@ pub(crate) fn tracks_with_existing_copy(
             .file_stem()
             .and_then(|s| s.to_str())
             .is_some_and(|s| s.ends_with(&tail));
-        if ends {
-            if let Some(dt) = numbers(&file) {
-                if !found.contains(&dt) {
-                    found.push(dt);
-                }
+        if !ends {
+            continue;
+        }
+        if let Some(e) = evidence(&file) {
+            if copy_belongs_to_album(&e, album_tracks, album_name)
+                && !found.contains(&(e.disc, e.track))
+            {
+                found.push((e.disc, e.track));
             }
         }
     }
@@ -1643,16 +1718,100 @@ mod tests {
         minimal_m4a(&d.join("01 Song [Explicit] [Lossless].m4a"), 1, 1, true);
         minimal_m4a(&d.join("02 Other [Dolby Atmos].m4a"), 2, 1, false);
         minimal_m4a(&d.join("03 Third.m4a"), 3, 1, false);
-        let numbers = |p: &Path| {
+        // The test files carry no song ID or album name, so the evidence is
+        // given by hand: track 1 belongs to this album.
+        let tracks = vec![(1, 1, "101".to_string())];
+        let mine = |p: &Path| {
             let n = read_audio_numbers(p, false, None);
-            n.disc.zip(n.track)
+            let (disc, track) = n.disc.zip(n.track)?;
+            Some(CopyEvidence {
+                disc,
+                track,
+                song_id: Some("101".to_string()),
+                album: None,
+            })
         };
         assert_eq!(
-            tracks_with_existing_copy(d, "[Lossless]", numbers),
+            tracks_with_existing_copy(d, "[Lossless]", mine, &tracks, None),
             vec![(1, 1)]
         );
         // An empty suffix (standard AAC) is left to GAMDL's own name check.
-        assert!(tracks_with_existing_copy(d, "", numbers).is_empty());
+        assert!(tracks_with_existing_copy(d, "", mine, &tracks, None).is_empty());
+        // No song ID and no album name: not counted.
+        let unknown = |p: &Path| {
+            let n = read_audio_numbers(p, false, None);
+            let (disc, track) = n.disc.zip(n.track)?;
+            Some(CopyEvidence {
+                disc,
+                track,
+                song_id: None,
+                album: None,
+            })
+        };
+        assert!(tracks_with_existing_copy(d, "[Lossless]", unknown, &tracks, Some("A")).is_empty());
+    }
+
+    #[test]
+    fn a_different_release_sharing_the_folder_is_not_this_albums_copy() {
+        let album = vec![(1, 1, "101".to_string()), (1, 2, "102".to_string())];
+        let ev = |song_id: Option<&str>, name: Option<&str>| CopyEvidence {
+            disc: 1,
+            track: 1,
+            song_id: song_id.map(str::to_string),
+            album: name.map(str::to_string),
+        };
+        // The deluxe edition's track 1 (another song ID) in the same folder.
+        assert!(!copy_belongs_to_album(
+            &ev(Some("901"), Some("Album")),
+            &album,
+            Some("Album")
+        ));
+        assert!(copy_belongs_to_album(
+            &ev(Some("101"), None),
+            &album,
+            Some("Album")
+        ));
+        // No song ID: the album name decides.
+        assert!(copy_belongs_to_album(
+            &ev(None, Some("Album")),
+            &album,
+            Some("Album")
+        ));
+        assert!(!copy_belongs_to_album(
+            &ev(None, Some("Album (Deluxe)")),
+            &album,
+            Some("Album")
+        ));
+        // Nothing to go on: not counted.
+        assert!(!copy_belongs_to_album(
+            &ev(None, None),
+            &album,
+            Some("Album")
+        ));
+        assert!(!copy_belongs_to_album(
+            &ev(None, Some("Album")),
+            &album,
+            None
+        ));
+    }
+
+    #[test]
+    fn the_song_id_atom_is_read_from_a_real_file() {
+        use crate::services::metadata_tag_service::test_support::minimal_m4a;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("01 Song [Lossless].m4a");
+        minimal_m4a(&path, 1, 1, false);
+        let mut tag = mp4ameta::Tag::read_from_path(&path).unwrap();
+        tag.set_data(
+            mp4ameta::Fourcc(*b"cnID"),
+            mp4ameta::Data::BeSigned(1_440_857_795_u32.to_be_bytes().to_vec()),
+        );
+        tag.set_album("Album");
+        tag.write_to_path(&path).unwrap();
+        let e = read_copy_evidence(&path).unwrap();
+        assert_eq!(e.song_id.as_deref(), Some("1440857795"));
+        assert_eq!(e.album.as_deref(), Some("Album"));
+        assert_eq!((e.disc, e.track), (1, 1));
     }
 
     #[test]
@@ -2067,6 +2226,7 @@ mod tests {
             vec![(SongCodec::Alac, 1, 1)],
             vec![(1, 1, "100".to_string())],
             vec![SongCodec::Aac],
+            Some("Album".to_string()),
         );
         let state = waiting.await.unwrap().unwrap();
         assert!(state.released);

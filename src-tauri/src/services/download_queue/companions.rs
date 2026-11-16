@@ -559,6 +559,12 @@ pub(crate) fn attempt_links(
     // Songs whose numbers could not be read cannot be requested on their
     // own; those not already in this format are left out too.
     let unplaceable_elsewhere = unplaceable.iter().filter(|c| *c != codec).count();
+    // Not a mixed album: if some songs cannot be asked for on their own,
+    // ask for the whole album instead (GAMDL's own name check skips exact
+    // names), so no song is quietly left without a copy.
+    if !only_other_tracks && (!unmapped.is_empty() || unplaceable_elsewhere > 0) {
+        return AttemptLinks::All;
+    }
     AttemptLinks::Only {
         links,
         unmapped: unmapped.len(),
@@ -719,6 +725,37 @@ pub(crate) fn is_already_there_skip_line(line: &str) -> bool {
     }
     let lower = trimmed.to_ascii_lowercase();
     lower.contains("skipping") && lower.contains("already exist")
+}
+
+/// Whether a run that produced no new files is still done: only when the
+/// copies GAMDL found already there cover EVERY song asked for. Otherwise
+/// some songs were simply not offered in this format, and the next format
+/// in the tier should be tried. `expected` 0 (unknown) never counts as done.
+pub(crate) fn copies_all_there(already_there: usize, expected: usize) -> bool {
+    expected > 0 && already_there >= expected
+}
+
+/// How many of this download's songs an album-wide attempt in `codec`
+/// asks for: those with readable numbers not already in that format
+/// (counted once each), plus those with unreadable numbers in another
+/// format.
+pub(crate) fn songs_wanted_in(
+    codec: &SongCodec,
+    primary_tracks: &[(SongCodec, u32, u32)],
+    unplaceable: &[SongCodec],
+) -> usize {
+    let mut wanted: Vec<(u32, u32)> = Vec::new();
+    let already: Vec<(u32, u32)> = primary_tracks
+        .iter()
+        .filter(|(c, _, _)| c == codec)
+        .map(|(_, d, t)| (*d, *t))
+        .collect();
+    for (_, d, t) in primary_tracks {
+        if !already.contains(&(*d, *t)) && !wanted.contains(&(*d, *t)) {
+            wanted.push((*d, *t));
+        }
+    }
+    wanted.len() + unplaceable.iter().filter(|c| *c != codec).count()
 }
 
 /// The plain line for copies not made because a file with the same name
@@ -2993,6 +3030,7 @@ pub(crate) fn spawn_companion_downloads(
             let mut primary_tracks: Vec<(SongCodec, u32, u32)> = Vec::new();
             let mut album_tracks: Vec<(u32, u32, String)> = Vec::new();
             let mut companion_album_dir: Option<std::path::PathBuf> = None;
+            let mut gate_album_name: Option<String> = None;
             let mut unplaceable: Vec<SongCodec> = Vec::new();
             if let Some(hold) = held_until {
                 let mut waiter = hold.waiter;
@@ -3012,6 +3050,7 @@ pub(crate) fn spawn_companion_downloads(
                 primary_tracks.clone_from(&state.primary_tracks);
                 album_tracks.clone_from(&state.album_tracks);
                 companion_album_dir = state.album_dir.as_deref().map(std::path::PathBuf::from);
+                gate_album_name.clone_from(&state.album_name);
                 unplaceable.clone_from(&state.unplaceable);
                 if !state.renames_done {
                     // The primary files may still have their plain names
@@ -3232,10 +3271,9 @@ pub(crate) fn spawn_companion_downloads(
                         (Some(dir), Some(suffix)) => super::lyrics_pass::tracks_with_existing_copy(
                             dir,
                             suffix,
-                            |p| {
-                                let n = super::lyrics_pass::read_audio_numbers(p, false, None);
-                                n.disc.zip(n.track)
-                            },
+                            super::lyrics_pass::read_copy_evidence,
+                            &album_tracks,
+                            gate_album_name.as_deref(),
                         ),
                         _ => Vec::new(),
                     };
@@ -3265,8 +3303,20 @@ pub(crate) fn spawn_companion_downloads(
                             if let Some(line) = already_there_line(codec, present) {
                                 emit_download_log(&comp_app, &comp_dl_id, &line);
                             }
-                            // Every song already has its copy: the tier is done.
-                            if links.is_empty() && present > 0 && unmapped == 0 && unreadable == 0 {
+                            // Every song that can be asked for already has its
+                            // copy: the tier is done (songs that could not be
+                            // asked for are reported below, and a different
+                            // format is not tried just because of them).
+                            if links.is_empty() && present > 0 {
+                                for line in mixed_album_lines(
+                                    codec,
+                                    1, // not "nothing was requested": copies are there
+                                    unmapped,
+                                    unreadable,
+                                    details_available,
+                                ) {
+                                    emit_download_log(&comp_app, &comp_dl_id, &line);
+                                }
                                 tier_succeeded = true;
                                 if let Ok(mut progress) = progress_for_task.lock() {
                                     progress.completed_tiers.insert(tier_idx);
@@ -3290,6 +3340,11 @@ pub(crate) fn spawn_companion_downloads(
                         }
                     };
                     let requested_songs = (attempt_urls != comp_urls).then_some(attempt_urls.len());
+                    // How many songs this attempt asks for: the song links, or
+                    // for the whole album this download's songs not already
+                    // in this format (0 when unknown).
+                    let expected_songs = requested_songs
+                        .unwrap_or_else(|| songs_wanted_in(codec, &primary_tracks, &unplaceable));
                     // An extra-format copy only ever ADDS files: it never
                     // replaces one, whatever the person's overwrite setting
                     // says. A file of the same name may be the main
@@ -3474,7 +3529,10 @@ pub(crate) fn spawn_companion_downloads(
                                 .map(count_audio_files_in_directory)
                                 .unwrap_or(0);
                             if post_run_audio_count <= pre_run_audio_count
-                                && already_there.load(Ordering::Relaxed) > 0
+                                && copies_all_there(
+                                    already_there.load(Ordering::Relaxed),
+                                    expected_songs,
+                                )
                             {
                                 // No new files, but GAMDL said the copies were
                                 // already there: the tier is satisfied (the

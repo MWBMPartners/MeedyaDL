@@ -688,7 +688,7 @@ const ITUNES_RELEASE_KIND_SUFFIXES: [&str; 2] = [" - single", " - ep"];
 /// in from iTunes, which is a different source from the one compared against
 /// here — so files that used to pass the check by having nothing to compare
 /// suddenly had something to compare, and it did not always match.
-fn album_names_match(file_name: &str, api_name: &str) -> bool {
+pub(crate) fn album_names_match(file_name: &str, api_name: &str) -> bool {
     /// Splits a name into the part before any release-kind wording, and
     /// which wording it was. `None` means the name had none.
     fn split_release_kind(name: &str) -> (String, Option<&'static str>) {

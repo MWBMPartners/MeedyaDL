@@ -66,6 +66,7 @@ import { LegacyFolderMergeSection } from './LegacyFolderMergeSection';
 import { PageHeader } from '@/components/layout';
 import { Button } from '@/components/common';
 import { FOLDER_SCAN_FAILED, isCancellation, showBackendError, showError } from '@/lib/errorMessages';
+import { buildLibraryRedownloadRequest } from '@/lib/libraryRedownload';
 
 /**
  * Human-readable label for a canonical codec-registry ID. Used by
@@ -339,10 +340,10 @@ export function LibraryScanPage() {
       return;
     }
     try {
-      const result = await startDownload({
-        urls: [manifest.urls[0]],
-        mv_companion_override: override,
-      });
+      // Fill the gaps only: never replace a file already there.
+      const result = await startDownload(
+        buildLibraryRedownloadRequest(manifest.urls[0], override)
+      );
       if (!result.download_id) {
         // Nothing was queued (most often: it is already in the queue).
         addToast(result.duplicate_warning ?? 'Already in the queue — nothing added', 'info');
