@@ -742,7 +742,24 @@ pub fn process_queue(
         // (via `force_all_suffixes` in `spawn_companion_downloads`).
         //
         // Keep the original (unsuffixed) options for companion downloads later.
+        // A format fallback may have added its suffix to the item's saved
+        // options; that exact suffix (and nothing the person typed) is
+        // removed, so a "plain" copy can never get the primary's names.
         let mut companion_base_options = options.clone();
+        let recorded_suffixes: Vec<&'static str> = {
+            let q = queue.lock().await;
+            q.items
+                .iter()
+                .find(|i| i.status.id == download_id)
+                .map(|i| i.added_template_suffixes.clone())
+                .unwrap_or_default()
+        };
+        if strip_recorded_codec_suffixes(&mut companion_base_options, &recorded_suffixes) {
+            log::info!(
+                "Companion base templates for {download_id}: removed the format suffix a format fallback added ({})",
+                recorded_suffixes.join(", ")
+            );
+        }
         let mut download_options = options;
         let settings_for_companion = load_settings_for_queue(&app);
 
@@ -804,9 +821,6 @@ pub fn process_queue(
                     &settings_for_companion.companion_mode,
                     &settings_for_companion.custom_companion_codecs,
                 ) {
-                    // One suffix only, even if a format fallback already
-                    // left one in the saved options.
-                    strip_added_codec_suffixes(&mut download_options);
                     apply_codec_suffix(&mut download_options);
                     log::info!(
                         "Download {} using codec with file suffix (companion mode: {:?})",
@@ -3134,9 +3148,20 @@ pub fn process_queue(
                                 renamed_primary.len()
                             );
                             // Every name is final: the companions may start.
+                            // The formats detected in the primary's files (one
+                            // each), so companions skip a format the main
+                            // download already has and steer clear of the
+                            // suffixes enrichment just renamed its files with.
+                            let mut detected_codecs: Vec<SongCodec> = Vec::new();
+                            for (_, c) in &file_codecs {
+                                if !detected_codecs.contains(c) {
+                                    detected_codecs.push(c.clone());
+                                }
+                            }
                             companion_gate.release(
                                 every_file_has_its_format
                                     && super::metadata_tag_service::renames_complete(&renamed_primary),
+                                detected_codecs,
                             );
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));

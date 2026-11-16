@@ -332,6 +332,19 @@ pub(crate) fn build_manifest_companion_tiers(
     Some(tiers)
 }
 
+/// The suffix [`apply_codec_suffix`] would add for these options: the
+/// suffix of `song_codec`, else of the first codec in
+/// `song_codec_priority` (companion and fallback runs set `song_codec` to
+/// `None` and give one codec there). `None` when there is no codec or it
+/// has no suffix entry.
+pub(crate) fn codec_suffix_for_options(options: &GamdlOptions) -> Option<&'static str> {
+    if let Some(codec) = &options.song_codec {
+        return codec_suffix(codec);
+    }
+    let first = options.song_codec_priority.as_deref()?.split(',').next()?;
+    codec_suffix(&SongCodec::from_cli_string(first)?)
+}
+
 /// Appends a codec-specific suffix to all file naming templates in a
 /// `GamdlOptions` struct.
 ///
@@ -354,28 +367,8 @@ pub(crate) fn build_manifest_companion_tiers(
 ///
 /// Returns `true` if a suffix was applied, `false` if the codec has no suffix.
 pub(crate) fn apply_codec_suffix(options: &mut GamdlOptions) -> bool {
-    // Determine the suffix for the current codec, if any.
-    // Check song_codec first, then fall back to song_codec_priority
-    // (companion downloads set song_codec=None and use
-    // song_codec_priority with a single codec string instead).
-    let suffix = if let Some(codec) = &options.song_codec {
-        match codec_suffix(codec) {
-            Some(s) => s,
-            None => return false, // Lossy codecs get no suffix
-        }
-    } else if let Some(ref priority) = options.song_codec_priority {
-        // Parse the first (or only) codec from the priority string
-        let first_codec_str = priority.split(',').next().unwrap_or("");
-        if let Some(codec) = SongCodec::from_cli_string(first_codec_str) {
-            match codec_suffix(&codec) {
-                Some(s) => s,
-                None => return false,
-            }
-        } else {
-            return false;
-        }
-    } else {
-        return false; // No codec specified
+    let Some(suffix) = codec_suffix_for_options(options) else {
+        return false;
     };
 
     // For each file template, append the suffix to the existing value.
@@ -410,25 +403,24 @@ pub(crate) fn apply_codec_suffix(options: &mut GamdlOptions) -> bool {
     true
 }
 
-/// Removes a format suffix that [`apply_codec_suffix`] added to the end of
-/// the file templates (` [Lossless]`, ` [Dolby Atmos]`, …), as many times
-/// as one was added. Returns whether anything was removed.
+/// Removes exactly the format suffixes MeedyaDL itself appended to the
+/// file templates (`recorded`, newest last; kept on the queue item as
+/// `QueueItem::added_template_suffixes`), each once, from the very end of
+/// each template, where [`apply_codec_suffix`] put it. Returns whether
+/// anything was removed.
 ///
-/// Why this is needed: when the format fallback re-runs an item
-/// (`DownloadQueue::try_fallback`), it may add the new format's suffix to
-/// the item's saved options, and every later run starts from those. The
-/// extra-format copies are built from the same options, so without this
-/// the "plain" copy would carry the primary's suffix and be given exactly
-/// the primary's file name (overwriting it, or silently not saved).
+/// Why this is needed: the format fallback (`DownloadQueue::try_fallback`)
+/// may add the new format's suffix to the item's saved options, and later
+/// runs, and the extra-format copies, start from those. Without this the
+/// "plain" copy would carry the primary's suffix and get exactly the
+/// primary's file name, and suffixes would pile up over several fallbacks.
 ///
-/// Stripping the known suffixes was chosen over keeping a second copy of
-/// the templates on the queue item: it needs no new saved field, works
-/// for items already in a saved queue, and cannot drift from the copy it
-/// would mirror. It only touches a suffix at the very end of a template —
-/// where `apply_codec_suffix` puts it — and only names from the codec
-/// registry.
-pub(crate) fn strip_added_codec_suffixes(options: &mut GamdlOptions) -> bool {
-    let suffixes = metadata_tag_service::registry_codec_suffixes();
+/// Only what MeedyaDL recorded is removed, so a suffix the person typed
+/// into their own template (`{track:02d} {title} [Lossless]`) is never
+/// touched. Nothing older needs guessing: a queue saved to disk keeps only
+/// the original request and is merged afresh on restore, so a restored
+/// item never carries an added suffix.
+pub(crate) fn strip_recorded_codec_suffixes(options: &mut GamdlOptions, recorded: &[&str]) -> bool {
     let mut changed = false;
     for template in [
         &mut options.single_disc_file_template,
@@ -439,53 +431,97 @@ pub(crate) fn strip_added_codec_suffixes(options: &mut GamdlOptions) -> bool {
     .into_iter()
     .flatten()
     {
-        loop {
-            let found = suffixes
-                .iter()
-                .filter(|s| template.ends_with(&format!(" {s}")))
-                .max_by_key(|s| s.len());
-            let Some(suffix) = found else { break };
-            let keep = template.len() - suffix.len() - 1;
-            template.truncate(keep);
-            changed = true;
+        for suffix in recorded.iter().rev().filter(|s| !s.is_empty()) {
+            let tail = format!(" {suffix}");
+            if template.ends_with(&tail) {
+                let keep = template.len() - tail.len();
+                template.truncate(keep);
+                changed = true;
+            }
         }
     }
     changed
 }
 
-/// What one companion attempt may do so its file names never equal the
-/// primary's: `Some(apply_suffix)` to go ahead (possibly with a suffix
-/// the tier did not plan, to tell it apart), or `None` to skip it.
+/// Why a companion attempt is skipped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CompanionSkip {
+    /// The main download is already in this format (a second copy would
+    /// be pointless, and would have the main download's names).
+    SameFormat,
+    /// Its files would have the same names as the main download's.
+    SameNames,
+}
+
+/// How one companion attempt goes ahead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AttemptPlan {
+    /// Add the format suffix to its file names.
+    pub apply_suffix: bool,
+    /// Never replace a file that is already there (overwrite off). Used
+    /// when some of the primary's own tracks are in this very format (an
+    /// album where native format priority mixed formats): those files
+    /// have exactly this attempt's names and must be skipped, while the
+    /// tracks in other formats still get their copy.
+    pub keep_existing: bool,
+}
+
+/// What one companion attempt may do so it never replaces the primary's
+/// files: go ahead (possibly with a suffix the tier did not plan, to tell
+/// it apart, or keeping existing files), or skip it.
 ///
-/// - `primary_suffix`: the format suffix in the primary run's own file
-///   names (`lyrics_pass::primary_name_suffix`), `None` when plain.
-/// - `base_suffix`: one left in the companion's base templates (normally
-///   `None` once [`strip_added_codec_suffixes`] ran) — what an unsuffixed
-///   attempt would be named with.
+/// - `primary_suffixes`: every format suffix the primary's files carry —
+///   from its own file template, and from each format detected in its
+///   files and added by enrichment's rename (native format priority can
+///   mix formats within one album).
+/// - `primary_codecs`: the formats detected in the primary's files. All of
+///   them this format: skipped (`SameFormat`). Some of them: goes ahead
+///   with overwrite off (`keep_existing`).
+/// - `base_suffix`: a suffix left in the companion's base templates (what
+///   an unsuffixed attempt would be named with); normally `None`.
 ///
-/// A clean attempt beside a plain-named primary is not judged here:
-/// whether the primary got its format suffix is the renames' business,
-/// covered by [`force_suffixes_for_unrenamed_primary`].
+/// A plain attempt beside a plain-named primary is not judged here:
+/// whether the primary got its suffix is the renames' business, covered
+/// by [`force_suffixes_for_unrenamed_primary`].
 pub(crate) fn companion_attempt_naming(
     codec: &SongCodec,
     apply_suffix: bool,
-    primary_suffix: Option<&str>,
+    primary_suffixes: &[&str],
+    primary_codecs: &[SongCodec],
     base_suffix: Option<&str>,
-) -> Option<bool> {
-    let Some(primary) = primary_suffix else {
-        return Some(apply_suffix);
+) -> Result<AttemptPlan, CompanionSkip> {
+    let go = |apply_suffix, keep_existing| {
+        Ok(AttemptPlan {
+            apply_suffix,
+            keep_existing,
+        })
     };
+    // Every primary file is already in this format: a copy is pointless.
+    if !primary_codecs.is_empty() && primary_codecs.iter().all(|c| c == codec) {
+        return Err(CompanionSkip::SameFormat);
+    }
+    let some_tracks_in_this_format = primary_codecs.contains(codec);
     let own = codec_suffix(codec).filter(|s| !s.is_empty());
     let rendered = if apply_suffix { own.or(base_suffix) } else { base_suffix };
-    if rendered != Some(primary) {
-        return Some(apply_suffix);
+    match rendered {
+        Some(r) if primary_suffixes.contains(&r) => match own {
+            // A suffix of its own, not the primary's, tells it apart.
+            Some(o) if !apply_suffix && !primary_suffixes.contains(&o) => go(true, false),
+            // A mixed album: the clashing names are the primary's own
+            // tracks in this format; keep them, copy the others.
+            _ if some_tracks_in_this_format => go(apply_suffix, true),
+            _ => Err(CompanionSkip::SameNames),
+        },
+        _ => go(apply_suffix, some_tracks_in_this_format),
     }
-    // Same name as the primary. A different suffix of its own tells it
-    // apart; the primary's own format again cannot be told apart.
-    match own {
-        Some(o) if o != primary && !apply_suffix => Some(true),
-        _ => None,
-    }
+}
+
+/// A format's name for the activity log, without the "(Experimental)"
+/// note the settings list shows.
+pub(crate) fn plain_codec_name(codec: &SongCodec) -> &str {
+    codec
+        .display_name()
+        .trim_end_matches(" (Experimental)")
 }
 
 // ============================================================
@@ -2670,12 +2706,9 @@ pub(crate) fn spawn_companion_downloads(
         let comp_app = app.clone();
         let comp_queue = queue.clone();
         let comp_urls = urls.to_vec();
+        // The caller has already removed any suffix MeedyaDL added to
+        // these templates (`strip_recorded_codec_suffixes`).
         let mut comp_base_opts = companion_base_options.clone();
-        // Never let a "plain" copy carry the primary's suffix (see
-        // `strip_added_codec_suffixes`).
-        if strip_added_codec_suffixes(&mut comp_base_opts) {
-            log::info!("Companion base templates for {dl_id}: removed a format suffix left by an earlier format fallback");
-        }
         let mut companion_tiers = companion_tiers;
         let comp_dl_id = dl_id.to_string();
         let comp_shutdown = shutdown.clone();
@@ -2733,6 +2766,12 @@ pub(crate) fn spawn_companion_downloads(
             // renames (16 Nov 2026), so nothing lands beside the primary
             // files while their names may still change. Cancel, app
             // shutdown and the completion task's abort still end the wait.
+            // Every suffix and format the primary's files carry, for the
+            // guard before each attempt. The template's suffix is known now;
+            // the formats detected in the files (and the suffixes enrichment
+            // renamed them with) arrive with the gate.
+            let mut primary_suffixes: Vec<&'static str> = primary_suffix.into_iter().collect();
+            let mut primary_codecs: Vec<SongCodec> = Vec::new();
             if let Some(hold) = held_until {
                 let mut waiter = hold.waiter;
                 let state = super::lyrics_pass::wait_for_companion_gate(&mut waiter, || {
@@ -2747,6 +2786,14 @@ pub(crate) fn spawn_companion_downloads(
                     log::info!("Companion downloads for {comp_dl_id} not started (stopped while waiting)");
                     return;
                 };
+                for codec in &state.primary_codecs {
+                    if let Some(s) = codec_suffix(codec).filter(|s| !s.is_empty()) {
+                        if !primary_suffixes.contains(&s) {
+                            primary_suffixes.push(s);
+                        }
+                    }
+                }
+                primary_codecs.clone_from(&state.primary_codecs);
                 if !state.renames_done {
                     // The primary files may still have their plain names
                     // (enrichment ended early, or the format could not be
@@ -2923,27 +2970,40 @@ pub(crate) fn spawn_companion_downloads(
                     // overwrite it, or with overwrite off silently not
                     // save the copy).
                     let base_suffix = super::lyrics_pass::primary_name_suffix(&opts);
-                    let Some(apply_suffix) = companion_attempt_naming(
+                    let plan = match companion_attempt_naming(
                         codec,
                         tier.apply_suffix,
-                        primary_suffix,
+                        &primary_suffixes,
+                        &primary_codecs,
                         base_suffix,
-                    ) else {
-                        emit_download_log(
-                            &comp_app,
-                            &comp_dl_id,
-                            &format!(
-                                "Extra format {} skipped: its files would have the same names as the main download's",
-                                codec.to_cli_string()
-                            ),
-                        );
-                        continue;
+                    ) {
+                        Ok(plan) => plan,
+                        Err(why) => {
+                            let reason = match why {
+                                CompanionSkip::SameFormat => "the main download is already in that format",
+                                CompanionSkip::SameNames => {
+                                    "its files would have had the same names as the main download"
+                                }
+                            };
+                            emit_download_log(
+                                &comp_app,
+                                &comp_dl_id,
+                                &format!(
+                                    "An extra copy in {} was skipped because {reason}.",
+                                    plain_codec_name(codec)
+                                ),
+                            );
+                            continue;
+                        }
                     };
                     // If this tier needs a suffix (e.g., ALAC
                     // companion in AtmosToLosslessAndLossy mode
                     // gets [Lossless]), apply it to the options.
-                    if apply_suffix {
+                    if plan.apply_suffix {
                         apply_codec_suffix(&mut opts);
+                    }
+                    if plan.keep_existing {
+                        opts.overwrite = Some(false);
                     }
                     // If not suffixed, the base options already
                     // have clean (unsuffixed) templates.

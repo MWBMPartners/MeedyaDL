@@ -277,6 +277,15 @@ pub(crate) struct QueueItem {
     /// when neither catalog has the content. Reset by [`retry`] so a
     /// user-driven manual retry from the UI is allowed to try again.
     pub storefront_fallback_attempted: bool,
+    /// The format suffixes MeedyaDL itself appended to `merged_options`'
+    /// file templates (newest last) — today only the format fallback
+    /// (`try_fallback`) does. Lets them be removed exactly
+    /// (`strip_recorded_codec_suffixes`) without ever touching a suffix the
+    /// person typed into their own template. Empty whenever the options
+    /// are merged afresh (enqueue, retry, restore). Not saved to disk: a
+    /// saved queue keeps only the original request and is merged afresh on
+    /// restore, so a restored item has nothing added to strip.
+    pub added_template_suffixes: Vec<&'static str>,
 }
 
 // ============================================================
@@ -667,6 +676,7 @@ impl DownloadQueue {
             network_retries_left: self.max_network_retries,
             engine_fallback_index: 0,
             storefront_fallback_attempted: false,
+            added_template_suffixes: Vec::new(),
         };
 
         log::info!(
@@ -1392,10 +1402,12 @@ impl DownloadQueue {
             // --song-codec but also overrides the config.ini key.
             new_options.song_codec_priority = Some(next_codec.to_runtime_cli_string().to_string());
 
-            // Remove the suffix an earlier fallback added, so suffixes never
-            // pile up (`{title} [Dolby Atmos] [Lossless]`) and a format that
-            // needs none does not keep the previous one's.
-            strip_added_codec_suffixes(&mut new_options);
+            // Remove exactly the suffix an earlier fallback added, so
+            // suffixes never pile up (`{title} [Dolby Atmos] [Lossless]`) and
+            // a format that needs none does not keep the previous one's. A
+            // suffix the person typed into their own template stays.
+            strip_recorded_codec_suffixes(&mut new_options, &item.added_template_suffixes);
+            item.added_template_suffixes.clear();
             // If the companion mode would produce companions for this fallback
             // codec, apply the codec suffix to file templates so the specialist
             // format files don't collide with the companion files.
@@ -1404,7 +1416,10 @@ impl DownloadQueue {
                 &settings.companion_mode,
                 &settings.custom_companion_codecs,
             ) {
-                apply_codec_suffix(&mut new_options);
+                let added = codec_suffix_for_options(&new_options).filter(|s| !s.is_empty());
+                if apply_codec_suffix(&mut new_options) {
+                    item.added_template_suffixes.extend(added);
+                }
             }
 
             // Update tracking info for the frontend to display
@@ -1983,6 +1998,8 @@ impl DownloadQueue {
                 // the stored text back. Same call the queue made when this item
                 // was first added, so the two can never disagree, and it needs
                 // no reverse lookup from the stored form (#829).
+                // Fresh options: nothing MeedyaDL added is left in them.
+                item.added_template_suffixes.clear();
                 item.merged_options = merge_options(
                     item.request.options.as_ref(),
                     settings,
@@ -2067,6 +2084,8 @@ impl DownloadQueue {
                 // the stored text back. Same call the queue made when this item
                 // was first added, so the two can never disagree, and it needs
                 // no reverse lookup from the stored form (#829).
+                // Fresh options: nothing MeedyaDL added is left in them.
+                item.added_template_suffixes.clear();
                 item.merged_options = merge_options(
                     item.request.options.as_ref(),
                     settings,
@@ -2293,6 +2312,7 @@ impl DownloadQueue {
                 engine_fallback_index: 0,
                 network_retries_left: self.max_network_retries,
                 storefront_fallback_attempted: false,
+                added_template_suffixes: Vec::new(),
             };
             self.items.push_back(item);
         }

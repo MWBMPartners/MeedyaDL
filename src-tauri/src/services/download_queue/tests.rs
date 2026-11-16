@@ -2661,9 +2661,10 @@
     }
 
     /// A Custom-mode item that went through the format fallback: the saved
-    /// options carry the fallback format's suffix, suffixes never pile up
-    /// over several fallbacks, and the companions' base templates lose it
-    /// again, so the "plain" copy can never get the primary's file name.
+    /// options carry the fallback format's suffix and the item records it,
+    /// suffixes never pile up over several fallbacks, and the companions'
+    /// base templates lose exactly that suffix, so the "plain" copy can
+    /// never get the primary's file name.
     #[test]
     fn a_custom_mode_fallback_never_gives_a_companion_the_primarys_name() {
         let mut queue = DownloadQueue::new();
@@ -2671,6 +2672,7 @@
         settings.companion_mode = CompanionMode::Custom;
         settings.custom_companion_codecs = vec![SongCodec::Alac, SongCodec::Aac];
         let id = queue.enqueue(test_request(), &settings);
+        assert!(queue.items[0].added_template_suffixes.is_empty());
 
         queue.set_error(&id, "Codec not available");
         let (first, _, _) = queue.try_fallback(&id, &settings).unwrap();
@@ -2680,83 +2682,131 @@
             .as_deref()
             .unwrap()
             .ends_with(" [Dolby Atmos]"));
+        assert_eq!(queue.items[0].added_template_suffixes, vec!["[Dolby Atmos]"]);
         queue.set_error(&id, "Codec not available");
         let (second, _, _) = queue.try_fallback(&id, &settings).unwrap();
         let template = second.single_disc_file_template.clone().unwrap();
         assert!(!template.contains("[Dolby Atmos]"), "suffixes piled up: {template}");
+        let recorded = queue.items[0].added_template_suffixes.clone();
+        assert_eq!(recorded.len(), 1);
         let primary_suffix = super::lyrics_pass::primary_name_suffix(&second);
-        assert!(primary_suffix.is_some());
+        assert_eq!(primary_suffix, Some(recorded[0]));
 
         // The companions start from the same saved options.
         let mut base = second.clone();
-        assert!(strip_added_codec_suffixes(&mut base));
+        assert!(strip_recorded_codec_suffixes(&mut base, &recorded));
         assert_eq!(super::lyrics_pass::primary_name_suffix(&base), None);
         // The plain (AAC) tier is now plainly named, different from the
         // primary's suffixed name.
         assert_eq!(
-            companion_attempt_naming(&SongCodec::Aac, false, primary_suffix, None),
-            Some(false)
+            companion_attempt_naming(&SongCodec::Aac, false, &recorded, &[], None),
+            Ok(AttemptPlan { apply_suffix: false, keep_existing: false })
         );
+        // A retry merges afresh and forgets the record.
+        queue.set_error(&id, "failed");
+        queue.retry(&id, &settings);
+        assert!(queue.items[0].added_template_suffixes.is_empty());
     }
 
     #[test]
-    fn stripping_touches_only_suffixes_the_app_added_at_the_end() {
+    fn a_suffix_the_person_typed_is_never_removed() {
         let mut opts = GamdlOptions {
-            single_disc_file_template: Some("{track:02d} {title} [Lossless] [Dolby Atmos]".into()),
-            multi_disc_file_template: Some("{disc}-{track:02d} {title}".into()),
-            no_album_file_template: Some("[Lossless] {title}".into()),
+            single_disc_file_template: Some("{track:02d} {title} [Lossless]".into()),
+            multi_disc_file_template: Some("{disc}-{track:02d} {title} [Lossless] [Dolby Atmos]".into()),
+            no_album_file_template: Some("[Dolby Atmos] {title}".into()),
             ..GamdlOptions::default()
         };
-        assert!(strip_added_codec_suffixes(&mut opts));
-        assert_eq!(opts.single_disc_file_template.as_deref(), Some("{track:02d} {title}"));
-        assert_eq!(opts.multi_disc_file_template.as_deref(), Some("{disc}-{track:02d} {title}"));
-        // Not at the end: left alone.
-        assert_eq!(opts.no_album_file_template.as_deref(), Some("[Lossless] {title}"));
-        assert!(!strip_added_codec_suffixes(&mut opts));
-        // Normal single-format path: strip then add gives exactly one.
-        let mut primary = GamdlOptions {
-            song_codec: Some(SongCodec::Atmos),
-            single_disc_file_template: Some("{track:02d} {title} [Dolby Atmos]".into()),
-            ..GamdlOptions::default()
-        };
-        strip_added_codec_suffixes(&mut primary);
-        apply_codec_suffix(&mut primary);
+        // Nothing recorded: nothing removed, even a registry name.
+        assert!(!strip_recorded_codec_suffixes(&mut opts, &[]));
         assert_eq!(
-            primary.single_disc_file_template.as_deref(),
-            Some("{track:02d} {title} [Dolby Atmos]")
+            opts.single_disc_file_template.as_deref(),
+            Some("{track:02d} {title} [Lossless]")
+        );
+        // Only the recorded suffix, once, at the very end.
+        assert!(strip_recorded_codec_suffixes(&mut opts, &["[Dolby Atmos]"]));
+        assert_eq!(
+            opts.single_disc_file_template.as_deref(),
+            Some("{track:02d} {title} [Lossless]")
+        );
+        assert_eq!(
+            opts.multi_disc_file_template.as_deref(),
+            Some("{disc}-{track:02d} {title} [Lossless]")
+        );
+        assert_eq!(opts.no_album_file_template.as_deref(), Some("[Dolby Atmos] {title}"));
+    }
+
+    #[test]
+    fn a_fallback_keeps_a_users_own_suffix_in_their_template() {
+        let mut queue = DownloadQueue::new();
+        let mut settings = test_settings();
+        settings.companion_mode = CompanionMode::Custom;
+        settings.custom_companion_codecs = vec![SongCodec::Alac];
+        settings.single_disc_file_template = "{track:02d} {title} [Lossless]".into();
+        let id = queue.enqueue(test_request(), &settings);
+        for _ in 0..2 {
+            queue.set_error(&id, "Codec not available");
+            queue.try_fallback(&id, &settings).unwrap();
+        }
+        let template = queue.items[0]
+            .merged_options
+            .single_disc_file_template
+            .clone()
+            .unwrap();
+        assert!(
+            template.starts_with("{track:02d} {title} [Lossless]"),
+            "the person's own suffix was removed: {template}"
         );
     }
 
     #[test]
-    fn a_companion_named_like_the_primary_is_renamed_or_skipped() {
-        // Native path / plain primary: nothing judged here.
-        assert_eq!(companion_attempt_naming(&SongCodec::Aac, false, None, None), Some(false));
-        assert_eq!(companion_attempt_naming(&SongCodec::Alac, true, None, None), Some(true));
+    fn a_companion_never_takes_the_primarys_names_or_format() {
+        let ok = |apply_suffix, keep_existing| Ok(AttemptPlan { apply_suffix, keep_existing });
+        // Plain primary, nothing detected: nothing judged here.
+        assert_eq!(companion_attempt_naming(&SongCodec::Aac, false, &[], &[], None), ok(false, false));
         // Normal single-format path: primary `[Dolby Atmos]`, ALAC copy
         // `[Lossless]`, AAC copy plain — all different, unchanged.
+        let atmos = ["[Dolby Atmos]"];
         assert_eq!(
-            companion_attempt_naming(&SongCodec::Alac, true, Some("[Dolby Atmos]"), None),
-            Some(true)
+            companion_attempt_naming(&SongCodec::Alac, true, &atmos, &[SongCodec::Atmos], None),
+            ok(true, false)
         );
         assert_eq!(
-            companion_attempt_naming(&SongCodec::Aac, false, Some("[Dolby Atmos]"), None),
-            Some(false)
+            companion_attempt_naming(&SongCodec::Aac, false, &atmos, &[SongCodec::Atmos], None),
+            ok(false, false)
+        );
+        // Custom + native priority: Atmos not offered, GAMDL picked ALAC
+        // and enrichment renamed the primary `[Lossless]`; the forced-suffix
+        // ALAC copy would be `[Lossless]` too, and is pointless — skipped.
+        let lossless = ["[Lossless]"];
+        assert_eq!(
+            companion_attempt_naming(&SongCodec::Alac, true, &lossless, &[SongCodec::Alac], None),
+            Err(CompanionSkip::SameFormat)
+        );
+        // A mixed album (some tracks Atmos, some ALAC): the ALAC copy still
+        // runs for the Atmos tracks, but never replaces the primary's own
+        // ALAC files.
+        let mixed = ["[Dolby Atmos]", "[Lossless]"];
+        assert_eq!(
+            companion_attempt_naming(
+                &SongCodec::Alac,
+                true,
+                &mixed,
+                &[SongCodec::Atmos, SongCodec::Alac],
+                None
+            ),
+            ok(true, true)
         );
         // A base template still carrying the primary's suffix: a plain
-        // attempt would collide, so it gets its own suffix, or is skipped
-        // when it has none (AAC) or it is the primary's own format.
+        // attempt gets its own suffix, or is skipped when it has none.
         assert_eq!(
-            companion_attempt_naming(&SongCodec::AacLegacy, false, Some("[Lossless]"), Some("[Lossless]")),
-            Some(true)
+            companion_attempt_naming(&SongCodec::AacLegacy, false, &lossless, &[], Some("[Lossless]")),
+            ok(true, false)
         );
         assert_eq!(
-            companion_attempt_naming(&SongCodec::Aac, false, Some("[Lossless]"), Some("[Lossless]")),
-            None
+            companion_attempt_naming(&SongCodec::Aac, false, &lossless, &[], Some("[Lossless]")),
+            Err(CompanionSkip::SameNames)
         );
-        assert_eq!(
-            companion_attempt_naming(&SongCodec::Alac, true, Some("[Lossless]"), None),
-            None
-        );
+        assert_eq!(plain_codec_name(&SongCodec::Alac), "Lossless (ALAC)");
     }
 
     /// Verifies that try_fallback() returns None when all codecs in the

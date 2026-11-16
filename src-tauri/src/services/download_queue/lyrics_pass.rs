@@ -761,6 +761,10 @@ pub(crate) struct CompanionGateState {
     /// advisory rename, or not), for album and song links. Companions
     /// write there, whatever GAMDL's template would make of the name.
     pub album_dir: Option<String>,
+    /// The formats detected in the primary's files (one per format; native
+    /// format priority can mix them within an album). Companions skip
+    /// these formats and steer clear of their suffixes.
+    pub primary_codecs: Vec<SongCodec>,
 }
 
 /// Enrichment's end of the gate. Dropping it — an early return, a panic,
@@ -783,9 +787,13 @@ impl CompanionGate {
         self.0.send_modify(|s| s.album_dir = dir);
     }
 
-    /// Lets the companions start, saying whether the per-file renames ran.
-    pub(crate) fn release(self, renames_done: bool) {
-        self.0.send_modify(|s| s.renames_done = renames_done);
+    /// Lets the companions start, saying whether the per-file renames ran
+    /// and which formats were detected in the primary's files.
+    pub(crate) fn release(self, renames_done: bool, primary_codecs: Vec<SongCodec>) {
+        self.0.send_modify(|s| {
+            s.renames_done = renames_done;
+            s.primary_codecs = primary_codecs;
+        });
         // `Drop` sets `released`.
     }
 }
@@ -1664,10 +1672,11 @@ mod tests {
                 async move { wait_for_companion_gate(&mut waiter, || async { false }).await },
             );
         tokio::task::yield_now().await;
-        gate.release(true);
+        gate.release(true, vec![SongCodec::Alac]);
         let state = waiting.await.unwrap().unwrap();
         assert!(state.released);
         assert!(state.renames_done);
+        assert_eq!(state.primary_codecs, vec![SongCodec::Alac]);
         assert_eq!(
             state.album_dir.as_deref(),
             Some("/Music/A/Album [Explicit]")
