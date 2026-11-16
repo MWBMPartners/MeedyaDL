@@ -280,15 +280,6 @@ pub(crate) struct Summary {
 /// was done and there is nothing to say.
 pub(crate) fn summary_line(r: &Summary) -> Option<String> {
     let done = r.from_main + r.own + r.none + r.unchanged;
-    if r.stopped {
-        return (r.total > 0).then(|| {
-            format!(
-                "Adding lyrics to the extra copies stopped early ({done} of {} done).",
-                r.total
-            )
-        });
-    }
-    let added = r.from_main + r.own;
     let upgraded_line = (r.main_upgraded > 0).then(|| {
         let noun = if r.main_upgraded == 1 {
             "song"
@@ -300,6 +291,20 @@ pub(crate) fn summary_line(r: &Summary) -> Option<String> {
             r.main_upgraded
         )
     });
+    if r.stopped {
+        let stopped = (r.total > 0 || r.main_upgraded > 0).then(|| {
+            format!(
+                "Adding lyrics to the extra copies stopped early ({done} of {} done).",
+                r.total
+            )
+        });
+        return match (stopped, upgraded_line) {
+            (Some(s), Some(u)) => Some(format!("{s} {u}")),
+            (Some(s), None) => Some(s),
+            (None, u) => u,
+        };
+    }
+    let added = r.from_main + r.own;
     if added == 0 {
         return upgraded_line;
     }
@@ -669,6 +674,7 @@ pub(crate) fn fallback_scope(
         // Nothing from the main download is known here, so there is nothing
         // it could be upgraded from a copy either.
         download_started_at: None,
+        written_this_run: None,
     }
 }
 
@@ -1058,6 +1064,19 @@ pub(crate) fn plan_copies(
         .iter()
         .filter_map(|copy| {
             let main = match_copy(copy, &primaries, single_disc, scope)?;
+            // Only a main file this run wrote may be upgraded; unknown means none.
+            if !scope
+                .written_this_run
+                .as_ref()
+                .is_some_and(|set| set.contains(&main))
+            {
+                return None;
+            }
+            // The copy's own `.ttml` must be one this download wrote, never an
+            // older leftover in the folder.
+            if !copy_ttml_is_this_runs(scope, copy, since) {
+                return None;
+            }
             let copy_quality = quality_of_texts(&read_lyric_texts(copy));
             let main_quality = quality_of_texts(&read_lyric_texts(&main));
             Some((main, copy.clone(), copy_quality, main_quality))
@@ -1068,6 +1087,21 @@ pub(crate) fn plan_copies(
         primaries,
         single_disc,
         upgrades: pick_upgrades(candidates),
+    }
+}
+
+/// Whether the extra copy's `.ttml`, if it has one, was written by this run:
+/// inside the album folder, not in the snapshot taken before the copies
+/// started; elsewhere, by file time.
+fn copy_ttml_is_this_runs(scope: &AdvisoryScope, copy: &Path, since: SystemTime) -> bool {
+    let ttml = copy.with_extension("ttml");
+    if !ttml.exists() {
+        return true;
+    }
+    if ttml.starts_with(&scope.dir) {
+        !scope.ttml_before_companions.contains(&ttml)
+    } else {
+        written_since(&ttml, since)
     }
 }
 
@@ -1405,6 +1439,7 @@ mod tests {
             before_companions: audio_files_in(dir.path()),
             ttml_before_companions: ttml_files_in(dir.path()),
             download_started_at: None,
+            written_this_run: Some(std::iter::once(main.clone()).collect()),
         };
         (dir, scope, main)
     }
@@ -2779,6 +2814,7 @@ mod tests {
             before_companions: audio_files_in(dir.path()),
             ttml_before_companions: ttml_files_in(dir.path()),
             download_started_at: Some(started()),
+            written_this_run: Some(std::iter::once(main.clone()).collect()),
         };
         let copy = add_copy(dir.path());
         give_word_lyrics(&copy);
@@ -2832,6 +2868,91 @@ mod tests {
         assert!(s.stopped);
         assert_eq!(s.main_upgraded, 0);
         assert_eq!(read(&main.with_extension("ttml")), ttml_before);
+    }
+
+    #[test]
+    fn a_main_file_this_run_did_not_write_is_not_upgraded() {
+        // Named like this run's files (so in `this_download`), but older: not
+        // in the set of files this run wrote.
+        let (dir, scope, main) = album();
+        let scope = AdvisoryScope {
+            download_started_at: Some(started()),
+            written_this_run: Some(std::collections::BTreeSet::new()),
+            ..scope
+        };
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+        let main_audio = std::fs::read(&main).unwrap();
+
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 0);
+        for ext in ["ttml", "lrc", "vtt", "srt", "ass", "lyrics"] {
+            assert!(!main.with_extension(ext).exists(), ".{ext} must not appear");
+        }
+        assert_eq!(std::fs::read(&main).unwrap(), main_audio);
+    }
+
+    #[test]
+    fn a_main_file_this_run_wrote_is_upgraded_even_with_no_lyric_files() {
+        let (dir, scope, main) = album();
+        let scope = AdvisoryScope {
+            download_started_at: Some(started()),
+            ..scope
+        };
+        assert!(scope.written_this_run.is_some());
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 1);
+        assert!(read(&main.with_extension("ttml")).contains("<span"));
+    }
+
+    #[test]
+    fn nothing_is_upgraded_when_the_written_set_is_unknown() {
+        let (dir, scope, main) = album();
+        let scope = AdvisoryScope {
+            download_started_at: Some(started()),
+            written_this_run: None,
+            ..scope
+        };
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 0);
+        assert!(!main.with_extension("ttml").exists());
+    }
+
+    #[test]
+    fn a_leftover_ttml_beside_a_copy_never_becomes_the_main_files_lyrics() {
+        let (dir, scope, main) = album();
+        let copy = add_copy(dir.path());
+        // The copy's `.ttml` was already in the folder before the copies started.
+        give_word_lyrics(&copy);
+        let scope = AdvisoryScope {
+            download_started_at: Some(started()),
+            ttml_before_companions: ttml_files_in(dir.path()),
+            ..scope
+        };
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 0);
+        assert!(!main.with_extension("ttml").exists());
+    }
+
+    #[test]
+    fn summary_line_mentions_upgrades_when_stopped_early() {
+        let r = Summary {
+            total: 3,
+            unchanged: 1,
+            stopped: true,
+            main_upgraded: 2,
+            ..Summary::default()
+        };
+        let line = summary_line(&r).unwrap();
+        assert!(line.contains("stopped early (1 of 3 done)"), "{line}");
+        assert!(
+            line.contains("2 songs in the main download got better lyrics"),
+            "{line}"
+        );
     }
 
     #[test]

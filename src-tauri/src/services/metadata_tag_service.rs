@@ -583,6 +583,7 @@ pub fn apply_deferred_file_renames(
             .filter(|s| !s.is_empty());
         let final_path = rename_with_suffixes(file, advisory, codec);
         finals.push(DeferredRename {
+            original_path: file.clone(),
             final_path,
             wanted: advisory.into_iter().chain(codec).collect(),
             detected,
@@ -594,6 +595,8 @@ pub fn apply_deferred_file_renames(
 /// One primary file after [`apply_deferred_file_renames`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeferredRename {
+    /// Where the file was before the rename.
+    pub original_path: PathBuf,
     /// Where the file is now.
     pub final_path: PathBuf,
     /// The suffixes it was meant to get (advisory, format).
@@ -3589,6 +3592,7 @@ mod tests {
         // The rename failed: the file kept its old name although a format
         // suffix was wanted.
         let failed = DeferredRename {
+            original_path: PathBuf::from("/a/orig.m4a"),
             final_path: PathBuf::from("/a/01 T.m4a"),
             wanted: vec!["[Lossless]"],
             detected: Some(SongCodec::Alac),
@@ -3596,12 +3600,14 @@ mod tests {
         assert!(!renames_complete(&[failed]));
         // Only the advisory part landed.
         let half = DeferredRename {
+            original_path: PathBuf::from("/a/orig.m4a"),
             final_path: PathBuf::from("/a/01 T [Explicit].m4a"),
             wanted: vec!["[Explicit]", "[Lossless]"],
             detected: Some(SongCodec::Alac),
         };
         assert!(!renames_complete(&[half]));
         let done = DeferredRename {
+            original_path: PathBuf::from("/a/orig.m4a"),
             final_path: PathBuf::from("/a/01 T [Explicit] [Lossless].m4a"),
             wanted: vec!["[Explicit]", "[Lossless]"],
             detected: Some(SongCodec::Alac),

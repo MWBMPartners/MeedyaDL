@@ -1112,6 +1112,12 @@ pub(crate) struct AdvisoryScope {
     /// rule [`fresh_at_snapshot`] uses). `None` (not known) means no file
     /// counts as made by this download, so nothing is ever replaced.
     pub download_started_at: Option<std::time::SystemTime>,
+    /// The main download's files THIS run actually wrote (judged at snapshot
+    /// time, before Step 0 retags), at their final names. A file merely named
+    /// the way this run names its files (an older song GAMDL skipped) is in
+    /// `this_download` but not here. Only these are ever upgraded from an
+    /// extra copy. `None` (not known) means no main file is upgraded.
+    pub written_this_run: Option<std::collections::BTreeSet<PathBuf>>,
 }
 
 /// The files the final advisory pass handles: this download's files that
@@ -2151,6 +2157,7 @@ mod tests {
             before_companions: audio_files_in(dir.path()),
             ttml_before_companions: ttml_files_in(dir.path()),
             download_started_at: None,
+            written_this_run: None,
         };
         // A companion copy arrives afterwards.
         let copy = dir.path().join("01 A [Lossless].m4a");

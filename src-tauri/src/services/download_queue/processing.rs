@@ -3367,6 +3367,10 @@ pub fn process_queue(
                             // whichever folder really holds the files.
                             let mut file_codecs = file_codecs;
                             let mut this_download_paths = this_download_paths;
+                            // Which files this run wrote (judged at snapshot
+                            // time), followed through the folder rename below.
+                            let mut written_now: std::collections::BTreeSet<std::path::PathBuf> =
+                                fresh_files.iter().cloned().collect();
                             if enrich_settings.content_advisory_in_filenames {
                                 if let Some(ref meta) = album_metadata {
                                     let new_dir =
@@ -3389,6 +3393,10 @@ pub fn process_queue(
                                             .map(|(p, c)| {
                                                 (super::lyrics_pass::remap_path(&p, &old, &new), c)
                                             })
+                                            .collect();
+                                        written_now = written_now
+                                            .iter()
+                                            .map(|p| super::lyrics_pass::remap_path(p, &old, &new))
                                             .collect();
                                         album_dir = new_dir.clone();
                                         if single_album_link {
@@ -3469,6 +3477,15 @@ pub fn process_queue(
                                     )
                                     .ok()
                                     .map(std::time::SystemTime::from),
+                                    // Only files this run wrote may be upgraded
+                                    // from an extra copy, at their final names.
+                                    written_this_run: Some(
+                                        renamed_primary
+                                            .iter()
+                                            .filter(|r| written_now.contains(&r.original_path))
+                                            .map(|r| r.final_path.clone())
+                                            .collect(),
+                                    ),
                                 });
                             }
                             // The same artist and fallback title the Lyricsfile
