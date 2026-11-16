@@ -6,35 +6,37 @@
 
 # Disclaimer
 
-## Important Notice
+## Important notice
 
-MeedyaDL is provided "as is" without warranty of any kind, express or implied.
+MeedyaDL is provided "as is", with no promise of any kind, spoken or written.
 
-### Third-Party Dependencies
+### Other people's software
 
-MeedyaDL relies on several third-party libraries and services to function, including but not limited to:
+MeedyaDL relies on software and services made by other people, including:
 
-- **GAMDL** — the core download engine
-- **Python** — runtime environment for GAMDL
-- **FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo** — media processing tools
+- **GAMDL**, the tool MeedyaDL uses for Apple Music
+- **Python**, which GAMDL runs on
+- **FFmpeg, MP4Box, MediaInfo** and other media tools that MeedyaDL installs for itself (see [Tools](tools.md))
 
-These are independent projects maintained by their respective developers. Changes to these projects may affect MeedyaDL's functionality.
+These are separate projects, run by their own makers. If they change, MeedyaDL may stop working as it should.
 
-### No Guarantees
+### No guarantees
 
-- Quality of service, features, and performance are **not guaranteed**
-- Third-party services may change, become unavailable, or cease to function at any time
-- While we endeavour to provide updates and fixes, this **cannot be guaranteed**
-- The developers accept **no liability** for loss of functionality, data, or service
+- The quality of the service, its features and its speed are **not guaranteed**.
+- Services MeedyaDL works with can change, go away or stop working at any time.
+- We try to provide updates and fixes, but we **cannot promise** them.
+- The developers accept **no responsibility** for lost features, lost data or lost service.
 
-### Your Responsibility
+### Your responsibility
 
-By using MeedyaDL, you acknowledge and accept that:
+By using MeedyaDL, you accept that:
 
-- You are responsible for complying with all applicable laws and terms of service
-- Downloaded content is for personal use in accordance with your existing subscriptions
-- The developers are not responsible for how the software is used
+- You must follow all laws and service terms that apply to you.
+- Downloaded music is for your own personal use, within the limits of the subscriptions you already have.
+- The developers are not responsible for how you use the software.
 
-### License
+### Licence
 
-MeedyaDL is licensed under the MIT License. See the LICENSE file for full details.
+MeedyaDL is released under the MIT Licence. The `LICENSE` file has the full text.
+
+[Back to Help Index](index.md)

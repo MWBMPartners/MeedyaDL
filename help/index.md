@@ -6,7 +6,7 @@
 
 # MeedyaDL Help Center
 
-Welcome to the **MeedyaDL** help documentation. This guide covers everything you need to know about using MeedyaDL, a multiplatform media downloader.
+Welcome to the **MeedyaDL** help documentation. These pages show you how to use MeedyaDL, from first set-up to fixing problems.
 
 These pages can be translated: a translated page lives at `help/<language>/<same file name>.md` (for example, a German translation of this file would be `help/de/index.md`). If a page has no translation yet for your language, the app shows the English original with a note explaining that it isn't translated yet, rather than a blank page.
 
@@ -22,16 +22,16 @@ These pages can be translated: a translated page lives at `help/<language>/<same
 
 - [Downloading Music](downloading-music.md) — How to download songs, albums, and playlists from Apple Music.
 - [Downloading Videos](downloading-videos.md) — How to download music videos and post videos, including quality options.
-- [Lyrics and Metadata](lyrics-and-metadata.md) — Working with LRC, SRT, and TTML lyric formats, and embedding metadata into downloaded files.
-- [Metadata Mapping Reference](metadata-mapping.md) — Canonical reference for every tag MeedyaDL writes: standard MP4 atoms, Apple proprietary IDs, iTunes freeform, MeedyaMeta freeform, per-format support, and API source mapping.
+- [Lyrics and Metadata](lyrics-and-metadata.md) — Lyric formats, cover art, and the tags saved inside your downloaded files.
+- [Metadata Mapping Reference](metadata-mapping.md) — The full list of tags MeedyaDL saves in your files, and which file types support them.
 
 ### Configuration and Quality
 
 - [Quality Settings](quality-settings.md) — Understanding audio codecs, video codecs, and format differences.
 - [Fallback Quality](fallback-quality.md) — How fallback quality chains work and how to configure priority orders.
 - [Cookie Management](cookie-management.md) — Exporting cookies from your browser, importing them into MeedyaDL, and troubleshooting expiry issues.
-- [Wrapper Authentication](wrapper.md) — Optional wrapper-v1 (GAMDL ≤ 3.5.x) and wrapper-v2 (GAMDL 3.6+) for ALAC / Atmos / AC3 / spatial-audio downloads.
-- [Animated Artwork](animated-artwork.md) — Downloading animated cover art from Apple Music using MusicKit credentials.
+- [Wrapper Authentication](wrapper.md) — An optional sign-in method for lossless and spatial-audio downloads, and how to set it up.
+- [Animated Artwork](animated-artwork.md) — Saving animated cover art, and what you need for it.
 - [Audio Codecs](audio-codecs.md) — What ALAC, Dolby Atmos, AC3 and the AAC variants actually mean, and which one to pick.
 - [Settings](settings.md) — What each tab in the Settings screen controls.
 - [Tools](tools.md) — The external programs MeedyaDL installs for itself, how to manage them, and how they are kept up to date.
@@ -61,9 +61,9 @@ If you are new to MeedyaDL, we recommend starting with the [Getting Started](get
 
 ## About MeedyaDL
 
-MeedyaDL is a multiplatform media downloader built with [Tauri](https://tauri.app/) and [React](https://react.dev/). It supports multiple media services through a plugin-based engine architecture: Apple Music (via GAMDL) is fully available today; Spotify (via votify) is in development and not available yet; YouTube (via yt-dlp) and BBC iPlayer (via get_iplayer/yt-dlp) are planned for future releases.
+MeedyaDL is a media downloader for Windows, macOS and Linux. Apple Music is fully available today. Spotify is in development and not available yet. YouTube and BBC iPlayer are planned for future releases. See [Supported Services](supported-services.md).
 
-- **License:** MIT
+- **Licence:** MIT
 - **Author:** MeedyaSuite
 
 ---

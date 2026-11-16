@@ -174,7 +174,7 @@ Choose Custom for a mix the other modes don't cover, such as AAC Binaural and AL
 <details>
 <summary>More detail: extra information saved inside the files</summary>
 
-MeedyaDL also saves extra information inside special-format files, so other programs can tell what they are. ALAC files get `isLossless = Y`. Dolby Atmos files get `SpatialType = Dolby Atmos`. See [Lyrics and Metadata](lyrics-and-metadata.md#custom-codec-metadata-tags) for more.
+MeedyaDL also saves extra information inside special-format files, so other programs can tell what they are. ALAC files get `isLossless = Y`. Dolby Atmos files get `SpatialType = Dolby Atmos`. See [Lyrics and Metadata](lyrics-and-metadata.md#what-meedyadl-adds-after-each-download) for more.
 
 </details>
 

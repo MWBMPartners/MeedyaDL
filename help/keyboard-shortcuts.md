@@ -6,46 +6,49 @@
 
 # Keyboard Shortcuts
 
-MeedyaDL supports keyboard shortcuts for fast navigation and common actions.
+Keyboard shortcuts let you move around MeedyaDL and do common jobs without the mouse.
+
+On a Mac, use the **Cmd** (⌘) key. On Windows and Linux, use **Ctrl**. The tables below write this as **Cmd/Ctrl**.
 
 ## Navigation
 
-| Shortcut | Action |
-|----------|--------|
-| **Cmd/Ctrl + D** | Go to Download page and focus the URL input |
-| **Cmd/Ctrl + J** | Go to Queue page |
-| **Cmd/Ctrl + L** | Go to Library page |
-| **Cmd/Ctrl + Y** | Go to History page |
-| **Cmd/Ctrl + K** | Go to Activity page |
-| **Cmd/Ctrl + ,** | Go to Settings page |
+| Shortcut | What it does |
+| --- | --- |
+| **Cmd/Ctrl + D** | Go to the Download page and put the cursor in the link box |
+| **Cmd/Ctrl + J** | Go to the Queue page |
+| **Cmd/Ctrl + L** | Go to the Library page |
+| **Cmd/Ctrl + Y** | Go to the History page |
+| **Cmd/Ctrl + K** | Go to the Activity page |
+| **Cmd/Ctrl + ,** | Go to Settings |
+
+**Cmd/Ctrl + D** leaves anything already typed in the link box as it is.
 
 ## Actions
 
-| Shortcut | Action |
-|----------|--------|
-| **Enter** | Submit download (when the URL input is focused) |
-| **Shift + Enter** | Insert a newline in the URL input (multi-URL mode) |
-| **Cmd/Ctrl + Shift + .** | Abort every active and queued download. It asks you to confirm first, unless you ticked **Don't ask again** in the Abort Queue window — turn that question back on any time in Settings > General > Preferences. (On most keyboards this is the key with the full stop and the > sign.) |
-| **Cmd/Ctrl + Shift + ?** | Open this keyboard-shortcuts reference from anywhere in the app |
-| **Escape** | Close the active modal or dialog |
+| Shortcut | What it does |
+| --- | --- |
+| **Enter** | Add the links in the box to the queue (while the cursor is in the link box) |
+| **Shift + Enter** | Start a new line in the link box, so you can paste several links |
+| **Cmd/Ctrl + Shift + .** | Abort every active and waiting download. It asks you to confirm first, unless you ticked **Don't ask again** in the Abort Queue window. You can turn that question back on in **Settings > General > Preferences**. On most keyboards the key is the one with the full stop. |
+| **Cmd/Ctrl + Shift + ?** | Open the list of shortcuts from anywhere in the app |
+| **Escape** | Close the window that is open |
 
 ## Notes
 
-- On **macOS**, use the **Cmd** (⌘) key
-- On **Windows/Linux**, use the **Ctrl** key
-- Shortcuts are disabled when typing in text fields to prevent accidental navigation
-- The Activity Log supports text selection and copy (Cmd/Ctrl + C)
-- **Cmd/Ctrl + D** takes you to the Download page and puts the cursor in the URL box. Anything already typed there is left as it is.
+- Shortcuts that move you around or do something are switched off while you are typing in a text box, so they cannot get in your way.
+- You can select text in the Activity page and copy it with **Cmd/Ctrl + C**.
 
 ## Modal Shortcuts
 
-When a modal dialog is open (e.g., Crash Report, file picker):
+When a window (a dialog) is open:
 
-- **Escape** closes the modal and returns focus to the main content.
-- Tab key cycles through focusable elements within the modal (focus trapping).
+- **Escape** closes it and puts you back where you were.
+- **Tab** moves only between the things inside it.
 
 ## Accessibility
 
-- **Tab** moves focus forward through interactive elements.
-- **Shift + Tab** moves focus backward.
-- **Skip to main content** link appears on first Tab press (top-left corner).
+- **Tab** moves forward through buttons and fields.
+- **Shift + Tab** moves back.
+- The first time you press **Tab**, a **Skip to main content** link appears in the top-left corner. Use it to jump past the menu.
+
+[Back to Help Index](index.md)
