@@ -804,6 +804,9 @@ pub fn process_queue(
                     &settings_for_companion.companion_mode,
                     &settings_for_companion.custom_companion_codecs,
                 ) {
+                    // One suffix only, even if a format fallback already
+                    // left one in the saved options.
+                    strip_added_codec_suffixes(&mut download_options);
                     apply_codec_suffix(&mut download_options);
                     log::info!(
                         "Download {} using codec with file suffix (companion mode: {:?})",
@@ -1736,6 +1739,7 @@ pub fn process_queue(
                                     uses_native_priority,
                                     &traits,
                                     None,
+                                    super::lyrics_pass::primary_name_suffix(&download_options),
                                 );
 
                                 // Continue processing remaining queued items
@@ -4181,9 +4185,8 @@ pub fn process_queue(
                         Some(CompanionHold {
                             waiter: companion_gate_waiter,
                             download_root: primary_download_folder.clone(),
-                            primary_named_with_format:
-                                super::lyrics_pass::primary_name_suffix(&download_options).is_some(),
                         }),
+                        super::lyrics_pass::primary_name_suffix(&download_options),
                     );
 
                     // Spawn a completion task that waits for ALL background work
@@ -5360,6 +5363,7 @@ pub fn process_queue(
                                 uses_native_priority,
                                 &traits,
                                 None,
+                                super::lyrics_pass::primary_name_suffix(&download_options),
                             );
                         } else {
                             emit_download_log(

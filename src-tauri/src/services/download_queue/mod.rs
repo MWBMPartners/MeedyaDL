@@ -1392,6 +1392,10 @@ impl DownloadQueue {
             // --song-codec but also overrides the config.ini key.
             new_options.song_codec_priority = Some(next_codec.to_runtime_cli_string().to_string());
 
+            // Remove the suffix an earlier fallback added, so suffixes never
+            // pile up (`{title} [Dolby Atmos] [Lossless]`) and a format that
+            // needs none does not keep the previous one's.
+            strip_added_codec_suffixes(&mut new_options);
             // If the companion mode would produce companions for this fallback
             // codec, apply the codec suffix to file templates so the specialist
             // format files don't collide with the companion files.
