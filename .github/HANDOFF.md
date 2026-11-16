@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-11-15 — see ★★★★ LATEST below
+**Last updated:** 2026-11-16 — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.88** · `beta` **1.9.4-beta.20** · `release-candidate` **1.0.0-rc.47** — read from each branch's `package.json` on 12 Nov.
+**Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.90** · `beta` **1.9.4-beta.22** · `release-candidate` **1.0.0-rc.49** — read from each branch's `package.json` on 16 Nov.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,71 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-11-15: GAMDL 4.0.1 checked; 4.0.0 refused; dependency refresh; combined PR to alpha queued
+## ★★★★ LATEST — 2026-11-16: two releases split across a stray draft (recovery to run from a local PC); duplicate-release fix for beta and release-candidate
+
+### What went wrong
+
+`v1.9.4-beta.22` and `v1.0.0-rc.28` each have **two** GitHub Releases on one tag: a published one missing some installers, and a draft holding the rest. On `beta` and `release-candidate` the release workflow had no job creating the release before the builds started, so each build job looked for a draft itself. That look-up pages through every release (GitHub's look-up by tag does not return drafts), takes about 6 seconds, and two builds finishing within that window each created a release. The final step works by tag, so it saw only one of the two: it published that one and built `latest.json` from its files alone.
+
+- **beta.22:** the published release (ID `446756019`) lacks the Windows x64 installer and the Linux ARM64 `.deb`/`.rpm` (and their `.sig` files); its `latest.json` has no `windows-x86_64`, so Windows x64 beta users are not offered beta.22. Those 6 files are on the draft (ID `446756034`).
+- **rc.28:** published `370738703`, draft `370738726` (8 files: Linux x64 and Windows ARM64). Long superseded, so low priority.
+- `main` and `alpha` were already safe (their `ensure-release` job, from #1141). These are the only two duplicated tags among all releases (checked 16 Nov).
+- GitHub refuses to publish the draft ("tag name has already been taken") because only one published release may use a tag. **Do not "Discard draft" until its files are moved**, and **never** run `gh release delete <tag>` — it resolves to the published release. Delete the draft by its ID only.
+
+### Recovery — to run later from a local PC (needs `gh` signed in with write access)
+
+The cloud session cannot change release files, so this is left to run by hand. Replace `TAG`, `PUB` and `DRAFT` for each release.
+
+```bash
+REPO=MWBMPartners/MeedyaDL
+TAG=v1.9.4-beta.22; PUB=446756019; DRAFT=446756034
+# For rc.28 instead: TAG=v1.0.0-rc.28; PUB=370738703; DRAFT=370738726
+
+# 1. Confirm the IDs: exactly these two releases use the tag, one draft and one published.
+gh api "repos/$REPO/releases?per_page=100" --paginate \
+  --jq ".[] | select(.tag_name == \"$TAG\") | [.id, .draft, (.assets | length)] | @tsv"
+
+# 2. Download every file from the draft, by asset ID (look-up by tag only reaches the published one).
+mkdir -p "recover-$TAG" && cd "recover-$TAG"
+gh api "repos/$REPO/releases/$DRAFT" --jq '.assets[] | "\(.id)\t\(.name)\t\(.digest)"' > draft-assets.tsv
+while IFS=$'\t' read -r ID NAME DIGEST; do
+  gh api "repos/$REPO/releases/assets/$ID" -H 'Accept: application/octet-stream' > "$NAME"
+  echo "$NAME  expected $DIGEST  got sha256:$(shasum -a 256 "$NAME" | cut -d' ' -f1)"
+done < draft-assets.tsv
+# Check every "expected" matches "got" before going on.
+
+# 3. Check none of these names is already on the published release, then upload them to it.
+gh api "repos/$REPO/releases/$PUB" --jq '.assets[].name'
+gh release upload "$TAG" --repo "$REPO" $(cut -f2 draft-assets.tsv)   # no --clobber
+
+# 4. Rebuild the update manifest from the now-complete release (main's copy of the workflow).
+gh workflow run "Fix Updater Manifest" --repo "$REPO" -f tag="$TAG"
+# When it has finished, check the keys include windows-x86_64 and windows-x86_64-nsis:
+curl -sL "https://github.com/$REPO/releases/download/$TAG/latest.json" | jq '.platforms | keys'
+
+# 5. Only now delete the draft, by ID. Never pass --cleanup-tag, never delete by tag.
+gh api -X DELETE "repos/$REPO/releases/$DRAFT"
+```
+
+The same can be done in the web interface: download the draft's files, **Edit** the published release and attach them, run **Actions → Fix Updater Manifest** with the tag, then **Discard draft** on the draft (that button deletes only the draft).
+
+Even after recovery, beta.22 has no ARMv7 update entry: beta's ARMv7 build uploads no `.sig` files (the older fault fixed on `main`/`alpha` under #1166). Same as beta.21.
+
+### The fix for next time (maintainer asked, 16 Nov, for it to go straight onto `beta` and `release-candidate`)
+
+A self-contained `ensure-release` job added to each branch's `release.yml`: it creates the draft once before any build starts, and refuses to build if the tag already has more than one release. `publish` waits for it, and `finalize-release` now first checks there is exactly one release for the tag and fails loudly otherwise, instead of publishing half a release. Main's own `ensure-release` was not copied across: it depends on release-notes scripts and templates those branches do not have. The body it writes matches what tauri-action used to write, so the download guide is appended as before. Status, commits and the resulting beta/rc builds are tracked in the table below.
+
+| # | Task | Status | Notes |
+|---|---|---|---|
+| 1 | Merge #1422 (Rust 1.100.0) into `main` | **Merged** (`bb5864f6`) | All checks green before merging. Main's follow-on workflows watched from the session. |
+| 2 | Duplicate-release fix on `beta` and `release-candidate` | In progress | Reviewed by a fresh Claude agent before pushing (Codex unavailable). Pushing to either branch also cuts the next beta / rc build, which will be the first to use it. |
+| 3 | Recover beta.22 and rc.28 | **Waiting — maintainer, from a local PC** | Steps above. |
+| 4 | `chore/rust-toolchain-bump-1.100.0-alpha` | Safe to delete | Its one change is on `work-in-progress` (`git cherry` shows `-`); its PR #1421 is closed. |
+| 5 | Code-scanning #24, #27, #28 | Fixed on `work-in-progress` (`c875e681`, `b529a35b`) | Close by themselves when #1420 merges into `alpha`. The other alerts on #1420 were dismissed by the maintainer as false alarms or test-only code. |
+
+---
+
+## ★★★★ Previous — 2026-11-15: GAMDL 4.0.1 checked; 4.0.0 refused; dependency refresh; combined PR to alpha queued
 
 The maintainer asked for a full check of GAMDL 4.0.1 (14 Nov), and, before that, for the newest dependency updates on this branch plus one combined PR to `alpha` that also replaces the open Dependabot PRs for `alpha`.
 
