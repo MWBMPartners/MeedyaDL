@@ -119,9 +119,10 @@ export function MvGapFillModal({
                 same names are replaced.
               </p>
               <p>
-                Extra copies in other formats are not downloaded again in their
-                updated version. An extra copy whose file name matches the
-                updated download&apos;s may be replaced by it.
+                Extra copies in other formats already in the folder are usually
+                left as they are, not updated. One whose file name matches the
+                updated download&apos;s may be replaced by it and then downloaded
+                again.
               </p>
               <p>
                 Music video companion is{' '}
