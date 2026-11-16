@@ -536,14 +536,15 @@ pub struct EnrichedTagsResult {
 /// that arrived in the meantime are left to the final advisory pass after
 /// they finish (`apply_advisory_suffixes_from_tags`), as before.
 ///
-/// Returns the files' final paths, in the same order (a file that no
-/// longer exists is left out).
+/// Returns what happened to each file, in the same order (a file that no
+/// longer exists is left out); [`renames_complete`] says whether every
+/// suffix really landed.
 pub fn apply_deferred_file_renames(
     primary_files: &[PathBuf],
     album_metadata: Option<&AlbumMetadata>,
     file_codecs: &[(PathBuf, SongCodec)],
     advisory_on: bool,
-) -> Vec<PathBuf> {
+) -> Vec<DeferredRename> {
     let mut finals = Vec::with_capacity(primary_files.len());
     for file in primary_files {
         if !file.is_file() {
@@ -559,9 +560,40 @@ pub fn apply_deferred_file_renames(
             .find(|(p, _)| p == file)
             .and_then(|(_, c)| codec_suffix_from_registry(c))
             .filter(|s| !s.is_empty());
-        finals.push(rename_with_suffixes(file, advisory, codec));
+        let final_path = rename_with_suffixes(file, advisory, codec);
+        finals.push(DeferredRename {
+            final_path,
+            wanted: advisory.into_iter().chain(codec).collect(),
+        });
     }
     finals
+}
+
+/// One primary file after [`apply_deferred_file_renames`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeferredRename {
+    /// Where the file is now.
+    pub final_path: PathBuf,
+    /// The suffixes it was meant to get (advisory, format).
+    pub wanted: Vec<&'static str>,
+}
+
+/// Whether every wanted suffix is really in each file's final name. A
+/// rename can fail (the file is locked, the name is taken); the file then
+/// keeps its old name, and this says so.
+#[must_use]
+pub fn renames_complete(results: &[DeferredRename]) -> bool {
+    results.iter().all(|r| {
+        let name = r
+            .final_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        r.wanted
+            .iter()
+            .all(|w| name.contains(&w.to_ascii_lowercase()))
+    })
 }
 
 /// The advisory suffix for one track file, from its track and disc
@@ -3461,7 +3493,9 @@ mod tests {
         );
 
         let expected = dir.path().join("01 T [Explicit] [Lossless].m4a");
-        assert_eq!(finals, vec![expected.clone()]);
+        assert_eq!(finals[0].final_path, expected);
+        assert_eq!(finals[0].wanted, vec!["[Explicit]", "[Lossless]"]);
+        assert!(renames_complete(&finals));
         assert!(expected.is_file());
         for ext in ALL_SIDECARS {
             let moved = dir.path().join(format!("01 T [Explicit] [Lossless].{ext}"));
@@ -3470,6 +3504,28 @@ mod tests {
         }
         assert!(companion.exists());
         assert!(dir.path().join("01 T [Dolby Atmos].ttml").exists());
+    }
+
+    #[test]
+    fn a_failed_rename_is_reported_as_incomplete() {
+        // The rename failed: the file kept its old name although a format
+        // suffix was wanted.
+        let failed = DeferredRename {
+            final_path: PathBuf::from("/a/01 T.m4a"),
+            wanted: vec!["[Lossless]"],
+        };
+        assert!(!renames_complete(&[failed]));
+        // Only the advisory part landed.
+        let half = DeferredRename {
+            final_path: PathBuf::from("/a/01 T [Explicit].m4a"),
+            wanted: vec!["[Explicit]", "[Lossless]"],
+        };
+        assert!(!renames_complete(&[half]));
+        let done = DeferredRename {
+            final_path: PathBuf::from("/a/01 T [Explicit] [Lossless].m4a"),
+            wanted: vec!["[Explicit]", "[Lossless]"],
+        };
+        assert!(renames_complete(&[done]));
     }
 
     #[test]
@@ -3484,7 +3540,8 @@ mod tests {
             &[(audio.clone(), SongCodec::Alac)],
             true,
         );
-        assert_eq!(finals, vec![dir.path().join("02 U [Lossless].m4a")]);
+        assert_eq!(finals.len(), 1);
+        assert_eq!(finals[0].final_path, dir.path().join("02 U [Lossless].m4a"));
         assert!(dir.path().join("02 U [Lossless].ttml").exists());
 
         // A plain AAC file keeps its name (empty suffix); a missing file is skipped.
@@ -3497,7 +3554,11 @@ mod tests {
             &[(aac.clone(), SongCodec::Aac)],
             false,
         );
-        assert_eq!(finals, vec![aac]);
+        assert_eq!(finals.len(), 1);
+        assert_eq!(finals[0].final_path, aac);
+        // Nothing was wanted for a plain AAC file, so nothing is missing.
+        assert!(finals[0].wanted.is_empty());
+        assert!(renames_complete(&finals));
     }
 
     #[test]

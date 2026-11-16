@@ -858,6 +858,30 @@ pub(crate) fn literal_folder_template(album_dir: &Path, download_root: &Path) ->
     Some(parts.join("/"))
 }
 
+/// Whether the fixed folder template from [`literal_folder_template`] may
+/// be used with these options: only when neither album file template
+/// (single-disc, multi-disc) adds a folder level of its own.
+///
+/// With a file template such as `Disc {disc}/{track:02d} {title}`, the
+/// folder enrichment found may be the disc folder rather than the album
+/// folder, and GAMDL would add the template's own `Disc N` under the fixed
+/// path (`Album/Disc 2/Disc 1/…`). Working out how many levels to strip
+/// would depend on which folder enrichment happened to find, so the fixed
+/// template is simply not used then, and the usual template applies.
+///
+/// The playlist and no-album file templates are not checked: the fixed
+/// template replaces only the album and compilation FOLDER templates, and
+/// GAMDL pairs those with the two album file templates alone.
+pub(crate) fn file_templates_allow_fixed_folder(options: &GamdlOptions) -> bool {
+    [
+        options.single_disc_file_template.as_deref(),
+        options.multi_disc_file_template.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .all(|t| !t.contains('/') && !t.contains('\\'))
+}
+
 /// How the pass ended, for its summary line.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PassEnd {
@@ -1694,5 +1718,30 @@ mod tests {
             literal_folder_template(Path::new("/Elsewhere/A"), root),
             None
         );
+    }
+
+    #[test]
+    fn a_file_template_with_its_own_folder_level_turns_the_fixed_folder_off() {
+        let plain = GamdlOptions {
+            single_disc_file_template: Some("{track:02d} {title}".into()),
+            multi_disc_file_template: Some("{disc}-{track:02d} {title}".into()),
+            // A playlist file template is not used for album links.
+            playlist_file_template: Some(
+                "Playlists/{playlist_artist}/{playlist_title} ({playlist_id})".into(),
+            ),
+            ..GamdlOptions::default()
+        };
+        assert!(file_templates_allow_fixed_folder(&plain));
+        assert!(file_templates_allow_fixed_folder(&GamdlOptions::default()));
+        let disc_folders = GamdlOptions {
+            multi_disc_file_template: Some("Disc {disc}/{track:02d} {title}".into()),
+            ..plain.clone()
+        };
+        assert!(!file_templates_allow_fixed_folder(&disc_folders));
+        let single = GamdlOptions {
+            single_disc_file_template: Some("CD/{track:02d} {title}".into()),
+            ..plain
+        };
+        assert!(!file_templates_allow_fixed_folder(&single));
     }
 }

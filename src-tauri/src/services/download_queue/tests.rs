@@ -3386,7 +3386,7 @@
                 apply_suffix: false,
             },
         ];
-        let skipped = force_suffixes_for_unrenamed_primary(&mut tiers);
+        let skipped = force_suffixes_for_unrenamed_primary(&mut tiers, false);
         assert_eq!(skipped, vec!["aac".to_string(), "aac".to_string()]);
         // Tier numbers still match the plan; every tier is suffixed.
         assert_eq!(tiers.len(), 3);
@@ -3394,6 +3394,20 @@
         assert_eq!(tiers[0].codecs_to_try, vec![SongCodec::Alac]);
         assert_eq!(tiers[1].codecs_to_try, vec![SongCodec::AacLegacy]);
         assert!(tiers[2].codecs_to_try.is_empty());
+    }
+
+    #[test]
+    fn a_primary_named_with_its_format_keeps_the_plain_named_copies() {
+        // Single-format mode with extra copies: the primary's template
+        // already says `[Dolby Atmos]`, so a plain AAC copy cannot collide.
+        let mut tiers = vec![CompanionTier {
+            codecs_to_try: vec![SongCodec::Aac],
+            apply_suffix: false,
+        }];
+        let skipped = force_suffixes_for_unrenamed_primary(&mut tiers, true);
+        assert!(skipped.is_empty());
+        assert_eq!(tiers[0].codecs_to_try, vec![SongCodec::Aac]);
+        assert!(tiers[0].apply_suffix);
     }
 
     #[test]

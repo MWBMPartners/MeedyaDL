@@ -3110,7 +3110,8 @@ pub fn process_queue(
                             }
                             // Whether every primary file was tagged with a known
                             // format, so the format suffix could be added to
-                            // each. If not, the companions add a suffix to all
+                            // each — and (below) whether every rename really
+                            // landed. If not, the companions add a suffix to all
                             // of their files instead, so none can take a
                             // primary file's plain name.
                             let every_file_has_its_format = codec.is_some()
@@ -3129,7 +3130,10 @@ pub fn process_queue(
                                 renamed_primary.len()
                             );
                             // Every name is final: the companions may start.
-                            companion_gate.release(every_file_has_its_format);
+                            companion_gate.release(
+                                every_file_has_its_format
+                                    && super::metadata_tag_service::renames_complete(&renamed_primary),
+                            );
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));
 
@@ -4177,6 +4181,8 @@ pub fn process_queue(
                         Some(CompanionHold {
                             waiter: companion_gate_waiter,
                             download_root: primary_download_folder.clone(),
+                            primary_named_with_format:
+                                super::lyrics_pass::primary_name_suffix(&download_options).is_some(),
                         }),
                     );
 

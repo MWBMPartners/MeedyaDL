@@ -2470,10 +2470,21 @@ impl CompanionTaskProgress {
 /// AAC — its copy would have exactly the primary's plain name) are taken
 /// out. A tier left with no format stays in place (so tier numbers still
 /// match the plan) and is passed over. Returns the formats taken out.
-pub(crate) fn force_suffixes_for_unrenamed_primary(tiers: &mut [CompanionTier]) -> Vec<String> {
+///
+/// `primary_named_with_format`: the primary run's own file template
+/// already carried a format suffix (single-format mode with extra copies),
+/// so its files never had the plain name and a plain-named copy cannot
+/// collide; nothing is taken out then.
+pub(crate) fn force_suffixes_for_unrenamed_primary(
+    tiers: &mut [CompanionTier],
+    primary_named_with_format: bool,
+) -> Vec<String> {
     let mut skipped = Vec::new();
     for tier in tiers.iter_mut() {
         tier.apply_suffix = true;
+        if primary_named_with_format {
+            continue;
+        }
         tier.codecs_to_try.retain(|c| {
             let keep = codec_suffix(c).is_some_and(|s| !s.is_empty());
             if !keep {
@@ -2493,6 +2504,9 @@ pub(crate) struct CompanionHold {
     pub waiter: super::lyrics_pass::CompanionGateWaiter,
     /// The primary run's resolved download folder.
     pub download_root: Option<String>,
+    /// The primary run's file template carried a format suffix
+    /// (`lyrics_pass::primary_name_suffix` is `Some`).
+    pub primary_named_with_format: bool,
 }
 
 // The argument list is long because this function is the seam between
@@ -2658,7 +2672,10 @@ pub(crate) fn spawn_companion_downloads(
                     // told): give every extra copy a format suffix, and
                     // leave out any format whose suffix is empty (standard
                     // AAC), so none can land on a primary file's name.
-                    let skipped = force_suffixes_for_unrenamed_primary(&mut companion_tiers);
+                    let skipped = force_suffixes_for_unrenamed_primary(
+                        &mut companion_tiers,
+                        hold.primary_named_with_format,
+                    );
                     if !skipped.is_empty() {
                         emit_download_log(
                             &comp_app,
@@ -2680,7 +2697,9 @@ pub(crate) fn spawn_companion_downloads(
                         .as_deref()
                         .filter(|p| !p.trim().is_empty())
                         .unwrap_or(root);
-                    if own_root == root {
+                    if own_root == root
+                        && super::lyrics_pass::file_templates_allow_fixed_folder(&comp_base_opts)
+                    {
                         if let Some(template) = super::lyrics_pass::literal_folder_template(
                             std::path::Path::new(dir),
                             std::path::Path::new(root),
