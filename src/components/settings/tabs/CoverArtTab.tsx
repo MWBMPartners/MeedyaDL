@@ -305,7 +305,7 @@ export function CoverArtTab() {
           {animatedEnabled.value && (
             <Toggle
               label="Download Artist Promo Video"
-              description="Download the animated background video from the artist's Apple Music page and save it as ArtistCover.mp4 in the artist folder. Not all artists have a promo video. Skipped automatically if already downloaded."
+              description="Download the animated background video from the artist's Apple Music page and save it as ArtistSpotlightCover.mp4 in the artist folder. Not all artists have a promo video. Skipped automatically if already downloaded."
               checked={artistPromo.value}
               onChange={artistPromo.set}
             />
