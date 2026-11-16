@@ -403,6 +403,7 @@ fn process_copy(
     artist: Option<&str>,
     default_title: Option<&str>,
     stop_requested: &dyn Fn() -> bool,
+    source_ttml_only: bool,
 ) -> CopyOutcome {
     // Remember whether a stop really skipped a step: `stop` is only asked
     // when the step would otherwise run.
@@ -418,7 +419,20 @@ fn process_copy(
     let keep = s.keep_lyrics_sidecar;
     let own_texts = read_lyric_texts(copy);
     let own_quality = quality_of_texts(&own_texts);
-    let primary_texts = primary_audio.map(read_lyric_texts);
+    // For an upgrade (`source_ttml_only`), only the source's `.ttml` is
+    // used: it is the one file checked as written by this download, while
+    // a `.lrc`/`.srt` beside it could be a leftover nothing can date.
+    let primary_texts = primary_audio.map(|p| {
+        let t = read_lyric_texts(p);
+        if source_ttml_only {
+            super::lyrics_steps::LyricTexts {
+                ttml: t.ttml,
+                ..super::lyrics_steps::LyricTexts::default()
+            }
+        } else {
+            t
+        }
+    });
     let primary_quality = primary_texts.as_ref().map(quality_of_texts);
 
     let source = choose_source(primary_quality, own_quality);
@@ -748,6 +762,7 @@ pub(crate) fn run_main_files_own(
             lyrics_artist,
             default_title,
             stop,
+            false,
         );
         if tally_main(&mut summary, outcome) {
             return summary;
@@ -876,6 +891,7 @@ pub(crate) async fn run_main_files_own_locked(
             lyrics_artist,
             default_title,
             stop,
+            false,
         );
         if !matches!(outcome, CopyOutcome::Stopped) {
             restore.done(file);
@@ -1154,6 +1170,7 @@ fn upgrade_main(
         lyrics_artist,
         default_title,
         stop,
+        true,
     )
 }
 
@@ -1205,6 +1222,7 @@ fn process_planned(
         lyrics_artist,
         default_title,
         stop,
+        false,
     )
 }
 
@@ -2907,6 +2925,42 @@ mod tests {
         let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
         assert_eq!(s.main_upgraded, 1);
         assert!(read(&main.with_extension("ttml")).contains("<span"));
+    }
+
+    #[test]
+    fn an_upgrade_never_embeds_a_leftover_srt_from_the_copy() {
+        let (dir, scope, main) = album();
+        let scope = AdvisoryScope {
+            download_started_at: Some(started()),
+            ..scope
+        };
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+        // A leftover `.srt` beside the copy, from an older download.
+        std::fs::write(
+            copy.with_extension("srt"),
+            "1\n00:00:01,000 --> 00:00:02,000\nOLD LEFTOVER\n",
+        )
+        .unwrap();
+        let settings = AppSettings {
+            embed_subtitles: true,
+            keep_lyrics_sidecar: false,
+            ..all_on()
+        };
+        let s = run_copies(&settings, &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 1);
+        let tag = mp4ameta::Tag::read_from_path(&main).unwrap();
+        let embedded: Option<String> = tag
+            .data_of(&mp4ameta::FreeformIdent::new_static(
+                "com.apple.iTunes",
+                "subtitles-srt",
+            ))
+            .next()
+            .and_then(|d| d.string().map(str::to_owned));
+        assert!(
+            !embedded.unwrap_or_default().contains("OLD LEFTOVER"),
+            "the copy's leftover .srt reached the main file"
+        );
     }
 
     #[test]
