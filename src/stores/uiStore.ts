@@ -71,13 +71,18 @@ export function setToastDismissalPaused(paused: boolean): void {
     return;
   }
   if (dismissalPausedAt === null) return;
-  const pausedFor = Date.now() - dismissalPausedAt;
+  const pausedAt = dismissalPausedAt;
+  const now = Date.now();
   dismissalPausedAt = null;
-  if (pausedFor <= 0) return;
+  // Each toast gets back only the time it actually spent paused: a toast
+  // that arrived during the pause started counting from its own arrival,
+  // so it is extended from then, not from when the pause began.
   useUiStore.setState((state) => ({
-    toasts: state.toasts.map((t) =>
-      t.expiresAt == null ? t : { ...t, expiresAt: t.expiresAt + pausedFor }
-    ),
+    toasts: state.toasts.map((t) => {
+      if (t.expiresAt == null) return t;
+      const pausedFor = now - Math.max(pausedAt, t.createdAt ?? pausedAt);
+      return pausedFor > 0 ? { ...t, expiresAt: t.expiresAt + pausedFor } : t;
+    }),
   }));
 }
 
@@ -110,12 +115,6 @@ function ensureDismissalWorker(): void {
 }
 
 /**
- * Test-only: stop the dismissal worker and clear the handle. Lets
- * unit tests start each test with a clean worker state.
- *
- * @internal
- */
-/**
  * The title a page message gets as a system notification, when the caller
  * gives none. Plain, and says which app it is from.
  */
@@ -145,6 +144,12 @@ function askBackendForSystemNotification(
   }
 }
 
+/**
+ * Test-only: stop the dismissal worker and clear the handle. Lets
+ * unit tests start each test with a clean worker state.
+ *
+ * @internal
+ */
 export function __resetToastWorkerForTests(): void {
   dismissalPausedAt = null;
   if (dismissalWorkerHandle !== null) {
@@ -727,7 +732,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 
       const withNewToast = [
         ...filtered,
-        { id, message, type, duration, expiresAt, key, action, details },
+        { id, message, type, duration, expiresAt, createdAt: Date.now(), key, action, details },
       ];
 
       // Enforce the MAX_TOASTS ceiling (see the comment on that constant

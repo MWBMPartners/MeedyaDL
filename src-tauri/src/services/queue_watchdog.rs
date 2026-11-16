@@ -300,18 +300,21 @@ async fn escalate_to_error(
     dl_id: &str,
 ) -> bool {
     let mut q = queue.lock().await;
-    q.set_error(
+    let failed = q.set_error(
         dl_id,
         "Queue watchdog detected a stalled download (no progress for >20 min). Marked failed automatically to keep the queue moving. Already-downloaded files on disk are preserved — retry from History to resume.",
     );
+    if failed {
+        // Counted before the slot is released, so the queue summary that
+        // may follow at once includes it (#1431).
+        crate::services::notification_service::count_result(
+            crate::services::notification_service::NotifyKind::DownloadFailed,
+        );
+    }
     // Best-effort slot release. If the slot was already returned by
     // a legitimate completion racing the watchdog, `on_task_finished`
     // is idempotent.
     q.on_task_finished();
-    let failed = q
-        .get_status()
-        .iter()
-        .any(|item| item.id == dl_id && item.state == DownloadState::Error);
     drop(q);
     let _ = app.emit_to_all_with_str("queue-updated", "watchdog-escalated");
     failed

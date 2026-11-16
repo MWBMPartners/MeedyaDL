@@ -1459,7 +1459,23 @@ pub fn process_queue(
                                 log::warn!(
                                     "Download {dl_id} exited 0 but produced no output: {error_msg}"
                                 );
-                                q.set_error(&dl_id, &error_msg);
+                                // #1431: announce and count only a real change
+                                // (the watchdog may have failed it already).
+                                // Counted here, inside the lock and before the
+                                // slot is released, so the queue summary
+                                // cannot miss it -- unless a retry without the
+                                // wrapper may still follow, in which case it is
+                                // counted below once that is ruled out.
+                                let newly_failed = q.set_error(&dl_id, &error_msg);
+                                let may_retry_without_wrapper = wrapper_url_for_logging.is_some()
+                                    && load_settings_for_queue(&app_clone)
+                                        .auto_retry_without_wrapper;
+                                let counted_in_lock = newly_failed && !may_retry_without_wrapper;
+                                if counted_in_lock {
+                                    crate::services::notification_service::count_result(
+                                        crate::services::notification_service::NotifyKind::DownloadFailed,
+                                    );
+                                }
                                 q.on_task_finished();
                                 drop(q);
                                 emit_download_error(
@@ -1572,8 +1588,20 @@ pub fn process_queue(
                                 // Tell the person (system notification and/or
                                 // in-app message, by the one rule, #1431). Only
                                 // the category goes on, never the raw error.
-                                notify_item_failed(&app_clone, &queue_clone, &dl_id, error_category)
+                                if newly_failed {
+                                    if !counted_in_lock {
+                                        crate::services::notification_service::count_result(
+                                            crate::services::notification_service::NotifyKind::DownloadFailed,
+                                        );
+                                    }
+                                    notify_item_failed(
+                                        &app_clone,
+                                        &queue_clone,
+                                        &dl_id,
+                                        error_category,
+                                    )
                                     .await;
+                                }
 
                                 // Spawn companion downloads even on failure —
                                 // the companion codec may succeed where the primary
@@ -4443,8 +4471,9 @@ pub fn process_queue(
                             // a prominent warning + notification surfaces
                             // the gap instead of a silent "Complete".
                             // Set when the warnings notification has been
-                            // sent, so the same item is not also announced as
-                            // simply "finished" a moment later (#1431).
+                            // found, so the item is announced as "finished
+                            // with warnings" rather than plain "finished"
+                            // (#1431).
                             let mut finished_with_warnings = false;
                             if integrity_failure.is_none() {
                                 if let Some(report) = &integrity_report {
@@ -4458,16 +4487,14 @@ pub fn process_queue(
                                                 report.suspect_files.join(", "),
                                             ),
                                         );
-                                        notify_item_warnings(
-                                            &completion_app,
-                                            &completion_queue,
-                                            &completion_dl_id,
-                                        )
-                                        .await;
                                         finished_with_warnings = true;
                                     }
                                 }
                             }
+
+                            // What to announce once the lock is released
+                            // (#1431); `None` when nothing really changed.
+                            let mut result_to_announce = None;
 
                             // Mark as complete (or errored, when every
                             // probed file came back suspect) and release
@@ -4481,10 +4508,27 @@ pub fn process_queue(
                             // a no-op and we don't double-release.
                             {
                                 let mut q = completion_queue.lock().await;
+                                // #1431: announce and count only a REAL change
+                                // (not an item the watchdog already failed, or
+                                // one cancelled during post-processing), and
+                                // count it here, before the slot is released,
+                                // so the queue summary cannot miss it.
+                                use crate::services::notification_service::{
+                                    count_result, NotifyKind,
+                                };
                                 if let Some(ref msg) = integrity_failure {
-                                    q.set_error(&completion_dl_id, msg);
-                                } else {
-                                    q.set_complete(&completion_dl_id);
+                                    if q.set_error(&completion_dl_id, msg) {
+                                        count_result(NotifyKind::DownloadFailed);
+                                        result_to_announce = Some(NotifyKind::DownloadFailed);
+                                    }
+                                } else if q.set_complete(&completion_dl_id) {
+                                    let kind = if finished_with_warnings {
+                                        NotifyKind::DownloadWarnings
+                                    } else {
+                                        NotifyKind::DownloadComplete
+                                    };
+                                    count_result(kind);
+                                    result_to_announce = Some(kind);
                                 }
                                 q.on_task_finished();
                                 drop(q);
@@ -4504,13 +4548,15 @@ pub fn process_queue(
                                         "guidance": guidance,
                                     }),
                                 );
-                                notify_item_failed(
-                                    &completion_app,
-                                    &completion_queue,
-                                    &completion_dl_id,
-                                    "io",
-                                )
-                                .await;
+                                if result_to_announce.is_some() {
+                                    notify_item_failed(
+                                        &completion_app,
+                                        &completion_queue,
+                                        &completion_dl_id,
+                                        "io",
+                                    )
+                                    .await;
+                                }
                             } else {
                                 emit_download_log(
                                     &completion_app,
@@ -4520,15 +4566,26 @@ pub fn process_queue(
                                 let _ = completion_app.emit("download-complete", &completion_dl_id);
 
                                 // The notification comes AFTER all work finishes,
-                                // and names the item (#1431). Skipped when the
-                                // warnings notification already covered it.
-                                if !finished_with_warnings {
-                                    notify_item_complete(
-                                        &completion_app,
-                                        &completion_queue,
-                                        &completion_dl_id,
-                                    )
-                                    .await;
+                                // and names the item (#1431) -- only when it
+                                // really finished just now.
+                                match result_to_announce {
+                                    Some(crate::services::notification_service::NotifyKind::DownloadWarnings) => {
+                                        notify_item_warnings(
+                                            &completion_app,
+                                            &completion_queue,
+                                            &completion_dl_id,
+                                        )
+                                        .await;
+                                    }
+                                    Some(_) => {
+                                        notify_item_complete(
+                                            &completion_app,
+                                            &completion_queue,
+                                            &completion_dl_id,
+                                        )
+                                        .await;
+                                    }
+                                    None => {}
                                 }
                             }
 
@@ -4594,6 +4651,10 @@ pub fn process_queue(
                     }
 
                     // Determine if we should retry or fallback based on error category
+                    // #1431: whether an arm below really failed the item
+                    // just now (not one the watchdog had already failed), so
+                    // the failure is announced and counted once.
+                    let mut newly_failed = false;
                     let should_retry = match error_category {
                         "codec" => {
                             // Codec/format error: the requested audio codec isn't
@@ -4700,7 +4761,7 @@ pub fn process_queue(
                                 emit_download_log(&app_clone, &dl_id, &failure_log_line);
                             }
                             let mut q = queue_clone.lock().await;
-                            q.set_error(&dl_id, &error_msg);
+                            newly_failed |= q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
 
                             if let Some((new_options, fb_idx, chain_len)) =
@@ -4787,7 +4848,7 @@ pub fn process_queue(
                             // Network error: transient connection issue.
                             // Retry with the same options (up to max_network_retries times).
                             let mut q = queue_clone.lock().await;
-                            q.set_error(&dl_id, &error_msg);
+                            newly_failed |= q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
 
                             // Differentiate wrapper vs direct in activity log messages
@@ -4822,7 +4883,7 @@ pub fn process_queue(
                             // full disk, stale NFS handle, read-only filesystem).
                             // Not retriable — user needs to fix the underlying issue.
                             let mut q = queue_clone.lock().await;
-                            q.set_error(&dl_id, &error_msg);
+                            newly_failed |= q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
                             drop(q);
                             emit_download_error(
@@ -4842,7 +4903,7 @@ pub fn process_queue(
                             // Reuse the bounded network-retry counter so we retry a
                             // couple of times but never loop forever.
                             let mut q = queue_clone.lock().await;
-                            q.set_error(&dl_id, &error_msg);
+                            newly_failed |= q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
                             if let Some((attempt, total)) = q.try_network_retry(&dl_id) {
                                 drop(q);
@@ -4880,7 +4941,7 @@ pub fn process_queue(
                             // skips the error report, companion spawn, and
                             // auto-retry-without-wrapper for this category.
                             let mut q = queue_clone.lock().await;
-                            q.set_error(&dl_id, &error_msg);
+                            newly_failed |= q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
                             q.pause();
                             drop(q);
@@ -4909,7 +4970,7 @@ pub fn process_queue(
                             // Non-retriable error (e.g., authentication, invalid URL).
                             // Mark as failed and don't retry.
                             let mut q = queue_clone.lock().await;
-                            q.set_error(&dl_id, &error_msg);
+                            newly_failed |= q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
                             drop(q);
                             emit_download_error(
@@ -5142,8 +5203,17 @@ pub fn process_queue(
 
                         // Tell the person (system notification and/or in-app
                         // message, by the one rule, #1431). Only the category
-                        // goes on, never the raw error.
-                        notify_item_failed(&app_clone, &queue_clone, &dl_id, error_category).await;
+                        // goes on, never the raw error. Counted here rather
+                        // than in the lock above: until this point a format,
+                        // storefront or wrapper retry could still have taken
+                        // the item back into the queue.
+                        if newly_failed {
+                            crate::services::notification_service::count_result(
+                                crate::services::notification_service::NotifyKind::DownloadFailed,
+                            );
+                            notify_item_failed(&app_clone, &queue_clone, &dl_id, error_category)
+                                .await;
+                        }
 
                         // Spawn companion downloads on failure — unless the error
                         // is network-related (network is down, so companions would
@@ -5489,12 +5559,20 @@ pub(crate) async fn run_spotify_dispatch_arm(
                                lock, or premium-only content)".to_string();
                     emit_download_log(&app_clone, &dl_id, &msg);
                     let mut q = queue_clone.lock().await;
-                    q.set_error(&dl_id, &msg);
+                    // Announced and counted like any failed download, and
+                    // only if it really failed just now (#1431). Counted in
+                    // the lock, before the slot is released further down.
+                    let newly_failed = q.set_error(&dl_id, &msg);
+                    if newly_failed {
+                        crate::services::notification_service::count_result(
+                            crate::services::notification_service::NotifyKind::DownloadFailed,
+                        );
+                    }
                     drop(q);
-                    // Announced and counted like any failed download
-                    // (#1431). The lock is dropped first: the label lookup
-                    // takes it again.
-                    notify_item_failed(&app_clone, &queue_clone, &dl_id, "unknown").await;
+                    // The lock is dropped first: the label lookup takes it.
+                    if newly_failed {
+                        notify_item_failed(&app_clone, &queue_clone, &dl_id, "unknown").await;
+                    }
                 } else {
                     emit_download_log(
                         &app_clone,
@@ -5555,9 +5633,16 @@ pub(crate) async fn run_spotify_dispatch_arm(
                     );
 
                     let mut q = queue_clone.lock().await;
-                    q.set_complete(&dl_id);
+                    let newly_complete = q.set_complete(&dl_id);
+                    if newly_complete {
+                        crate::services::notification_service::count_result(
+                            crate::services::notification_service::NotifyKind::DownloadComplete,
+                        );
+                    }
                     drop(q);
-                    notify_item_complete(&app_clone, &queue_clone, &dl_id).await;
+                    if newly_complete {
+                        notify_item_complete(&app_clone, &queue_clone, &dl_id).await;
+                    }
                 }
             }
             Err(msg) => {
@@ -5572,9 +5657,16 @@ pub(crate) async fn run_spotify_dispatch_arm(
                     );
                 }
                 let mut q = queue_clone.lock().await;
-                q.set_error(&dl_id, &msg);
+                // `false` for a cancellation (the item is already
+                // Cancelled) or an item already failed (#1431).
+                let newly_failed = q.set_error(&dl_id, &msg);
+                if newly_failed {
+                    crate::services::notification_service::count_result(
+                        crate::services::notification_service::NotifyKind::DownloadFailed,
+                    );
+                }
                 drop(q);
-                if msg != "Download cancelled by user" {
+                if newly_failed && msg != "Download cancelled by user" {
                     notify_item_failed(
                         &app_clone,
                         &queue_clone,
@@ -5615,13 +5707,22 @@ pub(crate) async fn spotify_arm_terminate_error(
     download_id: &str,
     msg: &str,
 ) {
-    {
+    let newly_failed = {
         let mut q = queue.lock().await;
-        q.set_error(download_id, msg);
+        let newly_failed = q.set_error(download_id, msg);
+        if newly_failed {
+            // Counted before the slot is released (#1431).
+            crate::services::notification_service::count_result(
+                crate::services::notification_service::NotifyKind::DownloadFailed,
+            );
+        }
         q.on_task_finished();
+        newly_failed
+    };
+    // Announced like any failed download, once (#1431).
+    if newly_failed {
+        notify_item_failed(app, queue, download_id, process::classify_error(msg)).await;
     }
-    // Announced and counted like any failed download (#1431).
-    notify_item_failed(app, queue, download_id, process::classify_error(msg)).await;
     let app_clone = app.clone();
     let queue_clone = queue.clone();
     tokio::spawn(async move {

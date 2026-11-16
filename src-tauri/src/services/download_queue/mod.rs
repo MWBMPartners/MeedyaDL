@@ -1203,7 +1203,14 @@ impl DownloadQueue {
     /// subprocess that was being torn down must not flip that to
     /// `Error`. Likewise, a `Complete` item should not regress to
     /// `Error` if a tail-end async task fails after enrichment ended.
-    pub fn set_error(&mut self, download_id: &str, error: &str) {
+    ///
+    /// Returns whether the item has only NOW become failed (#1431): `false`
+    /// when it is unknown, already finished or cancelled, or was ALREADY
+    /// failed (the message is still updated). Callers announce and count a
+    /// failure only on `true`, so one download is never announced twice --
+    /// for instance after the stall watchdog failed it and the run then
+    /// errored as well.
+    pub fn set_error(&mut self, download_id: &str, error: &str) -> bool {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             if matches!(
                 item.status.state,
@@ -1214,14 +1221,17 @@ impl DownloadQueue {
                     download_id,
                     item.status.state,
                 );
-                return;
+                return false;
             }
+            let newly_failed = item.status.state != DownloadState::Error;
             item.status.state = DownloadState::Error;
             item.status.error = Some(error.to_string());
             // #895: evict the per-download activity counter so the
             // ACTIVITY_COUNTERS HashMap doesn't grow monotonically.
             crate::utils::activity_log::evict_activity_counter(download_id);
+            return newly_failed;
         }
+        false
     }
 
     /// Marks a download as in post-processing (enrichment, companions, etc.).
@@ -1275,7 +1285,11 @@ impl DownloadQueue {
     /// earlier — without this guard, failed items would silently
     /// "revive" to Complete in the UI, contradicting both the in-app
     /// error toast and the prior activity-log error entry.
-    pub fn set_complete(&mut self, download_id: &str) {
+    ///
+    /// Returns whether the item has only NOW become complete (#1431):
+    /// `false` when it is unknown, failed, cancelled or already complete.
+    /// Callers announce and count a finished download only on `true`.
+    pub fn set_complete(&mut self, download_id: &str) -> bool {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             if matches!(
                 item.status.state,
@@ -1286,8 +1300,9 @@ impl DownloadQueue {
                     download_id,
                     item.status.state,
                 );
-                return;
+                return false;
             }
+            let newly_complete = item.status.state != DownloadState::Complete;
             item.status.state = DownloadState::Complete;
             item.status.progress = 100.0;
             item.status.processing_label = None;
@@ -1297,7 +1312,9 @@ impl DownloadQueue {
             // rationale as in `set_error`. The counter is only
             // meaningful for IN-FLIGHT downloads.
             crate::utils::activity_log::evict_activity_counter(download_id);
+            return newly_complete;
         }
+        false
     }
 
     /// Appends non-fatal warnings to a download item. These are displayed

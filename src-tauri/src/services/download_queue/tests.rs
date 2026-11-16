@@ -2085,6 +2085,32 @@
         );
     }
 
+    /// #1431: set_error / set_complete say whether the state really
+    /// changed, so a download is announced and counted once. The watchdog
+    /// failing an item and the run then finishing or erroring as well must
+    /// not produce a second "finished" or "failed".
+    #[test]
+    fn terminal_changes_are_reported_once() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        assert!(queue.set_error(&id, "stalled"), "first failure is a change");
+        assert!(!queue.set_error(&id, "errored again"), "Error -> Error is not");
+        assert!(!queue.set_complete(&id), "a failed item does not now finish");
+
+        let done = enqueue_one(&mut queue);
+        assert!(queue.set_complete(&done));
+        assert!(!queue.set_complete(&done), "Complete -> Complete is not a change");
+        assert!(!queue.set_error(&done, "late"), "a finished item does not now fail");
+
+        let cancelled = enqueue_one(&mut queue);
+        queue.cancel(&cancelled);
+        assert!(!queue.set_complete(&cancelled), "cancelled during post-processing");
+        assert!(!queue.set_error(&cancelled, "late"));
+
+        assert!(!queue.set_complete("no-such-item"));
+        assert!(!queue.set_error("no-such-item", "x"));
+    }
+
     /// Verifies that set_complete() refuses to overwrite a Cancelled state.
     /// Mirrors the Error guard — both are terminal and must not regress.
     #[test]

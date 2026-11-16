@@ -2729,6 +2729,9 @@ export interface NotificationDiagnostics {
   development_build: boolean;
   /** The identity notifications are filed under (Windows groups them by it). */
   app_identity: string;
+  /** Whether Windows really uses that identity: `false` when MeedyaDL runs
+   * straight from a build folder, and Windows files notifications under PowerShell. */
+  app_identity_in_use: boolean;
 }
 
 export function getNotificationDiagnostics(): Promise<NotificationDiagnostics> {

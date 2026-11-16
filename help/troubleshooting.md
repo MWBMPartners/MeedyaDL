@@ -489,7 +489,7 @@ Then press **Send Test Notification**. If the test does not appear, the setting 
 - **Windows** — open the Windows Settings app, go to **System**, then **Notifications**. Make sure notifications are on, and on for MeedyaDL, and that **Do not disturb** is off.
 - **Linux** — notifications are shown by your desktop's notification service. Most desktops (GNOME, KDE Plasma, Cinnamon, XFCE) run one for you; a minimal window manager may not, so install and start one (for example `dunst` or `mako`). Also check your desktop's own notification settings and any do-not-disturb mode.
 
-**Settings > Advanced > Diagnostics** shows which system MeedyaDL thinks it is on and whether it is a development build.
+**Settings > Advanced > Diagnostics** shows which system MeedyaDL thinks it is on and whether it is a development build. On Windows it also shows the name your notifications are listed under; a copy run straight from a build folder has its notifications listed under PowerShell instead.
 
 ### Activity Log Export
 

@@ -339,8 +339,16 @@ pub fn get_notification_diagnostics(
         desktop_notifications_enabled: settings.desktop_notifications,
         notification_style: settings.notification_style,
         platform: std::env::consts::OS.to_string(),
-        development_build: cfg!(debug_assertions),
+        // The same test the notification plugin uses to decide that a macOS
+        // development build posts as Terminal.
+        development_build: tauri::is_dev(),
         app_identity: app.config().identifier.clone(),
+        // The plugin only uses that identity on Windows when MeedyaDL is
+        // not running straight from a build folder.
+        app_identity_in_use: !tauri::utils::platform::current_exe()
+            .ok()
+            .and_then(|exe| exe.parent().map(|d| d.display().to_string()))
+            .is_some_and(|dir| crate::services::notification_service::runs_from_build_folder(&dir)),
     }
 }
 
@@ -358,9 +366,13 @@ pub struct NotificationDiagnostics {
     /// posts its notifications as Terminal, not as MeedyaDL, so they are
     /// governed by Terminal's notification settings.
     pub development_build: bool,
-    /// The identity MeedyaDL's notifications are filed under. Windows uses
-    /// it to group them in Settings > System > Notifications.
+    /// The identity MeedyaDL's notifications are filed under on Windows,
+    /// which groups them by it in its notification settings.
     pub app_identity: String,
+    /// Whether that identity is actually used. `false` when MeedyaDL runs
+    /// straight from a build folder: Windows then files its notifications
+    /// under PowerShell.
+    pub app_identity_in_use: bool,
 }
 
 /// Runs the output-directory integrity scan (#537 chunk B).

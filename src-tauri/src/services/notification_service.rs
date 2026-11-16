@@ -368,6 +368,19 @@ pub fn clean_system_text(text: &str, escape_markup: bool) -> String {
     out
 }
 
+/// The title and body as they are handed to the system. Linux notification
+/// services may read simple markup in the BODY, so there `&`, `<`, `>` are
+/// escaped. The title (the freedesktop "summary") is plain text everywhere,
+/// so it is never escaped -- an escaped title would show "&amp;" literally.
+/// Pure, so it is tested.
+#[must_use]
+pub fn prepare_system_text(title: &str, body: &str, escape_body_markup: bool) -> (String, String) {
+    (
+        clean_system_text(title, false),
+        clean_system_text(body, escape_body_markup),
+    )
+}
+
 /// Hands one notification to the operating system. A refusal is logged,
 /// never turned into another message (see the module notes).
 ///
@@ -377,9 +390,7 @@ pub fn clean_system_text(text: &str, escape_markup: bool) -> String {
 /// failed.
 pub fn send_system_notification(app: &AppHandle, title: &str, body: &str) -> bool {
     use tauri_plugin_notification::NotificationExt;
-    let markup = cfg!(target_os = "linux");
-    let title = clean_system_text(title, markup);
-    let body = clean_system_text(body, markup);
+    let (title, body) = prepare_system_text(title, body, cfg!(target_os = "linux"));
     match app
         .notification()
         .builder()
@@ -436,12 +447,13 @@ fn recent_sends() -> std::sync::MutexGuard<'static, RecentSends> {
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// Sends unless the same notification was sent moments ago. Returns `true`
-/// when the person has been (or just was) shown it by the system.
+/// Sends unless the same notification was sent moments ago. Returns
+/// whether it was sent NOW: a suppressed repeat answers `false`, so in
+/// "System only" the message is shown in the app rather than nowhere.
 fn send_unless_repeat(app: &AppHandle, title: &str, body: &str) -> bool {
     let key = format!("{title}\n{body}");
     if recent_sends().is_repeat(&key, std::time::Instant::now()) {
-        return true;
+        return false;
     }
     let sent = send_system_notification(app, title, body);
     if sent {
@@ -661,9 +673,51 @@ pub fn short_failure_reason(category: &str) -> &'static str {
 /// The open burst window, if any: `(generation, results since the first)`.
 /// The generation stops an old window's timer acting on a newer window.
 #[derive(Debug, Default)]
-struct BurstState {
+pub struct BurstState {
     generation: u64,
     open: Option<(u64, BurstCounts)>,
+}
+
+impl BurstState {
+    /// Puts a result into the burst. `Some(generation)` when this opened a
+    /// new window (send it now, and start that window's timer); `None`
+    /// when it was counted into the open window (sent in the summary).
+    pub fn join(&mut self, kind: NotifyKind) -> Option<u64> {
+        if let Some((_, counts)) = self.open.as_mut() {
+            counts.add(kind);
+            return None;
+        }
+        self.generation += 1;
+        self.open = Some((self.generation, BurstCounts::default()));
+        Some(self.generation)
+    }
+
+    /// Closes the window opened as `generation`, handing back what it
+    /// counted. `None` if that window is already gone (discarded, or a
+    /// newer one is open).
+    pub fn close(&mut self, generation: u64) -> Option<BurstCounts> {
+        match self.open {
+            Some((g, counts)) if g == generation => {
+                self.open = None;
+                Some(counts)
+            }
+            _ => None,
+        }
+    }
+
+    /// Closes any open window without a summary.
+    pub fn discard(&mut self) {
+        self.open = None;
+    }
+}
+
+/// Whether a message's arrival should throw away the pending burst
+/// summary: only a "queue finished" that WAS sent to the system, because
+/// its summary then covers those results. If it was not sent (switched
+/// off, out of scope, the person is looking), the burst closes normally.
+#[must_use]
+pub fn discards_burst(kind: NotifyKind, sent_now: bool) -> bool {
+    kind == NotifyKind::QueueFinished && sent_now
 }
 
 static BURST: std::sync::LazyLock<std::sync::Mutex<BurstState>> =
@@ -687,15 +741,9 @@ enum BurstSlot {
 /// Puts a download result into the burst: opens a window (and starts its
 /// ten-second timer) when none is open, otherwise counts it.
 fn join_burst(app: &AppHandle, kind: NotifyKind) -> BurstSlot {
-    let mut state = burst_state();
-    if let Some((_, counts)) = state.open.as_mut() {
-        counts.add(kind);
+    let Some(generation) = burst_state().join(kind) else {
         return BurstSlot::Deferred;
-    }
-    state.generation += 1;
-    let generation = state.generation;
-    state.open = Some((generation, BurstCounts::default()));
-    drop(state);
+    };
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_secs(BURST_WINDOW_SECS)).await;
@@ -710,15 +758,9 @@ fn join_burst(app: &AppHandle, kind: NotifyKind) -> BurstSlot {
 /// the window is honoured. (The in-app messages for those results were
 /// already shown, so nothing is lost when the summary is not sent.)
 fn close_burst(app: &AppHandle, generation: u64) {
-    let counts = {
-        let mut state = burst_state();
-        match state.open {
-            Some((g, counts)) if g == generation => {
-                state.open = None;
-                counts
-            }
-            _ => return, // Taken by "queue finished", or a newer window.
-        }
+    // `None`: taken by a sent "queue finished", or a newer window is open.
+    let Some(counts) = burst_state().close(generation) else {
+        return;
     };
     let settings = saved_settings(app);
     let counts = counts.still_allowed(&settings);
@@ -734,12 +776,6 @@ fn close_burst(app: &AppHandle, generation: u64) {
     }
 }
 
-/// Closes any open burst window without sending its summary: the queue
-/// summary that is about to go out covers those results.
-fn discard_burst() {
-    burst_state().open = None;
-}
-
 // ============================================================
 // Results since the queue last finished
 // ============================================================
@@ -749,7 +785,13 @@ fn discard_burst() {
 static QUEUE_RUN: std::sync::LazyLock<std::sync::Mutex<(u32, u32)>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new((0, 0)));
 
-fn count_for_queue_run(kind: NotifyKind) {
+/// Counts one download result for the next "Queue finished" summary.
+///
+/// Called by the queue at the moment the item's state really changes --
+/// with the queue lock held and BEFORE the item's slot is released -- so a
+/// queue that goes idle the next instant has already counted it (#1431).
+/// `notify` itself does not count, so nothing is counted twice.
+pub fn count_result(kind: NotifyKind) {
     let mut run = QUEUE_RUN
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -835,18 +877,12 @@ pub fn show_in_app(decision: Decision, toast_type: &str, sent_now: bool) -> bool
 /// Returns at once: the work runs on the notification thread (see
 /// [`run_on_worker`]), so a download task never waits on the window system.
 pub fn notify(app: &AppHandle, event: NotifyEvent) {
-    count_for_queue_run(event.kind);
     let app = app.clone();
     run_on_worker(Box::new(move || deliver(&app, event)));
 }
 
 /// The work [`notify`] hands to the notification thread.
 fn deliver(app: &AppHandle, event: NotifyEvent) {
-    if event.kind == NotifyKind::QueueFinished {
-        // The queue summary covers any download results still waiting for
-        // a burst summary.
-        discard_burst();
-    }
     let settings = saved_settings(app);
     let decision = decide_with(event.kind, &settings, || probe_attention(app));
 
@@ -857,9 +893,18 @@ fn deliver(app: &AppHandle, event: NotifyEvent) {
             BurstSlot::SendNow => send_unless_repeat(app, &event.title, &event.body),
             BurstSlot::Deferred => false,
         }
+    } else if event.kind == NotifyKind::QueueFinished {
+        // Never filtered as a repeat: two queues finishing with the same
+        // counts are two real events.
+        send_system_notification(app, &event.title, &event.body)
     } else {
         send_unless_repeat(app, &event.title, &event.body)
     };
+    if discards_burst(event.kind, sent_now) {
+        // The queue summary just sent covers the results still waiting for
+        // a burst summary.
+        burst_state().discard();
+    }
 
     let payload = AppNotificationPayload {
         kind: event.kind,
@@ -953,6 +998,17 @@ pub enum PowerAction {
     Sleep,
 }
 
+/// Whether a Windows copy of MeedyaDL is running straight from a build
+/// folder (`target\debug` or `target\release`). The notification plugin
+/// then files notifications under PowerShell instead of MeedyaDL's own
+/// identity, because an unpackaged program has none registered with
+/// Windows. Pure, so it is tested on every system.
+#[must_use]
+pub fn runs_from_build_folder(exe_dir: &str) -> bool {
+    let dir = exe_dir.replace('\\', "/");
+    dir.ends_with("/target/debug") || dir.ends_with("/target/release")
+}
+
 /// The warning text for a power action. Only Windows waits (30 seconds,
 /// `shutdown /t 30`) before restarting or shutting down; everywhere else,
 /// and for sleep, the action starts straight away, so the warning says so.
@@ -974,7 +1030,12 @@ pub fn power_warning_text(action: PowerAction, os: &str) -> String {
         (PowerAction::ShutDown, false) => {
             "Downloads finished. Your computer is shutting down now.".to_string()
         }
-        (PowerAction::Sleep, _) => {
+        // Windows really hibernates (`shutdown /h`); macOS and Linux sleep
+        // or hibernate as the system is set up, so "sleep" is the honest word.
+        (PowerAction::Sleep, true) => {
+            "Downloads finished. Your computer is hibernating now.".to_string()
+        }
+        (PowerAction::Sleep, false) => {
             "Downloads finished. Your computer is going to sleep now.".to_string()
         }
     }
@@ -1593,6 +1654,69 @@ mod tests {
                 assert!(text.ends_with("now."), "{os}: {text}");
             }
         }
+    }
+
+    #[test]
+    fn a_burst_window_counts_only_results_after_the_first_and_closes_once() {
+        let mut state = BurstState::default();
+        let first = state
+            .join(NotifyKind::DownloadComplete)
+            .expect("opens a window");
+        assert_eq!(
+            state.join(NotifyKind::DownloadFailed),
+            None,
+            "counted, not sent"
+        );
+        assert_eq!(state.join(NotifyKind::DownloadComplete), None);
+        let counts = state.close(first).expect("still open");
+        assert_eq!((counts.finished, counts.failed), (1, 1));
+        assert_eq!(state.close(first), None, "closes once");
+        // A new window gets a new number; the old timer cannot close it.
+        let second = state.join(NotifyKind::DownloadComplete).unwrap();
+        assert_ne!(first, second);
+        assert_eq!(state.close(first), None);
+        assert!(state.close(second).is_some());
+    }
+
+    #[test]
+    fn only_a_sent_queue_summary_throws_away_the_burst() {
+        assert!(discards_burst(NotifyKind::QueueFinished, true));
+        // Not sent (switched off, out of scope, person looking): the burst
+        // closes normally with its own summary.
+        assert!(!discards_burst(NotifyKind::QueueFinished, false));
+        assert!(!discards_burst(NotifyKind::DownloadComplete, true));
+
+        let mut state = BurstState::default();
+        let g = state.join(NotifyKind::DownloadComplete).unwrap();
+        state.join(NotifyKind::DownloadComplete);
+        if discards_burst(NotifyKind::QueueFinished, false) {
+            state.discard();
+        }
+        assert_eq!(state.close(g).map(|c| c.finished), Some(1));
+    }
+
+    #[test]
+    fn only_the_body_is_escaped_never_the_title() {
+        let (title, body) = prepare_system_text("R&B <Live>", "R&B <Live>", true);
+        assert_eq!(title, "R&B <Live>");
+        assert_eq!(body, "R&amp;B &lt;Live&gt;");
+    }
+
+    #[test]
+    fn hibernate_is_named_on_windows() {
+        assert!(power_warning_text(PowerAction::Sleep, "windows").contains("hibernating"));
+        assert!(power_warning_text(PowerAction::Sleep, "macos").contains("sleep"));
+    }
+
+    #[test]
+    fn a_build_folder_run_is_recognised_on_either_slash() {
+        assert!(runs_from_build_folder(
+            r"C:\src\MeedyaDL\src-tauri\target\debug"
+        ));
+        assert!(runs_from_build_folder(
+            "/home/me/MeedyaDL/src-tauri/target/release"
+        ));
+        assert!(!runs_from_build_folder(r"C:\Program Files\MeedyaDL"));
     }
 
     #[test]

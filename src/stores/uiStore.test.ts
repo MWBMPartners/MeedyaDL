@@ -588,6 +588,23 @@ describe('uiStore', () => {
   // Auto-dismiss waits while the person is reading (#1431)
   // =========================================================================
   describe('addToast — auto-dismiss pause', () => {
+    it('extends a toast that arrived during the pause only from its arrival', () => {
+      vi.useFakeTimers();
+      try {
+        setToastDismissalPaused(true);
+        vi.advanceTimersByTime(5000);
+        useUiStore.getState().addToast('Arrived late', 'info', 1000);
+        const before = useUiStore.getState().toasts[0].expiresAt as number;
+        vi.advanceTimersByTime(500);
+        setToastDismissalPaused(false);
+        // 500 ms paused since it arrived -- not the 5.5 s since the pause began.
+        expect(useUiStore.getState().toasts[0].expiresAt).toBe(before + 500);
+      } finally {
+        setToastDismissalPaused(false);
+        vi.useRealTimers();
+      }
+    });
+
     it('keeps a toast past its deadline while paused, then gives back the time it had left', () => {
       vi.useFakeTimers();
       try {

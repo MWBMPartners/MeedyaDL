@@ -20,12 +20,13 @@
  */
 
 import { Bell } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useSettingsField } from '@/hooks/useSettingsField';
 import { usePlatform } from '@/hooks/usePlatform';
 import { useUiStore } from '@/stores/uiStore';
 import { Button, Select, SettingsSection, Toggle } from '@/components/common';
 import { showError } from '@/lib/errorMessages';
-import { testDesktopNotification } from '@/lib/tauri-commands';
+import { getNotificationDiagnostics, testDesktopNotification } from '@/lib/tauri-commands';
 import { whereToLookForNotifications } from '@/lib/notificationAdvice';
 import type { NativeNotificationScope, NativeNotificationWhen } from '@/types';
 
@@ -69,6 +70,26 @@ export function NotificationSettingsSection() {
   // then the advice must not name one system's settings.
   const { platform, isLoading: platformUnknown } = usePlatform();
   const knownPlatform = platformUnknown ? null : platform;
+
+  // A macOS development build posts its notifications as Terminal, so the
+  // advice must point there (#1431). Read once; until it arrives (or if it
+  // cannot be read) the ordinary advice is given.
+  const [developmentBuild, setDevelopmentBuild] = useState(false);
+  useEffect(() => {
+    let live = true;
+    try {
+      Promise.resolve(getNotificationDiagnostics())
+        .then((d) => {
+          if (live) setDevelopmentBuild(Boolean(d?.development_build));
+        })
+        .catch(() => {});
+    } catch {
+      /* not available (a test, or outside the desktop app) */
+    }
+    return () => {
+      live = false;
+    };
+  }, []);
   const addToast = useUiStore((s) => s.addToast);
 
   const desktopNotifications = useSettingsField('desktop_notifications');
@@ -89,7 +110,7 @@ export function NotificationSettingsSection() {
     try {
       await testDesktopNotification(desktopNotifications.value, style);
       addToast(
-        `MeedyaDL handed a test notification to your system. ${whereToLookForNotifications(knownPlatform)}`,
+        `MeedyaDL handed a test notification to your system. ${whereToLookForNotifications(knownPlatform, developmentBuild)}`,
         'info',
         15000,
         undefined,
@@ -101,7 +122,7 @@ export function NotificationSettingsSection() {
       );
     } catch (err) {
       showError(
-        `MeedyaDL could not send a test notification. ${whereToLookForNotifications(knownPlatform)}`,
+        `MeedyaDL could not send a test notification. ${whereToLookForNotifications(knownPlatform, developmentBuild)}`,
         err
       );
     }

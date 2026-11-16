@@ -2033,6 +2033,9 @@ export interface Toast {
    * setTimeout closures.
    */
   expiresAt?: number | null;
+  /** When the toast was added (Unix ms). Used to give back exactly the
+   * time a toast spent paused while the pointer or focus was on the stack. */
+  createdAt?: number;
   /**
    * Optional deduplication/category key. When set:
    * - Only one toast per key can be on screen at a time (new replaces old).

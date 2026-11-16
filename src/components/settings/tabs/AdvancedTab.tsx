@@ -1411,7 +1411,11 @@ function NotificationDiagnosticsRow() {
         {diag.platform === 'windows' && (
           <>
             <span className="text-content-tertiary">App identity</span>
-            <span className="text-content-primary break-all">{diag.app_identity}</span>
+            <span className="text-content-primary break-all">
+              {diag.app_identity_in_use
+                ? diag.app_identity
+                : 'Not used: this copy runs from a build folder, so Windows lists its notifications under PowerShell'}
+            </span>
           </>
         )}
       </div>
