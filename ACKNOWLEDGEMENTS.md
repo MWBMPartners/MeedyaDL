@@ -81,9 +81,9 @@ exact number.
 | rand | 0.8 | MIT/Apache-2.0 | Random number generation (salt + nonce derivation, retry jitter, temporary file names that never repeat) |
 | regex | 1.12 | MIT/Apache-2.0 | Regular expression parsing |
 | reqwest | 0.12 | MIT/Apache-2.0 | HTTP client |
-| rookie | 0.5 | MIT | Browser cookie extraction |
+| rookie | 0.5 | MIT | Browser cookie extraction (our own copy of 0.5.6 in `src-tauri/vendor/rookie`, moved to a fixed SQLite; #1413) |
 | roxmltree | 0.21 | MIT/Apache-2.0 | XML parsing (TTML lyrics) |
-| rusqlite | 0.31 | MIT | SQLite bindings (Library Index database + Profile Bundle export manifests) |
+| rusqlite | 0.43 | MIT | SQLite bindings (Library Index database + Profile Bundle export manifests) |
 | sentry | 0.46 | MIT | Crash reporting SDK |
 | sentry-tracing | 0.46 | MIT | Sentry integration for `tracing` events |
 | serde | 1.0 | MIT/Apache-2.0 | Serialization framework |

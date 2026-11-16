@@ -276,6 +276,9 @@ pub fn list_library_gaps(
          ORDER BY discovered_at DESC
          LIMIT ?1",
     )?;
+    // rusqlite 0.43 binds signed integers only (no usize); a limit beyond
+    // i64 is clamped, which no caller comes near (#1413).
+    let limit = i64::try_from(limit).unwrap_or(i64::MAX);
     let rows = stmt.query_map([limit], |row| {
         Ok(KnownTrackRow {
             service: row.get(0)?,

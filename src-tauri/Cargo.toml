@@ -427,7 +427,7 @@ thiserror = "2"
 # the project marshal directly into TEXT columns).
 # @see https://docs.rs/rusqlite/ -- rusqlite documentation
 # @see #875 -- EPIC A: SQLite-backed download index + activity log
-rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
+rusqlite = { version = "0.43", features = ["bundled", "chrono"] }
 
 # ---- Shared MeedyaSuite-core fingerprint + ReplayGain crate (#353) ----
 
@@ -726,3 +726,18 @@ libc = "0.2"
 # `MessageBeep`, the system alert sound the after-queue "Play a sound"
 # action plays (`services::notification_service::play_alert_sound`, #1431).
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_UI_WindowsAndMessaging"] }
+
+# ============================================================
+# [patch.crates-io] -- our own copy of rookie (#1413)
+# ============================================================
+# rookie (browser cookie import) has had no release since Nov 2024 and
+# pins rusqlite ^0.31, whose bundled SQLite (libsqlite3-sys 0.28) is
+# covered by RUSTSEC-2026-0459. `vendor/rookie` is rookie 0.5.6 exactly as
+# published (MIT; its licence travels with it in MIT-LICENSE.txt), with ONE
+# change: its rusqlite dependency is 0.43, which bundles a fixed SQLite.
+# rookie only opens the browser's cookie database read-only, prepares a
+# query and reads rows, which works the same on both rusqlite versions.
+# Remove this patch (and the vendor folder) once rookie publishes a
+# release on a current rusqlite.
+[patch.crates-io]
+rookie = { path = "vendor/rookie" }
