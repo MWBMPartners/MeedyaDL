@@ -220,7 +220,7 @@ This is not recommended. Running the GUI and CLI simultaneously may cause confli
 
 ### Why does the start of a large album take a while?
 
-The start of a large album or playlist can take a little longer than the songs themselves. This is normal, and there is no setting for it.
+A large album or playlist can take from a few seconds to a minute to get going before its first track starts. This is normal, and there is no setting for it.
 
 ### How do I update MeedyaDL?
 

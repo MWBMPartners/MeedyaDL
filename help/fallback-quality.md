@@ -88,7 +88,7 @@ Because only H.265 is offered above 1080p, **removing H.265 from your list means
 
 The resolution you choose in Settings is a **ceiling**, not a request. You get the best quality available at or below your ceiling, in a single attempt.
 
-So a resolution can never be "not available" the way a codec can. Nothing fails, so there is nothing to step down from. Reordering such a list would change nothing, so it was removed. The resolution setting is described as a maximum instead.
+So a resolution can never be "not available" the way a codec can. Nothing fails, so there is nothing to step down from. So there is no resolution list to reorder. The resolution setting is simply a maximum.
 
 ---
 
@@ -134,7 +134,7 @@ Turn it off when you want an exact codec and would rather have a failed download
 Fallback happens **per track**, not per album. Each track is checked on its own, so:
 
 - Some tracks in an album may arrive in your preferred codec (for example ALAC) and others in a fallback (for example AAC).
-- The queue item shows **Fallback used** with the format that was used.
+- If the whole item had to be started again in another format, the queue item shows **Fallback used** with that format. When only some tracks fall back, the queue does not show it. When MeedyaDL saves more than one format of a song, the format of each file appears in its name tag (for example `[Lossless]`).
 - One failing codec never fails the whole album.
 
 See [Downloading Music](downloading-music.md).
@@ -153,9 +153,9 @@ See [Downloading Videos](downloading-videos.md).
 
 When an **audio** fallback happens, the queue shows it:
 
-- **Fallback used.** The queue item shows **Fallback used** with the format that was actually used, for example "Fallback used (codec: aac)".
+- **Fallback used.** If MeedyaDL had to start the whole item again in another format, the queue item shows **Fallback used** with that format, for example "Fallback used (codec: aac)". A fallback on only some tracks of an album is not shown here.
 
-MeedyaDL cannot tell which video format was used, so it shows no badge.
+MeedyaDL cannot tell which video format was used, so no **Fallback used** note appears for videos.
 
 ### Log Details
 
@@ -177,7 +177,7 @@ You ask for ALAC on a 6-track album.
 
 1. **Tracks 1-5:** ALAC is available. They download in ALAC.
 2. **Track 6:** ALAC is not available. MeedyaDL tries **Atmos** (not available), then **AC3** (not available), then **AAC** (available).
-3. **Result:** Tracks 1-5 are ALAC and track 6 is AAC. The queue item shows **Fallback used** with the format that was used.
+3. **Result:** Tracks 1-5 are ALAC and track 6 is AAC. Because only one track fell back, the queue item does not show **Fallback used**.
 
 ### Example 2: A Music Video
 

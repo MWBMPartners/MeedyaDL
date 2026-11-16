@@ -137,12 +137,12 @@ Companion downloads get you more than one format of the same music in one go. Yo
 
 | Mode | What it does |
 | ---- | ------------ |
-| **Disabled** | No extra copies. You only get the format you chose. |
+| **Disabled (no companions)** | No extra copies. You only get the format you chose. |
 | **Atmos → Lossless (ALAC)** *(default)* | When you download Dolby Atmos, you also get an ALAC (lossless) copy. Downloads in other formats get no extra copy. |
-| **Atmos → Lossless + Lossy** | Atmos also gets an ALAC copy and an AAC copy. An ALAC download also gets an AAC copy. |
+| **Atmos → Lossless + Lossy; ALAC → Lossy** | Atmos also gets an ALAC copy and an AAC copy. An ALAC download also gets an AAC copy. |
 | **Specialist → Lossy (AAC)** | Atmos or ALAC downloads also get an AAC copy. |
 | **Atmos → All Formats (AC3 + ALAC + AAC)** | Atmos also gets a copy in every other format (AC3, ALAC, AAC). |
-| **Custom...** | You pick exactly which formats to get as extra copies, using tick boxes. |
+| **Custom…** | You pick exactly which formats to get as extra copies, using tick boxes. |
 
 Extra copies are made before the next item in the queue starts. If a format is not offered for a track, it is quietly skipped, and your main download is not affected.
 
@@ -154,7 +154,7 @@ When you have more than one format, special formats get a tag in the file name s
 - ALAC (lossless): `01 Song Title [Lossless].m4a`
 - The most widely playable copy has a plain name: `01 Song Title.m4a`
 
-Example, with "Atmos → Lossless + Lossy" and a Dolby Atmos download:
+Example, with "Atmos → Lossless + Lossy; ALAC → Lossy" and a Dolby Atmos download:
 
 ```text
 Artist/Album/
@@ -167,7 +167,7 @@ The tag always matches what is really in the file. MeedyaDL checks each file aft
 
 ### Custom Mode
 
-With **Custom...** you see a list of tick boxes, one per format. Every format you tick is downloaded as its own extra copy, even if it is the same as your main format. The order of your ticks sets the file names. The last format you tick gets the plain name, and the others get a tag. For example, with Atmos, ALAC and AAC ticked, AAC files are plain, ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]`.
+With **Custom…** you see a list of tick boxes, one per format. Every format you tick is downloaded as its own extra copy, even if it is the same as your main format. The order of your ticks sets the file names. The last format you tick gets the plain name, and the others get a tag. For example, with Atmos, ALAC and AAC ticked, AAC files are plain, ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]`.
 
 Choose Custom for a mix the other modes don't cover, such as AAC Binaural and ALAC alongside Atmos, or every format for a full archive.
 
@@ -281,7 +281,7 @@ Every new download uses these unless you change them for one download (see below
 
 ### Companion Downloads Setting
 
-The same tab has the **Companion Downloads** dropdown. The default is **Atmos → Lossless**. **Custom...** shows tick boxes for all 11 audio formats. See [Companion Downloads](#companion-downloads) above.
+The same tab has the **Companion Downloads** dropdown. The default is **Atmos → Lossless (ALAC)**. **Custom…** shows tick boxes for all 11 audio formats. See [Companion Downloads](#companion-downloads) above.
 
 ### Artist Auto-Select
 

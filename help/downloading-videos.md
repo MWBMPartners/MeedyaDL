@@ -74,7 +74,7 @@ If your first-choice codec is not offered for a video, MeedyaDL tries the next o
 
 ### Sound Quality
 
-The sound in a video uses your audio codec settings. Video sound is normally AAC. See [Quality Settings](quality-settings.md).
+The sound in a video comes with the video. Your song format settings do not change it. Video sound is normally AAC. See [Quality Settings](quality-settings.md).
 
 ---
 

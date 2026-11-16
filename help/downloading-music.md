@@ -229,7 +229,7 @@ When this happens, the queue item shows that the final quality is different from
 
 MeedyaDL can also download extra versions of the same music in other qualities. Choose how in **Settings > Codec & Resolution > Companion Downloads**.
 
-By default (**Atmos → Lossless**), a Dolby Atmos download also gets a lossless (ALAC) copy. Other modes add lossy AAC copies as well. **Custom...** lets you tick exactly the qualities you want.
+By default (**Atmos → Lossless (ALAC)**), a Dolby Atmos download also gets a lossless (ALAC) copy. Other modes add lossy AAC copies as well. **Custom…** lets you tick exactly the qualities you want.
 
 Special versions get a label in the file name, for example `[Lossless]` or `[Dolby Atmos]`. The version most players can use has a plain name. Extra versions are made before the next item in the queue starts, and each one gets its own lyric files. You can follow them on the **Activity** page. See [Quality Settings](quality-settings.md#companion-downloads) for what each mode does.
 

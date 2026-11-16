@@ -118,9 +118,9 @@ The `.p8` file is plain text. You need to copy everything inside it.
 3. Type your Team ID into **MusicKit Team ID**.
 4. Type your Key ID into **MusicKit Key ID**.
 5. Paste the key you copied into **MusicKit Private Key (.p8)**.
-6. Click **Save to Keychain**. MeedyaDL keeps the key in your computer's secure store (macOS Keychain, Windows Credential Manager or Linux Secret Service). The status then reads **Key stored in keychain**.
+6. Click **Save to Keychain**. MeedyaDL keeps the key in your computer's secure store (macOS Keychain, Windows Credential Manager or Linux Secret Service). The status then reads **Saved to keychain**. Next time you open this screen it reads **Key stored in keychain**.
 7. Click **Test Credentials**. MeedyaDL checks your details with Apple and tells you if something is wrong.
-8. Click **Save**.
+8. Click **Save Changes**.
 
 > **If you lost the `.p8` file:** In the Apple Developer portal, open Keys, click your key, click **Revoke**, and start again from Step 2.
 
