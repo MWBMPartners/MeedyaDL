@@ -3306,6 +3306,15 @@ pub fn process_queue(
                                     ),
                                 });
                             }
+                            // The same artist and fallback title the Lyricsfile
+                            // step above used, for the extra copies' files.
+                            companion_gate.set_lyricsfile_defaults(
+                                album_metadata.as_ref().and_then(|m| m.artist_name.clone()),
+                                album_metadata
+                                    .as_ref()
+                                    .and_then(|m| m.tracks.first())
+                                    .map(|t| t.name.clone()),
+                            );
                             companion_gate.release(
                                 every_file_has_its_format
                                     && super::metadata_tag_service::renames_complete(

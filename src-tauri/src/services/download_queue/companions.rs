@@ -3117,6 +3117,8 @@ pub(crate) fn spawn_companion_downloads(
             let mut companion_album_dir: Option<std::path::PathBuf> = None;
             let mut gate_album_name: Option<String> = None;
             let mut unplaceable: Vec<SongCodec> = Vec::new();
+            let mut lyricsfile_artist: Option<String> = None;
+            let mut lyricsfile_default_title: Option<String> = None;
             // Where enrichment recorded this download's files, and when the
             // gate opened (to tell a lyrics file written by this run from an
             // older one). Both stay `None` on the failure path, which has no
@@ -3149,6 +3151,8 @@ pub(crate) fn spawn_companion_downloads(
                 companion_album_dir = state.album_dir.as_deref().map(std::path::PathBuf::from);
                 gate_album_name.clone_from(&state.album_name);
                 unplaceable.clone_from(&state.unplaceable);
+                lyricsfile_artist.clone_from(&state.lyricsfile_artist);
+                lyricsfile_default_title.clone_from(&state.lyricsfile_default_title);
                 if !state.renames_done {
                     // The primary files may still have their plain names
                     // (enrichment ended early, or the format could not be
@@ -3906,6 +3910,11 @@ pub(crate) fn spawn_companion_downloads(
                     .as_ref()
                     .and_then(|h| h.lock().ok().and_then(|g| g.clone()));
                 if let (Some(scope), Some(since)) = (scope, gate_opened_at) {
+                    // A cancelled item gets no more lyrics work.
+                    if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
+                        log::info!("Extra copy lyrics skipped — {comp_dl_id} was cancelled");
+                        return;
+                    }
                     set_stage_with_label(
                         &comp_app,
                         &comp_queue,
@@ -3920,28 +3929,26 @@ pub(crate) fn spawn_companion_downloads(
                     let tracks = album_tracks.clone();
                     let artist = artist_hint.clone();
                     let album = album_hint.clone();
-                    let summary = tokio::task::spawn_blocking(move || {
-                        super::companion_lyrics::run(
-                            &settings,
-                            &scope,
-                            &output_dir,
-                            artist.as_deref(),
-                            album.as_deref(),
-                            since,
-                            &tracks,
-                            &|| {
-                                stop_aborted.load(Ordering::Relaxed) || stop_shutdown.is_triggered()
-                            },
-                        )
-                    })
-                    .await;
-                    match summary {
-                        Ok(summary) => {
-                            if let Some(line) = super::companion_lyrics::summary_line(&summary) {
-                                emit_download_log(&comp_app, &comp_dl_id, &line);
-                            }
-                        }
-                        Err(e) => log::debug!("Extra copy lyrics task failed: {e}"),
+                    // Run right here, not in `spawn_blocking`: aborting the
+                    // task cannot stop a blocking closure that has already
+                    // started, which could keep writing files after the final
+                    // rename pass began. Done in this task, the completion
+                    // task's wait covers it (#663), and the stop check is
+                    // asked before every step.
+                    let summary = super::companion_lyrics::run(
+                        &settings,
+                        &scope,
+                        &output_dir,
+                        artist.as_deref(),
+                        album.as_deref(),
+                        since,
+                        &tracks,
+                        lyricsfile_artist.as_deref(),
+                        lyricsfile_default_title.as_deref(),
+                        &|| stop_aborted.load(Ordering::Relaxed) || stop_shutdown.is_triggered(),
+                    );
+                    if let Some(line) = super::companion_lyrics::summary_line(&summary) {
+                        emit_download_log(&comp_app, &comp_dl_id, &line);
                     }
                 } else {
                     run_companion_lyrics_conversion(

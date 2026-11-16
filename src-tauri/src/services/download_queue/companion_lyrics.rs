@@ -118,15 +118,39 @@ pub(crate) struct Evidence {
     pub track: Option<u32>,
 }
 
+/// Reads Apple Music's song ID (the `cnID` tag) from a file, `None` when it
+/// is missing or the file cannot be read.
+fn read_song_id(path: &Path) -> Option<String> {
+    let tag = mp4ameta::Tag::read_from_path(path).ok()?;
+    let id = tag
+        .data_of(&mp4ameta::Fourcc(*b"cnID"))
+        .find_map(|d| match d {
+            mp4ameta::Data::BeSigned(bytes) | mp4ameta::Data::Reserved(bytes)
+                if !bytes.is_empty() && bytes.len() <= 8 =>
+            {
+                let mut value: i64 = 0;
+                for b in bytes {
+                    value = (value << 8) | i64::from(*b);
+                }
+                (value > 0).then(|| value.to_string())
+            }
+            _ => None,
+        });
+    id
+}
+
 /// Reads [`Evidence`] for a file: song ID, disc and track from its tags,
 /// the numbers falling back to the file name.
 pub(crate) fn read_evidence(path: &Path) -> Evidence {
     let dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
+    // The song ID is read on its own, so it is kept even when the disc and
+    // track numbers cannot be read.
+    let song_id = read_song_id(path);
     if let Some(e) = read_copy_evidence(path) {
         return Evidence {
             path: path.to_path_buf(),
             dir,
-            song_id: e.song_id,
+            song_id: e.song_id.or(song_id),
             disc: Some(e.disc),
             track: Some(e.track),
         };
@@ -135,7 +159,7 @@ pub(crate) fn read_evidence(path: &Path) -> Evidence {
     Evidence {
         path: path.to_path_buf(),
         dir,
-        song_id: None,
+        song_id,
         disc: n.disc,
         track: n.track,
     }
@@ -164,6 +188,8 @@ pub(crate) fn single_disc_album(
 /// 2. Otherwise the same folder plus disc and track number (never across
 ///    folders, so two albums of a playlist whose tracks share numbers cannot
 ///    be mixed up), judged by the same `place_track` rule as enrichment.
+///    Two files whose song IDs are both known and different are never
+///    paired, whatever their numbers say.
 ///
 /// `song_id_only` is set for a copy that sits in a different folder from the
 /// main download's: it may only be matched by song ID.
@@ -195,6 +221,10 @@ pub(crate) fn match_primary(
         .iter()
         .enumerate()
         .filter(|(_, p)| p.dir == copy.dir)
+        .filter(|(_, p)| match (&p.song_id, &copy.song_id) {
+            (Some(a), Some(b)) => a == b,
+            _ => true,
+        })
         .map(|(i, p)| {
             (
                 i,
@@ -231,6 +261,9 @@ pub(crate) struct Summary {
     pub own: usize,
     /// Copies with no lyrics to use at all.
     pub none: usize,
+    /// Copies that had a lyrics source but nothing was added (every file
+    /// was already there, or a write failed).
+    pub unchanged: usize,
     /// The run was stopped (cancel, quit or deadline) before it finished.
     pub stopped: bool,
 }
@@ -238,7 +271,7 @@ pub(crate) struct Summary {
 /// The plain-English activity-log line for a run, or `None` when nothing
 /// was done and there is nothing to say.
 pub(crate) fn summary_line(r: &Summary) -> Option<String> {
-    let done = r.from_main + r.own + r.none;
+    let done = r.from_main + r.own + r.none + r.unchanged;
     if r.stopped {
         return (r.total > 0).then(|| {
             format!(
@@ -274,11 +307,14 @@ pub(crate) fn summary_line(r: &Summary) -> Option<String> {
     if r.none > 0 {
         line.push_str(&format!(" {} had no lyrics to use.", r.none));
     }
+    if r.unchanged > 0 {
+        line.push_str(&format!(" {} needed nothing added.", r.unchanged));
+    }
     Some(line)
 }
 
 // ============================================================
-// File work (synchronous; called inside spawn_blocking)
+// File work (synchronous; called directly inside the companion task)
 // ============================================================
 
 /// The lyrics files next to one audio file, read into memory.
@@ -339,8 +375,22 @@ enum CopyOutcome {
     FromMain { word_timed: bool },
     /// Used its own.
     Own,
+    /// A lyrics source existed, but nothing was written or embedded (every
+    /// file it would make was already there, or a write failed).
+    Unchanged,
     /// Nothing to use.
     Nothing,
+}
+
+/// Writes a file and says whether it worked (a failure is only logged).
+fn write_file(path: &Path, content: impl AsRef<[u8]>) -> bool {
+    match std::fs::write(path, content) {
+        Ok(()) => true,
+        Err(e) => {
+            log::debug!("Extra copy lyrics: could not write {}: {e}", path.display());
+            false
+        }
+    }
 }
 
 /// Gives one copy its lyrics and subtitle files. `primary_audio` is the
@@ -350,13 +400,22 @@ enum CopyOutcome {
 ///
 /// Follows enrichment's Steps 2, 2c, 2d, 2e, 2f and 2g, in that order and
 /// under the same switches. Failures are only logged (debug), never raised.
+///
+/// `stop` is asked before each step, so a cancel, quit or deadline ends the
+/// work between steps rather than only between copies. The copy counts as
+/// having got lyrics only if a file was really written or embedded.
+/// `artist` and `default_title` are what the main download's Lyricsfile
+/// step uses (the album artist and the album's first song name).
 fn process_copy(
     copy: &Path,
     primary_audio: Option<&Path>,
     s: &AppSettings,
     since: SystemTime,
-    artist_hint: Option<&str>,
+    artist: Option<&str>,
+    default_title: Option<&str>,
+    stop: &dyn Fn() -> bool,
 ) -> CopyOutcome {
+    let mut did_work = false;
     let keep = s.keep_lyrics_sidecar;
     let own_texts = read_lyric_texts(copy);
     let own_quality = quality_of_texts(&own_texts);
@@ -378,23 +437,13 @@ fn process_copy(
             let target = copy.with_extension("ttml");
             let exists = target.exists();
             if may_write_ttml(keep, exists, exists && written_since(&target, since)) {
-                if let Err(e) = std::fs::write(&target, ttml) {
-                    log::debug!(
-                        "Extra copy lyrics: could not write {}: {e}",
-                        target.display()
-                    );
-                }
+                did_work |= write_file(&target, ttml);
             }
         } else {
             for (ext, text) in [("lrc", &texts.lrc), ("srt", &texts.srt)] {
                 let target = copy.with_extension(ext);
                 if let (true, false, Some(text)) = (keep, target.exists(), text) {
-                    if let Err(e) = std::fs::write(&target, text) {
-                        log::debug!(
-                            "Extra copy lyrics: could not write {}: {e}",
-                            target.display()
-                        );
-                    }
+                    did_work |= write_file(&target, text);
                 }
             }
         }
@@ -415,27 +464,22 @@ fn process_copy(
 
     // Step 2: Enhanced LRC. The `.lrc` file only when separate files are
     // kept; the lyrics always go inside the music file.
-    if s.enhanced_lrc {
+    if s.enhanced_lrc && !stop() {
         if let Some(ttml) = ttml {
             match super::enhanced_lyrics_service::ttml_to_enhanced_lrc(ttml) {
                 Ok(result) => {
                     if keep {
-                        let path = copy.with_extension("lrc");
-                        if let Err(e) = std::fs::write(&path, &result.lrc_content) {
-                            log::debug!(
-                                "Extra copy lyrics: could not write {}: {e}",
-                                path.display()
-                            );
-                        }
+                        did_work |= write_file(&copy.with_extension("lrc"), &result.lrc_content);
                     }
-                    if let Err(e) = super::enhanced_lyrics_service::embed_enhanced_lrc_in_file(
+                    match super::enhanced_lyrics_service::embed_enhanced_lrc_in_file(
                         copy,
                         &result.lrc_content,
                     ) {
-                        log::debug!(
+                        Ok(_) => did_work = true,
+                        Err(e) => log::debug!(
                             "Extra copy lyrics: could not embed in {}: {e}",
                             copy.display()
-                        );
+                        ),
                     }
                 }
                 Err(e) => log::debug!("Extra copy lyrics: Enhanced LRC failed: {e}"),
@@ -444,7 +488,7 @@ fn process_copy(
     }
 
     // Step 2c: WebVTT (TTML, then SRT, then LRC), skipped if one exists.
-    if s.generate_webvtt && keep {
+    if s.generate_webvtt && keep && !stop() {
         let vtt_path = copy.with_extension("vtt");
         if !vtt_path.exists() {
             let vtt = ttml
@@ -456,18 +500,13 @@ fn process_copy(
                     disk_or("lrc", &texts.lrc).map(|t| super::webvtt_service::lrc_to_webvtt(&t))
                 });
             if let Some(vtt) = vtt {
-                if let Err(e) = std::fs::write(&vtt_path, vtt) {
-                    log::debug!(
-                        "Extra copy lyrics: could not write {}: {e}",
-                        vtt_path.display()
-                    );
-                }
+                did_work |= write_file(&vtt_path, vtt);
             }
         }
     }
 
     // Step 2d: rich SRT (TTML, then WebVTT); replaces a plain SRT.
-    if s.generate_rich_srt && keep {
+    if s.generate_rich_srt && keep && !stop() {
         let srt = ttml
             .and_then(|t| super::rich_srt_service::ttml_to_rich_srt(t).ok())
             .or_else(|| {
@@ -475,31 +514,29 @@ fn process_copy(
                     .and_then(|v| super::rich_srt_service::webvtt_to_rich_srt(&v).ok())
             });
         if let Some(srt) = srt {
-            let path = copy.with_extension("srt");
-            if let Err(e) = std::fs::write(&path, srt) {
-                log::debug!("Extra copy lyrics: could not write {}: {e}", path.display());
-            }
+            did_work |= write_file(&copy.with_extension("srt"), srt);
         }
     }
 
     // Step 2e: embed the subtitle files in the music file (not gated on
     // keeping separate files).
-    if s.embed_subtitles {
+    if s.embed_subtitles && !stop() {
         let srt = read_text(&copy.with_extension("srt"));
         let vtt = read_text(&copy.with_extension("vtt"));
         if srt.is_some() || vtt.is_some() {
-            if let Err(e) = super::rich_srt_service::embed_subtitles_in_file(
+            match super::rich_srt_service::embed_subtitles_in_file(
                 copy,
                 srt.as_deref(),
                 vtt.as_deref(),
             ) {
-                log::debug!("Extra copy lyrics: could not embed subtitles: {e}");
+                Ok(_) => did_work = true,
+                Err(e) => log::debug!("Extra copy lyrics: could not embed subtitles: {e}"),
             }
         }
     }
 
     // Step 2f: ASS (TTML, then WebVTT), titled with the COPY's own name.
-    if s.generate_ass && keep {
+    if s.generate_ass && keep && !stop() {
         let ass_path = copy.with_extension("ass");
         if !ass_path.exists() {
             let ass = ttml
@@ -509,42 +546,32 @@ fn process_copy(
                         .and_then(|v| super::ass_subtitle_service::webvtt_to_ass(&v, &stem).ok())
                 });
             if let Some(ass) = ass {
-                if let Err(e) = std::fs::write(&ass_path, ass) {
-                    log::debug!(
-                        "Extra copy lyrics: could not write {}: {e}",
-                        ass_path.display()
-                    );
-                }
+                did_work |= write_file(&ass_path, ass);
             }
         }
     }
 
     // Step 2g: Lyricsfile, skipped if one exists.
-    if s.generate_lyricsfile && keep {
+    if s.generate_lyricsfile && keep && !stop() {
         let path = copy.with_extension("lyrics");
         if !path.exists() {
             if let Some(ttml) = ttml {
                 match super::lyricsfile_service::lyricsfile_from_ttml(
                     ttml,
                     &stem,
-                    "Untitled",
-                    artist_hint.unwrap_or("Unknown Artist"),
+                    default_title.unwrap_or("Untitled"),
+                    artist.unwrap_or("Unknown Artist"),
                 ) {
-                    Ok(yaml) => {
-                        if let Err(e) = std::fs::write(&path, yaml) {
-                            log::debug!(
-                                "Extra copy lyrics: could not write {}: {e}",
-                                path.display()
-                            );
-                        }
-                    }
+                    Ok(yaml) => did_work |= write_file(&path, yaml),
                     Err(e) => log::debug!("Extra copy lyrics: Lyricsfile failed: {e}"),
                 }
             }
         }
     }
 
-    if from_main {
+    if !did_work {
+        CopyOutcome::Unchanged
+    } else if from_main {
         CopyOutcome::FromMain {
             word_timed: ttml.is_some_and(super::enhanced_lyrics_service::ttml_has_word_timing),
         }
@@ -623,7 +650,8 @@ pub(crate) fn run_copies(
     extra_dir: Option<&Path>,
     since: SystemTime,
     album_tracks: &[(u32, u32, String)],
-    artist_hint: Option<&str>,
+    lyrics_artist: Option<&str>,
+    default_title: Option<&str>,
     stop: &dyn Fn() -> bool,
 ) -> Summary {
     // Nothing switched on: do not even look at the folder.
@@ -661,7 +689,15 @@ pub(crate) fn run_copies(
         let outside = !copy.starts_with(&scope.dir);
         let primary = match_primary(&evidence, &primaries, single_disc, outside)
             .map(|i| primaries[i].path.clone());
-        match process_copy(copy, primary.as_deref(), settings, since, artist_hint) {
+        match process_copy(
+            copy,
+            primary.as_deref(),
+            settings,
+            since,
+            lyrics_artist,
+            default_title,
+            stop,
+        ) {
             CopyOutcome::FromMain { word_timed } => {
                 summary.from_main += 1;
                 if word_timed {
@@ -669,6 +705,7 @@ pub(crate) fn run_copies(
                 }
             }
             CopyOutcome::Own => summary.own += 1,
+            CopyOutcome::Unchanged => summary.unchanged += 1,
             CopyOutcome::Nothing => summary.none += 1,
         }
     }
@@ -687,6 +724,8 @@ pub(crate) fn run(
     album_hint: Option<&str>,
     since: SystemTime,
     album_tracks: &[(u32, u32, String)],
+    lyricsfile_artist: Option<&str>,
+    default_title: Option<&str>,
     stop: &dyn Fn() -> bool,
 ) -> Summary {
     let extra_dir = resolve_extra_dir(output_dir, artist_hint, album_hint, &scope.dir);
@@ -696,7 +735,8 @@ pub(crate) fn run(
         extra_dir.as_deref(),
         since,
         album_tracks,
-        artist_hint,
+        lyricsfile_artist.or(artist_hint),
+        default_title,
         stop,
     )
 }
@@ -943,6 +983,7 @@ mod tests {
             from_main_word_timed: 10,
             own: 2,
             none: 0,
+            unchanged: 0,
             stopped: false,
         };
         assert_eq!(
@@ -993,7 +1034,7 @@ mod tests {
         // The copy's own line-level file, written just now by this run.
         std::fs::write(copy.with_extension("ttml"), LINE_TTML).unwrap();
 
-        let s = run_copies(&all_on(), &scope, None, past(), &[], None, &|| false);
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
         assert_eq!(s.from_main, 1);
         assert_eq!(s.from_main_word_timed, 1);
         let ttml = std::fs::read_to_string(copy.with_extension("ttml")).unwrap();
@@ -1021,7 +1062,7 @@ mod tests {
             ..all_on()
         };
 
-        let s = run_copies(&settings, &scope, None, past(), &[], None, &|| false);
+        let s = run_copies(&settings, &scope, None, past(), &[], None, None, &|| false);
         assert_eq!(s.from_main, 1);
         for ext in ["ttml", "lrc", "vtt", "srt", "ass", "lyrics"] {
             assert!(
@@ -1049,7 +1090,7 @@ mod tests {
         std::fs::write(copy.with_extension("ttml"), LINE_TTML).unwrap();
         let later = SystemTime::now() + Duration::from_secs(3600);
 
-        run_copies(&all_on(), &scope, None, later, &[], None, &|| false);
+        run_copies(&all_on(), &scope, None, later, &[], None, None, &|| false);
         for ext in ["vtt", "ass", "lyrics"] {
             assert_eq!(
                 std::fs::read_to_string(copy.with_extension(ext)).unwrap(),
@@ -1070,7 +1111,7 @@ mod tests {
         let (dir, scope, main) = album();
         std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
         let copy = add_copy(dir.path());
-        run_copies(&all_on(), &scope, None, past(), &[], None, &|| false);
+        run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
         let ass = std::fs::read_to_string(copy.with_extension("ass")).unwrap();
         assert!(ass.contains("01 T [Lossless]"), "{ass}");
         assert!(!ass.contains("Dolby Atmos"), "{ass}");
@@ -1095,7 +1136,7 @@ mod tests {
         let older_bytes = std::fs::read(&older).unwrap();
         let copy = add_copy(dir.path());
 
-        run_copies(&all_on(), &scope, None, past(), &[], None, &|| false);
+        run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
         assert!(copy.with_extension("lrc").is_file());
         assert_eq!(std::fs::read(&main).unwrap(), main_bytes);
         assert_eq!(std::fs::read(&older).unwrap(), older_bytes);
@@ -1127,7 +1168,7 @@ mod tests {
             ..AppSettings::default()
         };
 
-        let s = run_copies(&settings, &scope, None, past(), &[], None, &|| false);
+        let s = run_copies(&settings, &scope, None, past(), &[], None, None, &|| false);
         assert_eq!(s.from_main, 1);
         assert_eq!(s.from_main_word_timed, 0);
         assert!(copy.with_extension("lrc").is_file());
@@ -1142,12 +1183,132 @@ mod tests {
         let (dir, scope, main) = album();
         std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
         let copy = add_copy(dir.path());
-        let s = run_copies(&all_on(), &scope, None, past(), &[], None, &|| true);
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| true);
         assert!(s.stopped);
         assert_eq!(s.total, 1);
         for ext in ["ttml", "lrc", "vtt", "srt", "ass", "lyrics"] {
             assert!(!copy.with_extension(ext).exists(), ".{ext} was written");
         }
+    }
+
+    // ---- review fixes ----
+
+    #[test]
+    fn two_files_with_different_known_song_ids_are_never_paired() {
+        let primaries = vec![ev("a.m4a", "/a", Some("1"), Some(1), Some(1))];
+        let copy = ev("b.m4a", "/a", Some("2"), Some(1), Some(1));
+        assert_eq!(match_primary(&copy, &primaries, true, false), None);
+        // An unknown song ID on either side still pairs by numbers.
+        let no_id = ev("b.m4a", "/a", None, Some(1), Some(1));
+        assert_eq!(match_primary(&no_id, &primaries, true, false), Some(0));
+        let primaries_no_id = vec![ev("a.m4a", "/a", None, Some(1), Some(1))];
+        assert_eq!(match_primary(&copy, &primaries_no_id, true, false), Some(0));
+    }
+
+    #[test]
+    fn the_song_id_is_read_even_when_disc_and_track_cannot_be() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("song.m4a");
+        minimal_m4a(&path, 1, 1, false);
+        let mut tag = mp4ameta::Tag::read_from_path(&path).unwrap();
+        tag.set_data(
+            mp4ameta::Fourcc(*b"cnID"),
+            mp4ameta::Data::BeSigned(1_440_857_795_u32.to_be_bytes().to_vec()),
+        );
+        tag.remove_track();
+        tag.remove_disc();
+        tag.write_to_path(&path).unwrap();
+        let e = read_evidence(&path);
+        assert_eq!(e.song_id.as_deref(), Some("1440857795"));
+        assert_eq!(e.track, None);
+    }
+
+    #[test]
+    fn a_copy_with_nothing_to_add_is_not_counted_as_given_lyrics() {
+        let (dir, scope, main) = album();
+        std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
+        let copy = add_copy(dir.path());
+        // Only the Lyricsfile is switched on, and it is already there.
+        let settings = AppSettings {
+            enhanced_lrc: false,
+            generate_webvtt: false,
+            generate_rich_srt: false,
+            generate_ass: false,
+            embed_subtitles: false,
+            generate_lyricsfile: true,
+            keep_lyrics_sidecar: true,
+            ..AppSettings::default()
+        };
+        std::fs::write(copy.with_extension("ttml"), LINE_TTML).unwrap();
+        std::fs::write(copy.with_extension("lyrics"), "mine").unwrap();
+        // The main download's ttml is better but an older ttml of the copy
+        // (not written by this run) is left alone, so nothing is written.
+        let long_ago = SystemTime::now() + Duration::from_secs(3600);
+        let s = run_copies(&settings, &scope, None, long_ago, &[], None, None, &|| {
+            false
+        });
+        assert_eq!((s.from_main, s.own, s.unchanged), (0, 0, 1));
+        assert_eq!(summary_line(&s), None);
+        let some = Summary {
+            total: 2,
+            own: 1,
+            unchanged: 1,
+            ..Summary::default()
+        };
+        assert_eq!(
+            summary_line(&some).unwrap(),
+            "Lyrics added to 1 extra copy: 1 used their own. 1 needed nothing added."
+        );
+    }
+
+    #[test]
+    fn a_stop_between_steps_ends_the_work_inside_one_copy() {
+        use std::cell::Cell;
+        let (dir, scope, main) = album();
+        std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
+        let copy = add_copy(dir.path());
+        // Allow the first question (before the Enhanced LRC step), then stop.
+        let asked = Cell::new(0);
+        let stop = || {
+            asked.set(asked.get() + 1);
+            asked.get() > 2
+        };
+        run_copies(&all_on(), &scope, None, past(), &[], None, None, &stop);
+        assert!(copy.with_extension("lrc").is_file());
+        for ext in ["vtt", "srt", "ass", "lyrics"] {
+            assert!(!copy.with_extension(ext).exists(), ".{ext} was written");
+        }
+    }
+
+    #[test]
+    fn the_lyricsfile_uses_the_main_downloads_artist_and_title() {
+        let (dir, scope, main) = album();
+        std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
+        // A name with no title part, so the default title is what shows.
+        let copy = dir.path().join("x.m4a");
+        minimal_m4a(&copy, 1, 1, false);
+        let settings = AppSettings {
+            enhanced_lrc: false,
+            generate_webvtt: false,
+            generate_rich_srt: false,
+            generate_ass: false,
+            embed_subtitles: false,
+            generate_lyricsfile: true,
+            keep_lyrics_sidecar: true,
+            ..AppSettings::default()
+        };
+        run_copies(
+            &settings,
+            &scope,
+            None,
+            past(),
+            &[],
+            Some("Album Artist"),
+            Some("Default Title"),
+            &|| false,
+        );
+        let yaml = std::fs::read_to_string(copy.with_extension("lyrics")).unwrap();
+        assert!(yaml.contains("Album Artist"), "{yaml}");
     }
 
     // ---- 13. nothing here deletes ----
@@ -1173,7 +1334,7 @@ mod tests {
         std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
         let copy = dir.path().join("01 T [Lossless].m4a");
         minimal_m4a(&copy, 1, 1, true);
-        run_copies(&all_on(), &scope, None, past(), &[], None, &|| false);
+        run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
         for ext in ["ttml", "lrc", "vtt", "srt", "ass", "lyrics"] {
             assert!(copy.with_extension(ext).is_file(), "no .{ext} before");
         }
@@ -1206,7 +1367,7 @@ mod tests {
             ..AppSettings::default()
         };
         assert_eq!(
-            run_copies(&s, &scope, None, past(), &[], None, &|| false),
+            run_copies(&s, &scope, None, past(), &[], None, None, &|| false),
             Summary::default()
         );
     }

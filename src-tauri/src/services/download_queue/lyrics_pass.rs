@@ -755,6 +755,13 @@ pub(crate) struct CompanionGateState {
     /// track number could not be read: they cannot be requested on their
     /// own, and are counted in the "left without an extra copy" line.
     pub unplaceable: Vec<SongCodec>,
+    /// The artist the main download's Lyricsfile step uses (the album
+    /// artist from Apple Music), so the extra copies' `.lyrics` files name
+    /// the same artist.
+    pub lyricsfile_artist: Option<String>,
+    /// The song title the main download's Lyricsfile step falls back to
+    /// (the album's first song), likewise.
+    pub lyricsfile_default_title: Option<String>,
 }
 
 /// Enrichment's end of the gate. Dropping it — an early return, a panic,
@@ -775,6 +782,15 @@ impl CompanionGate {
     /// Records the folder that holds the primary files now.
     pub(crate) fn set_album_dir(&self, dir: Option<String>) {
         self.0.send_modify(|s| s.album_dir = dir);
+    }
+
+    /// Records the artist and fallback title the main download's Lyricsfile
+    /// step uses, for the extra copies' `.lyrics` files.
+    pub(crate) fn set_lyricsfile_defaults(&self, artist: Option<String>, title: Option<String>) {
+        self.0.send_modify(|s| {
+            s.lyricsfile_artist = artist;
+            s.lyricsfile_default_title = title;
+        });
     }
 
     /// Lets the companions start, saying whether the per-file renames ran
@@ -2247,6 +2263,7 @@ mod tests {
     async fn the_gate_opens_on_release_with_what_enrichment_said() {
         let (gate, mut waiter) = companion_gate();
         gate.set_album_dir(Some("/Music/A/Album [Explicit]".into()));
+        gate.set_lyricsfile_defaults(Some("Artist".into()), Some("First".into()));
         let waiting =
             tokio::spawn(
                 async move { wait_for_companion_gate(&mut waiter, || async { false }).await },
@@ -2267,6 +2284,8 @@ mod tests {
         assert_eq!(state.primary_tracks, vec![(SongCodec::Alac, 1, 1)]);
         assert_eq!(state.album_tracks, vec![(1, 1, "100".to_string())]);
         assert_eq!(state.unplaceable, vec![SongCodec::Aac]);
+        assert_eq!(state.lyricsfile_artist.as_deref(), Some("Artist"));
+        assert_eq!(state.lyricsfile_default_title.as_deref(), Some("First"));
         assert_eq!(
             state.album_dir.as_deref(),
             Some("/Music/A/Album [Explicit]")
