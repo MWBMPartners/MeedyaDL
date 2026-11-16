@@ -2793,24 +2793,43 @@
         ];
         // Not a mixed album: the item's own links.
         assert_eq!(
-            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks),
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[]),
             AttemptLinks::All
         );
         // Mixed: only track 1 is requested (track 2 is already ALAC),
         // track 3 is counted as unmatched. Nothing is ever deleted — the
         // already-ALAC track is simply not asked for.
+        // One more song (in Atmos) had no readable disc/track: also left
+        // out and counted; one in ALAC needs no copy and is not counted.
         assert_eq!(
-            attempt_links(&SongCodec::Alac, true, &album, &primary, &tracks),
+            attempt_links(
+                &SongCodec::Alac,
+                true,
+                &album,
+                &primary,
+                &tracks,
+                &[SongCodec::Atmos, SongCodec::Alac]
+            ),
             AttemptLinks::Only {
                 links: vec!["https://music.apple.com/us/album/_/1440857781?i=11".to_string()],
-                unmapped: 1,
+                left_out: 2,
+                details_available: true,
+            }
+        );
+        // No album song details at all (no developer key).
+        assert_eq!(
+            attempt_links(&SongCodec::Alac, true, &album, &primary, &[], &[]),
+            AttemptLinks::Only {
+                links: vec![],
+                left_out: 2,
+                details_available: false,
             }
         );
         // A playlist cannot be split by track: that format is skipped with
         // a plain reason.
         let playlist = vec!["https://music.apple.com/us/playlist/x/pl.u-GgA567VCXX".to_string()];
         assert_eq!(
-            attempt_links(&SongCodec::Alac, true, &playlist, &primary, &tracks),
+            attempt_links(&SongCodec::Alac, true, &playlist, &primary, &tracks, &[]),
             AttemptLinks::Skip(
                 "Extra copies in Lossless (ALAC) were not made for this playlist, because some of its songs are already in that format."
                     .to_string()
@@ -2819,9 +2838,27 @@
         // A single song link is not split either.
         let song = vec!["https://music.apple.com/us/album/x/1440857781?i=11".to_string()];
         assert!(matches!(
-            attempt_links(&SongCodec::Alac, true, &song, &primary, &tracks),
+            attempt_links(&SongCodec::Alac, true, &song, &primary, &tracks, &[]),
             AttemptLinks::Skip(_)
         ));
+    }
+
+    #[test]
+    fn mixed_album_lines_say_why_songs_got_no_copy() {
+        assert_eq!(
+            mixed_album_lines(&SongCodec::Alac, 3, 1, true),
+            vec!["1 song(s) were left without an extra copy in Lossless (ALAC) because their Apple Music details could not be matched.".to_string()]
+        );
+        assert_eq!(
+            mixed_album_lines(&SongCodec::Alac, 0, 2, false),
+            vec![
+                "2 song(s) were left without an extra copy in Lossless (ALAC) because this album's song details were not available.".to_string(),
+                "No extra copy in Lossless (ALAC) was made for this album: none of its songs could be asked for on their own.".to_string(),
+            ]
+        );
+        // Nothing requested and nothing counted still says so.
+        assert_eq!(mixed_album_lines(&SongCodec::Alac, 0, 0, true).len(), 1);
+        assert!(mixed_album_lines(&SongCodec::Alac, 2, 0, true).is_empty());
     }
 
     #[test]

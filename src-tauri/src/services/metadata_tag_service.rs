@@ -565,15 +565,16 @@ pub fn apply_deferred_file_renames(
         } else {
             None
         };
-        let codec = file_codecs
-            .iter()
-            .find(|(p, _)| p == file)
-            .and_then(|(_, c)| codec_suffix_from_registry(c))
+        let detected = file_codecs.iter().find(|(p, _)| p == file).map(|(_, c)| c.clone());
+        let codec = detected
+            .as_ref()
+            .and_then(codec_suffix_from_registry)
             .filter(|s| !s.is_empty());
         let final_path = rename_with_suffixes(file, advisory, codec);
         finals.push(DeferredRename {
             final_path,
             wanted: advisory.into_iter().chain(codec).collect(),
+            detected,
         });
     }
     finals
@@ -586,6 +587,8 @@ pub struct DeferredRename {
     pub final_path: PathBuf,
     /// The suffixes it was meant to get (advisory, format).
     pub wanted: Vec<&'static str>,
+    /// The format detected in it, which named it (`None`: not tagged).
+    pub detected: Option<SongCodec>,
 }
 
 /// Whether every wanted suffix is really in each file's final name. A
@@ -3509,6 +3512,7 @@ mod tests {
         let expected = dir.path().join("01 T [Explicit] [Lossless].m4a");
         assert_eq!(finals[0].final_path, expected);
         assert_eq!(finals[0].wanted, vec!["[Explicit]", "[Lossless]"]);
+        assert_eq!(finals[0].detected, Some(SongCodec::Alac));
         assert!(renames_complete(&finals));
         assert!(expected.is_file());
         for ext in ALL_SIDECARS {
@@ -3527,17 +3531,20 @@ mod tests {
         let failed = DeferredRename {
             final_path: PathBuf::from("/a/01 T.m4a"),
             wanted: vec!["[Lossless]"],
+            detected: Some(SongCodec::Alac),
         };
         assert!(!renames_complete(&[failed]));
         // Only the advisory part landed.
         let half = DeferredRename {
             final_path: PathBuf::from("/a/01 T [Explicit].m4a"),
             wanted: vec!["[Explicit]", "[Lossless]"],
+            detected: Some(SongCodec::Alac),
         };
         assert!(!renames_complete(&[half]));
         let done = DeferredRename {
             final_path: PathBuf::from("/a/01 T [Explicit] [Lossless].m4a"),
             wanted: vec!["[Explicit]", "[Lossless]"],
+            detected: Some(SongCodec::Alac),
         };
         assert!(renames_complete(&[done]));
     }

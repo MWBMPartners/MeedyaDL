@@ -474,9 +474,15 @@ pub(crate) struct AttemptPlan {
 pub(crate) enum AttemptLinks {
     /// The item's own links, as for the primary run.
     All,
-    /// Only these per-track song links; `unmapped` tracks could not be
-    /// matched to a song ID and get no copy.
-    Only { links: Vec<String>, unmapped: usize },
+    /// Only these per-track song links. `left_out` tracks get no copy:
+    /// no song ID for them, or their disc/track number could not be read.
+    /// `details_available` is false when there were no album song details
+    /// at all (no developer key, for example).
+    Only {
+        links: Vec<String>,
+        left_out: usize,
+        details_available: bool,
+    },
     /// Not run, with the plain reason for the activity log.
     Skip(String),
 }
@@ -492,6 +498,7 @@ pub(crate) fn attempt_links(
     item_urls: &[String],
     primary_tracks: &[(SongCodec, u32, u32)],
     album_tracks: &[(u32, u32, String)],
+    unplaceable: &[SongCodec],
 ) -> AttemptLinks {
     if !only_other_tracks {
         return AttemptLinks::All;
@@ -521,10 +528,43 @@ pub(crate) fn attempt_links(
         &album.storefront,
         &album.album_id,
     );
+    // Songs whose numbers could not be read cannot be requested on their
+    // own; those not already in this format are left out too.
+    let unplaceable_elsewhere = unplaceable.iter().filter(|c| *c != codec).count();
     AttemptLinks::Only {
         links,
-        unmapped: unmapped.len(),
+        left_out: unmapped.len() + unplaceable_elsewhere,
+        details_available: !album_tracks.is_empty(),
     }
+}
+
+/// The plain activity-log lines for a mixed-album attempt that asks for
+/// `links` songs and leaves `left_out` without a copy. Always says
+/// something when nothing is requested at all.
+pub(crate) fn mixed_album_lines(
+    codec: &SongCodec,
+    links: usize,
+    left_out: usize,
+    details_available: bool,
+) -> Vec<String> {
+    let name = plain_codec_name(codec);
+    let mut lines = Vec::new();
+    if left_out > 0 {
+        let why = if details_available {
+            "their Apple Music details could not be matched"
+        } else {
+            "this album's song details were not available"
+        };
+        lines.push(format!(
+            "{left_out} song(s) were left without an extra copy in {name} because {why}."
+        ));
+    }
+    if links == 0 {
+        lines.push(format!(
+            "No extra copy in {name} was made for this album: none of its songs could be asked for on their own."
+        ));
+    }
+    lines
 }
 
 /// How the primary run named its files, for the companions' guard.
@@ -2885,6 +2925,7 @@ pub(crate) fn spawn_companion_downloads(
             let mut primary_codecs: Vec<SongCodec> = Vec::new();
             let mut primary_tracks: Vec<(SongCodec, u32, u32)> = Vec::new();
             let mut album_tracks: Vec<(u32, u32, String)> = Vec::new();
+            let mut unplaceable: Vec<SongCodec> = Vec::new();
             if let Some(hold) = held_until {
                 let mut waiter = hold.waiter;
                 let state = super::lyrics_pass::wait_for_companion_gate(&mut waiter, || {
@@ -2902,6 +2943,7 @@ pub(crate) fn spawn_companion_downloads(
                 primary_codecs.clone_from(&state.primary_codecs);
                 primary_tracks.clone_from(&state.primary_tracks);
                 album_tracks.clone_from(&state.album_tracks);
+                unplaceable.clone_from(&state.unplaceable);
                 if !state.renames_done {
                     // The primary files may still have their plain names
                     // (enrichment ended early, or the format could not be
@@ -3117,22 +3159,22 @@ pub(crate) fn spawn_companion_downloads(
                         &comp_urls,
                         &primary_tracks,
                         &album_tracks,
+                        &unplaceable,
                     ) {
                         AttemptLinks::All => comp_urls.clone(),
                         AttemptLinks::Skip(reason) => {
                             emit_download_log(&comp_app, &comp_dl_id, &reason);
                             continue;
                         }
-                        AttemptLinks::Only { links, unmapped } => {
-                            if unmapped > 0 {
-                                emit_download_log(
-                                    &comp_app,
-                                    &comp_dl_id,
-                                    &format!(
-                                        "{unmapped} song(s) were left without an extra copy in {} because their Apple Music details could not be matched.",
-                                        plain_codec_name(codec)
-                                    ),
-                                );
+                        AttemptLinks::Only {
+                            links,
+                            left_out,
+                            details_available,
+                        } => {
+                            for line in
+                                mixed_album_lines(codec, links.len(), left_out, details_available)
+                            {
+                                emit_download_log(&comp_app, &comp_dl_id, &line);
                             }
                             if links.is_empty() {
                                 continue;
