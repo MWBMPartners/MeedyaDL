@@ -1464,13 +1464,16 @@ pub fn update_major_ceiling(installed: Option<&str>) -> u32 {
 
 /// The newest finished release whose major version is at most
 /// `max_major`, ignoring pre-releases and releases whose files have all
-/// been withdrawn. Pure, so it can be tested without the network.
+/// been withdrawn, and never a release on the refused list
+/// (`KNOWN_BAD_VERSIONS`), which the installer would refuse on click.
+/// Pure, so it can be tested without the network.
 #[must_use]
 pub fn newest_release_up_to_major(json: &serde_json::Value, max_major: u32) -> Option<String> {
-    use super::gamdl_capabilities::{major_version_of, numeric_version};
+    use super::gamdl_capabilities::{known_bad_version, major_version_of, numeric_version};
     let releases = json["releases"].as_object()?;
     releases
         .iter()
+        .filter(|(version, _)| known_bad_version(version).is_none())
         .filter(|(version, _)| major_version_of(version).is_some_and(|m| m <= max_major))
         .filter(|(_, files)| {
             files.as_array().is_some_and(|f| {
@@ -1656,8 +1659,17 @@ mod tests {
             }
         });
         // 4.0.2 is withdrawn, 4.1.0rc1 is a pre-release, 4.1 has no
-        // files, and 5.x cannot be used: 4.0.1 is the answer.
-        assert_eq!(newest_drivable_release(&json).as_deref(), Some("4.0.1"));
+        // files, and 5.x cannot be used. 4.0.0 and 4.0.1 are refused, so
+        // there is nothing to offer (a refused release is never offered
+        // only to be turned down when clicked).
+        assert_eq!(newest_drivable_release(&json), None);
+        // With 4.0.2 published and good, it is the answer.
+        let good = serde_json::json!({"releases": {
+            "4.0.0": [{"yanked": false}],
+            "4.0.1": [{"yanked": false}],
+            "4.0.2": [{"yanked": false}]
+        }});
+        assert_eq!(newest_drivable_release(&good).as_deref(), Some("4.0.2"));
         let json = serde_json::json!({"releases": {"3.9": [{}], "3.10.1": [{}]}});
         assert_eq!(newest_drivable_release(&json).as_deref(), Some("3.10.1"));
         assert_eq!(newest_drivable_release(&serde_json::json!({})), None);
@@ -1681,7 +1693,8 @@ mod tests {
                 "3.9.1": [{"yanked": false}],
                 "3.9.2": [{"yanked": false}],
                 "4.0.0": [{"yanked": false}],
-                "4.0.1": [{"yanked": false}]
+                "4.0.1": [{"yanked": false}],
+                "4.0.2": [{"yanked": false}]
             }
         });
         assert_eq!(
@@ -1690,7 +1703,20 @@ mod tests {
         );
         assert_eq!(
             newest_release_up_to_major(&json, 4).as_deref(),
-            Some("4.0.1")
+            Some("4.0.2")
+        );
+        // If 4.0.2 were withdrawn, a 4.0.0 user must not be offered 4.0.1
+        // (refused on click): the newest release that is not refused is
+        // the answer.
+        let withdrawn = serde_json::json!({"releases": {
+            "3.9.2": [{"yanked": false}],
+            "4.0.0": [{"yanked": false}],
+            "4.0.1": [{"yanked": false}],
+            "4.0.2": [{"yanked": true}]
+        }});
+        assert_eq!(
+            newest_release_up_to_major(&withdrawn, 4).as_deref(),
+            Some("3.9.2")
         );
     }
 

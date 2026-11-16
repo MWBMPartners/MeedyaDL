@@ -58,12 +58,12 @@ GAMDL 4 is a rewrite of GAMDL. MeedyaDL can use it, but it has **not been tested
 **How to try it.**
 
 1. Go to **Settings > Tools > GAMDL Version Management**.
-2. Type `4.0.2` (or the newest GAMDL 4 version the **Updates** page offers) under **Advanced: install specific version** and press **Install**.
+2. Type `4.0.2` (or a newer GAMDL 4 release) under **Advanced: install specific version** and press **Install**.
 3. To go back, press **Install recommended** in the same place.
 
 While you are on GAMDL 3, the **Updates** page offers GAMDL 3 updates only, so nobody is moved to GAMDL 4 by accident. Once you are on GAMDL 4, it offers GAMDL 4 updates, marked **Untested**.
 
-**Use 4.0.2, not 4.0.0 or 4.0.1.** GAMDL 4.0.0 cannot save downloads to drives that do not support "hard links". That includes most portable drives and many network or cloud folders, so downloads to them fail. GAMDL 4.0.1 can save some short songs in a way that means they will not play, while still reporting them as downloaded. 4.0.2 fixes both, and MeedyaDL will not install 4.0.0 or 4.0.1. If you already have one of them, **Settings > Tools** marks it with a known problem. Install 4.0.2 from the **Updates** page or from the same **Advanced: install specific version** box.
+**Use 4.0.2, not 4.0.0 or 4.0.1.** GAMDL 4.0.0 cannot save downloads to drives that do not support "hard links". That includes most portable drives and many network or cloud folders, so downloads to them fail. GAMDL 4.0.0 and 4.0.1 can also save some short songs in a way that means they will not play, while still reporting them as downloaded. 4.0.2 fixes all of this, and MeedyaDL will not install 4.0.0 or 4.0.1. If you already have one of them, **Settings > Tools** marks it with a known problem. Install 4.0.2 from the **Updates** page or from the same **Advanced: install specific version** box.
 
 **Not every computer can use it.** On Linux on 32-bit ARM (for example an older Raspberry Pi), GAMDL 4 has no package to install. On Windows on ARM, MeedyaDL stays on GAMDL 3.8.5 for now. On both, MeedyaDL will not install GAMDL 4 and tells you why.
 

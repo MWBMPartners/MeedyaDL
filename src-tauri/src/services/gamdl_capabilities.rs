@@ -300,15 +300,17 @@ pub const KNOWN_BAD_VERSIONS: &[KnownBadVersion] = &[KnownBadVersion {
     version: "4.0.0",
     reason: "GAMDL 4.0.0 cannot save downloads to drives that do not support hard links, \
              which includes most portable drives and many network or cloud folders, so \
-             downloads to them fail.",
+             downloads to them fail. It can also save some short songs still locked, so \
+             they will not play, while reporting them as downloaded.",
     fixed_in: "4.0.2",
 }, KnownBadVersion {
-    // Read in GAMDL's own source, 16 Nov 2026 (upstream commits a06ea3cd
-    // and fd725b6c, and the removal of a pass-through test in 4.0.2).
-    // 4.0.1 stopped recognising Apple's generic key address for some
-    // songs, so those songs can be saved still locked (they will not
-    // play) while the run reports them as downloaded. 4.0.2 handles that
-    // address again.
+    // Read in GAMDL's own source, 16 Nov 2026. Upstream's filter that
+    // discards Apple's generic key address came in with commit 9a78275,
+    // already in 4.0.0, and 4.0.0 has the pass-through test too, so
+    // 4.0.0 AND 4.0.1 both have the fault: some songs can be saved still
+    // locked (they will not play) while the run reports them as
+    // downloaded. Commits a06ea3cd and fd725b6c (4.0.2) recognise that
+    // address again and the pass-through test is removed.
     version: "4.0.1",
     reason: "GAMDL 4.0.1 can save some short songs still locked, so they will not play, \
              while reporting them as downloaded.",
