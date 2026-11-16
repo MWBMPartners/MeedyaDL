@@ -3926,6 +3926,8 @@ pub(crate) fn spawn_companion_downloads(
                     let output_dir = std::path::PathBuf::from(output_dir);
                     let stop_aborted = aborted_for_task.clone();
                     let stop_shutdown = comp_shutdown.clone();
+                    let stop_queue = comp_queue.clone();
+                    let stop_dl_id = comp_dl_id.clone();
                     let tracks = album_tracks.clone();
                     let artist = artist_hint.clone();
                     let album = album_hint.clone();
@@ -3945,7 +3947,16 @@ pub(crate) fn spawn_companion_downloads(
                         &tracks,
                         lyricsfile_artist.as_deref(),
                         lyricsfile_default_title.as_deref(),
-                        &|| stop_aborted.load(Ordering::Relaxed) || stop_shutdown.is_triggered(),
+                        // Also stops when the item is cancelled mid-run. A
+                        // queue that is busy right now is not waited for: the
+                        // next step asks again.
+                        &|| {
+                            stop_aborted.load(Ordering::Relaxed)
+                                || stop_shutdown.is_triggered()
+                                || stop_queue
+                                    .try_lock()
+                                    .is_ok_and(|q| !q.should_keep_working_on(&stop_dl_id))
+                        },
                     );
                     if let Some(line) = super::companion_lyrics::summary_line(&summary) {
                         emit_download_log(&comp_app, &comp_dl_id, &line);

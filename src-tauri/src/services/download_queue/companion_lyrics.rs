@@ -521,7 +521,16 @@ fn process_copy(
     // Step 2e: embed the subtitle files in the music file (not gated on
     // keeping separate files).
     if s.embed_subtitles && !stop() {
-        let srt = read_text(&copy.with_extension("srt"));
+        // With separate files switched off, a copy given the main download's
+        // `.srt` has no file of its own, so use the text read from the main
+        // download — as the main file itself gets it embedded.
+        let srt = read_text(&copy.with_extension("srt")).or_else(|| {
+            if from_main {
+                texts.srt.clone()
+            } else {
+                None
+            }
+        });
         let vtt = read_text(&copy.with_extension("vtt"));
         if srt.is_some() || vtt.is_some() {
             match super::rich_srt_service::embed_subtitles_in_file(
@@ -709,6 +718,11 @@ pub(crate) fn run_copies(
             CopyOutcome::Nothing => summary.none += 1,
         }
     }
+    // A stop between the steps of the last copy ends the loop normally, so
+    // ask once more: the summary must say the work stopped early.
+    if stop() {
+        summary.stopped = true;
+    }
     summary
 }
 
@@ -735,7 +749,9 @@ pub(crate) fn run(
         extra_dir.as_deref(),
         since,
         album_tracks,
-        lyricsfile_artist.or(artist_hint),
+        // Same rule as the main download's Step 2g: the album artist, or
+        // "Unknown Artist" when the album details are missing.
+        lyricsfile_artist,
         default_title,
         stop,
     )
@@ -1278,6 +1294,61 @@ mod tests {
         for ext in ["vtt", "srt", "ass", "lyrics"] {
             assert!(!copy.with_extension(ext).exists(), ".{ext} was written");
         }
+    }
+
+    #[test]
+    fn a_stop_during_the_last_copy_is_reported_as_stopped() {
+        use std::cell::Cell;
+        let (dir, scope, main) = album();
+        std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
+        add_copy(dir.path());
+        // The loop's own check passes; a step inside the copy stops it.
+        let asked = Cell::new(0);
+        let stop = || {
+            asked.set(asked.get() + 1);
+            asked.get() > 2
+        };
+        let summary = run_copies(&all_on(), &scope, None, past(), &[], None, None, &stop);
+        assert!(
+            summary.stopped,
+            "a stop inside the last copy must be reported"
+        );
+    }
+
+    #[test]
+    fn subtitles_are_embedded_from_the_main_downloads_srt_with_files_off() {
+        let (dir, scope, main) = album();
+        // The main download has only a fallback `.srt`, no `.ttml`.
+        std::fs::write(
+            main.with_extension("srt"),
+            "1\n00:00:01,000 --> 00:00:02,000\nHello\n",
+        )
+        .unwrap();
+        let copy = add_copy(dir.path());
+        let settings = AppSettings {
+            enhanced_lrc: false,
+            generate_webvtt: false,
+            generate_rich_srt: false,
+            generate_ass: false,
+            generate_lyricsfile: false,
+            embed_subtitles: true,
+            keep_lyrics_sidecar: false,
+            ..AppSettings::default()
+        };
+        run_copies(&settings, &scope, None, past(), &[], None, None, &|| false);
+        assert!(
+            !copy.with_extension("srt").exists(),
+            "no separate file with files off"
+        );
+        let tag = mp4ameta::Tag::read_from_path(&copy).unwrap();
+        let embedded = tag
+            .data_of(&mp4ameta::FreeformIdent::new_static(
+                "com.apple.iTunes",
+                "subtitles-srt",
+            ))
+            .next()
+            .and_then(|d| d.string().map(str::to_owned));
+        assert_eq!(embedded.as_deref().map(|t| t.contains("Hello")), Some(true));
     }
 
     #[test]
