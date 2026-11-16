@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-11-16 — see ★★★★ LATEST below
+**Last updated:** 2026-11-16 (evening) — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
 **Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.90** · `beta` **1.9.4-beta.23** · `release-candidate` **1.0.0-rc.50** — read from each branch's `package.json` on 16 Nov.
@@ -11,7 +11,25 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-11-16 (afternoon): notifications rebuilt, #1419 redone, GitHub records checked, in-app help rewritten
+## ★★★★ LATEST — 2026-11-16 (evening): quick fixes, GAMDL 4.0.2, word-by-word lyrics reordered, extra copies made safe
+
+All on `work-in-progress`, for PR #1420 to `alpha`. Codex unavailable; every review was a fresh Claude Opus agent.
+
+| # | Task | Issue | Status | Notes |
+|---|---|---|---|---|
+| 1 | Quick-fix batch (History retry, wrapper decryption address worked out at download time, interface language, Settings save-before-load, link-opening audit check, m3u8 address kept on restore) | #1433, #1267, #1237, #1235 and others | **Done — reviewed clean (round 4)** | `00d52926` … `9de02ef7`, `6bb524be`. Settings v12→v13 (blank decryption address = automatic). |
+| 2 | GAMDL 4.0.2 | #1434 | **Done — reviewed clean** | 4.0.0 and 4.0.1 refused (fixed in 4.0.2); Save Cover Art works again from 4.0.2; update check never offers a refused or older-major release. Audit `.github/audits/gamdl-v4.0.2-audit.md`. `3765e014` … `6bb524be`. |
+| 3 | Word-by-word lyrics: MeedyaDL's own fetch first, GAMDL 4.0.2 `enhanced-ttml` only for tracks ours could not ask about; conversions after both; renames last | #1435 | **Done — reviewed clean (16 rounds)** | `58174792` … `61b5468e`. Grew into: extra-format downloads wait for the renames and never overwrite/delete/take the main file's name; mixed albums ask per song link; only this download's files are renamed; `overwrite` never written to config.ini; Library re-download fills gaps only (updated albums follow the Overwrite setting) with a second-copy warning. Design in CLAUDE.md "Metadata enrichment", "Companion downloads", "Library Scan page". Real-machine list in #1435. |
+| 4 | Older problems found by those reviews | #1436, #1437 | **Open, not started** | #1436 GAMDL 3 lyrics recovery uses the old folder name; #1437 re-download vs files MeedyaDL renamed (second copies). |
+| 5 | Standing rule added: data collection on Haiku/Sonnet, facts only | — | **Done** (`0bcfd728`) | CLAUDE.md, AGENTS.md, both memory trees. |
+| 6 | **Next: reformat all code** (cargo fmt + Prettier, one layout-only commit, `.git-blame-ignore-revs`, CI checks) | — | **Queued — must be the last code change before the comments pass** | Maintainer: last item so it covers everything. Expect cherry-pick friction onto beta/rc until those branches get the same reformat. |
+| 7 | **Then: detailed comments + documentation links across the code** | — | **Queued — after #6** | Separate commits from the layout-only one; batches by folder (Sonnet/Haiku), each checked for accuracy by Opus; links only to stable official docs; plain English. |
+
+Issues to close when #1420 merges: #1404 (follow-up for making GAMDL 4 routine still to be opened), #1236, #1289, #1385, #1431, #1419, #1433, #1434, #1435 and the quick-fix issues.
+
+---
+
+## ★★★ Previous — 2026-11-16 (afternoon): notifications rebuilt, #1419 redone, GitHub records checked, in-app help rewritten
 
 All on `work-in-progress`, so all in the combined PR #1420 to `alpha`. Codex was unavailable all day; every review was a fresh Claude Opus agent.
 
