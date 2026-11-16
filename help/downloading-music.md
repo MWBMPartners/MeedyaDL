@@ -231,7 +231,7 @@ MeedyaDL can also download extra versions of the same music in other qualities. 
 
 By default (**Atmos → Lossless (ALAC)**), a Dolby Atmos download also gets a lossless (ALAC) copy. Other modes add lossy AAC copies as well. **Custom…** lets you tick exactly the qualities you want.
 
-Extra versions usually get a short tag in the file name, for example `[Lossless]` or `[Dolby Atmos]`, so they can sit side by side in the album folder. Extra versions are made before the next item in the queue starts, and each one gets its own lyric files. You can follow them on the **Activity** page. See [Quality Settings](quality-settings.md#companion-downloads) for what each mode does.
+Extra versions usually get a short tag in the file name, for example `[Lossless]` or `[Dolby Atmos]`, so they can sit side by side in the album folder. Extra versions are made before the next item in the queue starts, and each one gets its own lyric files when lyrics are available. You can follow them on the **Activity** page. See [Quality Settings](quality-settings.md#companion-downloads) for what each mode does.
 
 ---
 
