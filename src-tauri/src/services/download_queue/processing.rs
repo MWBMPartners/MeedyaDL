@@ -4377,6 +4377,7 @@ pub fn process_queue(
                         Some(CompanionHold {
                             waiter: companion_gate_waiter,
                             download_root: primary_download_folder.clone(),
+                            advisory_scope: advisory_scope.clone(),
                         }),
                         PrimaryNaming::of(&download_options, primary_appended_suffix),
                     );

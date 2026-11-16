@@ -124,31 +124,10 @@ pub fn generate_lyricsfile_for_directory(
             }
         };
 
-        // Title comes from the filename stem when we can derive it,
-        // since the audio file's stem is what GAMDL applied the user's
-        // template against. Falls back to the caller-supplied default
-        // (album track-1 title is a sensible last resort).
-        let title = derive_title_from_stem(&stem).unwrap_or_else(|| default_title.to_string());
-
-        // The `.lyrics` file's language comes entirely from the shared
-        // `meedya-lyrics` code: `from_ttml` copies the TTML's `xml:lang`
-        // into it as written. MeedyaDL deliberately does not rewrite it
-        // here (#1250): the fix to write the policy's standard tag belongs
-        // in MeedyaSuite-core, where every app using that code gets it, and
-        // is being made there. Once MeedyaDL takes that version, nothing
-        // here needs to change.
-        let lyricsfile = match Lyricsfile::from_ttml(&ttml, title, default_artist) {
-            Ok(lf) => lf,
+        let yaml = match lyricsfile_from_ttml(&ttml, &stem, default_title, default_artist) {
+            Ok(y) => y,
             Err(e) => {
-                log::debug!("Lyricsfile: TTML conversion failed for {stem}: {e} — skipping");
-                continue;
-            }
-        };
-
-        let yaml = match lyricsfile.to_yaml() {
-            Ok(s) => s,
-            Err(e) => {
-                log::debug!("Lyricsfile: YAML serialise failed for {stem}: {e} — skipping");
+                log::debug!("Lyricsfile: {e} for {stem} — skipping");
                 continue;
             }
         };
@@ -168,6 +147,39 @@ pub fn generate_lyricsfile_for_directory(
 // ============================================================
 // Internal helpers
 // ============================================================
+
+/// Builds the text of one Lyricsfile (`.lyrics`) from a TTML document.
+///
+/// This is the per-track part of [`generate_lyricsfile_for_directory`],
+/// shared with the extra-format copies (`companion_lyrics.rs`), so both
+/// produce byte-identical output for the same TTML and file name.
+///
+/// The title comes from the file name stem when one can be derived
+/// ([`derive_title_from_stem`] drops the track number and any trailing
+/// `[...]` labels, so a copy's name gives the same title as the main
+/// download's); otherwise `default_title` is used. `default_artist` is the
+/// artist written into the file.
+///
+/// The `.lyrics` file's language comes entirely from the shared
+/// `meedya-lyrics` code: `from_ttml` copies the TTML's `xml:lang` into it
+/// as written. MeedyaDL deliberately does not rewrite it here (#1250): the
+/// fix to write the policy's standard tag belongs in MeedyaSuite-core.
+///
+/// Returns the file text, or a short reason when the TTML cannot be
+/// converted or written out.
+pub(crate) fn lyricsfile_from_ttml(
+    ttml: &str,
+    stem: &str,
+    default_title: &str,
+    default_artist: &str,
+) -> Result<String, String> {
+    let title = derive_title_from_stem(stem).unwrap_or_else(|| default_title.to_string());
+    let lyricsfile = Lyricsfile::from_ttml(ttml, title, default_artist)
+        .map_err(|e| format!("TTML conversion failed: {e}"))?;
+    lyricsfile
+        .to_yaml()
+        .map_err(|e| format!("YAML serialise failed: {e}"))
+}
 
 /// Best-effort track title extraction from a GAMDL-style filename
 /// stem like `"01 Track Title"` or `"1 - 05 Track Title [Lossless]"`.
@@ -279,5 +291,36 @@ mod tests {
     fn non_directory_path_returns_err() {
         let err = generate_lyricsfile_for_directory("/nonexistent/path", "t", "a").unwrap_err();
         assert!(err.contains("Not a directory"));
+    }
+
+    /// The per-track helper (shared with the extra-format copies) writes
+    /// exactly what the folder-wide function writes for the same TTML.
+    #[test]
+    fn the_shared_helper_matches_the_folder_wide_output() {
+        let ttml = r#"<?xml version="1.0" encoding="UTF-8"?>
+            <tt xmlns="http://www.w3.org/ns/ttml" xml:lang="en-US">
+              <body><div>
+                <p begin="00:12.450" end="00:15.800">Hello world today</p>
+              </div></body>
+            </tt>"#;
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("01 Hello [Lossless].m4a"), b"a").unwrap();
+        std::fs::write(dir.path().join("01 Hello [Lossless].ttml"), ttml).unwrap();
+        let n = generate_lyricsfile_for_directory(
+            dir.path().to_str().unwrap(),
+            "Untitled",
+            "Some Artist",
+        )
+        .unwrap();
+        assert_eq!(n, 1);
+        let from_dir =
+            std::fs::read_to_string(dir.path().join("01 Hello [Lossless].lyrics")).unwrap();
+        let from_helper =
+            lyricsfile_from_ttml(ttml, "01 Hello [Lossless]", "Untitled", "Some Artist").unwrap();
+        assert_eq!(from_dir, from_helper);
+        // A copy with a different label gives the same title.
+        let other = lyricsfile_from_ttml(ttml, "01 Hello [Dolby Atmos]", "Untitled", "Some Artist")
+            .unwrap();
+        assert_eq!(from_helper, other);
     }
 }

@@ -2928,6 +2928,11 @@ pub(crate) struct CompanionHold {
     pub waiter: super::lyrics_pass::CompanionGateWaiter,
     /// The primary run's resolved download folder.
     pub download_root: Option<String>,
+    /// What the final advisory pass may touch, filled by enrichment right
+    /// before it opens the gate. The companion task reads it afterwards to
+    /// find this download's new copies and give them their lyrics
+    /// (`companion_lyrics.rs`).
+    pub advisory_scope: Arc<StdMutex<Option<super::lyrics_pass::AdvisoryScope>>>,
 }
 
 /// Plans and starts the companion downloads for one finished primary
@@ -3112,7 +3117,16 @@ pub(crate) fn spawn_companion_downloads(
             let mut companion_album_dir: Option<std::path::PathBuf> = None;
             let mut gate_album_name: Option<String> = None;
             let mut unplaceable: Vec<SongCodec> = Vec::new();
+            // Where enrichment recorded this download's files, and when the
+            // gate opened (to tell a lyrics file written by this run from an
+            // older one). Both stay `None` on the failure path, which has no
+            // gate; the old folder-wide lyrics conversion runs there.
+            let mut lyrics_scope_handle: Option<
+                Arc<StdMutex<Option<super::lyrics_pass::AdvisoryScope>>>,
+            > = None;
+            let mut gate_opened_at: Option<std::time::SystemTime> = None;
             if let Some(hold) = held_until {
+                lyrics_scope_handle = Some(hold.advisory_scope.clone());
                 let mut waiter = hold.waiter;
                 let state = super::lyrics_pass::wait_for_companion_gate(&mut waiter, || {
                     let queue = comp_queue.clone();
@@ -3128,6 +3142,7 @@ pub(crate) fn spawn_companion_downloads(
                     );
                     return;
                 };
+                gate_opened_at = Some(std::time::SystemTime::now());
                 primary_codecs.clone_from(&state.primary_codecs);
                 primary_tracks.clone_from(&state.primary_tracks);
                 album_tracks.clone_from(&state.album_tracks);
@@ -3882,14 +3897,62 @@ pub(crate) fn spawn_companion_downloads(
                     ProgressStage::Finalising,
                     "Companion: converting lyrics formats…",
                 );
-                run_companion_lyrics_conversion(
-                    &comp_app,
-                    &comp_dl_id,
-                    output_dir,
-                    artist_hint.as_deref(),
-                    album_hint.as_deref(),
-                    &aborted_for_task,
-                );
+                // #1440: with a recorded scope, only THIS download's new
+                // copies are given lyrics, matched to the main download's
+                // files (`companion_lyrics.rs`). Without one (the gate was
+                // dropped, or the failure path) the old folder-wide
+                // conversion runs, unchanged.
+                let scope = lyrics_scope_handle
+                    .as_ref()
+                    .and_then(|h| h.lock().ok().and_then(|g| g.clone()));
+                if let (Some(scope), Some(since)) = (scope, gate_opened_at) {
+                    set_stage_with_label(
+                        &comp_app,
+                        &comp_queue,
+                        &comp_dl_id,
+                        ProgressStage::Finalising,
+                        "Extra copies: adding lyrics…",
+                    );
+                    let settings = load_settings_for_queue(&comp_app);
+                    let output_dir = std::path::PathBuf::from(output_dir);
+                    let stop_aborted = aborted_for_task.clone();
+                    let stop_shutdown = comp_shutdown.clone();
+                    let tracks = album_tracks.clone();
+                    let artist = artist_hint.clone();
+                    let album = album_hint.clone();
+                    let summary = tokio::task::spawn_blocking(move || {
+                        super::companion_lyrics::run(
+                            &settings,
+                            &scope,
+                            &output_dir,
+                            artist.as_deref(),
+                            album.as_deref(),
+                            since,
+                            &tracks,
+                            &|| {
+                                stop_aborted.load(Ordering::Relaxed) || stop_shutdown.is_triggered()
+                            },
+                        )
+                    })
+                    .await;
+                    match summary {
+                        Ok(summary) => {
+                            if let Some(line) = super::companion_lyrics::summary_line(&summary) {
+                                emit_download_log(&comp_app, &comp_dl_id, &line);
+                            }
+                        }
+                        Err(e) => log::debug!("Extra copy lyrics task failed: {e}"),
+                    }
+                } else {
+                    run_companion_lyrics_conversion(
+                        &comp_app,
+                        &comp_dl_id,
+                        output_dir,
+                        artist_hint.as_deref(),
+                        album_hint.as_deref(),
+                        &aborted_for_task,
+                    );
+                }
             }
         });
         // Heartbeat ticker for the companion phase (#805). Shares the

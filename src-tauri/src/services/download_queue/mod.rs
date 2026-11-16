@@ -187,6 +187,7 @@ impl ShutdownSignal {
 // `crate::utils::process` import re-exported above.
 // ============================================================
 
+mod companion_lyrics;
 mod companions;
 mod helpers;
 mod lyrics_pass;
