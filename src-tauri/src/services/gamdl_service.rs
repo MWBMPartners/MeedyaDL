@@ -1409,26 +1409,41 @@ pub async fn check_latest_gamdl_version(installed: Option<&str>) -> Result<Strin
         .await
         .map_err(|e| format!("Failed to parse PyPI response: {e}"))?;
 
-    // Navigate to info.version in the JSON response.
-    // This is the latest stable version published on PyPI.
+    pick_latest_gamdl_release(&json, installed)
+}
+
+/// Chooses which GAMDL release the update check reports as the newest,
+/// from PyPI's parsed project document. Pure, so it can be tested end to
+/// end without the network.
+///
+/// The update check compares the installed GAMDL against this one
+/// version, so whatever is reported here is what the person is offered.
+/// PyPI's "latest" (`info.version`) can be a new major version, and
+/// offering it would hide every update to the major version the person is
+/// on: someone on a 3.x release with a known fault would be offered only
+/// an untested GAMDL 4, never the 3.x fix. So "latest" here is the newest
+/// release in the newest major version the person should be offered
+/// (`update_major_ceiling`): the tested one, or the one they already
+/// chose. A newer major version that is not tested yet is installed only
+/// on purpose, from Settings > Tools > GAMDL Version Management.
+///
+/// PyPI's "latest" is also never used when it is on the refused list
+/// (`KNOWN_BAD_VERSIONS`), because the installer would refuse it on click:
+/// the choice then goes through `newest_release_up_to_major`, which skips
+/// refused releases.
+fn pick_latest_gamdl_release(
+    json: &serde_json::Value,
+    installed: Option<&str>,
+) -> Result<String, String> {
+    use super::gamdl_capabilities::{known_bad_version, major_version_of};
     let newest = json["info"]["version"]
         .as_str()
         .map(std::string::ToString::to_string)
         .ok_or_else(|| "Could not find version in PyPI response".to_string())?;
-
-    // The update check compares the installed GAMDL against this one
-    // version, so whatever is reported here is what the person is offered.
-    // PyPI's "latest" can be a new major version, and offering it would
-    // hide every update to the major version the person is on: someone on
-    // a 3.x release with a known fault would be offered only an untested
-    // GAMDL 4, never the 3.x fix. So "latest" here is the newest release
-    // in the newest major version the person should be offered
-    // (`update_major_ceiling`): the tested one, or the one they already
-    // chose. A newer major version that is not tested yet is installed
-    // only on purpose, from Settings > Tools > GAMDL Version Management.
     let ceiling = update_major_ceiling(installed);
-    if super::gamdl_capabilities::major_version_of(&newest).is_none_or(|m| m > ceiling) {
-        return newest_release_up_to_major(&json, ceiling).ok_or_else(|| {
+    if major_version_of(&newest).is_none_or(|m| m > ceiling) || known_bad_version(&newest).is_some()
+    {
+        return newest_release_up_to_major(json, ceiling).ok_or_else(|| {
             format!(
                 "The newest GAMDL on PyPI is {newest}, and no earlier release usable here was found"
             )
@@ -1673,6 +1688,58 @@ mod tests {
         let json = serde_json::json!({"releases": {"3.9": [{}], "3.10.1": [{}]}});
         assert_eq!(newest_drivable_release(&json).as_deref(), Some("3.10.1"));
         assert_eq!(newest_drivable_release(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn the_newest_release_offered_is_never_a_refused_one() {
+        let doc = |latest: &str, releases: &[(&str, bool)]| {
+            let rel: serde_json::Map<String, serde_json::Value> = releases
+                .iter()
+                .map(|(v, yanked)| ((*v).to_string(), serde_json::json!([{"yanked": yanked}])))
+                .collect();
+            serde_json::json!({"info": {"version": latest}, "releases": rel})
+        };
+        // 4.0.2 withdrawn, PyPI says 4.0.1, person is on 4.0.0: 4.0.1 would
+        // be refused on click, so it is not offered (nothing usable in 4.x;
+        // the 3.x fallback is the newest that is not refused).
+        let withdrawn = doc(
+            "4.0.1",
+            &[("3.9.1", false), ("4.0.0", false), ("4.0.1", false), ("4.0.2", true)],
+        );
+        assert_eq!(
+            pick_latest_gamdl_release(&withdrawn, Some("4.0.0")).unwrap(),
+            "3.9.1"
+        );
+        let nothing = doc("4.0.1", &[("4.0.0", false), ("4.0.1", false), ("4.0.2", true)]);
+        assert!(pick_latest_gamdl_release(&nothing, Some("4.0.0")).is_err());
+        // Normal case: 4.0.2 is offered to a 4.x user.
+        let normal = doc(
+            "4.0.2",
+            &[("3.9.1", false), ("4.0.0", false), ("4.0.1", false), ("4.0.2", false)],
+        );
+        assert_eq!(
+            pick_latest_gamdl_release(&normal, Some("4.0.0")).unwrap(),
+            "4.0.2"
+        );
+        // A 3.x user is never offered 4.x.
+        assert_eq!(
+            pick_latest_gamdl_release(&normal, Some("3.8.5")).unwrap(),
+            "3.9.1"
+        );
+        assert_eq!(pick_latest_gamdl_release(&normal, None).unwrap(), "3.9.1");
+        // Latest within 3.x is the refused 3.9: the newest good one wins.
+        let nine = doc("3.9", &[("3.8.5", false), ("3.9", false), ("3.9.1", false)]);
+        assert_eq!(
+            pick_latest_gamdl_release(&nine, Some("3.8.5")).unwrap(),
+            "3.9.1"
+        );
+        let nine_only = doc("3.9", &[("3.8.5", false), ("3.9", false)]);
+        assert_eq!(
+            pick_latest_gamdl_release(&nine_only, Some("3.8.5")).unwrap(),
+            "3.8.5"
+        );
+        // A missing version is still an error.
+        assert!(pick_latest_gamdl_release(&serde_json::json!({}), None).is_err());
     }
 
     #[test]
