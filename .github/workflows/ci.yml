@@ -210,7 +210,7 @@ jobs:
   # Validates the Rust backend code. This job requires additional setup:
   #   - Linux: System libraries for WebKit and GTK (Tauri's WebView dependencies)
   #   - All platforms: Node.js + npm (Tauri's build script runs the frontend build)
-  #   - Rust toolchain with clippy component
+  #   - Rust toolchain with the clippy and rustfmt components
   backend:
     name: Backend (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
@@ -315,7 +315,7 @@ jobs:
           echo "Done. Remaining cargo on PATH (should be empty until Setup Rust runs):"
           command -v cargo || echo "  (none — good, Setup Rust will install a clean one)"
 
-      # Step 3: Set up the Rust stable toolchain with clippy.
+      # Step 3: Set up the Rust stable toolchain with clippy and rustfmt.
       #
       # On Linux/Windows, dtolnay/rust-toolchain places real binaries at
       # ~/.cargo/bin/ via upstream rustup-init.sh and just works.
@@ -347,7 +347,9 @@ jobs:
           set -euo pipefail
           # `--default-toolchain stable` matches dtolnay/rust-toolchain@stable.
           # `--profile minimal` skips docs/tests we don't need on CI.
-          # `--component clippy` matches the dtolnay step's `with: components: clippy`.
+          # `--component clippy` gives macOS the linter. rustfmt is not needed here:
+          # the formatting check runs on Linux only, and src-tauri/rust-toolchain.toml
+          # also lists rustfmt.
           # `-y` accepts all defaults non-interactively.
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
             | sh -s -- -y \
