@@ -383,6 +383,8 @@ impl PackageRef {
 /// correctness. The path is canonicalised once so a symlink
 /// (`/usr/local/bin/ffmpeg` → Cellar) resolves to its real owner.
 pub async fn detect_owner(binary: &Path) -> Option<PackageRef> {
+    // Follow symbolic links, so a shortcut such as `/usr/local/bin/ffmpeg` is judged
+    // by where the real file lives. If that fails, use the path as given.
     let canonical = std::fs::canonicalize(binary).unwrap_or_else(|_| binary.to_path_buf());
 
     // Pure-path classifiers (no subprocess). `original` matters for snap/scoop
@@ -449,6 +451,8 @@ fn find_homebrew() -> Option<PathBuf> {
     })
 }
 
+/// Splits the output of a Homebrew list command into trimmed, non-empty lines.
+/// Each line is one formula name.
 fn homebrew_formulae(output: &str) -> impl Iterator<Item = &str> {
     output
         .lines()
@@ -543,6 +547,11 @@ fn snap_owner(path: &Path) -> Option<String> {
 // Subprocess classifiers (Linux dpkg/rpm, MacPorts)
 // ------------------------------------------------------------------
 
+/// Asks `dpkg -S` which Debian-family package owns `binary`. Linux only;
+/// returns `None` elsewhere, if the command fails, or if the name is not a safe
+/// package name.
+///
+/// See: https://manpages.debian.org/dpkg
 async fn dpkg_owner(binary: &Path) -> Option<String> {
     if !cfg!(target_os = "linux") {
         return None;
@@ -562,6 +571,10 @@ async fn dpkg_owner(binary: &Path) -> Option<String> {
     is_safe_package_name(&pkg).then_some(pkg)
 }
 
+/// Asks `rpm -qf` which RPM package owns `binary`. Linux only; returns `None`
+/// elsewhere, if the file is owned by no package, or if the name is not safe.
+///
+/// See: https://rpm.org/documentation.html
 async fn rpm_owner(binary: &Path) -> Option<String> {
     if !cfg!(target_os = "linux") {
         return None;
@@ -581,6 +594,11 @@ async fn rpm_owner(binary: &Path) -> Option<String> {
     is_safe_package_name(&pkg).then_some(pkg)
 }
 
+/// Asks `port provides` which MacPorts port owns `binary`. macOS only, and only
+/// for files under `/opt/local/`, which is checked first so `port` is not started
+/// for nothing. Returns `None` if anything fails or the name is not safe.
+///
+/// See: https://guide.macports.org/
 async fn macports_owner(binary: &Path) -> Option<String> {
     if !cfg!(target_os = "macos") {
         return None;

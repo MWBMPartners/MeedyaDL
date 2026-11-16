@@ -21,6 +21,8 @@
 // Used by: services::download_queue, services::metadata_tag_service,
 //          commands::gamdl, commands::updates, commands::dependencies,
 //          commands::cookies, commands::settings, commands::login_window
+//
+// See: https://v2.tauri.app/develop/calling-frontend/#event-system
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -100,10 +102,15 @@ pub fn set_verbose_logging(enabled: bool) {
 /// be possible but adds complexity for no real win.
 static ACTIVITY_COUNTERS: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
 
+/// Returns the process-wide map of per-download event counts, creating it on
+/// first use.
+/// See: https://doc.rust-lang.org/std/sync/struct.OnceLock.html
 fn activity_counters() -> &'static Mutex<HashMap<String, u64>> {
     ACTIVITY_COUNTERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Adds one to the event count for `download_id`. Does nothing if the lock
+/// is poisoned (losing a count is harmless). Wraps instead of overflowing.
 fn bump_activity_count(download_id: &str) {
     if let Ok(mut map) = activity_counters().lock() {
         let entry = map.entry(download_id.to_string()).or_insert(0);

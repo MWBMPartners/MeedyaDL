@@ -78,6 +78,7 @@ use tauri::AppHandle;
 // `LazyLock` matches the pattern used in `apple_music_api.rs` and
 // `process.rs`. Pattern is a static literal so `.expect()` only fires on
 // developer typos at boot — never at runtime.
+/// Finds the first `major.minor` or `major.minor.patch` number in a piece of text.
 static SEMVER_EXTRACT_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").expect("static regex"));
 
@@ -1228,18 +1229,6 @@ fn classify_gamdl_latest(
     (is_untested, known_bad)
 }
 
-/// Builds the `ComponentUpdate.description` sentence for a GAMDL
-/// update, given the already-computed flags.
-///
-/// Priority order (first match wins): **no compatible wheel** (a
-/// guaranteed pip failure — the hardest blocker) > **known-bad** (we
-/// already know exactly what's wrong and what to install instead, so
-/// say that rather than the generic wording below) > **untested**
-/// (generic "we haven't validated this yet" warning) > plain "update
-/// available". The two harder-blocker cases combining in practice
-/// (a known-bad release that also has no wheel) is unlikely but not
-/// impossible; the ordering still makes sense if it happens, since
-/// "not installable at all" is the more urgent fact.
 /// Is this release shut out by a limit belonging to THIS platform,
 /// rather than merely above the general tested ceiling?
 ///
@@ -1259,6 +1248,18 @@ fn platform_specific_cap_blocks(latest: Option<&str>, platform_id: &str) -> Opti
     Some(cap.to_string())
 }
 
+/// Builds the `ComponentUpdate.description` sentence for a GAMDL
+/// update, given the already-computed flags.
+///
+/// Returns `None` when no update is available. Otherwise the first
+/// match wins, in this order: **no compatible wheel** (a guaranteed pip
+/// failure, the hardest blocker) > **known-bad** (we know exactly what
+/// is wrong and what to install instead, so say that) > **held back by
+/// this platform's own ceiling** (it cannot be installed here at all) >
+/// **untested** (generic "not validated yet" warning) > plain "update
+/// available". A known-bad release that also has no wheel is unlikely
+/// but possible; the order still makes sense, since "not installable at
+/// all" is the more urgent fact.
 fn gamdl_update_description(
     update_available: bool,
     no_compatible_wheel: bool,
@@ -2560,6 +2561,7 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
     // Chosen by the maintainer rather than derived — see issue #273:
     // "offer an update only when the SAME source has a build more than
     // about 30 days newer."
+    /// How many days newer the source's build must be before an update is offered.
     const STALE_AFTER_DAYS: i64 = 30;
 
     // Ownership and the installed version first — see gate_before_comparing.

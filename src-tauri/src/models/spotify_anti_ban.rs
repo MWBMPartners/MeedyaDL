@@ -90,6 +90,7 @@ pub struct AntiBanSettings {
 }
 
 impl Default for AntiBanSettings {
+    /// Safe defaults: the throttle is on, with the delays and daily cap below.
     fn default() -> Self {
         Self {
             // Throttle ON by default — the safer choice.

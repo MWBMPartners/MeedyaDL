@@ -11,6 +11,8 @@
 //   - `list_history`   -- Returns all history entries (newest first)
 //   - `clear_history`  -- Deletes all history entries
 //   - `search_history` -- Case-insensitive search on title/artist/album/URL
+//
+// See: https://v2.tauri.app/plugin/opener/
 
 use tauri::AppHandle;
 
@@ -128,7 +130,11 @@ const OPENABLE_EXTENSIONS: &[&str] = &[
 fn macos_alias_flag(path: &std::path::Path) -> Result<bool, String> {
     use std::os::unix::ffi::OsStrExt;
 
+    // Name of the extended attribute (a small label stored beside a file) in
+    // which macOS keeps its Finder information, including the alias flag.
     const FINDER_INFO: &std::ffi::CStr = c"com.apple.FinderInfo";
+    // Bit 0x8000 of the Finder flags: "this file is an alias". The flags are
+    // two bytes at offset 8 of the attribute, stored big-endian.
     const ALIAS_FLAG: u16 = 0x8000;
 
     let c_path = std::ffi::CString::new(path.as_os_str().as_bytes())
@@ -346,6 +352,15 @@ pub fn open_downloaded_file(file_path: String) -> Result<(), String> {
         .map_err(|e| format!("Could not open that file: {e}"))
 }
 
+/// Works out which folder or file the file manager should show for a path.
+///
+/// A folder is returned as it is; for anything else the folder that holds it
+/// is returned (or the path unchanged if it has no parent). Pure path work:
+/// nothing is opened.
+///
+/// **Frontend caller:** `resolveRevealPath()` in `src/lib/tauri-commands.ts`.
+///
+/// See: <https://v2.tauri.app/develop/calling-rust/#commands>
 #[tauri::command]
 pub fn resolve_reveal_path(file_path: String) -> String {
     let p = std::path::Path::new(&file_path);

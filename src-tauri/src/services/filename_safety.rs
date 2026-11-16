@@ -138,6 +138,8 @@ pub trait FilenameSafetyContract {
     /// `[Unknown]` / `Unknown*` segment as the entire path.
     fn must_not_be_unknown_sentinel(&self) -> Result<(), FilenameSafetyViolation> {
         let template = self.fallback_folder_template().trim();
+        // Folder names that tell a person nothing. The check fails if the whole folder
+        // template equals one of these (compared ignoring letter case).
         const FORBIDDEN: &[&str] = &[
             "[Unknown]",
             "Unknown",
@@ -248,6 +250,9 @@ pub enum FilenameSafetyViolation {
 }
 
 impl std::fmt::Display for FilenameSafetyViolation {
+    /// Writes a one-line plain-English description of the problem, naming the engine.
+    ///
+    /// See: <https://doc.rust-lang.org/std/fmt/trait.Display.html>
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::MissingStableId { engine } => write!(
@@ -290,10 +295,14 @@ impl std::fmt::Display for FilenameSafetyViolation {
 pub struct GamdlMusicVideoFallback;
 
 impl FilenameSafetyContract for GamdlMusicVideoFallback {
+    /// Identifies the engine this contract describes (`"gamdl"`).
     fn engine_id(&self) -> &str {
         "gamdl"
     }
 
+    /// The file name template used when there is no album. Kept as a copy of
+    /// `MV_NO_ALBUM_FILE_TEMPLATE` in `download_queue.rs` on purpose, so this file does
+    /// not depend on that one.
     fn fallback_file_template(&self) -> &str {
         // Mirrors `MV_NO_ALBUM_FILE_TEMPLATE` in `download_queue.rs`.
         // Kept as a string literal here rather than importing the
@@ -303,11 +312,14 @@ impl FilenameSafetyContract for GamdlMusicVideoFallback {
         "{title} ({title_id})"
     }
 
+    /// The folder template used when there is no album (copy of
+    /// `MV_NO_ALBUM_FOLDER_TEMPLATE` in `download_queue.rs`).
     fn fallback_folder_template(&self) -> &str {
         // Mirrors `MV_NO_ALBUM_FOLDER_TEMPLATE` in `download_queue.rs`.
         "{artist}/Music Videos"
     }
 
+    /// The placeholders this fallback path uses (not the whole GAMDL set).
     fn supported_placeholders(&self) -> &[&str] {
         // Subset that the MV fallback path itself references. The full
         // GAMDL placeholder set is documented in
@@ -315,10 +327,14 @@ impl FilenameSafetyContract for GamdlMusicVideoFallback {
         &["artist", "title", "title_id"]
     }
 
+    /// The placeholder that makes every file name unique: Apple's music video id.
     fn stable_id_placeholder(&self) -> Option<&str> {
         Some("title_id")
     }
 
+    /// Fills the file template the way GAMDL does, using fixed stand-ins when a tag
+    /// is missing (`"Unknown Title"`, `"no-id"`) so the result is never empty or only
+    /// punctuation.
     fn render_fallback_filename(&self, tags: &FilenameTags<'_>) -> String {
         // Emulate GAMDL's substitution semantics: missing `{title}`
         // falls back to the literal "Unknown Title" (matching the

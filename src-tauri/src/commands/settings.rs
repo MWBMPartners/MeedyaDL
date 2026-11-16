@@ -1317,6 +1317,9 @@ pub(crate) fn normalise_musickit_id(
     label: &str,
     value: Option<String>,
 ) -> Result<Option<String>, String> {
+    // A MusicKit team or key ID is exactly ten capital letters or digits.
+    // Compiled once, on first use.
+    // See: https://doc.rust-lang.org/std/sync/struct.LazyLock.html
     static MUSICKIT_ID_RE: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"^[A-Z0-9]{10}$").expect("Invalid MusicKit ID regex"));
 
@@ -1523,9 +1526,21 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
     imported.update_channel = current.update_channel;
 }
 
+/// Cleans a settings object that came from OUTSIDE this machine (an imported
+/// settings file or a profile bundle) before it is used.
+///
+/// It switches developer access off, shortens over-long paths, web addresses
+/// and templates (cutting only between whole characters), removes line breaks
+/// from those text fields so they cannot inject lines into GAMDL's INI file,
+/// and puts an unknown notification style back to the default. It does NOT
+/// decide which fields stay local to this machine; callers do that with
+/// `preserve_local_only_settings` or similar.
 pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
+    // Longest allowed path, in bytes.
     const MAX_PATH: usize = 1024;
+    // Longest allowed web address, in bytes.
     const MAX_URL: usize = 2048;
+    // Longest allowed filename or folder template, in bytes.
     const MAX_TEMPLATE: usize = 512;
 
     // Security: never let an imported/bundled settings payload enable
@@ -1565,6 +1580,7 @@ pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
         *s = s.replace(['\n', '\r'], "");
     }
 
+    /// Same as `truncate`, for an optional value: `None` is left as it is.
     fn truncate_opt(s: &mut Option<String>, max: usize) {
         if let Some(ref mut v) = s {
             truncate(v, max);
@@ -1622,6 +1638,8 @@ pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
     }
 
     // Validate notification_style enum value
+    // The three notification styles the page offers. Anything else is replaced
+    // with the default.
     const VALID_STYLES: &[&str] = &["in_app_only", "native_and_in_app", "native_only"];
     if !VALID_STYLES.contains(&settings.notification_style.as_str()) {
         settings.notification_style = "native_and_in_app".to_string();

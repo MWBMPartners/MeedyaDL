@@ -25,7 +25,7 @@ use crate::services::api_audit_service::{self, ApiAuditResult};
 /// Requires MusicKit credentials (Team ID, Key ID, private key in keychain).
 ///
 /// # Arguments
-/// * `album_url` - Apple Music album URL (e.g., "https://music.apple.com/us/album/.../1234567890")
+/// * `album_url` - Apple Music album URL (e.g., `https://music.apple.com/us/album/.../1234567890`)
 ///
 /// # Returns
 /// * `Ok(ApiAuditResult)` - Audit results with field breakdowns

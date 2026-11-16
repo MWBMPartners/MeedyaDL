@@ -558,6 +558,9 @@ pub fn rename_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
     rename_no_replace_impl(from, to)
 }
 
+/// Mac and Linux version: `renamex_np` with `RENAME_EXCL` on macOS,
+/// `renameat2` with `RENAME_NOREPLACE` on Linux. Both fail with
+/// `AlreadyExists` instead of replacing.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn rename_no_replace_impl(from: &Path, to: &Path) -> std::io::Result<()> {
     use std::ffi::CString;
@@ -597,6 +600,8 @@ fn rename_no_replace_impl(from: &Path, to: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Windows version of [`rename_no_replace`]: `MoveFileExW` with no flags,
+/// which refuses a name that is taken.
 #[cfg(windows)]
 fn rename_no_replace_impl(from: &Path, to: &Path) -> std::io::Result<()> {
     // Both names come from ONE function the tests call directly, so taking
@@ -740,10 +745,15 @@ fn with_windows_long_prefix(absolute: &[u16]) -> Vec<u16> {
 }
 
 // The UTF-16 units the Windows path functions above work with (all ASCII).
+// Backslash.
 const SEP: u16 = b'\\' as u16;
+// Forward slash (Windows accepts it as a separator).
 const ALT_SEP: u16 = b'/' as u16;
+// Question mark, used in `\\?\` extended-length prefixes.
 const QUERY: u16 = b'?' as u16;
+// Colon, as in a drive name such as `C:`.
 const COLON: u16 = b':' as u16;
+// Dot, as in the device prefix `\\.\`.
 const DOT: u16 = b'.' as u16;
 /// `\\?\`
 const VERBATIM_PREFIX: [u16; 4] = [SEP, SEP, QUERY, SEP];
@@ -761,6 +771,7 @@ const UNC_PREFIX: [u16; 8] = [
     SEP,
 ];
 
+/// Fallback for systems with no known call: always reports `Unsupported`.
 #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
 fn rename_no_replace_impl(_from: &Path, _to: &Path) -> std::io::Result<()> {
     Err(std::io::Error::new(
@@ -906,6 +917,7 @@ struct LeftInPlace {
 }
 
 impl std::fmt::Display for LeftInPlace {
+    /// Shows the copy error, then which file was left and why it was not deleted.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -918,6 +930,8 @@ impl std::fmt::Display for LeftInPlace {
 }
 
 impl std::error::Error for LeftInPlace {
+    /// Exposes the original copy error as the cause.
+    /// See: https://doc.rust-lang.org/std/error/trait.Error.html#method.source
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         Some(&self.copy_error)
     }
@@ -1077,6 +1091,8 @@ pub fn file_identity(path: &Path) -> std::io::Result<FileIdentity> {
     file_identity_impl(path)
 }
 
+/// Mac and Linux version: reads device, inode and link count from the
+/// file's own metadata (`symlink_metadata`, so a link is not followed).
 #[cfg(unix)]
 fn file_identity_impl(path: &Path) -> std::io::Result<FileIdentity> {
     use std::os::unix::fs::MetadataExt;
@@ -1088,6 +1104,8 @@ fn file_identity_impl(path: &Path) -> std::io::Result<FileIdentity> {
     })
 }
 
+/// Windows version: opens the file with no access rights, only to ask about
+/// it, without following a link, then reads its identity from the handle.
 #[cfg(windows)]
 fn file_identity_impl(path: &Path) -> std::io::Result<FileIdentity> {
     use std::os::windows::fs::OpenOptionsExt;
@@ -1126,6 +1144,7 @@ fn identity_of_open_windows_file(file: &std::fs::File) -> std::io::Result<FileId
     })
 }
 
+/// Fallback for systems with no known way: `Unsupported`.
 #[cfg(not(any(unix, windows)))]
 fn file_identity_impl(_path: &Path) -> std::io::Result<FileIdentity> {
     Err(std::io::Error::new(
@@ -1149,6 +1168,7 @@ pub fn handle_identity(file: &std::fs::File) -> std::io::Result<FileIdentity> {
     handle_identity_impl(file)
 }
 
+/// Mac and Linux version: asks the open file for its metadata.
 #[cfg(unix)]
 fn handle_identity_impl(file: &std::fs::File) -> std::io::Result<FileIdentity> {
     use std::os::unix::fs::MetadataExt;
@@ -1160,11 +1180,13 @@ fn handle_identity_impl(file: &std::fs::File) -> std::io::Result<FileIdentity> {
     })
 }
 
+/// Windows version: reads the identity from the open handle.
 #[cfg(windows)]
 fn handle_identity_impl(file: &std::fs::File) -> std::io::Result<FileIdentity> {
     identity_of_open_windows_file(file)
 }
 
+/// Fallback for systems with no known way: `Unsupported`.
 #[cfg(not(any(unix, windows)))]
 fn handle_identity_impl(_file: &std::fs::File) -> std::io::Result<FileIdentity> {
     Err(std::io::Error::new(
@@ -1356,6 +1378,10 @@ pub(crate) fn remove_if_still_ours_with(
     remove_if_still_ours_impl(path, handle, pause)
 }
 
+/// Mac and Linux version of the removal: (1) move the file to a private
+/// name, (2) check that it is the file we made, (3) delete the private name,
+/// or (4) put it back if it is someone else's. The original name is never
+/// deleted directly.
 #[cfg(not(windows))]
 fn remove_if_still_ours_impl(
     path: &Path,
@@ -1417,6 +1443,7 @@ fn remove_if_still_ours_impl(
 /// renamed over them.
 #[cfg(not(windows))]
 fn move_aside(path: &Path) -> std::io::Result<Option<PathBuf>> {
+    // How many random private names to try before giving up.
     const TRIES: u32 = 8;
     let folder = path
         .parent()
@@ -1547,6 +1574,8 @@ pub(crate) fn as_if_one_step_rename_were_unsupported<T>(f: impl FnOnce() -> T) -
     result
 }
 
+/// Windows version of the removal: opens the file for deletion by handle and
+/// checks it is the same file before it is deleted.
 #[cfg(windows)]
 fn remove_if_still_ours_impl(
     path: &Path,

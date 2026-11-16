@@ -38,9 +38,16 @@ use sha2::Sha256;
 
 /// OWASP 2026 minimum for PBKDF2-HMAC-SHA256. Bump on a future
 /// `KdfParams.version` if/when guidance moves.
+///
+/// See: <https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html#pbkdf2>
 pub const PBKDF2_ITERATIONS: u32 = 600_000;
+/// Length in bytes of the random salt mixed into the password.
 const SALT_LEN: usize = 32;
+/// Length in bytes of the AES-GCM nonce. 12 bytes is the size the cipher expects.
+///
+/// See: https://datatracker.ietf.org/doc/html/rfc5116#section-5.1
 const NONCE_LEN: usize = 12;
+/// Length in bytes of the derived key (32 bytes = 256 bits, for AES-256).
 const KEY_LEN: usize = 32; // AES-256
 
 /// Errors surfaced by the encrypt/decrypt path. Deliberately
@@ -48,6 +55,7 @@ const KEY_LEN: usize = 32; // AES-256
 /// (especially "wrong password" vs "corrupt bundle").
 #[derive(Debug, thiserror::Error)]
 pub enum CredentialError {
+    /// The cipher failed while encrypting (the message says why).
     #[error("credential encryption error: {0}")]
     Cipher(String),
 
@@ -57,9 +65,12 @@ pub enum CredentialError {
     #[error("credentials could not be decrypted: wrong password or corrupt bundle")]
     AuthenticationFailed,
 
+    /// The saved key settings were unusable: the nonce is the wrong length, or
+    /// the iteration count is outside the accepted range.
     #[error("kdf params parse error: {0}")]
     KdfParams(String),
 
+    /// A salt or nonce in the saved key settings was not valid base64.
     #[error("base64 decode error: {0}")]
     Base64(String),
 }
@@ -71,12 +82,17 @@ pub struct KdfParams {
     /// Stable string so future migrations can fork on it. Always
     /// `"pbkdf2-hmac-sha256+aes-256-gcm"` for now.
     pub algorithm: String,
+    /// How many times PBKDF2 repeats its work. More repeats make password guessing slower.
     pub iterations: u32,
+    /// The random salt, as base64 text.
     pub salt_b64: String,
+    /// The random AES-GCM nonce, as base64 text.
     pub nonce_b64: String,
 }
 
 impl KdfParams {
+    /// Builds the saved settings from raw bytes, storing salt and nonce as base64
+    /// text so they fit in a JSON file.
     fn new(iterations: u32, salt: &[u8], nonce: &[u8]) -> Self {
         let b64 = base64::engine::general_purpose::STANDARD;
         Self {
@@ -87,12 +103,14 @@ impl KdfParams {
         }
     }
 
+    /// Decodes the stored salt back to bytes. Fails with `Base64` if the text is bad.
     fn salt(&self) -> Result<Vec<u8>, CredentialError> {
         base64::engine::general_purpose::STANDARD
             .decode(&self.salt_b64)
             .map_err(|e| CredentialError::Base64(e.to_string()))
     }
 
+    /// Decodes the stored nonce back to bytes. Fails with `Base64` if the text is bad.
     fn nonce(&self) -> Result<Vec<u8>, CredentialError> {
         base64::engine::general_purpose::STANDARD
             .decode(&self.nonce_b64)
@@ -126,6 +144,9 @@ pub fn encrypt_credentials(
 ) -> Result<EncryptedCredentials, CredentialError> {
     let mut salt = [0u8; SALT_LEN];
     let mut nonce_bytes = [0u8; NONCE_LEN];
+    // Fresh random salt and nonce from the operating system, every time. Reusing a
+    // nonce with the same key would break AES-GCM, so these are never reused.
+    // See: https://docs.rs/aes-gcm/latest/aes_gcm/
     rand::rngs::OsRng.fill_bytes(&mut salt);
     rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
 
@@ -169,6 +190,7 @@ pub fn decrypt_credentials(
     // is almost certainly a hostile value rather than a legitimate
     // future security bump — and reject anything outside it before key
     // derivation starts.
+    // Lowest and highest iteration counts accepted from a bundle file.
     const MIN_ITERATIONS: u32 = 10_000;
     const MAX_ITERATIONS: u32 = 5_000_000;
     if !(MIN_ITERATIONS..=MAX_ITERATIONS).contains(&params.iterations) {
@@ -181,10 +203,16 @@ pub fn decrypt_credentials(
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(&key));
     let nonce = Nonce::from_slice(&nonce_bytes);
     cipher
+        // AES-GCM checks its authentication tag here. A wrong password and a damaged
+        // file both fail the same way, so both become `AuthenticationFailed`.
         .decrypt(nonce, ciphertext)
         .map_err(|_| CredentialError::AuthenticationFailed)
 }
 
+/// Turns the password into a 256-bit key with PBKDF2 (HMAC-SHA-256). The salt and
+/// the many repeats make guessing passwords slow.
+///
+/// See: https://datatracker.ietf.org/doc/html/rfc8018#section-5.2
 fn derive_key(password: &str, salt: &[u8], iterations: u32) -> [u8; KEY_LEN] {
     let mut key = [0u8; KEY_LEN];
     pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, iterations, &mut key);

@@ -81,6 +81,9 @@ pub fn load_tag_registry() -> TagRegistry {
     }
 }
 
+/// Converts one tag definition from the shared MeedyaSuite-core registry into
+/// MeedyaDL's own type. Each atom's namespace is mapped to this app's
+/// constants; an unknown namespace falls back to the iTunes one.
 fn convert_core_definition(id: &str, def: &CoreTagDefinition) -> TagDefinition {
     let atoms = def
         .atoms

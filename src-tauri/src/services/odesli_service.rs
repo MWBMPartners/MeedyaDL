@@ -244,6 +244,11 @@ impl OdesliError {
 }
 
 impl std::fmt::Display for OdesliError {
+    /// Writes the sentence a person (or the log) sees for each kind of failure.
+    /// The `Network` text is already free of the request address, which carries the
+    /// access key, so it is safe to print.
+    ///
+    /// See: <https://doc.rust-lang.org/std/fmt/trait.Display.html>
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OdesliError::PublicAccessClosed => write!(

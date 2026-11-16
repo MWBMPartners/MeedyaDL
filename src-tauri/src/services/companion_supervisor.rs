@@ -263,6 +263,14 @@ pub async fn run_supervised(
 // Helpers
 // ============================================================
 
+/// The current time as milliseconds since the Unix epoch.
+///
+/// Used to stamp "last output seen" for the idle watchdog. It never panics:
+/// a clock set before 1970 gives 0, and a value too big for `u64` is capped
+/// at `u64::MAX`.
+///
+/// See:
+/// https://doc.rust-lang.org/std/time/struct.SystemTime.html#method.duration_since
 fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()

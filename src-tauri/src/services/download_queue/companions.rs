@@ -655,6 +655,9 @@ impl PrimaryNaming {
 /// single-disc or multi-disc file template equals the primary's (an unset
 /// template counts as GAMDL's default, which is what it means).
 fn templates_clash(attempt: &GamdlOptions, primary: &PrimaryNaming) -> bool {
+    // GAMDL's own default file templates, used when a template is unset.
+    // They must match GAMDL's defaults, or two unset templates would be
+    // compared wrongly.
     const SINGLE_DEFAULT: &str = "{track:02d} {title}";
     const MULTI_DEFAULT: &str = "{disc}-{track:02d} {title}";
     let same = |a: Option<&str>, b: Option<&str>, default: &str| {
@@ -1166,6 +1169,23 @@ pub(crate) async fn update_companion_label_from_line(
     }
 }
 
+/// Sends one raw line from a companion GAMDL process to the app.
+///
+/// A progress bar redraws itself by writing `\r` (carriage return) and
+/// then new text on the same line, so one "line" can hold many updates.
+/// This splits the line on `\r` and, for every non-empty piece:
+///
+/// 1. strips colour codes, parses it and sends it as a `gamdl-output`
+///    event, so the speed, ETA and percentage on the progress bar stay live;
+/// 2. shows it in the activity log, but only the LAST piece, unless verbose
+///    logging is on (then every piece is shown). The log file on disk gets
+///    every piece either way; `emit_subprocess_line` does that.
+///
+/// `stream` is `"stdout"` or `"stderr"`. Returns the cleaned text of the
+/// last non-empty piece, or `None` if the line was blank.
+///
+/// See:
+/// https://doc.rust-lang.org/std/primitive.str.html#method.split
 pub(crate) async fn emit_companion_stream_line(
     app: &tauri::AppHandle,
     dl_id: &str,
@@ -1655,6 +1675,8 @@ pub(crate) async fn try_resolve_mv_album_folder_via_catalog_api(
 /// path is identical to what GAMDL would produce when rendering
 /// `{album_artist}/{album}` itself.
 pub(crate) fn sanitize_fs_segment(raw: &str) -> String {
+    // Characters that cannot appear in a file or folder name on at least one
+    // supported system (Windows is the strictest).
     const UNSAFE: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
     raw.chars()
         .map(|c| {
@@ -2523,6 +2545,8 @@ impl HeartbeatTicker {
 }
 
 impl Drop for HeartbeatTicker {
+    /// Stops the ticker when the handle goes out of scope, so a heartbeat
+    /// can never outlive the stage it reports on.
     fn drop(&mut self) {
         self.stop();
     }
@@ -2708,6 +2732,7 @@ pub(crate) fn artwork_geo_lock_hint(reason: &str) -> &'static str {
 /// (e.g. `"2.1 MB"`, `"512 KB"`). Used only by
 /// `emit_artwork_variant_log` for the success-path line.
 pub(crate) fn format_artwork_size(bytes: u64) -> String {
+    // Binary units (1 KB = 1024 bytes).
     const KB: u64 = 1024;
     const MB: u64 = 1024 * KB;
     if bytes >= MB {
@@ -2787,12 +2812,16 @@ impl CompanionTaskHandle {
 /// explicitly, and `Drop` only has work left to do if something skipped
 /// that call.
 impl Drop for CompanionTaskHandle {
+    /// Runs `abort()` as a safety net; see the note on this `impl`.
     fn drop(&mut self) {
         self.abort();
     }
 }
 
 impl CompanionTaskHandle {
+    /// A short plain sentence saying which companion tier is running and
+    /// which have not started, for the timeout log lines. If the progress
+    /// lock is poisoned it says so instead of failing.
     pub(crate) fn describe_pending(&self) -> String {
         self.progress
             .lock()
@@ -2813,6 +2842,9 @@ impl CompanionTaskHandle {
     }
 }
 
+/// What the companion task has done so far, shared (behind a mutex) with
+/// the completion task so a timeout message can name the unfinished tiers.
+/// Tiers are numbered from 0, in the order `plan_companions` returned them.
 #[derive(Default)]
 pub(crate) struct CompanionTaskProgress {
     pub(crate) planned_tiers: Vec<String>,
@@ -2822,6 +2854,9 @@ pub(crate) struct CompanionTaskProgress {
 }
 
 impl CompanionTaskProgress {
+    /// Builds the text for `CompanionTaskHandle::describe_pending`: the tier
+    /// running now (if any), then the tiers not yet started (not current,
+    /// completed or exhausted). Says so plainly when nothing is left.
     pub(crate) fn describe_pending(&self) -> String {
         let mut parts = Vec::new();
 
@@ -2895,6 +2930,32 @@ pub(crate) struct CompanionHold {
     pub download_root: Option<String>,
 }
 
+/// Plans and starts the companion downloads for one finished primary
+/// download: extra GAMDL runs that fetch the same content in other formats
+/// (see `plan_companions` and the `CompanionMode` setting). When extra
+/// lyrics formats are chosen in settings, it also starts one small
+/// fire-and-forget GAMDL run per format for the lyrics files only.
+///
+/// Returns `None` when there is no format task to wait for: the item is a
+/// Spotify link (companions are a GAMDL feature), or no format tiers remain
+/// after the plan and the Apple Music `audioTraits` filter
+/// (`available_audio_traits`). Lyrics-only runs may still have started in
+/// that second case; nothing tracks them. Otherwise returns a
+/// [`CompanionTaskHandle`] the completion task uses to wait, time out or
+/// abort. The queue item stays in `Processing` until the task ends.
+///
+/// `force_all_suffixes` makes every tier use a labelled file name; it is
+/// needed when the primary's real format was not known in advance, so the
+/// primary's plain names cannot collide with a companion's. `held_until`
+/// (see [`CompanionHold`]) keeps the task waiting until enrichment has
+/// finished renaming the primary's files. `primary` describes how the
+/// primary's files were named, so attempts never reuse its names.
+///
+/// This function itself does no downloading: the work happens in the task
+/// it spawns, which checks `shutdown` and its own abort flag between steps.
+///
+/// See:
+/// https://docs.rs/tokio/latest/tokio/task/fn.spawn.html
 // The argument list is long because this function is the seam between
 // the queue's per-download state (app, queue, dl_id, urls, shutdown),
 // the GAMDL invocation context (primary codec, base options,
@@ -4064,6 +4125,7 @@ pub(crate) fn spawn_companion_downloads(
         // `scan_folder_for_manifests`); see #712 for why this matters
         // — without it, pointing at a large library produces the
         // 30-minute hang the user reproduced on 2026-05-08.
+        // How many folder levels down to look; see the note above.
         const MAX_DEPTH: u32 = 10;
         let parent_dirs: std::collections::HashSet<std::path::PathBuf> =
             crate::utils::fs_walk::walk_dir_depth(base, MAX_DEPTH, |path| {

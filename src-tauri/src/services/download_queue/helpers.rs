@@ -363,8 +363,6 @@ pub(crate) fn find_directory_case_insensitive(
     None
 }
 
-/// Recursively finds the deepest directory that directly contains audio files.
-/// Prefers the most recently modified leaf directory.
 /// Maximum recursion depth for [`find_deepest_audio_dir`] (#844).
 ///
 /// User libraries typically fit within 3 levels (`Music/Artist/Album/`); 10
@@ -372,6 +370,15 @@ pub(crate) fn find_directory_case_insensitive(
 /// cost bounded.
 pub(crate) const FIND_DEEPEST_AUDIO_DIR_MAX_DEPTH: u32 = 10;
 
+/// Walks the folders under `dir` and records in `best` the most recently
+/// modified folder that directly holds audio files.
+///
+/// `best` is both input and output: a folder replaces the stored one only
+/// when its modified time is newer. `depth` is how far down this call is
+/// (pass 0 to start); the walk stops at
+/// [`FIND_DEEPEST_AUDIO_DIR_MAX_DEPTH`]. It keeps going into sub-folders
+/// even after finding a match, because albums can be nested. Folders that
+/// cannot be read are skipped without an error.
 pub(crate) fn find_deepest_audio_dir(
     dir: &std::path::Path,
     best: &mut Option<(std::time::SystemTime, std::path::PathBuf)>,
@@ -448,6 +455,12 @@ pub(crate) fn count_codec_skip_warnings(warnings: &[String]) -> usize {
         .count()
 }
 
+/// The audio format names this download asked GAMDL for, as the text GAMDL
+/// uses on its command line (for example `alac`).
+///
+/// The comma-separated priority list wins when it is set; otherwise the
+/// single chosen format is used; otherwise the list is empty. Blank items
+/// are dropped.
 pub(crate) fn requested_format_cli_values(options: &GamdlOptions) -> Vec<String> {
     if let Some(priority) = options.song_codec_priority.as_deref() {
         return priority
@@ -465,6 +478,11 @@ pub(crate) fn requested_format_cli_values(options: &GamdlOptions) -> Vec<String>
         .unwrap_or_default()
 }
 
+/// Pulls format names out of a GAMDL warning line that prints Python-style
+/// enum text such as `SongCodec.ALAC: 'alac'`.
+///
+/// Returns the quoted values (here `alac`), one per `SongCodec.` mention,
+/// in order. A mention that does not have the `: '...'` shape is skipped.
 pub(crate) fn extract_song_codec_values_from_line(line: &str) -> Vec<String> {
     line.split("SongCodec.")
         .skip(1)
@@ -477,6 +495,8 @@ pub(crate) fn extract_song_codec_values_from_line(line: &str) -> Vec<String> {
         .collect()
 }
 
+/// Turns a GAMDL format name into text for people: `Display name [name]`.
+/// A name MeedyaDL does not recognise is returned unchanged.
 pub(crate) fn describe_song_codec_cli_value(value: &str) -> String {
     SongCodec::from_cli_string(value).map_or_else(
         || value.to_string(),
@@ -484,6 +504,15 @@ pub(crate) fn describe_song_codec_cli_value(value: &str) -> String {
     )
 }
 
+/// Adds a plain note to a GAMDL "format is not available" line, saying
+/// which formats were asked for.
+///
+/// The formats come from the line itself when it names any (see
+/// [`extract_song_codec_values_from_line`]), otherwise from
+/// `requested_formats`. The line is returned unchanged when it is not an
+/// unavailable-format line, when it already has the note, or when no
+/// formats are known. One format reads "Unavailable requested format: X";
+/// several read "Unavailable requested format candidates: X -> Y".
 pub(crate) fn annotate_unavailable_format_line(line: &str, requested_formats: &[String]) -> String {
     let lower = line.to_lowercase();
     let is_unavailable_format = lower.contains("format is not available")

@@ -156,7 +156,7 @@ pub(crate) fn settings_snapshot_for_context(
 /// up-to-date for crash recovery.
 /// Debounced queue persistence. Saves at most once per 500ms to reduce
 /// I/O pressure for rapid sequential mutations (e.g., batch enqueue).
-/// See: https://github.com/MWBMPartners/MeedyaDL/issues/233
+/// See: <https://github.com/MWBMPartners/MeedyaDL/issues/233>
 pub async fn save_queue_to_disk(app: &AppHandle, queue: &QueueHandle) {
     use std::sync::atomic::{AtomicU64, Ordering};
     static LAST_SAVE_MS: AtomicU64 = AtomicU64::new(0);

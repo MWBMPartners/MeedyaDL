@@ -55,6 +55,8 @@ fn default_gamdl_log_level() -> LogLevel {
     LogLevel::Info
 }
 
+/// Default ReplayGain reference loudness: -18 LUFS (the ReplayGain 2.0
+/// standard).
 fn default_replaygain_reference() -> f64 {
     -18.0
 }
@@ -339,6 +341,7 @@ impl CoverArtName {
     }
 }
 
+/// Serde default for the cover art file name: `FrontCover`.
 fn default_cover_art_name() -> CoverArtName {
     CoverArtName::FrontCover
 }
@@ -388,6 +391,7 @@ impl AnimatedArtworkResolution {
     }
 }
 
+/// Serde default for the animated artwork size: Full HD.
 fn default_animated_artwork_resolution() -> AnimatedArtworkResolution {
     AnimatedArtworkResolution::Fhd
 }
@@ -444,6 +448,7 @@ impl TrackNumberPadding {
     }
 }
 
+/// Serde default for track number padding: `Auto` (width follows the album).
 fn default_track_number_padding() -> TrackNumberPadding {
     TrackNumberPadding::Auto
 }
@@ -493,6 +498,7 @@ impl DiscNumberPadding {
     }
 }
 
+/// Serde default for disc number padding: `Auto`.
 fn default_disc_number_padding() -> DiscNumberPadding {
     DiscNumberPadding::Auto
 }
@@ -578,6 +584,8 @@ pub struct DuplicateDetectionSettings {
 }
 
 impl Default for DuplicateDetectionSettings {
+    /// Defaults for duplicate detection (on, looking at this session and the
+    /// queue, with the preference order set out below).
     fn default() -> Self {
         Self {
             scope: DuplicateDetectionScope::IntraAndQueued,
@@ -631,6 +639,7 @@ pub struct AppleMusicSettings {
 }
 
 impl Default for AppleMusicSettings {
+    /// Defaults for the Apple Music section of the per-service settings.
     fn default() -> Self {
         Self {
             storefront: String::new(),

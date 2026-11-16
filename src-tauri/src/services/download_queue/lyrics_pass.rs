@@ -801,6 +801,8 @@ impl CompanionGate {
 }
 
 impl Drop for CompanionGate {
+    /// Marks the gate as released, so waiting companions are never left
+    /// stuck if enrichment ends without calling `release`.
     fn drop(&mut self) {
         self.0.send_modify(|s| s.released = true);
     }

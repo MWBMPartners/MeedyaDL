@@ -168,6 +168,7 @@ impl SettingsCache {
 }
 
 impl Default for SettingsCache {
+    /// An empty cache, the same as `SettingsCache::new()`.
     fn default() -> Self {
         Self::new()
     }

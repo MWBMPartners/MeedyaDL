@@ -106,6 +106,8 @@ struct ProgressSnapshot {
 }
 
 impl ProgressSnapshot {
+    /// Takes a snapshot of an item. Two snapshots that are equal mean the item made
+    /// no visible progress between the two looks.
     fn from(item: &QueueItemStatus) -> Self {
         // Bucket floating-point progress into deci-percent integers
         // so trivial float-noise jitter doesn't reset the stall
@@ -325,10 +327,14 @@ async fn escalate_to_error(
 /// a serializable payload; the watchdog just needs a fire-and-forget
 /// notification, hence this tiny shim.
 trait WatchdogEmit {
+    /// Sends `event` to every window with a plain text payload.
     fn emit_to_all_with_str(&self, event: &str, payload: &str) -> Result<(), String>;
 }
 
 impl WatchdogEmit for AppHandle {
+    /// Sends the event through Tauri's `emit` and turns any error into text.
+    ///
+    /// See: https://v2.tauri.app/develop/calling-frontend/#event-system
     fn emit_to_all_with_str(&self, event: &str, payload: &str) -> Result<(), String> {
         use tauri::Emitter;
         self.emit(event, payload.to_string())

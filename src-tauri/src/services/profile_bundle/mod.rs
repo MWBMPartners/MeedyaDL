@@ -37,6 +37,8 @@ use std::io::{Cursor, Read, Write};
 
 use serde::{Deserialize, Serialize};
 
+/// Encrypts and decrypts the credentials stored in a bundle (AES-256-GCM, with the
+/// key made from the user's password by PBKDF2).
 pub mod credentials;
 
 /// Current bundle-format version. **Bump only on breaking changes** to
@@ -78,15 +80,25 @@ pub const BUNDLE_MIME_TYPE_LEGACY: &str = "application/vnd.mwbmpartners.meedyadl
 /// Filenames inside the archive. Constants live alongside the format
 /// definition so every consumer reads the same canonical strings.
 pub mod entry {
+    /// Bundle information: producer, format version and the list of contents.
     pub const META: &str = "meta.json";
+    /// The settings file (always present).
     pub const SETTINGS: &str = "settings.json";
+    /// Checksum of the settings file.
     pub const SETTINGS_SHA256: &str = "settings.json.sha256";
+    /// The download queue.
     pub const QUEUE: &str = "queue.json";
+    /// The download history.
     pub const HISTORY: &str = "history.json";
+    /// An optional database file.
     pub const DATABASE: &str = "database.sqlite";
+    /// The encrypted credentials (see the `credentials` module).
     pub const CREDENTIALS: &str = "credentials.encrypted";
+    /// The salt, nonce and iteration count needed to decrypt the credentials.
     pub const CREDENTIALS_KDF: &str = "credentials.kdf-params.json";
+    /// Folder prefix for optional activity log files.
     pub const ACTIVITY_LOG_PREFIX: &str = "activity_log/";
+    /// Folder prefix for optional album manifest files.
     pub const MANIFESTS_PREFIX: &str = "manifests/";
 }
 
@@ -213,6 +225,11 @@ impl BundleMeta {
     }
 }
 
+/// Everything that can go wrong reading or writing a bundle. The `#[from]`
+/// variants wrap errors from the standard library, the zip crate and
+/// `serde_json`.
+///
+/// See: <https://docs.rs/thiserror/latest/thiserror/>
 #[derive(Debug, thiserror::Error)]
 pub enum BundleError {
     #[error("bundle io: {0}")]
@@ -339,6 +356,8 @@ pub struct BundleReader {
 }
 
 impl std::fmt::Debug for BundleReader {
+    /// Shows the reader without dumping the whole archive: only the bundle info and
+    /// the number of entries.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BundleReader")
             .field("meta", &self.meta)
@@ -396,6 +415,8 @@ impl BundleReader {
         // declared sizes outright, and cap the pre-allocation hint at a
         // smaller ceiling so a smaller-but-still-inflated declared size
         // can't over-allocate either.
+        // `MAX_ENTRY_SIZE` is the most one entry may claim to hold when unpacked;
+        // `MAX_PREALLOC` is the most memory reserved up front, whatever size it claims.
         const MAX_ENTRY_SIZE: u64 = 256 * 1024 * 1024; // 256 MB
         const MAX_PREALLOC: u64 = 64 * 1024 * 1024; // 64 MB
         if entry.size() > MAX_ENTRY_SIZE {

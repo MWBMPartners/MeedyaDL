@@ -134,6 +134,7 @@ impl ProgressStage {
 }
 
 impl fmt::Display for ProgressStage {
+    /// Shows a stage as its label, the same text the progress bar caption uses.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.label())
     }

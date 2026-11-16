@@ -22,6 +22,8 @@
 // helper; the value of the helper grows as more callsites adopt it
 // AND as new services land (Spotify M9, YouTube M10, BBC iPlayer M8
 // will all need similar walkers — this is the shared foundation).
+//
+// See: https://doc.rust-lang.org/std/fs/fn.read_dir.html
 
 use std::path::Path;
 
@@ -69,6 +71,9 @@ where
     results
 }
 
+/// Recursive worker for the walk helper above. Visits every entry in `dir`,
+/// keeps whatever `visit` returns as `Some`, and goes into sub-folders until
+/// `depth` passes `max_depth`. Unreadable folders are skipped silently.
 fn walk_inner<T, F>(dir: &Path, depth: u32, max_depth: u32, visit: &mut F, results: &mut Vec<T>)
 where
     F: FnMut(&Path) -> Option<T>,
@@ -116,6 +121,8 @@ where
     walk_inner_find(base, 0, max_depth, &mut visit)
 }
 
+/// Recursive worker for the find-first helper above. Same walk, but stops
+/// and returns as soon as `visit` returns `Some`.
 fn walk_inner_find<T, F>(dir: &Path, depth: u32, max_depth: u32, visit: &mut F) -> Option<T>
 where
     F: FnMut(&Path) -> Option<T>,

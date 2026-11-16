@@ -239,29 +239,6 @@ pub async fn upgrade_votify(
     }
 }
 
-/// Upgrades any pip-based engine to the latest version.
-///
-/// **Frontend caller:** `upgradePipEngine(package)` in `src/lib/tauri-commands.ts`
-///
-/// Uses `pip install --upgrade` to update the package. Works for any
-/// pip engine without its own validated version window: yt-dlp,
-/// ofscraper, etc. GAMDL and votify have their own dedicated upgrade
-/// paths (`upgrade_gamdl()` / `upgrade_votify()`) with compatibility
-/// gating — this command's `package` allowlist (below) does not exclude
-/// them, but the frontend should prefer the dedicated commands so the
-/// version-window bound is actually enforced.
-///
-/// # Security (#985)
-/// `package` is attacker-influenceable IPC input. Two independent
-/// layers guard the subsequent `pip install --upgrade <package>`
-/// subprocess call: (1) this function rejects any package that isn't
-/// declared as a known engine's `pip_package` in `engines.toml`
-/// (enforced here, against the single source of truth for which
-/// packages MeedyaDL is actually meant to manage); (2)
-/// `pip_engine_service::install_pip_engine` independently rejects
-/// anything that isn't a syntactically bare PyPI package name (no
-/// URLs, VCS refs, paths, or CLI flags) — defence in depth in case a
-/// future engine registry entry is ever misconfigured.
 /// Packages that must never be upgraded through the generic, unbounded
 /// [`upgrade_pip_engine`] route because they have a bounded route of their
 /// own. Pure, for testing.
@@ -269,6 +246,30 @@ fn refuses_unbounded_upgrade(package: &str) -> bool {
     package.trim().eq_ignore_ascii_case("gamdl")
 }
 
+/// Upgrades any pip-based engine to the latest version.
+///
+/// **Frontend caller:** `upgradePipEngine(package)` in `src/lib/tauri-commands.ts`
+///
+/// Uses `pip install --upgrade` to update the package. Works for any pip
+/// engine without its own validated version window: yt-dlp, ofscraper, etc.
+/// GAMDL has its own dedicated route (`upgrade_gamdl()`), which keeps it
+/// inside the tested versions, so it is refused here (see
+/// `refuses_unbounded_upgrade`). votify's dedicated command is
+/// `upgrade_votify()`; the frontend should prefer it so its version bound
+/// is enforced.
+///
+/// # Security (#985)
+/// `package` is attacker-influenceable IPC input. Two independent layers
+/// guard the `pip install --upgrade <package>` subprocess call: (1) this
+/// function rejects any package that isn't declared as a known engine's
+/// `pip_package` in `engines.toml` (the single source of truth for which
+/// packages MeedyaDL is meant to manage); (2)
+/// `pip_engine_service::install_pip_engine` independently rejects anything
+/// that isn't a syntactically bare PyPI package name (no URLs, VCS refs,
+/// paths, or CLI flags), as defence in depth in case an engine registry
+/// entry is ever misconfigured.
+///
+/// See: <https://v2.tauri.app/develop/calling-rust/#commands>
 #[tauri::command]
 pub async fn upgrade_pip_engine(app: AppHandle, package: String) -> Result<String, String> {
     // Layer 1: only allow packages that a known engine actually declares.
@@ -698,6 +699,14 @@ fn is_first_launch_after_upgrade(previous_version: Option<&str>, current_version
     }
 }
 
+/// Tells the page which version is running now, which one ran last time, and
+/// whether this is an unfinished (alpha, beta, release candidate, or anything before 1.0) build.
+///
+/// The page uses it to show the first-launch notice after an upgrade. The
+/// previous version comes from memory because startup has already overwritten
+/// the stored value by the time the page asks (#387).
+///
+/// See: <https://v2.tauri.app/develop/calling-rust/#commands>
 #[tauri::command]
 pub fn get_launch_version_info(app: AppHandle) -> LaunchVersionInfo {
     let current_version = app.package_info().version.to_string();

@@ -439,7 +439,13 @@ pub(crate) async fn fetch_mirror_versions() -> Result<serde_json::Value, String>
     // Even a fresh read cannot promise the date belongs to the exact bytes
     // just downloaded: the mirror could publish between the download and
     // this read. That window is seconds wide and existed before the store.
+    /// How long one download of the mirror's `versions.json` is reused before it is
+    /// fetched again (five minutes), so several tool checks in a row make one request.
     const MIRROR_VERSIONS_REUSE_FOR: std::time::Duration = std::time::Duration::from_secs(300);
+    /// The last copy of the mirror's `versions.json` and when it was read. `None`
+    /// until the first read. A `Mutex` because several checks can run at once.
+    ///
+    /// See: https://doc.rust-lang.org/std/sync/struct.Mutex.html
     static CACHED: std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>> =
         std::sync::Mutex::new(None);
     if let Ok(guard) = CACHED.lock() {
@@ -929,6 +935,9 @@ pub(crate) fn is_trusted_binary(path: &Path) -> bool {
     !world_writable(&real) && real.parent().is_none_or(|parent| !world_writable(parent))
 }
 
+/// Non-Unix version of `is_trusted_binary`: there are no file permission bits to
+/// check here, so every candidate is accepted. (The Unix version rejects
+/// world-writable files and folders.)
 #[cfg(not(unix))]
 pub(crate) fn is_trusted_binary(_path: &Path) -> bool {
     true
@@ -1744,6 +1753,11 @@ static TOOLS_BEING_INSTALLED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::
 struct ToolInstallClaim(String);
 
 impl Drop for ToolInstallClaim {
+    /// Gives up the claim: removes the tool from the busy list. Runs however the
+    /// install ends (success, error or panic), and recovers from a poisoned lock
+    /// rather than leave the tool blocked for good.
+    ///
+    /// See: https://doc.rust-lang.org/std/ops/trait.Drop.html
     fn drop(&mut self) {
         let mut busy = TOOLS_BEING_INSTALLED
             .lock()
@@ -2479,6 +2493,9 @@ pub fn get_tool_dir(app: &AppHandle, tool_id: &str) -> PathBuf {
     platform::get_tools_dir(app).join(tool_id)
 }
 
+/// Reads the `.external-path` pointer in a tool folder. That file is written when
+/// MeedyaDL reuses a copy already on the computer instead of downloading one.
+/// Returns the path only if it is absolute and still exists; otherwise `None`.
 fn read_external_tool_path(tool_dir: &Path) -> Option<PathBuf> {
     let path = std::fs::read_to_string(tool_dir.join(".external-path")).ok()?;
     let path = PathBuf::from(path.trim());
@@ -4115,6 +4132,10 @@ async fn install_mp4box_full_route(
     install_mp4box_full_route_inner(app).await
 }
 
+/// Runs the MP4Box install for this computer's operating system (macOS, Windows
+/// or Linux). If that fails, it falls back to the copy on the MeedyaSuite mirror,
+/// passing along the first error so the mirror step can report both. Returns the
+/// installed version. The caller has already set any old copy aside.
 async fn install_mp4box_full_route_inner(app: &AppHandle) -> Result<String, String> {
     let platform_result = match std::env::consts::OS {
         "macos" => install_mp4box_macos(app).await,

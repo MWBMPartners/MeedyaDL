@@ -41,6 +41,10 @@ pub struct ActivityEventFilterPayload {
     pub limit: usize,
 }
 
+/// Value used for `limit` when the frontend leaves it out: at most 200 rows.
+///
+/// Serde calls this through `#[serde(default = "default_limit")]` above.
+/// See: https://serde.rs/attr-default.html
 fn default_limit() -> usize {
     200
 }

@@ -80,6 +80,9 @@ pub struct ExportProfileOptions {
     pub note: Option<String>,
 }
 
+/// Serde default that makes an omitted flag mean `true`
+/// (`#[serde(default = "default_true")]`).
+/// See: https://serde.rs/attr-default.html
 fn default_true() -> bool {
     true
 }
@@ -616,8 +619,12 @@ fn apply_bundle_settings_rules(
     Ok(())
 }
 
+/// Turns a byte count into short text for the activity log, for example
+/// `1.50 MB`. Uses 1024-based units; below 1 KB it says `N bytes`.
 fn format_size(bytes: u64) -> String {
+    // One kilobyte, counted the 1024 way.
     const KB: u64 = 1024;
+    // One megabyte, counted the 1024 way.
     const MB: u64 = 1024 * 1024;
     if bytes >= MB {
         format!("{:.2} MB", bytes as f64 / MB as f64)
@@ -768,9 +775,13 @@ pub struct ImportProfileOptions {
     pub credentials_password: Option<String>,
 }
 
+/// Serde default for a conflict choice: leave the existing item alone.
+/// See: https://serde.rs/attr-default.html
 fn default_skip() -> ImportConflictAction {
     ImportConflictAction::Skip
 }
+/// Serde default for a conflict choice: replace the existing item.
+/// See: https://serde.rs/attr-default.html
 fn default_replace() -> ImportConflictAction {
     ImportConflictAction::Replace
 }

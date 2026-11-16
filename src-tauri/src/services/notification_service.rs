@@ -438,9 +438,15 @@ impl RecentSends {
     }
 }
 
+/// The app-wide record of recent notifications, used to skip repeats. One shared
+/// value behind a `Mutex`, created the first time it is used.
+///
+/// See: https://doc.rust-lang.org/std/sync/struct.LazyLock.html
 static RECENT_SENDS: std::sync::LazyLock<std::sync::Mutex<RecentSends>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(RecentSends::default()));
 
+/// Locks the shared record of recent notifications. If another thread panicked
+/// while holding the lock, the data is used anyway: a stale record is harmless.
 fn recent_sends() -> std::sync::MutexGuard<'static, RecentSends> {
     RECENT_SENDS
         .lock()
@@ -476,6 +482,10 @@ fn saved_settings(app: &AppHandle) -> NotificationSettings {
 /// A piece of notification work, run on the notification worker.
 type Job = Box<dyn FnOnce() + Send + 'static>;
 
+/// The way to reach the notification thread: the sending end of its job channel.
+/// `None` until the first job starts the thread (see `run_on_worker`).
+///
+/// See: https://doc.rust-lang.org/std/sync/mpsc/index.html
 static WORKER: std::sync::LazyLock<std::sync::Mutex<Option<std::sync::mpsc::Sender<Job>>>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 
@@ -490,6 +500,8 @@ fn run_on_worker(job: Job) {
     let mut guard = WORKER
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // If the thread is already running, hand it the job. A failed send means the
+    // thread has ended; the error gives the job back, so it is not lost.
     let job = match guard.as_ref() {
         Some(tx) => match tx.send(job) {
             Ok(()) => return,
@@ -502,6 +514,7 @@ fn run_on_worker(job: Job) {
     let started = std::thread::Builder::new()
         .name("meedyadl-notifications".to_string())
         .spawn(move || {
+            // Jobs run one at a time, in the order they arrived, until every sender is gone.
             for job in rx {
                 job();
             }
@@ -517,6 +530,7 @@ fn run_on_worker(job: Job) {
         }
         Err(e) => {
             log::warn!("Could not start the notification worker ({e}); running it here");
+            // Let go of the lock before running the job here: the job may need it itself.
             drop(guard);
             job();
         }
@@ -720,9 +734,11 @@ pub fn discards_burst(kind: NotifyKind, sent_now: bool) -> bool {
     kind == NotifyKind::QueueFinished && sent_now
 }
 
+/// The app-wide state of the current burst of download results.
 static BURST: std::sync::LazyLock<std::sync::Mutex<BurstState>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(BurstState::default()));
 
+/// Locks the shared burst state, ignoring a poisoned lock (see `recent_sends`).
 fn burst_state() -> std::sync::MutexGuard<'static, BurstState> {
     BURST
         .lock()
@@ -1204,6 +1220,10 @@ pub fn play_alert_sound() {
     }
 }
 
+/// Plays the Windows "asterisk" alert sound with `MessageBeep` and logs if Windows
+/// reports that it could not.
+///
+/// See: https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-messagebeep
 #[cfg(windows)]
 fn windows_beep() {
     use windows_sys::Win32::System::Diagnostics::Debug::MessageBeep;
@@ -1217,6 +1237,7 @@ fn windows_beep() {
     }
 }
 
+/// Stand-in for other systems, where the Windows sound does not exist. Only logs.
 #[cfg(not(windows))]
 fn windows_beep() {
     log::info!("Alert sound: the Windows alert sound is only available on Windows");

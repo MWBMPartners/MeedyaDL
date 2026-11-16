@@ -109,12 +109,22 @@ impl EngineRegistry {
 
     /// Detects the platform from a URL by matching against url_patterns.
     pub fn detect_platform(&self, url: &str) -> Option<&Platform> {
+        // A plain "contains" match on the lower-cased link, over enabled platforms only.
+        // The maps have no set order, so if two platforms matched, either could win.
         let lower = url.to_lowercase();
         self.platforms
             .values()
             .find(|p| p.enabled && p.url_patterns.iter().any(|pat| lower.contains(pat)))
     }
 
+    /// Reads the `[engines.*]` tables from the parsed `engines.toml` into `Engine`
+    /// values keyed by id.
+    ///
+    /// An engine missing a required key (`name`, `install_method` or `cli_command`)
+    /// is skipped without any message; the yes/no flags default to `false` and the
+    /// text fields to empty.
+    ///
+    /// See: https://docs.rs/toml/latest/toml/
     fn parse_engines(parsed: &toml::Value) -> HashMap<String, Engine> {
         let Some(engines_table) = parsed.get("engines").and_then(|e| e.as_table()) else {
             return HashMap::new();
@@ -160,6 +170,11 @@ impl EngineRegistry {
             .collect()
     }
 
+    /// Reads the `[platforms.*]` tables from the parsed `engines.toml` into `Platform`
+    /// values keyed by id.
+    ///
+    /// A platform missing `name`, `url_patterns` or `engines` is skipped without any
+    /// message; `enabled` defaults to `false` and `content_types` to empty.
     fn parse_platforms(parsed: &toml::Value) -> HashMap<String, Platform> {
         let Some(platforms_table) = parsed.get("platforms").and_then(|p| p.as_table()) else {
             return HashMap::new();
@@ -216,6 +231,8 @@ pub struct EngineConfig {
 }
 
 impl From<&EngineRegistry> for EngineConfig {
+    /// Flattens the registry's two maps into lists for the page. The order of each
+    /// list is not fixed (it follows the maps), so the page should sort if it cares.
     fn from(registry: &EngineRegistry) -> Self {
         Self {
             engines: registry.engines.values().cloned().collect(),

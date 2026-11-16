@@ -37,6 +37,8 @@
 //   - filling in `en`, the interface language or any other language when
 //     the real one is unknown (LANG-003);
 //   - adding a script or region the value did not state (LANG-024).
+//
+// See: https://www.rfc-editor.org/info/bcp47  (BCP 47, which holds RFC 5646)
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -330,9 +332,14 @@ struct SubtitleItem {
 }
 
 impl LanguageItem for SubtitleItem {
+    /// The language tag of this subtitle (BCP 47, RFC 5646).
+    /// See: https://www.rfc-editor.org/info/bcp47
     fn language(&self) -> &LanguageTag {
         &self.tag
     }
+    /// True when this subtitle stream is marked original (ffmpeg's `original`
+    /// disposition); never guessed from its language or position (policy
+    /// LANG-010, TRACK-020).
     fn is_original(&self) -> bool {
         self.original
     }
@@ -341,12 +348,15 @@ impl LanguageItem for SubtitleItem {
 // Roles are declared once, on the crate's shared `RoleItem` parent trait
 // (since core `aaaa585`); `TrackItem` builds on it.
 impl RoleItem for SubtitleItem {
+    /// The roles this subtitle has (SDH, forced, commentary — see
+    /// `subtitle_roles`).
     fn roles(&self) -> &[Role] {
         &self.roles
     }
 }
 
 impl TrackItem for SubtitleItem {
+    /// Always a subtitle track.
     fn track_type(&self) -> TrackType {
         TrackType::Subtitle
     }
@@ -473,6 +483,8 @@ struct MenuItem {
 }
 
 impl LanguageItem for MenuItem {
+    /// The language tag of this menu entry (BCP 47, RFC 5646).
+    /// See: https://www.rfc-editor.org/info/bcp47
     fn language(&self) -> &LanguageTag {
         &self.tag
     }

@@ -21,6 +21,8 @@
 // Migration is opt-in per callsite (#716 follow-ups). The helper does
 // NOT change behaviour for any existing call: the timeout, UA, and
 // error-message string match what the existing sites produce.
+//
+// See: https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html
 
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -441,6 +443,8 @@ pub struct ClientConfig {
 }
 
 impl Default for ClientConfig {
+    /// Default settings: 15 second timeout, no separate connect timeout, no
+    /// custom User-Agent.
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(15),

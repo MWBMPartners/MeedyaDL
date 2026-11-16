@@ -737,6 +737,27 @@ pub(crate) fn album_names_match(file_name: &str, api_name: &str) -> bool {
     }
 }
 
+/// Enriches one downloaded M4A file with MeedyaDL's own tags.
+///
+/// Steps: (1) work out the real audio format of the file, asking MediaInfo
+/// first and ffprobe second; (2) in a blocking thread, write the tags for
+/// that format, the source and local tags, the channel layout, and, when
+/// `album_metadata` is given and the file's album and artist agree with it,
+/// the Apple Music tags from the tag registry.
+///
+/// The real format is used only when `uses_native_priority` is true (GAMDL
+/// chose from a list, so the request does not say what arrived). Otherwise
+/// the requested format is trusted. If neither tool can tell, the request
+/// is used and a warning is logged.
+///
+/// Returns `(format used, album_matched)`. `album_matched` is false when
+/// the file's album did not match `album_metadata`, so Apple Music tags
+/// were skipped to avoid mixing two releases (#452). `event_context` (the
+/// app and download id) is optional and only used for activity-log lines.
+/// Errors if the file's tags cannot be read or written.
+///
+/// See:
+/// https://docs.rs/mp4ameta/latest/mp4ameta/struct.Tag.html
 async fn enrich_single_file(
     file_path: &Path,
     requested_codec: &SongCodec,

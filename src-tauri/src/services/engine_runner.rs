@@ -396,10 +396,14 @@ fn spawn_queue_aware_reader(
 pub struct GamdlCommandBuilder;
 
 impl EngineCommandBuilder for GamdlCommandBuilder {
+    /// The engine id this builder serves; it matches the id in `engines.toml`.
     fn engine_id(&self) -> &str {
         "gamdl"
     }
 
+    /// Builds the GAMDL command through `build_gamdl_command_public`. Passes default
+    /// options and ignores `_cli_args`, because the queue builds the real command
+    /// directly for now.
     fn build_command(
         &self,
         app: &AppHandle,
@@ -437,10 +441,13 @@ impl EngineCommandBuilder for GamdlCommandBuilder {
 pub struct VotifyCommandBuilder;
 
 impl EngineCommandBuilder for VotifyCommandBuilder {
+    /// The engine id this builder serves; it matches the id in `engines.toml`.
     fn engine_id(&self) -> &str {
         "votify"
     }
 
+    /// Builds the votify command through `build_votify_command_public`. Passes default
+    /// options and ignores `_cli_args`.
     fn build_command(
         &self,
         app: &AppHandle,
@@ -468,10 +475,12 @@ impl EngineCommandBuilder for VotifyCommandBuilder {
 pub struct YtdlpCommandBuilder;
 
 impl EngineCommandBuilder for YtdlpCommandBuilder {
+    /// The engine id this builder serves; it matches the id in `engines.toml`.
     fn engine_id(&self) -> &str {
         "ytdlp"
     }
 
+    /// Always returns an error: the yt-dlp engine is not built yet.
     fn build_command(
         &self,
         _app: &AppHandle,
@@ -490,10 +499,12 @@ impl EngineCommandBuilder for YtdlpCommandBuilder {
 pub struct GetIplayerCommandBuilder;
 
 impl EngineCommandBuilder for GetIplayerCommandBuilder {
+    /// The engine id this builder serves; it matches the id in `engines.toml`.
     fn engine_id(&self) -> &str {
         "get_iplayer"
     }
 
+    /// Always returns an error: the get_iplayer engine is not built yet.
     fn build_command(
         &self,
         _app: &AppHandle,

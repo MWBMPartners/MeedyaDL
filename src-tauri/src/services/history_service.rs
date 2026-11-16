@@ -24,6 +24,9 @@ use tauri::AppHandle;
 /// When this limit is exceeded, the oldest entries are trimmed.
 const MAX_HISTORY_ENTRIES: usize = 1000;
 
+/// Turns a link into the form used to spot repeats in the history. It reuses the
+/// queue's `normalize_url_for_dedup`, so the two lists agree about what counts as
+/// the same link.
 fn normalize_url_for_history_dedup(url: &str) -> String {
     crate::services::download_queue::normalize_url_for_dedup(url)
 }
@@ -158,6 +161,13 @@ fn save_history_to_disk(app: &AppHandle, entries: &[HistoryEntry]) {
     }
 }
 
+/// Keeps one entry per link, the most recently completed one, newest first.
+///
+/// Sorting first means `retain` meets the newest entry of each link first;
+/// `HashSet::insert` returns `false` for a link already seen, so older repeats
+/// are dropped.
+///
+/// See: https://doc.rust-lang.org/std/collections/struct.HashSet.html#method.insert
 fn dedupe_history_entries(mut entries: Vec<HistoryEntry>) -> Vec<HistoryEntry> {
     entries.sort_by(|a, b| b.completed_at.cmp(&a.completed_at));
 

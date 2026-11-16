@@ -149,6 +149,7 @@ pub struct EnrichmentRecord {
     pub stage_version: u32,
 }
 
+/// Serde default: a processing stage with no recorded version is version 1.
 fn default_stage_version() -> u32 {
     1
 }
@@ -186,6 +187,7 @@ pub struct ManifestTrack {
     pub has_lyricsfile: bool,
 }
 
+/// Serde default: a track with no recorded disc number is on disc 1.
 fn default_disc() -> u32 {
     1
 }

@@ -159,7 +159,11 @@ const SUPPORTED_HOSTS: &[&str] = &[
 /// The service's name as a person would write it, or `None` when the host is
 /// not one we recognise at all.
 fn recognised_but_unsupported_service(host: &str) -> Option<&'static str> {
-    // Longest first, so music.youtube.com is not reported as YouTube.
+    // Hosts MeedyaDL recognises but cannot download from yet: (domain, name a
+    // person would write). Matching is by whole domain or sub-domain only. A
+    // longer domain is listed before any shorter domain it ends with
+    // (music.youtube.com before youtube.com), so the first match is the most
+    // specific and music.youtube.com is not reported as YouTube.
     const RECOGNISED: &[(&str, &str)] = &[
         ("music.youtube.com", "YouTube Music"),
         ("youtube.com", "YouTube"),
@@ -1395,6 +1399,13 @@ pub async fn cancel_download(
 // a no-op (item missing, not Queued, or already at the requested
 // position). Errors are reserved for queue-lock failures.
 
+/// Shared body of the four queue-reorder commands below.
+///
+/// Runs `op` (one of the `DownloadQueue` move methods) while holding the queue
+/// lock, and reads a friendly label for the item inside that same lock. When
+/// the queue really changed it saves the queue to disk, tells the page with
+/// `queue-updated`, and adds a `[System]` line to the activity log. Returns
+/// `Ok(true)` if something moved and `Ok(false)` for a no-op.
 async fn run_queue_move(
     app: &AppHandle,
     queue: &State<'_, QueueHandle>,
@@ -1615,12 +1626,16 @@ pub async fn retry_download(
     }
 }
 
+/// One download that "Retry all failed" left alone, and the plain-English
+/// reason why. Sent to the page as part of [`BulkRetryReport`].
 #[derive(Debug, serde::Serialize)]
 pub struct BulkRetrySkipped {
     pub id: String,
     pub reason: String,
 }
 
+/// Summary the page gets back from the bulk retry command: how many ids were
+/// asked for, how many were put back in the queue, and which were skipped.
 #[derive(Debug, serde::Serialize)]
 pub struct BulkRetryReport {
     pub requested: usize,

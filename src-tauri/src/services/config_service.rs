@@ -1364,6 +1364,15 @@ pub fn usable_download_folder(folder: &str) -> Option<String> {
     }
 }
 
+/// Builds the full text of GAMDL's `config.ini` from the app settings.
+///
+/// Only the settings GAMDL understands are written; everything else stays in
+/// `settings.json`. String values are cleaned (`sanitize_ini_value`) so a
+/// crafted setting cannot add extra INI lines, and some keys are written only
+/// when the detected GAMDL version supports them. Returns the file contents;
+/// the caller writes them to disk.
+///
+/// See: https://github.com/glomatico/gamdl
 fn settings_to_ini(settings: &AppSettings) -> String {
     let mut lines = Vec::new();
 

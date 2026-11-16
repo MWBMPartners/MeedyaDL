@@ -78,6 +78,10 @@ pub enum TokenSource {
 }
 
 impl std::fmt::Display for TokenSource {
+    /// Writes the short plain label used in log lines: `"user credentials"` or
+    /// `"web session"`.
+    ///
+    /// See: <https://doc.rust-lang.org/std/fmt/trait.Display.html>
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::UserCredentials => write!(f, "user credentials"),
@@ -533,6 +537,11 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     // Apple's Classical domain migration.
 
     // Match album URLs: /storefront/album/[slug/]album_id with optional ?i=song_id
+    /// Matches album links. Captures: 1 = storefront, 2 = album id, 3 = song id
+    /// (only when `?i=<song id>` comes straight after the album id). Built once,
+    /// then reused.
+    ///
+    /// See: https://docs.rs/regex/latest/regex/
     static ALBUM_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"https?://(?:classical(?:\.music)?|music|itunes)\.apple\.com/([a-z]{2})/album/(?:[^/]+/)?(\d+)(?:\?i=(\d+))?",
@@ -541,6 +550,7 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     });
 
     // Match song URLs: /storefront/song/[slug/]song_id
+    /// Matches song links. Captures: 1 = storefront, 2 = song id.
     static SONG_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"https?://(?:classical(?:\.music)?|music|itunes)\.apple\.com/([a-z]{2})/song/(?:[^/]+/)?(\d+)",
@@ -549,6 +559,7 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     });
 
     // Match music-video URLs: /storefront/music-video/[slug/]video_id
+    /// Matches music video links. Captures: 1 = storefront, 2 = video id.
     static MV_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"https?://(?:classical(?:\.music)?|music|itunes)\.apple\.com/([a-z]{2})/music-video/(?:[^/]+/)?(\d+)",
@@ -557,6 +568,7 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     });
 
     // Match artist URLs: /storefront/artist/[slug/]artist_id
+    /// Matches artist links. Captures: 1 = storefront, 2 = artist id.
     static ARTIST_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"https?://(?:classical(?:\.music)?|music|itunes)\.apple\.com/([a-z]{2})/artist/(?:[^/]+/)?(\d+)",
@@ -569,6 +581,8 @@ pub fn parse_apple_music_url(url: &str) -> Option<ParsedAppleMusicUrl> {
     // matched here — they need a different endpoint and Music-User-Token
     // auth. Callers that need to detect library playlists should do so
     // via a separate check before calling this parser.
+    /// Matches catalog playlist links. Captures: 1 = storefront, 2 = playlist id
+    /// (starts with `pl.`). Personal library playlists are deliberately not matched.
     static PLAYLIST_RE: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
             r"https?://(?:classical(?:\.music)?|music|itunes)\.apple\.com/([a-z]{2})/playlist/(?:[^/]+/)?(pl\.[a-zA-Z0-9._-]+)",
@@ -755,6 +769,8 @@ pub fn has_embedded_musickit_developer_token() -> bool {
 /// * `Ok(None)` - No key stored (user hasn't configured it yet)
 /// * `Err(String)` - Keychain access error (locked, permission denied, etc.)
 pub fn get_private_key_from_keychain() -> Result<Option<String>, String> {
+    // Name of the keychain entry (the "account" half of the service/account pair).
+    // Every function that reads, writes or deletes this key must use the same name.
     const KEY_NAME: &str = "musickit_private_key";
 
     let entry = keyring::Entry::new(SERVICE_NAME, KEY_NAME)
@@ -775,6 +791,7 @@ pub fn get_private_key_from_keychain() -> Result<Option<String>, String> {
 /// (e.g., "user denied keychain access") rather than a generic
 /// "import failed".
 pub fn store_private_key_in_keychain(pem: &str) -> Result<(), String> {
+    // Same keychain entry name as in `get_private_key_from_keychain`.
     const KEY_NAME: &str = "musickit_private_key";
 
     let entry = keyring::Entry::new(SERVICE_NAME, KEY_NAME)

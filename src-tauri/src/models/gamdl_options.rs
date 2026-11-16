@@ -1639,6 +1639,7 @@ impl GamdlOptions {
     #[must_use]
     pub fn to_cli_args_v4(&self) -> Vec<String> {
         let mut args: Vec<String> = Vec::new();
+        /// Adds a flag and its value as two separate arguments, in that order.
         fn push(args: &mut Vec<String>, flag: &str, value: String) {
             args.push(flag.to_string());
             args.push(value);
