@@ -14,7 +14,7 @@ This page helps you fix common problems in MeedyaDL. Find your problem below and
 
 When something goes wrong, MeedyaDL shows a short message that says what happened and what to do next. The technical text behind the message is folded away under **Details**. On a failed download in the Queue or History, it sits under the short summary. Open **Details** when you report a problem, because that text helps us find the cause.
 
-MeedyaDL sorts problems into a few groups: sign-in (**auth**), connection (**network**), format (**codec**), not found, too many requests (**rate limit**), and helper tools (**tool**). The sections below follow those groups.
+MeedyaDL sorts problems into a few groups: sign-in, connection, format, not found, too many requests, and helper tools. The sections below follow those groups.
 
 Three quick checks fix many problems:
 
@@ -44,9 +44,9 @@ MeedyaDL is set to use a cookie file that is no longer where it expects. It may 
 
 ### When You Are Offline
 
-MeedyaDL checks your internet connection before each download. If you are offline when you add a download, it is still added to the queue. It will not start until you are back online. A yellow message says: **"Download queued — will start when internet is available."**
+MeedyaDL checks your internet connection before each download. If you are offline when you add a download, it is still added to the queue. It will not start until you are back online. A message says: **"Download queued — no internet right now. They will start automatically when the connection comes back."**
 
-When you are back online, click **Start** on the Queue page, or add another download. The waiting items then run. Cookies are not checked while you are offline.
+When you are back online, waiting downloads start by themselves. If you have turned off **Auto-Start Downloads**, press **Start** on the Queue page. Cookies are not checked while you are offline.
 
 Downloads that fail only because of your connection do not create an error report.
 
@@ -196,7 +196,7 @@ The Activity page shows lines like:
 [Track 14/14] Skipping "Just Getting Started.": Decryption is not available for media ID: 1021848727
 ```
 
-If **every** track in a download shows this, the wrapper's sign-in to Apple Music has most likely run out, even though the wrapper looks like it is running. Sign the wrapper in to Apple Music again by following the wrapper's own instructions, then retry the download. [Wrapper Authentication](wrapper.md) has the details.
+If **every** track in a download shows this, the wrapper's sign-in to Apple Music has most likely run out, even though the wrapper looks like it is running. With the newer wrapper (GAMDL 3.6 and newer), press **Sign in to wrapper** in Settings > Advanced > Wrapper. With the older wrapper, sign it in again following its own instructions. Then retry the download. [Wrapper Authentication](wrapper.md) has the details.
 
 If only **some** tracks are skipped, those tracks probably are not offered in the format you asked for. Adjust your [Fallback Quality](fallback-quality.md) list so another format is tried for them.
 
@@ -410,7 +410,7 @@ The **Activity** page (sidebar, or Cmd/Ctrl + K) lists what MeedyaDL does, as it
 
 - **Auto-scroll** is on by default, so the page follows new lines. If you scroll up to read earlier lines, the switch turns itself off so your place is kept. Turn it back on to jump to the bottom.
 - The page holds up to **10,000 lines** per session. Older lines are dropped from the view but are kept in the log files (see below).
-- When a download starts, the page says how it signs in: **"Downloading via wrapper at {url}"** or **"Downloading with cookie-based authentication"**. This is normal. If a download fails with a sign-in error and the line says cookies, refresh your cookies. If it says wrapper, check that the wrapper is running.
+- When a download starts, the page says how it signs in: **"Authentication: Wrapper (…)"** or **"Authentication: Cookie-based (no wrapper)"**. This is normal. If a download fails with a sign-in error and the line says cookies, refresh your cookies. If it says wrapper, check that the wrapper is running.
 - Turn on **Verbose Activity Log** in **Settings > Advanced** for extra detail. This is the best first step when a problem is about tags or formats. On a full (Stable) release it turns itself off every time you restart MeedyaDL, so you need to turn it on again each time. On Alpha, Beta and Release Candidate builds (the version has `-alpha`, `-beta` or `-rc` in it), it stays on.
 
 ### Saving the log

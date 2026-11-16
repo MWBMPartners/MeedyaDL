@@ -14,10 +14,10 @@ You run the wrapper yourself, either on this computer or on another one. MeedyaD
 
 ## Do I need a wrapper?
 
-Probably not. Without a wrapper you can still download songs, albums, playlists, lyrics, artwork and most audio formats. What you can get depends on the GAMDL version MeedyaDL has installed. You can see it under **Help > About**.
+Probably not. Without a wrapper you can still download songs, albums, playlists, lyrics, artwork and most audio formats. What you can get depends on the GAMDL version MeedyaDL has installed. You can see it under **Settings > Tools**.
 
 - **GAMDL 3.8 or newer:** the only thing that still needs a wrapper is **ALAC** (lossless). Everything else works with cookies, including Dolby Atmos and Dolby Digital.
-- **GAMDL 3.0 to 3.7:** you need a wrapper for ALAC, Dolby Atmos, Dolby Digital and the non-"web" AAC formats. Lossy AAC still works with cookies.
+- **GAMDL 3.0 to 3.7:** you need a wrapper for ALAC, Dolby Atmos, Dolby Digital and the other AAC formats. AAC Legacy and AAC-HE Legacy still work with cookies.
 
 If you are happy with the standard lossy AAC quality, skip the wrapper. If you do not want to use a wrapper, see [Cookie Management](cookie-management.md).
 
@@ -48,7 +48,7 @@ Which fields you see depends on your GAMDL version.
 |---|---|---|
 | 3.6 and newer | **Wrapper URL** | `http://127.0.0.1` |
 | 3.0 to 3.5 | **Wrapper Account URL** | `http://127.0.0.1:30020` |
-| 3.0 to 3.5 | **Wrapper m3u8 Address** | `127.0.0.1:20020` |
+| 3.1 to 3.5 | **Wrapper m3u8 Address** | `127.0.0.1:20020` |
 | 3.0 to 3.5 | **Wrapper Decryption Address** | `127.0.0.1:10020` |
 
 `127.0.0.1` means "this computer". If your wrapper runs on another computer, put that computer's address in its place.

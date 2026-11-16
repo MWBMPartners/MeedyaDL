@@ -86,9 +86,7 @@ Because only H.265 is offered above 1080p, **removing H.265 from your list means
 
 ### Why There Is No Resolution Fallback Chain
 
-Earlier versions showed a resolution list too, from 2160p (4K) down to 240p. It was taken out because it never did anything. Here is why.
-
-The resolution you choose in Settings is a **ceiling**, not a request. Apple Music does not say "yes" or "no" to a particular resolution the way it does to a codec. It gives you the best quality it has at or below your ceiling, in the same single attempt. If a video only exists above your ceiling, you still get it, at the lowest quality that is above the ceiling.
+The resolution you choose in Settings is a **ceiling**, not a request. You get the best quality available at or below your ceiling, in a single attempt.
 
 So a resolution can never be "not available" the way a codec can. Nothing fails, so there is nothing to step down from. Reordering such a list would change nothing, so it was removed. The resolution setting is described as a maximum instead.
 
@@ -136,7 +134,7 @@ Turn it off when you want an exact codec and would rather have a failed download
 Fallback happens **per track**, not per album. Each track is checked on its own, so:
 
 - Some tracks in an album may arrive in your preferred codec (for example ALAC) and others in a fallback (for example AAC).
-- The queue shows the codec each track actually got.
+- The queue item shows **Fallback used** with the format that was used.
 - One failing codec never fails the whole album.
 
 See [Downloading Music](downloading-music.md).
@@ -155,11 +153,9 @@ See [Downloading Videos](downloading-videos.md).
 
 When an **audio** fallback happens, the queue shows it:
 
-- **Fallback badge.** A track that used a fallback has a badge showing what was asked for and what you got, for example "Requested: ALAC | Downloaded: AAC".
-- **Per-track view.** You can scan the queue to see which tracks got your preferred codec and which did not.
-- **Summary.** The queue gives a quick summary of fallback activity for the session.
+- **Fallback used.** The queue item shows **Fallback used** with the format that was actually used, for example "Fallback used (codec: aac)".
 
-A music video never shows this badge, even when it dropped from H.265 to H.264. The download tool picks the codec by itself and does not tell MeedyaDL which one it chose, so there is nothing honest to show.
+MeedyaDL cannot tell which video format was used, so it shows no badge.
 
 ### Log Details
 
@@ -181,7 +177,7 @@ You ask for ALAC on a 6-track album.
 
 1. **Tracks 1-5:** ALAC is available. They download in ALAC.
 2. **Track 6:** ALAC is not available. MeedyaDL tries **Atmos** (not available), then **AC3** (not available), then **AAC** (available).
-3. **Result:** Tracks 1-5 are ALAC and track 6 is AAC. The queue shows a fallback badge on track 6: "Requested: ALAC | Downloaded: AAC".
+3. **Result:** Tracks 1-5 are ALAC and track 6 is AAC. The queue item shows **Fallback used** with the format that was used.
 
 ### Example 2: A Music Video
 
@@ -190,7 +186,7 @@ Your video list is the default (H.265, then H.264) and your resolution ceiling i
 1. H.265 is tried first. It is not offered.
 2. H.264 is tried next. It is offered.
 3. Within H.264, you get the closest quality at or below 2160p. The video only goes up to 1080p, so that is what you get.
-4. **Result:** The video downloads in H.264 at 1080p. No fallback badge appears (see [Fallback Notifications](#fallback-notifications)).
+4. **Result:** The video downloads in H.264 at 1080p. No **Fallback used** note appears (see [Fallback Notifications](#fallback-notifications)).
 
 **What if H.264 had been removed from your list?** With only H.265 left and the video not offered in it, the download would fail as not available. The resolution ceiling never comes into it, because the failure happens when the codec is chosen.
 

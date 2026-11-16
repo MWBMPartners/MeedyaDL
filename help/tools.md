@@ -15,17 +15,17 @@ MeedyaDL uses a few small helper programs to do its work. You can check them, in
 | Tool | What it is for |
 |---|---|
 | **FFmpeg** | Handles sound and video files, and joins the parts of a video together. Needed for most downloads. |
-| **mp4decrypt** | A helper that older versions of GAMDL use to finish processing downloads. |
-| **N_m3u8DL-RE** | The helper program that does the actual downloading. |
-| **MP4Box** | A helper for putting MP4 files together. |
+| **mp4decrypt** | Used by older versions of GAMDL. |
+| **N_m3u8DL-RE** | Used for downloads only if you change **Download Mode** in Settings > Advanced. |
+| **MP4Box** | Used by older versions of GAMDL. |
 | **MediaInfo** | Reads a finished file to tell what quality it really is, so MeedyaDL can show you what you got. |
 
-All five are installed by the setup wizard, because MeedyaDL supports many GAMDL versions, including older ones that still use every tool.
+On newer GAMDL versions some of these tools are no longer used, but keep them installed. FFmpeg and MediaInfo are also used by MeedyaDL itself.
 
 <details>
 <summary>More detail: which tools newer GAMDL versions still need</summary>
 
-From **GAMDL 3.6**, GAMDL no longer needs MP4Box or mp4decrypt for music videos. FFmpeg, N_m3u8DL-RE and MediaInfo are still needed on every GAMDL version. FFmpeg is also used by MeedyaDL itself for its loudness (ReplayGain) check, and MediaInfo helps MeedyaDL spot the real format of a finished file.
+From **GAMDL 3.6**, GAMDL no longer needs MP4Box or mp4decrypt for music videos. FFmpeg and MediaInfo are still needed on every GAMDL version. FFmpeg is also used by MeedyaDL itself for its loudness (ReplayGain) check, and MediaInfo helps MeedyaDL spot the real format of a finished file.
 
 </details>
 
@@ -36,7 +36,7 @@ From **GAMDL 3.6**, GAMDL no longer needs MP4Box or mp4decrypt for music videos.
 After the first set-up, go to **Settings > Tools** to:
 
 - **Check All.** Refresh the status of every tool.
-- **Install missing tools.** One at a time, or all at once with **Install All Missing**.
+- **Install missing tools.** One at a time, or all at once with **Install All (N missing)**.
 - **Reinstall.** Every installed tool has a **Reinstall** button. It asks you first, then downloads the tool again or uses a suitable copy already on your computer.
 - **Use your own copy.** Open a tool with the arrow on its right and choose a copy you installed yourself, for example one you installed for your whole computer.
 

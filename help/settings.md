@@ -42,6 +42,7 @@ A few choices are saved the moment you make them, without pressing Save Changes,
   - **Message Auto-Dismiss** — how long plain messages inside the app stay before going away. Errors and warnings stay until you close them. A message stays open while your pointer rests on it or it has keyboard focus.
 
 </details>
+
 - **Settings File** — **Export Settings** and **Import Settings**: save just your settings to a file, or load them from one, to keep a copy or to set up another computer the same way. Sensitive details such as cookies and credentials are left out of the export. For your safety, an imported file cannot choose which programs MeedyaDL runs or loads, or set anything that would shut your computer down — those stay as they are on this computer.
 - **Full Copy of MeedyaDL** — **Export Full Copy** and **Import Full Copy**: everything this copy of MeedyaDL holds, in a single `.meedyabundle` file, for moving to a new computer or keeping before a big change. When you open MeedyaDL for the first time, it also offers to restore any full copy it finds in your Downloads, Desktop or home folder. You choose which extra sections to include (queue, history, activity logs and so on). Credentials can be included too, protected by a password you choose. When you restore one, your settings are always restored and you tick which other sections to replace. Restoring does not change where your downloads are saved on this computer.
 
@@ -80,7 +81,7 @@ Reorder the audio codec and video codec fallback chains using the up/down arrow 
 - **Automatic Tags** — Codec, source, and channel-configuration tags, plus extra details from Apple Music such as record label and release information.
 - **AcoustID Fingerprinting** — Opt-in audio fingerprinting and lookup against the AcoustID database.
 - **ReplayGain Analysis** — Opt-in loudness analysis so your library plays back at a consistent volume.
-- **Links on Other Music Services** — An opt-in **Links on Other Music Services** toggle. When it's on, MeedyaDL asks song.link (a lookup service run by a company called Odesli) where else each downloaded album is available — Spotify, YouTube Music, Tidal, and others — and saves what it finds into your files. It needs an access key from Odesli, entered under Settings > Advanced > API Credentials.
+- **Links on Other Music Services** — A switch called **Look up where else each album is available**, in the **Links on Other Music Services** section. It is off by default. When it's on, MeedyaDL asks song.link (a lookup service run by a company called Odesli) where else each downloaded album is available — Spotify, YouTube Music, Tidal, and others — and saves what it finds into your files. It needs an access key from Odesli, entered under Settings > Advanced > API Credentials.
 
 ## Templates
 

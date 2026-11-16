@@ -141,10 +141,10 @@ Companion downloads get you more than one format of the same music in one go. Yo
 | **Atmos → Lossless (ALAC)** *(default)* | When you download Dolby Atmos, you also get an ALAC (lossless) copy. Downloads in other formats get no extra copy. |
 | **Atmos → Lossless + Lossy** | Atmos also gets an ALAC copy and an AAC copy. An ALAC download also gets an AAC copy. |
 | **Specialist → Lossy (AAC)** | Atmos or ALAC downloads also get an AAC copy. |
-| **Atmos → All Formats** | Atmos also gets a copy in every other format (AC3, AAC Binaural, ALAC, AAC). |
+| **Atmos → All Formats (AC3 + ALAC + AAC)** | Atmos also gets a copy in every other format (AC3, ALAC, AAC). |
 | **Custom...** | You pick exactly which formats to get as extra copies, using tick boxes. |
 
-Extra copies download in the background and do not hold up the queue. If a format is not offered for a track, it is quietly skipped, and your main download is not affected.
+Extra copies are made before the next item in the queue starts. If a format is not offered for a track, it is quietly skipped, and your main download is not affected.
 
 ### File Names
 
@@ -167,7 +167,7 @@ The tag always matches what is really in the file. MeedyaDL checks each file aft
 
 ### Custom Mode
 
-With **Custom...** you see a list of tick boxes, one per format. Every format you tick (apart from your main format) is downloaded as its own extra copy. The order of your ticks sets the file names. The last format you tick gets the plain name, and the others get a tag. For example, with Atmos, ALAC and AAC ticked, AAC files are plain, ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]`.
+With **Custom...** you see a list of tick boxes, one per format. Every format you tick is downloaded as its own extra copy, even if it is the same as your main format. The order of your ticks sets the file names. The last format you tick gets the plain name, and the others get a tag. For example, with Atmos, ALAC and AAC ticked, AAC files are plain, ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]`.
 
 Choose Custom for a mix the other modes don't cover, such as AAC Binaural and ALAC alongside Atmos, or every format for a full archive.
 
@@ -181,9 +181,9 @@ MeedyaDL also saves extra information inside special-format files, so other prog
 <details>
 <summary>More detail: how MeedyaDL tells which format a file is (MediaInfo)</summary>
 
-MeedyaDL looks inside each finished file to find its real format. It does this with FFmpeg's checker, and with **MediaInfo** as well. MediaInfo is installed with the other helper tools during setup, so you do not need to do anything. It is better at telling Dolby Atmos from ordinary Dolby Digital, so it matters most if you download a lot of Atmos. The checker alone still gets most files right.
+MeedyaDL checks each finished file to find its real format, using FFmpeg and **MediaInfo**. MediaInfo is installed with the other helper tools during setup, so you do not need to do anything. It is better at telling Dolby Atmos from ordinary Dolby Digital, so it matters most if you download a lot of Atmos.
 
-When MeedyaDL asks for several formats in one go, it does not know which one came back until the download is finished. In that case the main file gets a plain name, and the extra copies get tags so nothing overwrites anything.
+When you ask for several formats in one go, MeedyaDL only knows which one came back when the download is finished. In that case the main file gets a plain name, and the extra copies get tags so nothing overwrites anything.
 
 </details>
 

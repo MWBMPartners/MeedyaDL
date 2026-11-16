@@ -67,7 +67,7 @@ If you would rather not update yet, right-click (or Control-click) the app and c
 
 ### Windows
 
-1. Download the `.exe` installer for your architecture (x64 or ARM64).
+1. Download the `.exe` installer for your type of processor (x64 or ARM64).
 2. Run the installer and follow the on-screen prompts.
 3. Launch MeedyaDL from the Start Menu or desktop shortcut.
 
@@ -80,7 +80,7 @@ If you would rather not update yet, right-click (or Control-click) the app and c
 
 **Debian / Ubuntu (.deb):**
 
-1. Download the `.deb` package for your architecture (x64).
+1. Download the `.deb` package for your type of processor (x64).
 2. Install it using your package manager or by running `sudo dpkg -i meedyadl_*.deb` in a terminal.
 3. Launch MeedyaDL from your application menu or by running `meedyadl` in a terminal.
 
@@ -100,14 +100,14 @@ Follow the same Debian / Ubuntu instructions above using the ARM64 `.deb` packag
 
 ### First-Run Setup Wizard
 
-The first time you launch MeedyaDL, a setup wizard will guide you through the initial configuration. The wizard has **6 steps**:
+The first time you launch MeedyaDL, a setup wizard will guide you through the initial configuration. The wizard has **6 steps** (Welcome, Python, Engine, Tools, Cookies and Done):
 
 1. **Welcome** — Introduction and overview of the setup process.
-2. **Python** — MeedyaDL needs Python 3.10 or newer. If you already have a compatible Python installed (for example via Homebrew or python.org), the wizard detects it and offers a **"Use this"** button — MeedyaDL then sets up its own separate copy from it (your system Python is never changed), so there is nothing to download. Otherwise, it downloads and installs a sandboxed Python runtime into its data directory. A **Browse…** button lets you point at a specific interpreter.
+2. **Python** — MeedyaDL needs Python 3.10 or newer. If you already have a compatible Python installed (for example via Homebrew or python.org), the wizard detects it and offers a **"Use this"** button — MeedyaDL then sets up its own separate copy from it (your system Python is never changed), so there is nothing to download. Otherwise, it downloads and installs its own separate copy of Python into its own folder. A **Browse…** button lets you choose a specific Python yourself.
 3. **Engine** — GAMDL, the free download tool MeedyaDL uses for Apple Music, is installed automatically.
-4. **Dependency Installation** — Additional tools are installed: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo. They go into MeedyaDL's own folder and do not affect your system. If you already have one of them installed, you can point MeedyaDL at it with **Browse**.
-5. **Cookie Import** — You will be prompted to import your Apple Music cookies (see below).
-6. **Complete** — Setup is finished and MeedyaDL is ready to use.
+4. **Tools** — Additional tools are installed: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo. They go into MeedyaDL's own folder and do not affect your system. If you already have one of them installed, you can point MeedyaDL at it with **Browse**.
+5. **Cookies** — You will be prompted to import your Apple Music cookies (see below).
+6. **Done** — Setup is finished and MeedyaDL is ready to use.
 
 The wizard handles everything automatically. Simply follow the prompts and wait for each step to complete.
 
@@ -161,7 +161,7 @@ You can paste multiple URLs and add them to the queue one after another. The que
 
 **Tip:** MeedyaDL also monitors your clipboard. If you copy an Apple Music URL from a browser or messaging app, a message will appear in MeedyaDL offering to download it — clicking **Download** adds it directly to the queue. While MeedyaDL is not in front, your computer can also show a system notification so you don't miss it. Clipboard monitoring can be toggled off in **Settings > General > Preferences**.
 
-**If a download fails:** every failed item shows a **Retry** button on the right of its row in both the Queue and History pages. Right-click any row to access the same actions plus Copy URL and Open Folder. To re-run multiple failed items at once, use **Retry All Failed (N)** in the History page header, or **Retry all failed (N)** in the Queue page's **More** menu. MeedyaDL is smart about retries — it reads the album's manifest and only re-fetches the tracks that actually failed, rather than re-running the whole album.
+**If a download fails:** every failed item shows a **Retry** button on the right of its row in both the Queue and History pages. Right-click any row to access the same actions plus Open Folder, and **Copy Source Link** in the Queue or **Copy URL** in History. To re-run multiple failed items at once, use **Retry All Failed (N)** in the History page header, or **Retry all failed (N)** in the Queue page's **More** menu. MeedyaDL is smart about retries — it reads the album's manifest and only re-fetches the tracks that actually failed, rather than re-running the whole album.
 
 For more details on downloading music, see [Downloading Music](downloading-music.md). For music videos, see [Downloading Videos](downloading-videos.md).
 

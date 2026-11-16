@@ -118,7 +118,7 @@ The `.p8` file is plain text. You need to copy everything inside it.
 3. Type your Team ID into **MusicKit Team ID**.
 4. Type your Key ID into **MusicKit Key ID**.
 5. Paste the key you copied into **MusicKit Private Key (.p8)**.
-6. Click **Save to Keychain**. MeedyaDL keeps the key in your computer's secure store (macOS Keychain, Windows Credential Manager or Linux Secret Service). The status then reads **Private key is stored in OS keychain**.
+6. Click **Save to Keychain**. MeedyaDL keeps the key in your computer's secure store (macOS Keychain, Windows Credential Manager or Linux Secret Service). The status then reads **Key stored in keychain**.
 7. Click **Test Credentials**. MeedyaDL checks your details with Apple and tells you if something is wrong.
 8. Click **Save**.
 
@@ -134,7 +134,7 @@ Once the details are saved, nothing more is needed:
 2. When the album finishes, MeedyaDL checks whether it has animated art.
 3. If it does, the video files are saved in the album folder.
 
-This runs in the background. Your other downloads keep going.
+This finishes before the next item in the queue starts.
 
 ---
 
@@ -203,7 +203,7 @@ Files saved before you change the setting stay as they were. To show hidden file
 ### No video files appear
 
 - Check that **MusicKit Team ID**, **MusicKit Key ID** and the private key are all filled in under **Settings > Advanced > API Credentials**.
-- The key status should read **Private key is stored in OS keychain**.
+- The key status should read **Key stored in keychain**, with the note "A private key is stored in your OS keychain…".
 - Not every album has animated art. Try a popular, recent album to check that your setup works.
 
 ### "Invalid MusicKit private key"

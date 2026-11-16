@@ -99,13 +99,13 @@ For a full comparison of formats and quality levels, see [Quality Settings](qual
 
 ### What video formats are supported?
 
-Music videos are downloaded in the MP4 container format. Supported resolutions range from 240p up to 4K UHD (2160p), depending on content availability. Not all music videos are available at every resolution.
+Music videos are saved as `.m4v` on a Mac and `.mp4` on Windows and Linux by default. You can change this in **Settings > Codec & Resolution > Video Remux Format**. Supported resolutions range from 240p up to 4K UHD (2160p), depending on content availability. Not all music videos are available at every resolution.
 
 For full details on video quality options, see [Quality Settings](quality-settings.md).
 
 ### Where are my downloaded files saved?
 
-The download location is configurable on the **Settings > General** tab. By default, files are saved to an "Apple Music" folder inside your system's music directory. Downloaded files are organized using GAMDL's template system in an Artist/Album/Track folder structure, which you can customize in **Settings > Templates**. Intermediate files during download and processing are stored in a temporary directory (default: `{OS temp}/MeedyaDL`), configurable on the **Settings > Tools** tab.
+The download location is configurable on the **Settings > General** tab. By default, files are saved to an "Apple Music" folder inside your system's music directory. Downloaded files are organized in an Artist/Album/Track folder structure, which you can customize in **Settings > Templates**. Intermediate files during download and processing are stored in a temporary directory (default: `{OS temp}/MeedyaDL`), configurable on the **Settings > Tools** tab.
 
 See [Getting Started](getting-started.md) for initial configuration.
 
@@ -120,10 +120,10 @@ Content availability depends on your Apple Music account's region. The app downl
 Three ways:
 
 - **Single failed item in Queue:** click the circular-arrow **Retry** button on the right of the row, or right-click the row and choose **Retry Download**.
-- **Single failed item in History:** the History page now shows the same Retry button on every failed entry, and the right-click menu offers Retry / Copy URL / Open Folder.
+- **Single failed item in History:** the History page shows the same Retry button on every failed entry, and the right-click menu offers Retry / Copy URL / Open Folder.
 - **Multiple failed items at once:** when at least one failure exists, the History page shows a **Retry All Failed (N)** button in its header, and the Queue page offers **Retry all failed (N)** in its **More** menu. A confirmation modal lists the count, then re-queues every failed item. On History, duplicate URLs are deduplicated automatically.
 
-When you retry an item that left a partial download on disk, MeedyaDL uses the `manifest.meedyadl` file to figure out which tracks actually failed and only re-runs GAMDL for those — a 50-track box set with 3 missing tracks finishes in seconds. If every expected track is already on disk, the retry is refused with a friendly "Nothing to retry" message instead of pointlessly re-fetching the album.
+When you retry an item that left a partial download on disk, MeedyaDL uses the `manifest.meedyadl` file to figure out which tracks actually failed and only downloads those again — a 50-track box set with 3 missing tracks finishes in seconds. If every expected track is already on disk, the retry is refused with a friendly "Nothing to retry" message instead of pointlessly re-fetching the album.
 
 ### What is a .meedyadl file?
 
@@ -140,7 +140,7 @@ Both are in the **More** menu at the top of the Queue page. If you want to keep 
 
 ### What is smart re-download detection?
 
-When you re-download an album you have previously downloaded, MeedyaDL automatically checks Apple Music to see if the album has changed since your last download. If the album was previously downloaded, an info toast shows the date of the original download. The feature detects audio quality upgrades (such as Atmos or Lossless becoming available), tracks being added, metadata corrections, and Apple Digital Master certification. It cannot detect silent audio remasters where the audio files change but the catalog metadata stays the same. This feature is enabled by default and can be toggled in **Settings > General > Preferences**. See [Downloading Music](downloading-music.md#smart-re-download-detection) for full details.
+When you re-download an album you have previously downloaded, MeedyaDL automatically checks Apple Music to see if the album has changed since your last download. If the album was previously downloaded, a short message shows the date of the original download. The feature detects audio quality upgrades (such as Atmos or Lossless becoming available), tracks being added, metadata corrections, and Apple Digital Master certification. It cannot detect silent audio remasters where the audio files change but the catalog metadata stays the same. This feature is enabled by default and can be toggled in **Settings > General > Preferences**. See [Downloading Music](downloading-music.md#smart-re-download-detection) for full details.
 
 ### What is clipboard monitoring?
 
@@ -218,11 +218,9 @@ GAMDL is a command-line Apple Music download tool created by glomatico. It does 
 
 This is not recommended. Running the GUI and CLI simultaneously may cause conflicts over shared cookie files or output directories, leading to authentication errors or corrupted downloads. Use one at a time to avoid issues.
 
-### Why did the start of an album get slower after upgrading GAMDL?
+### Why does the start of a large album take a while?
 
-From GAMDL 3.2, the details of each track are looked up one at a time instead of several at once. This is deliberate. It makes downloads more reliable, because one bad answer can no longer break the whole album. The download speed of each track is the same.
-
-You will notice it mostly at the start of a large album or playlist. A single song looks the same. A 10-track album may take several seconds longer to begin. A 100-track playlist may take a minute. There is no setting to change this.
+The start of a large album or playlist can take a little longer than the songs themselves. This is normal, and there is no setting for it.
 
 ### How do I update MeedyaDL?
 
@@ -252,7 +250,7 @@ If you do see this warning, it is almost certainly one of these:
 
 If you are on an older download and would rather not update yet, right-click (or Control-click) the app and choose **Open**, then **Open** again in the dialog. That tells macOS you trust this one app, and it only needs doing once.
 
-**We used to suggest running `xattr -cr` here. Please do not.** That command strips *every* extended attribute from the app, not just the one macOS uses for this check, and getting into the habit of running it teaches you to wave away a warning that is usually worth reading. Right-clicking and choosing Open does the same job for one app, and nothing more.
+**Please do not run `xattr -cr` here.** That command strips *every* extended attribute from the app, not just the one macOS uses for this check, and getting into the habit of running it teaches you to wave away a warning that is usually worth reading. Right-clicking and choosing Open does the same job for one app, and nothing more.
 
 ### Windows shows "Windows protected your PC" (SmartScreen)
 

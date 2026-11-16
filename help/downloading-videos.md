@@ -33,7 +33,7 @@ https://music.apple.com/us/music-video/example-title/1234567890
 
 MeedyaDL spots the `/music-video/` part and treats the link as a video.
 
-A music video is saved as a `.m4v` file (an MP4 video) with sound included. It is tagged with its title, artist, album and artwork.
+A music video is saved as a video file with sound included. It is `.m4v` on a Mac and `.mp4` on Windows and Linux by default. You can change this in **Settings > Codec & Resolution > Video Remux Format**. It is tagged with its title, artist, album and artwork.
 
 ### Post Videos
 
@@ -74,7 +74,7 @@ If your first-choice codec is not offered for a video, MeedyaDL tries the next o
 
 ### Sound Quality
 
-The sound in a video uses your audio codec settings. It is normally AAC. See [Quality Settings](quality-settings.md).
+The sound in a video uses your audio codec settings. Video sound is normally AAC. See [Quality Settings](quality-settings.md).
 
 ---
 
@@ -94,13 +94,13 @@ Your video settings apply to every video you download from then on. Resolution i
 
 ### The Video File
 
-- A `.m4v` file (MP4 format).
+- A `.m4v` file on a Mac or a `.mp4` file on Windows and Linux by default. Change it in **Settings > Codec & Resolution > Video Remux Format**.
 - The picture at your chosen quality, with sound included.
 - Title, artist, album and artwork added.
 
 Videos go to your normal output folder, the same one used for music. File names follow the templates in **Settings > Templates**. See [Lyrics and Metadata](lyrics-and-metadata.md).
 
-**Where a video is saved.** When Apple Music links the video to an album, MeedyaDL saves it in that album's folder, next to the songs. When there is no album, it goes in a `Music Videos` folder under the artist. In that case Apple's video number is added to the file name, so two videos with the same title never overwrite each other. With recent versions of the download tool, most videos are now found with their album. A video you download now may therefore land beside the songs where an older download went into `Music Videos`. Nothing already on disk is moved or deleted.
+**Where a video is saved.** When Apple Music links the video to an album, MeedyaDL saves it in that album's folder, next to the songs. When there is no album, it goes in a `Music Videos` folder under the artist. In that case Apple's video number is added to the file name, so two videos with the same title never overwrite each other. Most videos are found with their album. A video you download now may therefore land beside the songs where an older download went into `Music Videos`. Nothing already on disk is moved or deleted.
 
 ### Subtitles and Lyrics
 
@@ -149,7 +149,7 @@ So your videos show up properly in players and libraries.
 
 **Settings > Advanced > Remux Mode** chooses which helper program joins a video's picture, sound and subtitles into one file. MP4Box is the default. It keeps subtitles and captions more reliably than FFmpeg.
 
-This setting only has an effect on GAMDL 3.5 and earlier. From GAMDL 3.6 the joining is built in, and the setting is ignored. If you are on an older GAMDL and see "Invalid data found when processing input", check that Remux Mode is set to MP4Box.
+This setting is ignored on GAMDL 3.6 and newer. If you are on an older GAMDL and see "Invalid data found when processing input", check that Remux Mode is set to MP4Box.
 
 </details>
 

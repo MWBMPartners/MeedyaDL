@@ -250,7 +250,7 @@ A few tags are written only as `com.apple.iTunes:*`, with no MeedyaMeta copy:
 
 ## Per-format support
 
-MeedyaDL downloads are M4A (music) and M4V (music videos). The table shows how well each tag type is supported if your files are converted to another format.
+MeedyaDL downloads are M4A (music) and M4V or MP4 (music videos). The table shows how well each tag type is supported if your files are converted to another format.
 
 <details>
 <summary>More detail: support by file format</summary>

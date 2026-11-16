@@ -20,7 +20,7 @@ A codec is the way music is stored in a file. This page explains each option in 
 | 3D-style sound through ordinary headphones | **AAC Binaural** |
 | 5.1 surround on a home theatre | **AC3** |
 
-Turn on the fallback chain (Settings > Codec Fallback Order) so a track still downloads when your first choice is not offered. See [Fallback Quality](fallback-quality.md).
+Turn on **Enable Fallback Chain** in **Settings > Codec & Resolution** (the order is edited in **Codec Fallback Order**) so a track still downloads when your first choice is not offered. See [Fallback Quality](fallback-quality.md).
 
 ---
 
@@ -34,7 +34,7 @@ Most codecs in the list are marked **(Experimental)**. This means they can fail 
 If a download of an Experimental codec fails:
 
 1. **Try again.** The failures come and go, so a retry may work.
-2. **Turn on the fallback chain.** **Settings > Codec Fallback Order** lets MeedyaDL try the next codec for you.
+2. **Turn on the fallback chain.** Switch on **Enable Fallback Chain** in **Settings > Codec & Resolution**, and set the order in **Codec Fallback Order**, so MeedyaDL tries the next codec for you.
 3. **Use the Wrapper.** It makes downloads more dependable. See [Wrapper Authentication](wrapper.md); the details below say when it is needed.
 
 <details>
@@ -66,7 +66,7 @@ ALAC is the highest-quality audio option. It compresses audio without losing any
 
 Dolby Atmos is an immersive audio format that places sounds in 3D space around you. Instead of traditional stereo (left/right), Atmos positions individual instruments and sounds as "objects" that your playback system renders all around and above you. The result is a more enveloping, cinematic listening experience.
 
-- **Quality:** Depends on the spatial mix — can be stunning on compatible hardware. Encoded as Enhanced AC-3 (EC-3)
+- **Quality:** Depends on the spatial mix — can be stunning on compatible hardware. Only some players can play it
 - **File size:** Varies by complexity of the spatial mix
 - **Compatibility:** Requires Atmos-compatible hardware for the full experience — AirPods Pro, AirPods Max, AirPods 3rd gen+, Dolby Atmos soundbars, AV receivers, and supported speakers. On unsupported devices, it plays as a standard stereo or surround downmix
 - **Best for:** Listening through AirPods Pro/Max or a Dolby Atmos home theatre. If you have compatible headphones, Atmos tracks can sound dramatically more spacious and immersive than stereo
@@ -91,7 +91,7 @@ AAC (Advanced Audio Coding) at 256 kbps is Apple Music's standard lossy format. 
 
 ### AAC Binaural
 
-AAC Binaural takes a Dolby Atmos or spatial audio mix and renders it as a two-channel stereo signal specifically processed for headphone listening. It simulates the 3D positioning of Atmos using psychoacoustic techniques (head-related transfer functions), so you hear spatial depth and width through ordinary stereo headphones.
+AAC Binaural takes a Dolby Atmos or spatial audio mix and renders it as a two-channel stereo signal specifically processed for headphone listening. It simulates the 3D positioning of Atmos using sound processing that mimics how your ears hear direction, so you hear spatial depth and width through ordinary stereo headphones.
 
 - **Quality:** 256 kbps lossy, but with spatial processing applied. Not the same as standard stereo — it's designed to trick your ears into perceiving surround sound
 - **File size:** Similar to standard AAC (~2 MB/min)
@@ -100,7 +100,7 @@ AAC Binaural takes a Dolby Atmos or spatial audio mix and renders it as a two-ch
 
 ### AAC Legacy (256 kbps, 44.1 kHz)
 
-An older AAC encoding profile capped at 44.1 kHz sample rate. Functionally identical to standard AAC for most content, but uses a legacy encoding path designed for maximum compatibility with vintage hardware.
+An older AAC encoding profile capped at 44.1 kHz sample rate. Functionally identical to standard AAC for most content, but is designed for maximum compatibility with older hardware.
 
 - **Best for:** Older iPods, early-generation media players, or any device that struggles with standard AAC. Only use this if you have playback issues on older equipment
 

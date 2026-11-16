@@ -44,7 +44,7 @@ A link with `/playlist/` in it downloads every track in the playlist. Each track
 
 ### Artists
 
-A link with `/artist/` in it downloads from an artist's catalogue. This can be a lot of music. Each album becomes its own item in the queue.
+A link with `/artist/` in it downloads from an artist's catalogue. This can be a lot of music. An artist link becomes one queue item, or one per kind of release you ticked (see below).
 
 You can narrow it down with **Artist Auto-Select** in **Settings > Codec & Resolution**. It lets you choose which kinds of release to take (Main Albums, Singles & EPs, Music Videos and so on). If you pick more than one, MeedyaDL adds one queue item for each. For example, picking "Main Albums" and "Singles & EPs" gives two queue items. A song that appears in more than one of them is only downloaded once. The **Duplicate Detection** settings in the same place control this.
 
@@ -198,7 +198,7 @@ Output Directory/
       ...
 ```
 
-The file ending depends on the quality: `.m4a` for AAC and ALAC, `.ec3` for Atmos and `.ac3` for AC3.
+All songs are saved as `.m4a` files, whatever the format.
 
 #### Track and disc number padding
 
@@ -231,7 +231,7 @@ MeedyaDL can also download extra versions of the same music in other qualities. 
 
 By default (**Atmos → Lossless**), a Dolby Atmos download also gets a lossless (ALAC) copy. Other modes add lossy AAC copies as well. **Custom...** lets you tick exactly the qualities you want.
 
-Special versions get a label in the file name, for example `[Lossless]` or `[Dolby Atmos]`. The version most players can use has a plain name. Extra versions download in the background without blocking the queue, and each one gets its own lyric files. You can follow them on the **Activity** page. See [Quality Settings](quality-settings.md#companion-downloads) for what each mode does.
+Special versions get a label in the file name, for example `[Lossless]` or `[Dolby Atmos]`. The version most players can use has a plain name. Extra versions are made before the next item in the queue starts, and each one gets its own lyric files. You can follow them on the **Activity** page. See [Quality Settings](quality-settings.md#companion-downloads) for what each mode does.
 
 ---
 
@@ -292,7 +292,7 @@ It cannot tell when the audio was quietly replaced without any change to the alb
 
 MeedyaDL can watch for Apple Music links that you copy while the app is open. When you copy one, a message appears in the app offering to download it. Press **Download** on the message to add it to the queue, using your current settings. If it is already in the queue, nothing is added and the message says so.
 
-The message is called **Copied Apple Music Album link found** (or Song, Playlist and so on). It stays inside the app even if you chose **System only** in the notification settings, because it has the **Download** button. While MeedyaDL is in front it goes away after 10 seconds. If MeedyaDL is not in front, it stays until you close it.
+The message is called **Copied Apple Music Album link found** (or Song, Playlist and so on). It stays inside the app even if you chose **System only** in the notification settings, because it has the **Download** button. While MeedyaDL is in front it goes away after 10 seconds. If MeedyaDL is not in front, or a system notification was sent, it stays until you close it.
 
 Your computer may also show its own notification, following **Settings > General > Notifications**. By default this only happens while MeedyaDL is not in front. That notification has no button, so open MeedyaDL and use the message there. To stop the notification for copied links, turn off **A Copied Link Was Found**.
 

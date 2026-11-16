@@ -186,7 +186,7 @@ When enabled, failed wrapper downloads are automatically re-queued with cookie-b
 
 If the wrapper appears connected (the connection test passes, the pre-flight checks all clear) but every track skips with `Decryption is not available for media ID: …` in the Activity Log, the wrapper's stored Apple Music credentials have most likely gone stale and need re-authenticating.
 
-For Docker installs, stop the container, run the wrapper one-shot in **login mode** (`docker run --privileged --rm -it -v ./rootfs/data:/app/rootfs/data --entrypoint ./wrapper ghcr.io/worldobservationlog/wrapper:local -L "username:password" -H 0.0.0.0`), enter your 2FA code if prompted, Ctrl-C once login completes, then start the container again. For native installs, the equivalent is to run the binary once with `-L "username:password"` to re-sign-in. Full step-by-step + diagnostic guidance lives in the in-app help under [**Help > Troubleshooting > Wrapper Errors > "Decryption is not available" warnings**](help/troubleshooting.md#decryption-is-not-available-warnings-wrapper-enabled-downloads-still-skipping).
+With the newer wrapper (GAMDL 3.6 and newer), press **Sign in to wrapper** in Settings > Advanced > Wrapper. With the older wrapper, sign it in again following its own instructions. Full guidance is in the in-app help under [**Help > Troubleshooting > "Decryption is not available" on every track**](help/troubleshooting.md#decryption-is-not-available-on-every-track).
 
 ### Verifying Connectivity
 

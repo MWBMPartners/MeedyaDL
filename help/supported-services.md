@@ -47,7 +47,7 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 | Ogg Vorbis audio | Yes |
 | Synced Lyrics | Yes |
 
-**Note:** Spotify does not offer lossless audio. The best quality is Ogg Vorbis 320 kbps.
+**Note:** Spotify does not offer lossless audio. The planned quality is Ogg Vorbis up to 320 kbps.
 **Today:** pasting an `open.spotify.com` link shows that MeedyaDL cannot download from Spotify yet, and the link is not added to the queue.
 
 ### YouTube
