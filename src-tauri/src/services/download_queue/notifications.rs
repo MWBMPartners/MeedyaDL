@@ -232,11 +232,18 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
         }
         AfterQueueAction::RestartComputer => {
             log::info!("After-queue: restarting computer");
-            emit_app_log(app, "After-queue action: restarting computer in 30 seconds...");
-            crate::services::notification_service::notify_power_action(
+            let warning = crate::services::notification_service::PowerAction::Restart;
+            emit_app_log(
                 app,
-                "Downloads finished. Your computer will restart in 30 seconds.",
+                &format!(
+                    "After-queue action: {}",
+                    crate::services::notification_service::power_warning_text(
+                        warning,
+                        std::env::consts::OS
+                    )
+                ),
             );
+            crate::services::notification_service::notify_power_action(app, warning);
             #[cfg(target_os = "macos")]
             {
                 let _ = std::process::Command::new("osascript")
@@ -261,7 +268,7 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
             emit_app_log(app, "After-queue action: hibernating computer...");
             crate::services::notification_service::notify_power_action(
                 app,
-                "Downloads finished. Your computer is going to sleep now.",
+                crate::services::notification_service::PowerAction::Sleep,
             );
             #[cfg(target_os = "macos")]
             {
@@ -285,11 +292,18 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
         }
         AfterQueueAction::ShutdownComputer => {
             log::info!("After-queue: shutting down computer");
-            emit_app_log(app, "After-queue action: shutting down computer in 30 seconds...");
-            crate::services::notification_service::notify_power_action(
+            let warning = crate::services::notification_service::PowerAction::ShutDown;
+            emit_app_log(
                 app,
-                "Downloads finished. Your computer will shut down in 30 seconds.",
+                &format!(
+                    "After-queue action: {}",
+                    crate::services::notification_service::power_warning_text(
+                        warning,
+                        std::env::consts::OS
+                    )
+                ),
             );
+            crate::services::notification_service::notify_power_action(app, warning);
             #[cfg(target_os = "macos")]
             {
                 let _ = std::process::Command::new("osascript")

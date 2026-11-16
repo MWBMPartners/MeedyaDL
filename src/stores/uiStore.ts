@@ -771,7 +771,18 @@ export const useUiStore = create<UiState>((set, get) => ({
       options?.systemTitle ?? defaultSystemTitle(type),
       options?.systemBody ?? message
     ).then((answer) => {
-      if (answer && answer.sent && !answer.in_app && !mustStayInApp) {
+      if (!answer || !answer.sent) return;
+      if (options?.keepUntilDismissedIfSent) {
+        // The system notification sends the person here to find this
+        // message, so it must not have gone by the time they arrive.
+        set((state) => ({
+          toasts: state.toasts.map((t) =>
+            t.id === id ? { ...t, duration: 0, expiresAt: null } : t
+          ),
+        }));
+        return;
+      }
+      if (!answer.in_app && !mustStayInApp) {
         // "System only", and the system has it: take the in-app copy away.
         set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
       }

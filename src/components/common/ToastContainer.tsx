@@ -296,41 +296,75 @@ export function ToastContainer() {
    * Auto-dismiss waits while the pointer is over a toast or a toast has
    * keyboard focus (#1431), so a message does not vanish while somebody
    * is reading it or reaching for its button.
+   *
+   * "Focus inside" is worked out from where focus actually is, not only
+   * from focus/blur events: WebKit (macOS) sends no blur when the focused
+   * close button is removed with its toast, which would otherwise leave
+   * auto-dismiss paused for good. So it is checked again whenever the
+   * list changes and whenever focus leaves an element in the stack.
    */
   const [hovered, setHovered] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
+  const recheckFocus = () => {
+    const el = stackRef.current;
+    setFocusInside(!!el && !!document.activeElement && el.contains(document.activeElement));
+  };
   const paused = (hovered || focusInside) && toasts.length > 0;
   useEffect(() => {
     setToastDismissalPaused(paused);
   }, [paused]);
   useEffect(() => () => setToastDismissalPaused(false), []);
   useEffect(() => {
+    recheckFocus();
     // A toast dismissed from under the pointer sends no "pointer left".
-    if (toasts.length === 0) {
-      setHovered(false);
-      setFocusInside(false);
-    }
-  }, [toasts.length]);
+    if (toasts.length === 0) setHovered(false);
+  }, [toasts]);
 
   /*
    * Screen readers (#1431): an error is announced at once (`role="alert"`),
    * anything else politely (`role="status"`). Two hidden announcers carry
-   * the newest message of each sort, so the visible stack can stay in the
-   * order the messages arrived. (The stack itself used to be one polite
-   * status region, so errors were never announced urgently.) Both are
-   * always in the page, empty until there is something to say, because a
-   * screen reader only notices changes to a region it already knows.
+   * the message, so the visible stack can stay in the order the messages
+   * arrived. (The stack itself used to be one polite status region, so
+   * errors were never announced urgently.)
+   *
+   * Each announcer speaks only a toast that has just ARRIVED. When the
+   * toast it is speaking goes away, it falls silent -- it never falls back
+   * to an older toast, which would read out an old message as if new. Both
+   * are always in the page, empty until there is something to say,
+   * because a screen reader only notices changes to a region it knows.
    */
-  const newestError = [...toasts].reverse().find((t) => t.type === 'error');
-  const newestOther = [...toasts].reverse().find((t) => t.type !== 'error');
+  const seenIds = useRef<Set<string>>(new Set());
+  const [alertToast, setAlertToast] = useState<{ id: string; message: string } | null>(null);
+  const [statusToast, setStatusToast] = useState<{ id: string; message: string } | null>(null);
+  useEffect(() => {
+    const present = new Set(toasts.map((t) => t.id));
+    const arrived = toasts.filter((t) => !seenIds.current.has(t.id));
+    seenIds.current = present;
+    const newestError = [...arrived].reverse().find((t) => t.type === 'error');
+    const newestOther = [...arrived].reverse().find((t) => t.type !== 'error');
+    setAlertToast((current) =>
+      newestError
+        ? { id: newestError.id, message: newestError.message }
+        : current && present.has(current.id)
+          ? current
+          : null
+    );
+    setStatusToast((current) =>
+      newestOther
+        ? { id: newestOther.id, message: newestOther.message }
+        : current && present.has(current.id)
+          ? current
+          : null
+    );
+  }, [toasts]);
 
   return (
     <>
     <div className="sr-only" role="alert" data-testid="toast-announcer-alert">
-      {newestError?.message ?? ''}
+      {alertToast?.message ?? ''}
     </div>
     <div className="sr-only" role="status" aria-live="polite" data-testid="toast-announcer-status">
-      {newestOther?.message ?? ''}
+      {statusToast?.message ?? ''}
     </div>
     {/*
      * Fixed container -- top-right corner of the viewport.
@@ -367,6 +401,7 @@ export function ToastContainer() {
       onFocus={() => setFocusInside(true)}
       onBlur={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusInside(false);
+        else recheckFocus();
       }}
     >
       {toasts.map((toast) => (

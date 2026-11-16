@@ -5490,6 +5490,11 @@ pub(crate) async fn run_spotify_dispatch_arm(
                     emit_download_log(&app_clone, &dl_id, &msg);
                     let mut q = queue_clone.lock().await;
                     q.set_error(&dl_id, &msg);
+                    drop(q);
+                    // Announced and counted like any failed download
+                    // (#1431). The lock is dropped first: the label lookup
+                    // takes it again.
+                    notify_item_failed(&app_clone, &queue_clone, &dl_id, "unknown").await;
                 } else {
                     emit_download_log(
                         &app_clone,
@@ -5551,6 +5556,8 @@ pub(crate) async fn run_spotify_dispatch_arm(
 
                     let mut q = queue_clone.lock().await;
                     q.set_complete(&dl_id);
+                    drop(q);
+                    notify_item_complete(&app_clone, &queue_clone, &dl_id).await;
                 }
             }
             Err(msg) => {
@@ -5566,6 +5573,16 @@ pub(crate) async fn run_spotify_dispatch_arm(
                 }
                 let mut q = queue_clone.lock().await;
                 q.set_error(&dl_id, &msg);
+                drop(q);
+                if msg != "Download cancelled by user" {
+                    notify_item_failed(
+                        &app_clone,
+                        &queue_clone,
+                        &dl_id,
+                        process::classify_error(&msg),
+                    )
+                    .await;
+                }
             }
         }
 
@@ -5603,6 +5620,8 @@ pub(crate) async fn spotify_arm_terminate_error(
         q.set_error(download_id, msg);
         q.on_task_finished();
     }
+    // Announced and counted like any failed download (#1431).
+    notify_item_failed(app, queue, download_id, process::classify_error(msg)).await;
     let app_clone = app.clone();
     let queue_clone = queue.clone();
     tokio::spawn(async move {

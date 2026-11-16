@@ -106,7 +106,9 @@ export function useClipboardMonitor(isReady: boolean): void {
             ? getContentTypeLabel(parsed.contentType)
             : 'content';
 
-          const toastMessage = `Apple Music ${typeLabel} URL detected in clipboard`;
+          // The system notification (when one goes out) points the person
+          // at THIS message by its own words, so the two must agree.
+          const toastMessage = `Copied Apple Music ${typeLabel} link found`;
           const downloadAction = () => {
             // Directly queue the download — skip the input pre-fill step
             startDownload({ urls: [trimmed] })
@@ -144,17 +146,24 @@ export function useClipboardMonitor(isReady: boolean): void {
           // and the "when" setting). There used to be a second, direct
           // system notification here that ignored the notification style
           // and said "click to download" -- clicking it did nothing.
+          // If the person is not looking at MeedyaDL, or the system copy
+          // went out, the message must still be there with its Download
+          // button when they come back -- the system notification tells
+          // them to find it. So it stays until dismissed in those cases;
+          // otherwise it goes after 10 seconds as before.
+          const notLooking = typeof document !== 'undefined' && !document.hasFocus();
           useUiStore.getState().addToast(
             toastMessage,
             'info',
-            10000, // 10 seconds — longer than default to give the user time
+            notLooking ? 0 : 10000,
             CLIPBOARD_TOAST_KEY,
             { label: 'Download', onClick: downloadAction },
             undefined,
             {
               kind: 'clipboard_link',
               systemTitle: 'Copied link found',
-              systemBody: `An Apple Music ${typeLabel} link was copied. Open MeedyaDL and choose Download to add it to the queue.`,
+              systemBody: `Open MeedyaDL and choose Download on the "${toastMessage}" message to add it to the queue.`,
+              keepUntilDismissedIfSent: true,
             }
           );
         })

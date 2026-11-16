@@ -114,4 +114,53 @@ describe('ToastContainer', () => {
       vi.useRealTimers();
     }
   });
+
+  it('announces only a toast that has just arrived, and falls silent when it goes', () => {
+    act(() =>
+      useUiStore.setState({
+        toasts: [{ id: 'old', message: 'Older error', type: 'error', duration: 0, expiresAt: null }],
+      })
+    );
+    render(<ToastContainer />);
+    act(() =>
+      useUiStore.setState((st) => ({
+        toasts: [
+          ...st.toasts,
+          { id: 'new', message: 'Newer error', type: 'error', duration: 0, expiresAt: null },
+        ],
+      }))
+    );
+    expect(screen.getByRole('alert')).toHaveTextContent('Newer error');
+    // The announced one goes: silence, never the older one again.
+    act(() => useUiStore.getState().removeToast('new'));
+    expect(screen.getByRole('alert')).toHaveTextContent('');
+    expect(screen.getByRole('alert')).not.toHaveTextContent('Older error');
+  });
+
+  it('resumes auto-dismiss when the focused toast is removed without a blur', () => {
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        useUiStore.getState().addToast('Focused one', 'info', 0);
+        useUiStore.getState().addToast('Timed one', 'info', 1000);
+      });
+      render(<ToastContainer />);
+      const close = within(screen.getByTestId('toast-stack')).getAllByRole('button', {
+        name: 'Dismiss',
+      })[0];
+      act(() => close.focus());
+      fireEvent.focus(close);
+      // Remove the focused toast's element the way WebKit does: no blur.
+      act(() => {
+        const id = useUiStore.getState().toasts[0].id;
+        useUiStore.getState().removeToast(id);
+      });
+      act(() => {
+        vi.advanceTimersByTime(1500);
+      });
+      expect(useUiStore.getState().toasts).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

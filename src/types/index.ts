@@ -2001,6 +2001,10 @@ export interface ToastOptions {
   /** `false` = never ask for a system notification (used for messages the
    * backend has already decided about). Default: ask. */
   system?: boolean;
+  /** When the system copy is sent, keep the in-app message until it is
+   * dismissed (for a message the system notification tells the person to
+   * go and find, such as the copied-link prompt with its Download button). */
+  keepUntilDismissedIfSent?: boolean;
 }
 
 /**

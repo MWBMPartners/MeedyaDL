@@ -536,6 +536,28 @@ describe('uiStore', () => {
       ]);
     });
 
+    it('keeps a message the system notification points to until it is dismissed, once sent', async () => {
+      vi.mocked(commands.notifySystem).mockResolvedValue({ sent: true, in_app: true });
+      useUiStore.getState().addToast('Copied link', 'info', 10000, 'clipboard-url', undefined, undefined, {
+        kind: 'clipboard_link',
+        keepUntilDismissedIfSent: true,
+      });
+      await vi.waitFor(() => {
+        expect(useUiStore.getState().toasts[0].expiresAt).toBeNull();
+      });
+      expect(useUiStore.getState().toasts[0].duration).toBe(0);
+    });
+
+    it('lets such a message time out as usual when the system copy was not sent', async () => {
+      vi.mocked(commands.notifySystem).mockResolvedValue({ sent: false, in_app: true });
+      useUiStore.getState().addToast('Copied link', 'info', 10000, 'clipboard-url', undefined, undefined, {
+        kind: 'clipboard_link',
+        keepUntilDismissedIfSent: true,
+      });
+      await flush();
+      expect(useUiStore.getState().toasts[0].expiresAt).not.toBeNull();
+    });
+
     it('keeps the message in the app when the backend did not send it', async () => {
       vi.mocked(commands.notifySystem).mockResolvedValue({ sent: false, in_app: true });
       useUiStore.getState().addToast('Window is in front', 'info');

@@ -331,7 +331,7 @@ You can select **multiple content types** simultaneously using the checkbox grou
 
 When a download finishes, fails, or finishes with warnings, MeedyaDL shows a message inside the app naming what it was, for example "Daft Punk — Discovery finished." A failed download says, in a few plain words, what probably went wrong. When the whole queue is done you see how it went, for example "Queue finished: 5 downloaded, 1 failed."
 
-By default your computer also shows these as system notifications, but only while MeedyaDL is not in front (behind another app, minimised, or hidden in the tray) or while your mouse pointer is on a different screen. If several downloads finish within a few seconds, your system shows one notification that sums them up ("3 downloads finished, 1 failed") instead of one each.
+By default your computer also shows these as system notifications, but only while MeedyaDL is not in front (behind another app, minimised, or hidden in the tray) or while your mouse pointer is on a different screen. The first download to finish is shown straight away, by name. If more finish or fail within the next ten seconds, your system shows one notification that sums those up ("2 more downloads finished, 1 failed") instead of one each — each of them still appears inside MeedyaDL. When the whole queue finishes, its summary covers any that were still waiting.
 
 Choose when and for which messages in **Settings > General > Notifications**:
 

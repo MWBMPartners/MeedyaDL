@@ -2983,6 +2983,43 @@ mod tests {
     }
 
     #[test]
+    fn an_unknown_notification_setting_word_falls_back_without_losing_the_file() {
+        // A hand-edited typo, or a value from a newer MeedyaDL, must reset
+        // only that one setting -- not make the whole file unreadable.
+        use crate::models::settings::{NativeNotificationScope, NativeNotificationWhen};
+        let mut value = serde_json::to_value(AppSettings {
+            output_path: "/kept/as/it/was".to_string(),
+            ..default_settings()
+        })
+        .unwrap();
+        let obj = value.as_object_mut().unwrap();
+        obj.insert(
+            "native_notification_when".into(),
+            serde_json::json!("sometimes"),
+        );
+        obj.insert("native_notification_scope".into(), serde_json::json!(42));
+        let s: AppSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(s.output_path, "/kept/as/it/was");
+        assert_eq!(
+            s.native_notification_when,
+            NativeNotificationWhen::BackgroundOrOtherScreen
+        );
+        assert_eq!(
+            s.native_notification_scope,
+            NativeNotificationScope::Important
+        );
+
+        // A known word is still read as itself.
+        let mut value = serde_json::to_value(default_settings()).unwrap();
+        value.as_object_mut().unwrap().insert(
+            "native_notification_when".into(),
+            serde_json::json!("always"),
+        );
+        let s: AppSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(s.native_notification_when, NativeNotificationWhen::Always);
+    }
+
+    #[test]
     fn migration_v3_to_v4_runs_from_v0_with_every_legacy_default() {
         // End-to-end: a v0 settings file with the v0 / v2 broken defaults
         // AND the v3 broken playlist default should wind up on v4 with

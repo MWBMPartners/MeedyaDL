@@ -115,7 +115,7 @@ The History page exposes the same Retry / Retry All Failed actions (as buttons i
 
 MeedyaDL can do something by itself when the whole queue has finished: open the output folder, play a sound, close MeedyaDL, or restart, sleep/hibernate or shut down the computer.
 
-**Play a sound** plays your computer's own alert sound, whatever your notification settings and whether or not MeedyaDL is in front. (On Linux it uses your desktop's sound player if one is installed; if none is, no sound plays.) Whatever you choose, MeedyaDL also tells you the queue has finished, with how many downloads worked and how many failed, and warns you before it restarts, puts to sleep or shuts down your computer.
+**Play a sound** plays your computer's own alert sound, whatever your notification settings and whether or not MeedyaDL is in front. (On Linux it uses your desktop's sound player if one is installed; if none is, no sound plays.) Whatever you choose, MeedyaDL also tells you the queue has finished, with how many downloads worked and how many failed. If you chose to restart or shut down, on Windows MeedyaDL gives you 30 seconds' warning first; on macOS and Linux the restart or shut-down starts straight away, and the message says so as it begins. Sleep starts straight away on every system.
 
 - **Every time** — choose it in **Settings > General > Preferences > After Queue Completes**, and save.
 - **Just this once** — right-click an empty part of the Download page and pick one of the **After Queue:** options. This is saved straight away (no need to press Save Changes). It is used the next time the queue finishes and then cleared, so it will not happen again unless you choose it again. While it is waiting, it takes the place of your usual setting.
@@ -309,7 +309,7 @@ MeedyaDL can watch your system clipboard for supported URLs while the app is ope
 
 Click **Download** on that message to add the URL directly to the download queue (using your current quality settings). If that link is already in the queue, nothing is added and a message tells you so. Close the message if you do not want to download.
 
-The message stays inside the app even with **System only** chosen, because it has the **Download** button. Your computer may also show a system notification about the copied link, following the settings in **Settings > General > Notifications** (by default only while MeedyaDL is not in front). A system notification has no button: to download, open MeedyaDL and click **Download** on the message there. To stop the system notification for copied links, turn off **A Copied Link Was Found**.
+The message is called **Copied Apple Music Album link found** (or Song, Playlist and so on) and stays inside the app even with **System only** chosen, because it has the **Download** button. While MeedyaDL is in front it goes away after 10 seconds; if MeedyaDL is not in front, or your computer showed a system notification about it, it stays until you close it, so it is still there when you come back. Your computer may also show a system notification about the copied link, following the settings in **Settings > General > Notifications** (by default only while MeedyaDL is not in front). A system notification has no button: to download, open MeedyaDL and click **Download** on the message there. To stop the system notification for copied links, turn off **A Copied Link Was Found**.
 
 ### Privacy
 

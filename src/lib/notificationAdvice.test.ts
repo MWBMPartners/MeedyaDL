@@ -21,6 +21,12 @@ describe('whereToLookForNotifications', () => {
     expect(whereToLookForNotifications('macos', true)).toMatch(/Terminal/);
   });
 
+  it('names no particular system until the platform is known', () => {
+    const neutral = whereToLookForNotifications(null);
+    expect(neutral).not.toMatch(/System Settings|Windows|Linux|Terminal/);
+    expect(neutral).toMatch(/notification settings/);
+  });
+
   it('mentions the notification service on Linux', () => {
     expect(whereToLookForNotifications('linux')).toMatch(/notification service/);
   });

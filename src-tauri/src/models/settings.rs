@@ -1089,14 +1089,14 @@ pub struct AppSettings {
     /// in front, is minimised or hidden, or the mouse pointer is on a
     /// different screen from the window. Decided in one place,
     /// `notification_service::decide`.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_enum")]
     pub native_notification_when: NativeNotificationWhen,
 
     /// Which messages may become system notifications (#1431). Default:
     /// `important` -- downloads finishing or failing, the queue finishing,
     /// a copied link, a computer shut-down warning and an app update ready
     /// to install. Every message is still shown inside the app.
-    #[serde(default)]
+    #[serde(default, deserialize_with = "lenient_enum")]
     pub native_notification_scope: NativeNotificationScope,
 
     /// Send a system notification when a download finishes (#1431).
@@ -2164,6 +2164,25 @@ pub enum AfterQueueAction {
     HibernateComputer,
     /// Shut down the computer.
     ShutdownComputer,
+}
+
+/// Reads a setting held as one of a fixed set of words, falling back to
+/// the default when the stored word is not one this version knows (a typo
+/// in a hand-edited file, or a value written by a newer MeedyaDL).
+///
+/// Without this, one unknown word would make the WHOLE settings file fail
+/// to read, and every setting would be reset to its default -- far worse
+/// than losing the one value. Used for the #1431 notification settings.
+fn lenient_enum<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned + Default,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    Ok(serde_json::from_value(value.clone()).unwrap_or_else(|_| {
+        log::warn!("Unknown stored setting value {value}; using the default instead");
+        T::default()
+    }))
 }
 
 /// When MeedyaDL shows a system notification (#1431).

@@ -303,6 +303,18 @@ pub fn when_allows(when: NativeNotificationWhen, a: &WindowAttention) -> bool {
     }
 }
 
+/// Whether a system notification is possible at all for this kind, before
+/// asking whether the person is looking: the master switch, the style, the
+/// scope and the kind's own switch. Cheap, so it runs first and the window
+/// system is only asked when this is `true`.
+#[must_use]
+pub fn could_send(kind: NotifyKind, s: &NotificationSettings) -> bool {
+    s.enabled
+        && s.style != NotificationStyle::InAppOnly
+        && scope_allows(s.scope, kind)
+        && event_switch_allows(s, kind)
+}
+
 /// THE rule. Pure: no window system, no settings file, no clock.
 ///
 /// A system notification is sent when the master switch is on, the style
@@ -314,11 +326,20 @@ pub fn when_allows(when: NativeNotificationWhen, a: &WindowAttention) -> bool {
 /// the system is never lost.
 #[must_use]
 pub fn decide(kind: NotifyKind, s: &NotificationSettings, a: &WindowAttention) -> Decision {
-    let system = s.enabled
-        && s.style != NotificationStyle::InAppOnly
-        && scope_allows(s.scope, kind)
-        && event_switch_allows(s, kind)
-        && when_allows(s.when, a);
+    decide_with(kind, s, || *a)
+}
+
+/// The same rule, asking the window system (`probe`) only when the answer
+/// depends on it: never when [`could_send`] already says no, and never for
+/// "Always". The page asks about every message, so this keeps the usual
+/// case (an ordinary message under the default scope) to a settings read.
+pub fn decide_with(
+    kind: NotifyKind,
+    s: &NotificationSettings,
+    probe: impl FnOnce() -> WindowAttention,
+) -> Decision {
+    let system = could_send(kind, s)
+        && (s.when == NativeNotificationWhen::Always || when_allows(s.when, &probe()));
     let in_app = s.style != NotificationStyle::NativeOnly || !system;
     Decision { system, in_app }
 }
@@ -326,6 +347,26 @@ pub fn decide(kind: NotifyKind, s: &NotificationSettings, a: &WindowAttention) -
 // ============================================================
 // Sending
 // ============================================================
+
+/// Makes text safe to hand to the system's notification service: control
+/// characters (line breaks included) become spaces, and -- where the
+/// notification service reads simple markup, as many Linux ones do --
+/// `&`, `<` and `>` are written so they show as themselves. Pure, so it is
+/// tested on every system.
+#[must_use]
+pub fn clean_system_text(text: &str, escape_markup: bool) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            c if c.is_control() => out.push(' '),
+            '&' if escape_markup => out.push_str("&amp;"),
+            '<' if escape_markup => out.push_str("&lt;"),
+            '>' if escape_markup => out.push_str("&gt;"),
+            c => out.push(c),
+        }
+    }
+    out
+}
 
 /// Hands one notification to the operating system. A refusal is logged,
 /// never turned into another message (see the module notes).
@@ -336,7 +377,16 @@ pub fn decide(kind: NotifyKind, s: &NotificationSettings, a: &WindowAttention) -
 /// failed.
 pub fn send_system_notification(app: &AppHandle, title: &str, body: &str) -> bool {
     use tauri_plugin_notification::NotificationExt;
-    match app.notification().builder().title(title).body(body).show() {
+    let markup = cfg!(target_os = "linux");
+    let title = clean_system_text(title, markup);
+    let body = clean_system_text(body, markup);
+    match app
+        .notification()
+        .builder()
+        .title(&title)
+        .body(&body)
+        .show()
+    {
         Ok(()) => {
             log::debug!("system notification handed over: {title:?}");
             true
@@ -360,35 +410,44 @@ pub struct RecentSends {
 }
 
 impl RecentSends {
-    /// Whether a notification with this key should be sent now; records it
-    /// if so. Forgets entries older than the window as it goes.
-    pub fn should_send(&mut self, key: &str, now: std::time::Instant) -> bool {
+    /// Whether this exact notification was sent within the window.
+    /// Forgets entries older than the window as it goes.
+    pub fn is_repeat(&mut self, key: &str, now: std::time::Instant) -> bool {
         let window = std::time::Duration::from_secs(REPEAT_WINDOW_SECS);
         self.sent_at
             .retain(|_, at| now.saturating_duration_since(*at) < window);
-        if self.sent_at.contains_key(key) {
-            return false;
-        }
+        self.sent_at.contains_key(key)
+    }
+
+    /// Records a notification the system has ACCEPTED. A refused one is
+    /// never recorded, so a retry moments later is not mistaken for a
+    /// repeat of something the person never saw.
+    pub fn record(&mut self, key: &str, now: std::time::Instant) {
         self.sent_at.insert(key.to_string(), now);
-        true
     }
 }
 
 static RECENT_SENDS: std::sync::LazyLock<std::sync::Mutex<RecentSends>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(RecentSends::default()));
 
+fn recent_sends() -> std::sync::MutexGuard<'static, RecentSends> {
+    RECENT_SENDS
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 /// Sends unless the same notification was sent moments ago. Returns `true`
 /// when the person has been (or just was) shown it by the system.
 fn send_unless_repeat(app: &AppHandle, title: &str, body: &str) -> bool {
     let key = format!("{title}\n{body}");
-    let fresh = RECENT_SENDS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .should_send(&key, std::time::Instant::now());
-    if !fresh {
+    if recent_sends().is_repeat(&key, std::time::Instant::now()) {
         return true;
     }
-    send_system_notification(app, title, body)
+    let sent = send_system_notification(app, title, body);
+    if sent {
+        recent_sends().record(&key, std::time::Instant::now());
+    }
+    sent
 }
 
 /// Reads the SAVED settings (what is on disk, through the settings cache)
@@ -399,14 +458,69 @@ fn saved_settings(app: &AppHandle) -> NotificationSettings {
 }
 
 // ============================================================
+// One worker for backend-owned notifications
+// ============================================================
+
+/// A piece of notification work, run on the notification worker.
+type Job = Box<dyn FnOnce() + Send + 'static>;
+
+static WORKER: std::sync::LazyLock<std::sync::Mutex<Option<std::sync::mpsc::Sender<Job>>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+/// Runs `job` on MeedyaDL's one notification thread.
+///
+/// Asking the window system whether the person is looking can wait on the
+/// app's main thread. A download task must never stand still for that, so
+/// backend-owned notifications are handed to this thread and the caller
+/// carries straight on. One thread, in order, so a download result is
+/// always dealt with before the "queue finished" that follows it.
+fn run_on_worker(job: Job) {
+    let mut guard = WORKER
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let job = match guard.as_ref() {
+        Some(tx) => match tx.send(job) {
+            Ok(()) => return,
+            Err(std::sync::mpsc::SendError(job)) => job,
+        },
+        None => job,
+    };
+    // No worker yet (or it has gone): start one and hand it the job.
+    let (tx, rx) = std::sync::mpsc::channel::<Job>();
+    let started = std::thread::Builder::new()
+        .name("meedyadl-notifications".to_string())
+        .spawn(move || {
+            for job in rx {
+                job();
+            }
+        });
+    match started {
+        Ok(_) => {
+            if let Err(std::sync::mpsc::SendError(job)) = tx.send(job) {
+                log::warn!("Notification worker stopped at once; running the notification here");
+                job();
+                return;
+            }
+            *guard = Some(tx);
+        }
+        Err(e) => {
+            log::warn!("Could not start the notification worker ({e}); running it here");
+            drop(guard);
+            job();
+        }
+    }
+}
+
+// ============================================================
 // Bursts of download results
 // ============================================================
 
-/// How long after the first download result the summary waits.
+/// How long after the first download result the window stays open.
 const BURST_WINDOW_SECS: u64 = 10;
 
-/// Download results counted during one burst.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Download results that arrived while a burst window was open (the FIRST
+/// result is not counted here: it was sent at once, by name).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct BurstCounts {
     /// Downloads that finished.
     pub finished: u32,
@@ -414,74 +528,90 @@ pub struct BurstCounts {
     pub failed: u32,
     /// Downloads that finished with warnings.
     pub warnings: u32,
-    /// The first result's kind, label and short reason -- used when the
-    /// burst holds only one result, so it can be named.
-    pub first: Option<(NotifyKind, String, Option<String>)>,
 }
 
 impl BurstCounts {
     /// Counts one more result.
-    pub fn add(&mut self, kind: NotifyKind, label: &str, reason: Option<&str>) {
+    pub fn add(&mut self, kind: NotifyKind) {
         match kind {
             NotifyKind::DownloadComplete => self.finished += 1,
             NotifyKind::DownloadFailed => self.failed += 1,
             NotifyKind::DownloadWarnings => self.warnings += 1,
-            _ => return,
-        }
-        if self.first.is_none() {
-            self.first = Some((kind, label.to_string(), reason.map(str::to_string)));
+            _ => {}
         }
     }
 
-    fn total(&self) -> u32 {
+    /// How many results in all.
+    #[must_use]
+    pub fn total(&self) -> u32 {
         self.finished + self.failed + self.warnings
     }
-}
 
-/// "1 download" / "3 downloads".
-fn downloads(n: u32) -> String {
-    if n == 1 {
-        "1 download".to_string()
-    } else {
-        format!("{n} downloads")
+    /// Only the results whose system notification the settings still
+    /// allow (they may have changed during the window).
+    #[must_use]
+    pub fn still_allowed(self, s: &NotificationSettings) -> Self {
+        Self {
+            finished: if could_send(NotifyKind::DownloadComplete, s) {
+                self.finished
+            } else {
+                0
+            },
+            failed: if could_send(NotifyKind::DownloadFailed, s) {
+                self.failed
+            } else {
+                0
+            },
+            warnings: if could_send(NotifyKind::DownloadWarnings, s) {
+                self.warnings
+            } else {
+                0
+            },
+        }
     }
 }
 
-/// The system notification for a burst: one result is named, several are
-/// summed up. Pure, so the wording is tested.
+/// "1 more download" / "3 more downloads".
+fn more_downloads(n: u32) -> String {
+    if n == 1 {
+        "1 more download".to_string()
+    } else {
+        format!("{n} more downloads")
+    }
+}
+
+/// The one summary sent at the end of a burst window, for the results
+/// that came after the first (which was already named). Pure, so the
+/// wording is tested. `None` when there is nothing to say.
 #[must_use]
-pub fn burst_summary(b: &BurstCounts) -> (String, String) {
-    if b.total() == 1 {
-        if let Some((kind, label, reason)) = &b.first {
-            return single_result_text(*kind, label, reason.as_deref());
-        }
+pub fn more_summary(b: &BurstCounts) -> Option<(String, String)> {
+    if b.total() == 0 {
+        return None;
     }
     let mut parts = Vec::new();
     if b.finished > 0 {
-        parts.push(format!("{} finished", downloads(b.finished)));
+        parts.push(format!("{} finished", more_downloads(b.finished)));
     }
     if b.warnings > 0 {
-        let lead = if parts.is_empty() {
-            format!("{} finished with warnings", downloads(b.warnings))
+        parts.push(if parts.is_empty() {
+            format!("{} finished with warnings", more_downloads(b.warnings))
         } else {
             format!("{} with warnings", b.warnings)
-        };
-        parts.push(lead);
+        });
     }
     if b.failed > 0 {
-        let lead = if parts.is_empty() {
-            format!("{} failed", downloads(b.failed))
+        parts.push(if parts.is_empty() {
+            format!("{} failed", more_downloads(b.failed))
         } else {
             format!("{} failed", b.failed)
-        };
-        parts.push(lead);
+        });
     }
     let title = if b.finished == 0 && b.warnings == 0 {
-        "Downloads failed"
+        "More downloads failed"
     } else {
-        "Downloads finished"
+        "More downloads finished"
     };
-    (title.to_string(), parts.join(", "))
+    Some((title.to_string(), parts.join(", ")))
 }
 
 /// Title and text for one download result.
@@ -510,8 +640,9 @@ pub fn single_result_text(kind: NotifyKind, label: &str, reason: Option<&str>) -
 pub const DEFAULT_FAILURE_REASON: &str = "Open MeedyaDL for details.";
 
 /// A short, plain reason for a failed download, from the error category
-/// `utils::process::classify_error` gives. Never the raw error text: that
-/// is technical, can be long, and can name files and addresses.
+/// `utils::process::classify_error` gives (plus `stalled`, from the queue
+/// watchdog). Never the raw error text: that is technical, can be long,
+/// and can name files and addresses.
 #[must_use]
 pub fn short_failure_reason(category: &str) -> &'static str {
     match category {
@@ -522,41 +653,91 @@ pub fn short_failure_reason(category: &str) -> &'static str {
         "rate_limit" => "Apple Music asked MeedyaDL to slow down. Try again later.",
         "codec" | "license_declined" => "The chosen format is not available for it.",
         "tool" => "A helper program needs attention in Settings > Tools.",
+        "stalled" => "It stopped making progress. You can retry it from History.",
         _ => DEFAULT_FAILURE_REASON,
     }
 }
 
-/// The burst being collected, if one is.
-static BURST: std::sync::LazyLock<std::sync::Mutex<Option<BurstCounts>>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+/// The open burst window, if any: `(generation, results since the first)`.
+/// The generation stops an old window's timer acting on a newer window.
+#[derive(Debug, Default)]
+struct BurstState {
+    generation: u64,
+    open: Option<(u64, BurstCounts)>,
+}
 
-/// Adds a download result to the current burst, starting one (and its
-/// ten-second timer) if none is running.
-fn record_in_burst(app: &AppHandle, kind: NotifyKind, label: &str, reason: Option<&str>) {
-    let starts_burst = {
-        let mut guard = BURST
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let starts = guard.is_none();
-        guard
-            .get_or_insert_with(BurstCounts::default)
-            .add(kind, label, reason);
-        starts
-    };
-    if starts_burst {
-        let app = app.clone();
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(BURST_WINDOW_SECS)).await;
-            let finished = BURST
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .take();
-            if let Some(counts) = finished {
-                let (title, body) = burst_summary(&counts);
-                send_system_notification(&app, &title, &body);
-            }
-        });
+static BURST: std::sync::LazyLock<std::sync::Mutex<BurstState>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(BurstState::default()));
+
+fn burst_state() -> std::sync::MutexGuard<'static, BurstState> {
+    BURST
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// What happened to a download result's system notification.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BurstSlot {
+    /// No window was open: send it now, by name (a window is now open).
+    SendNow,
+    /// A window is open: counted, and sent later in the summary.
+    Deferred,
+}
+
+/// Puts a download result into the burst: opens a window (and starts its
+/// ten-second timer) when none is open, otherwise counts it.
+fn join_burst(app: &AppHandle, kind: NotifyKind) -> BurstSlot {
+    let mut state = burst_state();
+    if let Some((_, counts)) = state.open.as_mut() {
+        counts.add(kind);
+        return BurstSlot::Deferred;
     }
+    state.generation += 1;
+    let generation = state.generation;
+    state.open = Some((generation, BurstCounts::default()));
+    drop(state);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(BURST_WINDOW_SECS)).await;
+        run_on_worker(Box::new(move || close_burst(&app, generation)));
+    });
+    BurstSlot::SendNow
+}
+
+/// The end of a burst window: one summary of the results after the first,
+/// if there were any. Reads the saved settings and the window state again
+/// now, so switching notifications off, or coming back to MeedyaDL, during
+/// the window is honoured. (The in-app messages for those results were
+/// already shown, so nothing is lost when the summary is not sent.)
+fn close_burst(app: &AppHandle, generation: u64) {
+    let counts = {
+        let mut state = burst_state();
+        match state.open {
+            Some((g, counts)) if g == generation => {
+                state.open = None;
+                counts
+            }
+            _ => return, // Taken by "queue finished", or a newer window.
+        }
+    };
+    let settings = saved_settings(app);
+    let counts = counts.still_allowed(&settings);
+    let Some((title, body)) = more_summary(&counts) else {
+        return;
+    };
+    // `still_allowed` has already applied the switches, style and scope;
+    // what is left is "is the person looking now?".
+    if settings.when == NativeNotificationWhen::Always
+        || when_allows(settings.when, &probe_attention(app))
+    {
+        send_system_notification(app, &title, &body);
+    }
+}
+
+/// Closes any open burst window without sending its summary: the queue
+/// summary that is about to go out covers those results.
+fn discard_burst() {
+    burst_state().open = None;
 }
 
 // ============================================================
@@ -614,8 +795,6 @@ pub struct NotifyEvent {
     pub toast_type: &'static str,
     /// The item it is about ("Artist — Album"), when there is one.
     pub label: Option<String>,
-    /// A short plain reason, for failures.
-    pub reason: Option<String>,
 }
 
 /// What the page receives as the `app-notification` event.
@@ -640,22 +819,47 @@ fn always_in_app(toast_type: &str) -> bool {
     matches!(toast_type, "error" | "warning")
 }
 
+/// Whether the page should show a backend message in the app. Pure, so the
+/// "System only" rules are tested: the in-app copy is left out only when
+/// the rule allows it AND the system notification really went out now --
+/// not when it was refused, and not when it was put off to a burst summary
+/// (the person must not be left with neither).
+#[must_use]
+pub fn show_in_app(decision: Decision, toast_type: &str, sent_now: bool) -> bool {
+    decision.in_app || always_in_app(toast_type) || !sent_now
+}
+
 /// Delivers a backend-owned message: system notification (when the rule
 /// says so) and the in-app copy (through the `app-notification` event).
+///
+/// Returns at once: the work runs on the notification thread (see
+/// [`run_on_worker`]), so a download task never waits on the window system.
 pub fn notify(app: &AppHandle, event: NotifyEvent) {
     count_for_queue_run(event.kind);
-    let settings = saved_settings(app);
-    let attention = probe_attention(app);
-    let decision = decide(event.kind, &settings, &attention);
+    let app = app.clone();
+    run_on_worker(Box::new(move || deliver(&app, event)));
+}
 
-    if decision.system {
-        if event.kind.is_download_result() {
-            let label = event.label.as_deref().unwrap_or("A download");
-            record_in_burst(app, event.kind, label, event.reason.as_deref());
-        } else {
-            send_unless_repeat(app, &event.title, &event.body);
-        }
+/// The work [`notify`] hands to the notification thread.
+fn deliver(app: &AppHandle, event: NotifyEvent) {
+    if event.kind == NotifyKind::QueueFinished {
+        // The queue summary covers any download results still waiting for
+        // a burst summary.
+        discard_burst();
     }
+    let settings = saved_settings(app);
+    let decision = decide_with(event.kind, &settings, || probe_attention(app));
+
+    let sent_now = if !decision.system {
+        false
+    } else if event.kind.is_download_result() {
+        match join_burst(app, event.kind) {
+            BurstSlot::SendNow => send_unless_repeat(app, &event.title, &event.body),
+            BurstSlot::Deferred => false,
+        }
+    } else {
+        send_unless_repeat(app, &event.title, &event.body)
+    };
 
     let payload = AppNotificationPayload {
         kind: event.kind,
@@ -663,7 +867,7 @@ pub fn notify(app: &AppHandle, event: NotifyEvent) {
         body: event.body,
         toast_type: event.toast_type,
         label: event.label,
-        show_in_app: decision.in_app || always_in_app(event.toast_type),
+        show_in_app: show_in_app(decision, event.toast_type, sent_now),
     };
     if let Err(e) = app.emit("app-notification", &payload) {
         log::debug!("Could not tell the page about a notification: {e}");
@@ -681,7 +885,6 @@ pub fn notify_download_complete(app: &AppHandle, label: &str) {
             body,
             toast_type: "success",
             label: Some(label.to_string()),
-            reason: None,
         },
     );
 }
@@ -699,7 +902,6 @@ pub fn notify_download_failed(app: &AppHandle, label: &str, category: &str) {
             body,
             toast_type: "error",
             label: Some(label.to_string()),
-            reason: Some(reason.to_string()),
         },
     );
 }
@@ -715,7 +917,6 @@ pub fn notify_download_warnings(app: &AppHandle, label: &str) {
             body,
             toast_type: "warning",
             label: Some(label.to_string()),
-            reason: None,
         },
     );
 }
@@ -737,25 +938,58 @@ pub fn notify_queue_finished(app: &AppHandle) {
             body: queue_finished_text(downloaded, failed),
             toast_type: if failed == 0 { "success" } else { "warning" },
             label: None,
-            reason: None,
         },
     );
-    // `notify` counted nothing for this kind, but be explicit: the next
-    // run starts from zero.
-    reset_queue_run_counts();
+}
+
+/// The after-queue power actions that warn first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerAction {
+    /// Restart the computer.
+    Restart,
+    /// Shut the computer down.
+    ShutDown,
+    /// Put the computer to sleep (or hibernate, on Windows).
+    Sleep,
+}
+
+/// The warning text for a power action. Only Windows waits (30 seconds,
+/// `shutdown /t 30`) before restarting or shutting down; everywhere else,
+/// and for sleep, the action starts straight away, so the warning says so.
+/// Pure, so each system's wording is tested. `os` is
+/// `std::env::consts::OS`.
+#[must_use]
+pub fn power_warning_text(action: PowerAction, os: &str) -> String {
+    let delayed = os == "windows";
+    match (action, delayed) {
+        (PowerAction::Restart, true) => {
+            "Downloads finished. Your computer will restart in 30 seconds.".to_string()
+        }
+        (PowerAction::ShutDown, true) => {
+            "Downloads finished. Your computer will shut down in 30 seconds.".to_string()
+        }
+        (PowerAction::Restart, false) => {
+            "Downloads finished. Your computer is restarting now.".to_string()
+        }
+        (PowerAction::ShutDown, false) => {
+            "Downloads finished. Your computer is shutting down now.".to_string()
+        }
+        (PowerAction::Sleep, _) => {
+            "Downloads finished. Your computer is going to sleep now.".to_string()
+        }
+    }
 }
 
 /// The computer is about to shut down, restart or sleep.
-pub fn notify_power_action(app: &AppHandle, body: &str) {
+pub fn notify_power_action(app: &AppHandle, action: PowerAction) {
     notify(
         app,
         NotifyEvent {
             kind: NotifyKind::PowerAction,
             title: "MeedyaDL".to_string(),
-            body: body.to_string(),
+            body: power_warning_text(action, std::env::consts::OS),
             toast_type: "warning",
             label: None,
-            reason: None,
         },
     );
 }
@@ -801,8 +1035,14 @@ pub fn notify_system_for_page(
     body: &str,
 ) -> NotifySystemAnswer {
     let settings = saved_settings(app);
-    let attention = probe_attention(app);
-    let decision = decide(kind, &settings, &attention);
+    // Settings first; the window system is asked only when it matters.
+    let decision = decide_with(kind, &settings, || probe_attention(app));
+    if !decision.system {
+        return NotifySystemAnswer {
+            sent: false,
+            in_app: true,
+        };
+    }
     let title = clamp_chars(title, MAX_TITLE_CHARS);
     let body = clamp_chars(body, MAX_BODY_CHARS);
     let sent = decision.system && send_unless_repeat(app, &title, &body);
@@ -1214,62 +1454,155 @@ mod tests {
     // ── wording ──────────────────────────────────────────────────────
 
     #[test]
-    fn a_burst_of_one_names_the_item() {
+    fn the_end_of_a_burst_sums_up_only_the_results_after_the_first() {
+        assert_eq!(more_summary(&BurstCounts::default()), None);
+
         let mut b = BurstCounts::default();
-        b.add(NotifyKind::DownloadComplete, "Artist — Album", None);
+        b.add(NotifyKind::DownloadComplete);
+        b.add(NotifyKind::DownloadComplete);
+        b.add(NotifyKind::DownloadFailed);
         assert_eq!(
-            burst_summary(&b),
+            more_summary(&b),
+            Some((
+                "More downloads finished".to_string(),
+                "2 more downloads finished, 1 failed".to_string()
+            ))
+        );
+
+        let mut all_failed = BurstCounts::default();
+        all_failed.add(NotifyKind::DownloadFailed);
+        assert_eq!(
+            more_summary(&all_failed),
+            Some((
+                "More downloads failed".to_string(),
+                "1 more download failed".to_string()
+            ))
+        );
+
+        let mut mixed = BurstCounts::default();
+        mixed.add(NotifyKind::DownloadComplete);
+        mixed.add(NotifyKind::DownloadWarnings);
+        assert_eq!(
+            more_summary(&mixed).unwrap().1,
+            "1 more download finished, 1 with warnings"
+        );
+    }
+
+    #[test]
+    fn a_single_result_is_named() {
+        assert_eq!(
+            single_result_text(NotifyKind::DownloadComplete, "Artist — Album", None),
             (
                 "Download finished".to_string(),
                 "Artist — Album finished.".to_string()
             )
         );
-
-        let mut f = BurstCounts::default();
-        f.add(
-            NotifyKind::DownloadFailed,
-            "Artist — Album",
-            Some("Check your internet connection."),
-        );
         assert_eq!(
-            burst_summary(&f).1,
+            single_result_text(
+                NotifyKind::DownloadFailed,
+                "Artist — Album",
+                Some("Check your internet connection.")
+            )
+            .1,
             "Artist — Album could not be downloaded. Check your internet connection."
         );
     }
 
     #[test]
-    fn a_burst_of_several_is_summed_up() {
+    fn the_burst_summary_honours_settings_changed_during_the_window() {
         let mut b = BurstCounts::default();
-        for _ in 0..3 {
-            b.add(NotifyKind::DownloadComplete, "x", None);
+        b.add(NotifyKind::DownloadComplete);
+        b.add(NotifyKind::DownloadFailed);
+        let off = NotificationSettings {
+            enabled: false,
+            ..defaults()
+        };
+        assert_eq!(b.still_allowed(&off).total(), 0);
+        let no_complete = NotificationSettings {
+            download_complete: false,
+            ..defaults()
+        };
+        let left = b.still_allowed(&no_complete);
+        assert_eq!((left.finished, left.failed), (0, 1));
+    }
+
+    #[test]
+    fn system_only_keeps_the_in_app_copy_unless_the_system_copy_went_out_now() {
+        let native_only = Decision {
+            system: true,
+            in_app: false,
+        };
+        // Sent now: the in-app copy of a plain success can be left out.
+        assert!(!show_in_app(native_only, "success", true));
+        // Put off to the burst summary, or refused: keep it.
+        assert!(show_in_app(native_only, "success", false));
+        // Errors and warnings always stay.
+        assert!(show_in_app(native_only, "error", true));
+        assert!(show_in_app(native_only, "warning", true));
+    }
+
+    #[test]
+    fn the_window_system_is_asked_only_when_it_matters() {
+        let mut asked = 0;
+        // Default scope: an ordinary message never needs the window.
+        let d = decide_with(NotifyKind::General, &defaults(), || {
+            asked += 1;
+            away()
+        });
+        assert!(!d.system);
+        let off = NotificationSettings {
+            enabled: false,
+            ..defaults()
+        };
+        decide_with(NotifyKind::DownloadComplete, &off, || {
+            asked += 1;
+            away()
+        });
+        let always = NotificationSettings {
+            when: NativeNotificationWhen::Always,
+            ..defaults()
+        };
+        assert!(
+            decide_with(NotifyKind::DownloadComplete, &always, || {
+                asked += 1;
+                WindowAttention::looking()
+            })
+            .system
+        );
+        assert_eq!(asked, 0);
+        // When it does matter, it is asked.
+        decide_with(NotifyKind::DownloadComplete, &defaults(), || {
+            asked += 1;
+            away()
+        });
+        assert_eq!(asked, 1);
+    }
+
+    #[test]
+    fn power_warnings_say_30_seconds_only_on_windows() {
+        assert!(power_warning_text(PowerAction::ShutDown, "windows").contains("in 30 seconds"));
+        assert!(power_warning_text(PowerAction::Restart, "windows").contains("in 30 seconds"));
+        for os in ["macos", "linux"] {
+            for action in [
+                PowerAction::ShutDown,
+                PowerAction::Restart,
+                PowerAction::Sleep,
+            ] {
+                let text = power_warning_text(action, os);
+                assert!(!text.contains("30 seconds"), "{os}: {text}");
+                assert!(text.ends_with("now."), "{os}: {text}");
+            }
         }
-        b.add(NotifyKind::DownloadFailed, "y", None);
-        assert_eq!(
-            burst_summary(&b),
-            (
-                "Downloads finished".to_string(),
-                "3 downloads finished, 1 failed".to_string()
-            )
-        );
+    }
 
-        let mut all_failed = BurstCounts::default();
-        all_failed.add(NotifyKind::DownloadFailed, "a", None);
-        all_failed.add(NotifyKind::DownloadFailed, "b", None);
+    #[test]
+    fn text_for_the_system_has_no_control_characters_and_escapes_markup_when_asked() {
+        assert_eq!(clean_system_text("a\nb\u{7}c", false), "a b c");
         assert_eq!(
-            burst_summary(&all_failed),
-            (
-                "Downloads failed".to_string(),
-                "2 downloads failed".to_string()
-            )
+            clean_system_text("R&B <Live>", true),
+            "R&amp;B &lt;Live&gt;"
         );
-
-        let mut mixed = BurstCounts::default();
-        mixed.add(NotifyKind::DownloadComplete, "a", None);
-        mixed.add(NotifyKind::DownloadWarnings, "b", None);
-        assert_eq!(
-            burst_summary(&mixed).1,
-            "1 download finished, 1 with warnings"
-        );
+        assert_eq!(clean_system_text("R&B <Live>", false), "R&B <Live>");
     }
 
     #[test]
@@ -1315,10 +1648,14 @@ mod tests {
     fn the_same_notification_is_not_repeated_within_ten_seconds() {
         let mut recent = RecentSends::default();
         let t0 = std::time::Instant::now();
-        assert!(recent.should_send("a", t0));
-        assert!(!recent.should_send("a", t0 + std::time::Duration::from_secs(9)));
-        assert!(recent.should_send("b", t0 + std::time::Duration::from_secs(9)));
-        assert!(recent.should_send("a", t0 + std::time::Duration::from_secs(11)));
+        let at = |s| t0 + std::time::Duration::from_secs(s);
+        assert!(!recent.is_repeat("a", t0));
+        // Not recorded (say the system refused it): not a repeat.
+        assert!(!recent.is_repeat("a", at(1)));
+        recent.record("a", at(1));
+        assert!(recent.is_repeat("a", at(9)));
+        assert!(!recent.is_repeat("b", at(9)));
+        assert!(!recent.is_repeat("a", at(12)));
     }
 
     // ── text from the page is kept to a sensible length ──────────────

@@ -12,12 +12,21 @@
 import type { Platform } from '@/hooks/usePlatform';
 
 /**
- * One plain sentence (or two) saying where to look.
+ * One plain sentence (or two) saying where to look. `null` = the platform
+ * is not known yet, so the advice names no particular system.
  *
  * @param developmentBuild -- on macOS a development build's notifications
  *   appear as Terminal's, so they are governed by Terminal's settings.
  */
-export function whereToLookForNotifications(platform: Platform, developmentBuild = false): string {
+export function whereToLookForNotifications(
+  platform: Platform | null,
+  developmentBuild = false
+): string {
+  // Until the platform is known (it is detected a moment after start-up),
+  // say nothing that names one system's settings: it could be the wrong one.
+  if (platform === null) {
+    return "If nothing appeared, check that notifications are allowed for MeedyaDL in your computer's notification settings, and that do-not-disturb is off.";
+  }
   switch (platform) {
     case 'macos':
       return developmentBuild

@@ -325,10 +325,24 @@ describe('useClipboardMonitor', () => {
       const options = call?.[6] as { kind?: string; systemBody?: string } | undefined;
       expect(options?.kind).toBe('clipboard_link');
       expect(options?.systemBody).not.toMatch(/click/i);
-      expect(options?.systemBody).toMatch(/Open MeedyaDL/);
+      // The system text names the very message the person will find.
+      expect(options?.systemBody).toContain(`"${call?.[0] as string}"`);
+      expect(options).toMatchObject({ keepUntilDismissedIfSent: true });
+      // MeedyaDL is not in front here, so the prompt stays until dismissed.
+      expect(call?.[2]).toBe(0);
 
       unmount();
     });
+  });
+
+  it('lets the prompt time out after 10 seconds while MeedyaDL is in front', async () => {
+    vi.spyOn(document, 'hasFocus').mockReturnValue(true);
+    readClipboardMock.mockResolvedValue(ALBUM_URL);
+    const { unmount } = renderHook(() => useClipboardMonitor(true));
+    await poll();
+    const call = addToastMock.mock.calls.find((c) => c[3] === CLIPBOARD_TOAST_KEY);
+    expect(call?.[2]).toBe(10000);
+    unmount();
   });
 
   describe('basic gating (pre-existing behaviour, protected so future edits don\'t regress it)', () => {

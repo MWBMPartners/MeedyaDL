@@ -65,7 +65,10 @@ const NOTIFICATION_DISMISS_OPTIONS = [
 
 /** The Notifications section of Settings > General. */
 export function NotificationSettingsSection() {
-  const { platform } = usePlatform();
+  // `isLoading`: the platform is detected a moment after start-up; until
+  // then the advice must not name one system's settings.
+  const { platform, isLoading: platformUnknown } = usePlatform();
+  const knownPlatform = platformUnknown ? null : platform;
   const addToast = useUiStore((s) => s.addToast);
 
   const desktopNotifications = useSettingsField('desktop_notifications');
@@ -86,7 +89,7 @@ export function NotificationSettingsSection() {
     try {
       await testDesktopNotification(desktopNotifications.value, style);
       addToast(
-        `MeedyaDL handed a test notification to your system. ${whereToLookForNotifications(platform)}`,
+        `MeedyaDL handed a test notification to your system. ${whereToLookForNotifications(knownPlatform)}`,
         'info',
         15000,
         undefined,
@@ -98,7 +101,7 @@ export function NotificationSettingsSection() {
       );
     } catch (err) {
       showError(
-        `MeedyaDL could not send a test notification. ${whereToLookForNotifications(platform)}`,
+        `MeedyaDL could not send a test notification. ${whereToLookForNotifications(knownPlatform)}`,
         err
       );
     }
@@ -146,7 +149,7 @@ export function NotificationSettingsSection() {
 
           <Toggle
             label="A Download Finished"
-            description="Show a system notification when a download finishes. Several finishing close together are combined into one."
+            description="Show a system notification when a download finishes. The first is shown at once, by name; more within the next ten seconds are summed up in one."
             checked={notifyComplete.value}
             onChange={notifyComplete.set}
           />

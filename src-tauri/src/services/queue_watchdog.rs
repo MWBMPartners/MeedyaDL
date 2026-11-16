@@ -250,7 +250,15 @@ async fn poll_once(
                             "⛔ Watchdog: stalled for {mins} min — marking failed + advancing queue. Files already on disk are preserved."
                         ),
                     );
-                    escalate_to_error(app, queue, &id).await;
+                    if escalate_to_error(app, queue, &id).await {
+                        // Counted and announced like any other failed
+                        // download (#1431), so the queue summary is right
+                        // and the person is told, by name.
+                        crate::services::download_queue::notify_item_failed(
+                            app, queue, &id, "stalled",
+                        )
+                        .await;
+                    }
                     // Drop the entry so we don't re-escalate on the
                     // next poll.
                     tracked.remove(&id);
@@ -283,11 +291,14 @@ async fn poll_once(
 /// guard (which is already inside `set_error`), so a race where the
 /// item legitimately completes between the poll and the escalation
 /// is harmless — the guard short-circuits.
+///
+/// Returns whether the item really ended up failed (it may have finished
+/// or been cancelled in the meantime), so only a real failure is announced.
 async fn escalate_to_error(
     app: &AppHandle,
     queue: &Arc<Mutex<DownloadQueue>>,
     dl_id: &str,
-) {
+) -> bool {
     let mut q = queue.lock().await;
     q.set_error(
         dl_id,
@@ -297,7 +308,13 @@ async fn escalate_to_error(
     // a legitimate completion racing the watchdog, `on_task_finished`
     // is idempotent.
     q.on_task_finished();
+    let failed = q
+        .get_status()
+        .iter()
+        .any(|item| item.id == dl_id && item.state == DownloadState::Error);
+    drop(q);
     let _ = app.emit_to_all_with_str("queue-updated", "watchdog-escalated");
+    failed
 }
 
 /// Local trait extension so the watchdog can fire the same Tauri
