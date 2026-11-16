@@ -290,7 +290,9 @@ pub(crate) fn step_lyricsfile(i: &StepInput, title: &str, artist: &str) -> StepD
 // ============================================================
 
 /// Runs one step on each listed file, each time with the file's own lyric
-/// files as the source and nothing ever replaced. Files that are gone, and
+/// files as the source and nothing ever replaced. Each file's step runs under
+/// the app-wide write lock for that file, so this must be called from a
+/// blocking thread (`spawn_blocking`) or a plain thread. Files that are gone, and
 /// operating-system shadow files, are skipped. Returns how many files the
 /// step did something for.
 fn run_for_files(
@@ -307,6 +309,11 @@ fn run_for_files(
         let Some(stem) = file.file_stem().and_then(|s| s.to_str()) else {
             continue;
         };
+        // The app-wide write lock for this file, taken here in the per-file
+        // loop and held for this one step (the steps rewrite the file's tags
+        // when they embed). The step functions themselves never lock. These
+        // batch wrappers run on a blocking thread, where waiting is allowed.
+        let _write_guard = crate::utils::file_locks::global().lock_blocking(file);
         let texts = read_lyric_texts(file);
         let input = StepInput {
             audio: file,

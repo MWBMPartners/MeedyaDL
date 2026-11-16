@@ -112,6 +112,10 @@ pub(crate) const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 /// * `Err(message)` -- A human-readable error if the operation fails.
 ///   Individual file failures are logged at debug level but do not stop
 ///   processing of remaining files.
+///
+/// Takes no write lock itself. Callers hold the app-wide lock
+/// (`utils::file_locks::global()`) for each file they hand it; the
+/// extra-format task calls it with one file at a time for that reason.
 pub fn apply_codec_metadata_tags(output_path: &str, codec: &SongCodec) -> Result<usize, String> {
     // Codec-specific tags: ALAC, Atmos, AC3, Binaural, Downmix.
     // For non-binaural/downmix codecs (AAC Legacy, AAC, etc.), we still need
@@ -159,7 +163,8 @@ pub fn apply_codec_metadata_tags(output_path: &str, codec: &SongCodec) -> Result
 }
 
 /// Tags a single M4A file by opening it, applying the tag writer function,
-/// and saving the modified metadata back to disk.
+/// and saving the modified metadata back to disk. Takes no write lock: the
+/// caller's per-file loop holds the app-wide lock for the file.
 fn tag_single_file(path: &Path, tag_writer: &dyn Fn(&mut Tag)) -> Result<(), String> {
     // Open the M4A file and read its existing metadata
     let mut tag = Tag::read_from_path(path)
@@ -929,6 +934,10 @@ async fn enrich_single_file(
     };
     let album_matched = tokio::task::spawn_blocking(move || {
         let _in_flight_hold = in_flight_hold;
+        // The app-wide write lock for this file, around the whole read and
+        // write below. Taken here (a blocking thread, where waiting is fine)
+        // and not inside any smaller write function.
+        let _write_guard = crate::utils::file_locks::global().lock_blocking(&tag_path);
         let mut album_matched = false;
         // Open the M4A file for reading/writing
         let mut tag = Tag::read_from_path(&tag_path).map_err(|e| {
@@ -2267,6 +2276,10 @@ fn rename_folder_with_advisory(
 /// and disc number.
 ///
 /// Returns the number of files enriched.
+///
+/// Takes the app-wide write lock for each file, so it must be called from a
+/// blocking thread (`spawn_blocking`) or a plain thread, never directly on
+/// an async thread.
 pub fn apply_itunes_supplementary_tags(
     output_path: &str,
     itunes_tracks: &[apple_music_api::ItunesTrackResult],
@@ -2275,6 +2288,10 @@ pub fn apply_itunes_supplementary_tags(
     let mut count = 0;
 
     for file_path in &files {
+        // The app-wide write lock for this file, around its read and write
+        // (taken here in the per-file loop). Must be called from a blocking
+        // thread (`spawn_blocking`), never straight from async code.
+        let _write_guard = crate::utils::file_locks::global().lock_blocking(file_path);
         let tag = match mp4ameta::Tag::read_from_path(file_path) {
             Ok(t) => t,
             Err(_) => continue,

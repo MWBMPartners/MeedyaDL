@@ -506,6 +506,10 @@ pub fn embed_subtitles_for_directory(album_dir: &str) -> Result<usize, String> {
 /// Atom names:
 /// - `subtitles-srt` — SRT subtitle content
 /// - `subtitles-vtt` — WebVTT subtitle content
+///
+/// Takes no write lock itself. The caller's per-file loop must hold the
+/// app-wide lock for `file_path` (`utils::file_locks::global()`), because
+/// the lock is not re-entrant.
 pub fn embed_subtitles_in_file(
     file_path: &Path,
     srt_content: Option<&str>,

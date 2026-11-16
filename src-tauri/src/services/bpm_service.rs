@@ -10,6 +10,10 @@
 //   - FLAC: `BPM` Vorbis comment
 //   - MP3: `TBPM` ID3v2 frame
 //
+// When this is wired into the pipeline (#1160), every tag write here must
+// run under the app-wide per-file write lock, `utils::file_locks::global()`,
+// taken in the caller's per-file loop (not inside the write functions).
+//
 // Musical key detection is planned as a follow-up using Python subprocess
 // (essentia library) since no production-ready Rust key detection exists.
 //

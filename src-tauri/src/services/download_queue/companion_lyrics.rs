@@ -46,6 +46,7 @@ use super::lyrics_steps::{
 // short name; the type itself moved to `lyrics_steps.rs` with the steps.
 pub(crate) use super::lyrics_steps::LyricsQuality;
 use super::*;
+use crate::utils::file_locks::FileWriteLocks;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
@@ -628,12 +629,46 @@ pub(crate) fn fallback_scope(
     }
 }
 
+/// The settings to use for finishing the main download's own files: with
+/// no artist known, the Lyricsfile step is left out. A `.lyrics` file is
+/// kept once written, so a placeholder name would stay for good.
+fn settings_for_main_files(settings: &AppSettings, lyrics_artist: Option<&str>) -> AppSettings {
+    if settings.generate_lyricsfile && lyrics_artist.is_none() {
+        AppSettings {
+            generate_lyricsfile: false,
+            ..settings.clone()
+        }
+    } else {
+        settings.clone()
+    }
+}
+
+/// Folds one file's result into the summary for the main download's own
+/// files. Returns `true` when the run must end (a stop cut it short).
+fn tally_main(summary: &mut Summary, outcome: CopyOutcome) -> bool {
+    match outcome {
+        CopyOutcome::Own => summary.own += 1,
+        CopyOutcome::Unchanged => summary.unchanged += 1,
+        CopyOutcome::Nothing => summary.none += 1,
+        CopyOutcome::FromMain { .. } => {}
+        CopyOutcome::Stopped => {
+            summary.stopped = true;
+            return true;
+        }
+    }
+    false
+}
+
 /// Finishes the lyrics of the main download's own files when enrichment
 /// stopped before it was done with them. Each file gets its own lyrics
 /// files converted, in the same order and under the same switches as the
 /// extra copies; every step can safely be repeated (`.lrc` and `.srt` are
 /// rewritten, embeds are overwritten, `.vtt`, `.ass` and `.lyrics` files
 /// already there are kept). Older files in the folder are not in `files`.
+///
+/// This version takes no write locks, so it is for tests and for code that
+/// holds the locks itself. The app uses [`run_main_files_own_locked`].
+#[cfg(test)]
 pub(crate) fn run_main_files_own(
     settings: &AppSettings,
     files: &[PathBuf],
@@ -641,18 +676,7 @@ pub(crate) fn run_main_files_own(
     default_title: Option<&str>,
     stop: &dyn Fn() -> bool,
 ) -> Summary {
-    // No artist known at all: leave the Lyricsfile step out. A `.lyrics`
-    // file is kept once written, so a placeholder name would stay for good.
-    let without_lyricsfile;
-    let settings = if settings.generate_lyricsfile && lyrics_artist.is_none() {
-        without_lyricsfile = AppSettings {
-            generate_lyricsfile: false,
-            ..settings.clone()
-        };
-        &without_lyricsfile
-    } else {
-        settings
-    };
+    let settings = &settings_for_main_files(settings, lyrics_artist);
     if !any_conversion_switched_on(settings) {
         return Summary::default();
     }
@@ -666,7 +690,7 @@ pub(crate) fn run_main_files_own(
             summary.stopped = true;
             return summary;
         }
-        match process_copy(
+        let outcome = process_copy(
             file,
             None,
             settings,
@@ -674,24 +698,74 @@ pub(crate) fn run_main_files_own(
             lyrics_artist,
             default_title,
             stop,
-        ) {
-            CopyOutcome::Own => summary.own += 1,
-            CopyOutcome::Unchanged => summary.unchanged += 1,
-            CopyOutcome::Nothing => summary.none += 1,
-            CopyOutcome::FromMain { .. } => {}
-            CopyOutcome::Stopped => {
-                summary.stopped = true;
-                return summary;
-            }
+        );
+        if tally_main(&mut summary, outcome) {
+            return summary;
+        }
+    }
+    summary
+}
+
+/// Same as the plain version, but takes the app-wide write lock for each
+/// file (see `utils::file_locks`) before that file's steps, and holds it
+/// only for that file. The lock is taken here, in the loop, never inside
+/// the steps that write.
+pub(crate) async fn run_main_files_own_locked(
+    locks: &Arc<FileWriteLocks>,
+    settings: &AppSettings,
+    files: &[PathBuf],
+    lyrics_artist: Option<&str>,
+    default_title: Option<&str>,
+    stop: &(dyn Fn() -> bool + Sync),
+) -> Summary {
+    let settings = &settings_for_main_files(settings, lyrics_artist);
+    if !any_conversion_switched_on(settings) {
+        return Summary::default();
+    }
+    let files: Vec<&PathBuf> = files.iter().filter(|p| p.is_file()).collect();
+    let mut summary = Summary {
+        total: files.len(),
+        ..Summary::default()
+    };
+    for file in files {
+        if stop() {
+            summary.stopped = true;
+            return summary;
+        }
+        let _guard = locks.lock(file).await;
+        let outcome = process_copy(
+            file,
+            None,
+            settings,
+            &|_| false,
+            lyrics_artist,
+            default_title,
+            stop,
+        );
+        if tally_main(&mut summary, outcome) {
+            return summary;
         }
     }
     summary
 }
 
 /// Takes the main download's unfinished-lyrics list (if enrichment left
-/// one) and finishes those files. Needs no extra copy and no recorded
-/// scope: the files are unfinished either way. Does nothing, and leaves the
-/// list in place, when `stop` already says stop (abort, cancel, shutdown).
+/// one). Returns `None`, leaving the list in place, when `stop` already
+/// says stop (abort, cancel, shutdown), or when there is no list.
+fn take_pending(
+    pending: Option<&Arc<StdMutex<Option<Vec<PathBuf>>>>>,
+    stop: &dyn Fn() -> bool,
+) -> Option<Vec<PathBuf>> {
+    if stop() {
+        return None;
+    }
+    pending?.lock().ok()?.take()
+}
+
+/// Takes the main download's unfinished-lyrics list (if enrichment left
+/// one) and finishes those files, without write locks (tests). Needs no
+/// extra copy and no recorded scope: the files are unfinished either way.
+#[cfg(test)]
 pub(crate) fn recover_pending(
     pending: Option<&Arc<StdMutex<Option<Vec<PathBuf>>>>>,
     settings: &AppSettings,
@@ -699,10 +773,7 @@ pub(crate) fn recover_pending(
     default_title: Option<&str>,
     stop: &dyn Fn() -> bool,
 ) -> Option<Summary> {
-    if stop() {
-        return None;
-    }
-    let files = pending?.lock().ok()?.take()?;
+    let files = take_pending(pending, stop)?;
     Some(run_main_files_own(
         settings,
         &files,
@@ -712,7 +783,23 @@ pub(crate) fn recover_pending(
     ))
 }
 
-/// The activity-log line for [`run_main_files_own`], or `None` when it
+/// [`recover_pending`] for the app: takes the app-wide write lock per file.
+pub(crate) async fn recover_pending_locked(
+    locks: &Arc<FileWriteLocks>,
+    pending: Option<&Arc<StdMutex<Option<Vec<PathBuf>>>>>,
+    settings: &AppSettings,
+    lyrics_artist: Option<&str>,
+    default_title: Option<&str>,
+    stop: &(dyn Fn() -> bool + Sync),
+) -> Option<Summary> {
+    let files = take_pending(pending, stop)?;
+    Some(
+        run_main_files_own_locked(locks, settings, &files, lyrics_artist, default_title, stop)
+            .await,
+    )
+}
+
+/// The activity-log line for [`run_main_files_own_locked`], or `None` when it
 /// finished nothing.
 pub(crate) fn recovery_line(r: &Summary) -> Option<String> {
     (r.own > 0).then(|| {
@@ -724,12 +811,126 @@ pub(crate) fn recovery_line(r: &Summary) -> Option<String> {
     })
 }
 
+/// What [`plan_copies`] works out before any file is written: the new
+/// copies, and what is needed to pair each with the main download's file.
+pub(crate) struct CopyPlan {
+    /// This download's new copies, in order.
+    copies: Vec<PathBuf>,
+    /// What is known about each of the main download's files.
+    primaries: Vec<Evidence>,
+    /// Whether the album is a single-disc one.
+    single_disc: bool,
+}
+
+/// Works out which files are this download's new copies. Writes nothing.
+/// Empty when no conversion is switched on (the folder is then not even
+/// looked at).
+pub(crate) fn plan_copies(
+    settings: &AppSettings,
+    scope: &AdvisoryScope,
+    extra_dir: Option<&Path>,
+    since: SystemTime,
+    album_tracks: &[(u32, u32, String)],
+) -> CopyPlan {
+    if !any_conversion_switched_on(settings) {
+        return CopyPlan {
+            copies: Vec::new(),
+            primaries: Vec::new(),
+            single_disc: false,
+        };
+    }
+    let copies = this_downloads_copies(scope, extra_dir, since);
+    if copies.is_empty() {
+        return CopyPlan {
+            copies,
+            primaries: Vec::new(),
+            single_disc: false,
+        };
+    }
+    let primaries: Vec<Evidence> = scope
+        .this_download
+        .iter()
+        .filter(|p| p.is_file())
+        .map(|p| read_evidence(p))
+        .collect();
+    let single_disc = single_disc_album(album_tracks, &primaries);
+    CopyPlan {
+        copies,
+        primaries,
+        single_disc,
+    }
+}
+
+/// Gives ONE planned copy its lyrics. Takes no lock itself: the caller
+/// holds the app-wide write lock for `copy` (the steps below rewrite its
+/// tags), or is a test.
+#[allow(clippy::too_many_arguments)]
+fn process_planned(
+    plan: &CopyPlan,
+    copy: &Path,
+    settings: &AppSettings,
+    scope: &AdvisoryScope,
+    since: SystemTime,
+    lyrics_artist: Option<&str>,
+    default_title: Option<&str>,
+    stop: &dyn Fn() -> bool,
+) -> CopyOutcome {
+    let evidence = read_evidence(copy);
+    let outside = !copy.starts_with(&scope.dir);
+    let primary = match_primary(&evidence, &plan.primaries, plan.single_disc, outside)
+        .map(|i| plan.primaries[i].path.clone());
+    // Inside the album folder a `.ttml` is this run's if it was not in
+    // the snapshot taken before the extra copies started. Outside it
+    // there is no snapshot, so file times decide.
+    let written_by_this_run = |target: &Path| {
+        if target.starts_with(&scope.dir) {
+            !scope.ttml_before_companions.contains(target)
+        } else {
+            written_since(target, since)
+        }
+    };
+    process_copy(
+        copy,
+        primary.as_deref(),
+        settings,
+        &written_by_this_run,
+        lyrics_artist,
+        default_title,
+        stop,
+    )
+}
+
+/// Folds one copy's result into the summary. Returns `true` when the run
+/// must end (a stop cut this copy short; it is not counted as done).
+fn tally_copy(summary: &mut Summary, outcome: CopyOutcome) -> bool {
+    match outcome {
+        CopyOutcome::FromMain { word_timed } => {
+            summary.from_main += 1;
+            if word_timed {
+                summary.from_main_word_timed += 1;
+            }
+        }
+        CopyOutcome::Own => summary.own += 1,
+        CopyOutcome::Unchanged => summary.unchanged += 1,
+        CopyOutcome::Nothing => summary.none += 1,
+        CopyOutcome::Stopped => {
+            summary.stopped = true;
+            return true;
+        }
+    }
+    false
+}
+
 /// Gives every new copy of this download its lyrics, as described at the
 /// top of this file. `stop` is asked before each copy; when it says yes the
 /// run ends and the summary says so (files already done stay done).
 ///
 /// Settings are read by the caller when this starts, not when enrichment
 /// ran, so a switch changed in between applies to the copies.
+///
+/// This version takes no write locks: it is for tests. The app uses
+/// [`run_copies_locked`], which gives the same result.
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn run_copies(
     settings: &AppSettings,
@@ -741,69 +942,71 @@ pub(crate) fn run_copies(
     default_title: Option<&str>,
     stop: &dyn Fn() -> bool,
 ) -> Summary {
-    // Nothing switched on: do not even look at the folder.
-    if !any_conversion_switched_on(settings) {
-        return Summary::default();
-    }
-    let copies = this_downloads_copies(scope, extra_dir, since);
+    let plan = plan_copies(settings, scope, extra_dir, since, album_tracks);
     let mut summary = Summary {
-        total: copies.len(),
+        total: plan.copies.len(),
         ..Summary::default()
     };
-    if copies.is_empty() {
-        return summary;
-    }
-    let primaries: Vec<Evidence> = scope
-        .this_download
-        .iter()
-        .filter(|p| p.is_file())
-        .map(|p| read_evidence(p))
-        .collect();
-    let single_disc = single_disc_album(album_tracks, &primaries);
-
-    for copy in &copies {
+    for copy in &plan.copies {
         if stop() {
             summary.stopped = true;
             return summary;
         }
-        let evidence = read_evidence(copy);
-        let outside = !copy.starts_with(&scope.dir);
-        let primary = match_primary(&evidence, &primaries, single_disc, outside)
-            .map(|i| primaries[i].path.clone());
-        // Inside the album folder a `.ttml` is this run's if it was not in
-        // the snapshot taken before the extra copies started. Outside it
-        // there is no snapshot, so file times decide.
-        let written_by_this_run = |target: &Path| {
-            if target.starts_with(&scope.dir) {
-                !scope.ttml_before_companions.contains(target)
-            } else {
-                written_since(target, since)
-            }
-        };
-        match process_copy(
+        let outcome = process_planned(
+            &plan,
             copy,
-            primary.as_deref(),
             settings,
-            &written_by_this_run,
+            scope,
+            since,
             lyrics_artist,
             default_title,
             stop,
-        ) {
-            CopyOutcome::FromMain { word_timed } => {
-                summary.from_main += 1;
-                if word_timed {
-                    summary.from_main_word_timed += 1;
-                }
-            }
-            CopyOutcome::Own => summary.own += 1,
-            CopyOutcome::Unchanged => summary.unchanged += 1,
-            CopyOutcome::Nothing => summary.none += 1,
-            // A stop cut this copy short: report it, and do not count the
-            // copy as done.
-            CopyOutcome::Stopped => {
-                summary.stopped = true;
-                return summary;
-            }
+        );
+        if tally_copy(&mut summary, outcome) {
+            return summary;
+        }
+    }
+    summary
+}
+
+/// [`run_copies`] for the app: takes the app-wide write lock for each copy
+/// (in the loop, not inside the steps) and holds it only while that copy's
+/// steps run.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_copies_locked(
+    locks: &Arc<FileWriteLocks>,
+    settings: &AppSettings,
+    scope: &AdvisoryScope,
+    extra_dir: Option<&Path>,
+    since: SystemTime,
+    album_tracks: &[(u32, u32, String)],
+    lyrics_artist: Option<&str>,
+    default_title: Option<&str>,
+    stop: &(dyn Fn() -> bool + Sync),
+) -> Summary {
+    let plan = plan_copies(settings, scope, extra_dir, since, album_tracks);
+    let mut summary = Summary {
+        total: plan.copies.len(),
+        ..Summary::default()
+    };
+    for copy in &plan.copies {
+        if stop() {
+            summary.stopped = true;
+            return summary;
+        }
+        let _guard = locks.lock(copy).await;
+        let outcome = process_planned(
+            &plan,
+            copy,
+            settings,
+            scope,
+            since,
+            lyrics_artist,
+            default_title,
+            stop,
+        );
+        if tally_copy(&mut summary, outcome) {
+            return summary;
         }
     }
     summary
@@ -811,9 +1014,9 @@ pub(crate) fn run_copies(
 
 /// The whole step for the companion task: works out where the copies are
 /// (including a folder outside the album folder) and runs
-/// [`run_copies`].
+/// [`run_copies_locked`] under the app-wide write lock.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn run(
+pub(crate) async fn run(
     settings: &AppSettings,
     scope: &AdvisoryScope,
     output_dir: &Path,
@@ -823,10 +1026,11 @@ pub(crate) fn run(
     album_tracks: &[(u32, u32, String)],
     lyricsfile_artist: Option<&str>,
     default_title: Option<&str>,
-    stop: &dyn Fn() -> bool,
+    stop: &(dyn Fn() -> bool + Sync),
 ) -> Summary {
     let extra_dir = resolve_extra_dir(output_dir, artist_hint, album_hint, &scope.dir);
-    run_copies(
+    run_copies_locked(
+        crate::utils::file_locks::global(),
         settings,
         scope,
         extra_dir.as_deref(),
@@ -838,6 +1042,7 @@ pub(crate) fn run(
         default_title,
         stop,
     )
+    .await
 }
 
 // ============================================================
@@ -1526,7 +1731,7 @@ mod tests {
         let src = include_str!("companion_lyrics.rs");
         // Assembled so this test's own text does not trip the check.
         for call in [["remove", "_file"].concat(), ["remove", "_dir"].concat()] {
-            let outside_tests = src.split("#[cfg(test)]").next().unwrap();
+            let outside_tests = src.split("#[cfg(test)]\nmod tests").next().unwrap();
             assert!(
                 !outside_tests.contains(&call),
                 "companion_lyrics.rs calls {call}"
@@ -1790,5 +1995,90 @@ mod tests {
         let found = this_downloads_copies(&scope, None, past());
         assert_eq!(found, vec![copy]);
         assert!(!found.contains(&main));
+    }
+
+    // ---- 16. the app-wide write lock (#1442) ----
+
+    /// Every file in a folder, name to bytes, sorted.
+    fn folder_bytes(dir: &Path) -> Vec<(String, Vec<u8>)> {
+        let mut v: Vec<(String, Vec<u8>)> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| e.path().is_file())
+            .map(|e| {
+                (
+                    e.file_name().to_string_lossy().to_string(),
+                    std::fs::read(e.path()).unwrap(),
+                )
+            })
+            .collect();
+        v.sort();
+        v
+    }
+
+    /// Builds one album with a main file, word-timed lyrics and one new copy.
+    fn album_with_copy() -> (tempfile::TempDir, AdvisoryScope, PathBuf) {
+        let (dir, scope, main) = album();
+        std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
+        let scope = AdvisoryScope {
+            ttml_before_companions: ttml_files_in(dir.path()),
+            ..scope
+        };
+        let copy = add_copy(dir.path());
+        (dir, scope, copy)
+    }
+
+    #[tokio::test]
+    async fn the_locked_driver_gives_the_same_summary_and_files() {
+        let (dir_a, scope_a, _) = album_with_copy();
+        let (dir_b, scope_b, _) = album_with_copy();
+        let plain = run_copies(&all_on(), &scope_a, None, past(), &[], None, None, &|| {
+            false
+        });
+        let locked = run_copies_locked(
+            crate::utils::file_locks::global(),
+            &all_on(),
+            &scope_b,
+            None,
+            past(),
+            &[],
+            None,
+            None,
+            &|| false,
+        )
+        .await;
+        assert_eq!(plain, locked);
+        assert_eq!(plain.from_main, 1);
+        assert_eq!(folder_bytes(dir_a.path()), folder_bytes(dir_b.path()));
+    }
+
+    #[tokio::test]
+    async fn a_copy_held_by_another_task_is_written_only_after_release() {
+        let (dir, scope, copy) = album_with_copy();
+        let held = crate::utils::file_locks::global().lock(&copy).await;
+        let settings = all_on();
+        let fut = run_copies_locked(
+            crate::utils::file_locks::global(),
+            &settings,
+            &scope,
+            None,
+            past(),
+            &[],
+            None,
+            None,
+            &|| false,
+        );
+        tokio::pin!(fut);
+        let waited = tokio::time::timeout(Duration::from_millis(100), &mut fut).await;
+        assert!(waited.is_err(), "must wait while the copy is locked");
+        assert!(
+            !copy.with_extension("lrc").exists(),
+            "nothing may be written while the lock is held"
+        );
+        drop(held);
+        let summary = fut.await;
+        assert_eq!(summary.from_main, 1);
+        assert!(copy.with_extension("lrc").is_file());
+        drop(dir);
     }
 }

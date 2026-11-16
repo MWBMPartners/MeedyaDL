@@ -5999,3 +5999,261 @@ fn work_stops_for_a_cancelled_item_and_for_one_that_has_been_cleared_away() {
         "nothing is owed to an item nobody is tracking"
     );
 }
+
+// ============================================================
+// One app-wide write lock for every tag write (#1442)
+// ============================================================
+
+/// The text of the function that starts at `marker`, up to the closing
+/// brace in the first column. Panics if the marker is not found.
+fn function_text<'a>(src: &'a str, marker: &str) -> &'a str {
+    let start = src
+        .find(marker)
+        .unwrap_or_else(|| panic!("`{marker}` not found"));
+    let rest = &src[start..];
+    let end = rest.find("\n}\n").map_or(rest.len(), |e| e + 3);
+    &rest[..end]
+}
+
+/// Whether `lock_text` appears in `text` before the first `write_text`.
+fn locks_before(text: &str, lock_text: &str, write_text: &str) -> bool {
+    match (text.find(lock_text), text.find(write_text)) {
+        (Some(l), Some(w)) => l < w,
+        _ => false,
+    }
+}
+
+#[test]
+fn the_tier_new_m4a_list_holds_only_new_m4a_files() {
+    use std::collections::BTreeSet;
+    use std::path::PathBuf;
+    let p = |s: &str| PathBuf::from(s);
+    let before: BTreeSet<PathBuf> = [p("a/01.m4a"), p("a/02.m4a")].into_iter().collect();
+    let after: BTreeSet<PathBuf> = [
+        p("a/01.m4a"),
+        p("a/02.m4a"),
+        p("a/03.m4a"),
+        p("a/clip.m4v"),
+        p("a/UPPER.M4A"),
+    ]
+    .into_iter()
+    .collect();
+    assert_eq!(
+        super::companions::tier_new_m4a(&before, &after),
+        vec![p("a/03.m4a"), p("a/UPPER.M4A")]
+    );
+    // Nothing before: every .m4a is new, videos still left out.
+    assert_eq!(
+        super::companions::tier_new_m4a(&BTreeSet::new(), &after).len(),
+        4
+    );
+    // Nothing added.
+    assert!(super::companions::tier_new_m4a(&after, &after).is_empty());
+}
+
+/// The extra-copy bug: a tier's format tags used to be written to every
+/// music file in the folder. Now only the files the tier added get them.
+#[tokio::test]
+async fn a_tiers_format_tags_reach_only_that_tiers_new_files() {
+    use crate::services::metadata_tag_service::test_support::minimal_m4a;
+    let dir = tempfile::tempdir().unwrap();
+    let main = dir.path().join("01 Main.m4a");
+    let older = dir.path().join("02 Older.m4a");
+    let new_copy = dir.path().join("01 Main [Lossless].m4a");
+    minimal_m4a(&main, 1, 1, false);
+    minimal_m4a(&older, 2, 1, false);
+    let before = super::lyrics_pass::audio_files_in(dir.path());
+    minimal_m4a(&new_copy, 1, 1, false);
+    let after = super::lyrics_pass::audio_files_in(dir.path());
+    let main_bytes = std::fs::read(&main).unwrap();
+    let older_bytes = std::fs::read(&older).unwrap();
+    let copy_bytes = std::fs::read(&new_copy).unwrap();
+
+    let tagged = super::companions::tag_tier_additions(
+        &before,
+        &after,
+        Some(dir.path()),
+        &SongCodec::Alac,
+        "test",
+    )
+    .await;
+
+    assert_eq!(tagged, 1);
+    assert_eq!(
+        std::fs::read(&main).unwrap(),
+        main_bytes,
+        "main file changed"
+    );
+    assert_eq!(
+        std::fs::read(&older).unwrap(),
+        older_bytes,
+        "older file changed"
+    );
+    assert_ne!(
+        std::fs::read(&new_copy).unwrap(),
+        copy_bytes,
+        "the new copy was not tagged"
+    );
+}
+
+/// A new file outside the album folder is left alone when the album folder
+/// was found.
+#[tokio::test]
+async fn a_tier_does_not_tag_new_files_outside_the_album_folder() {
+    use crate::services::metadata_tag_service::test_support::minimal_m4a;
+    let root = tempfile::tempdir().unwrap();
+    let album = root.path().join("Album");
+    let other = root.path().join("Other");
+    std::fs::create_dir_all(&album).unwrap();
+    std::fs::create_dir_all(&other).unwrap();
+    let before = std::collections::BTreeSet::new();
+    let mine = album.join("01 A.m4a");
+    let theirs = other.join("01 B.m4a");
+    minimal_m4a(&mine, 1, 1, false);
+    minimal_m4a(&theirs, 1, 1, false);
+    let after = super::lyrics_pass::audio_files_in(root.path());
+    let theirs_bytes = std::fs::read(&theirs).unwrap();
+    let tagged = super::companions::tag_tier_additions(
+        &before,
+        &after,
+        Some(&album),
+        &SongCodec::Alac,
+        "test",
+    )
+    .await;
+    assert_eq!(tagged, 1);
+    assert_eq!(std::fs::read(&theirs).unwrap(), theirs_bytes);
+}
+
+/// The one walk at the start of a download gives the same two answers as
+/// the two separate walks it replaced.
+#[test]
+fn one_walk_gives_the_audio_count_and_the_video_list() {
+    use crate::services::metadata_tag_service::test_support::minimal_m4a;
+    let dir = tempfile::tempdir().unwrap();
+    let deep = dir.path().join("Artist").join("Album");
+    std::fs::create_dir_all(&deep).unwrap();
+    minimal_m4a(&deep.join("01.m4a"), 1, 1, false);
+    std::fs::write(deep.join("clip.m4v"), b"v").unwrap();
+    std::fs::write(deep.join("other.mp4"), b"v").unwrap();
+    std::fs::write(deep.join("notes.txt"), b"t").unwrap();
+    let (count, videos) = super::lyrics_pass::audio_count_and_videos_before_run(dir.path());
+    assert_eq!(count, count_audio_files_in_directory(dir.path()));
+    assert_eq!(videos, super::lyrics_pass::videos_before_run(dir.path()));
+    assert_eq!(count, 3);
+    assert_eq!(videos.len(), 2);
+}
+
+/// Every tag-writing place in the app takes the app-wide lock, at its
+/// per-file loop (T1-T8 in the #1442 plan).
+#[test]
+fn every_tag_write_site_takes_the_app_wide_lock() {
+    let tag_service = include_str!("../metadata_tag_service.rs");
+    let companions = include_str!("companions.rs");
+    let companion_lyrics = include_str!("companion_lyrics.rs");
+    let lyrics_steps = include_str!("lyrics_steps.rs");
+    let processing = include_str!("processing.rs");
+
+    // T1: Step 0 iTunes tags, per file.
+    let t1 = function_text(tag_service, "pub fn apply_itunes_supplementary_tags(");
+    assert!(locks_before(t1, "lock_blocking(", ".write_to_path("), "T1");
+    // T2: Step 1, around the read and write.
+    let t2 = function_text(tag_service, "async fn enrich_single_file(");
+    assert!(
+        locks_before(t2, "lock_blocking(&tag_path)", ".write_to_path(&tag_path)"),
+        "T2"
+    );
+    // T3: the extra-format tier tags, per file.
+    let t3 = function_text(companions, "pub(crate) async fn tag_tier_additions(");
+    assert!(
+        locks_before(t3, ".lock(&new_file).await", "apply_codec_metadata_tags("),
+        "T3"
+    );
+    // T4: the main download's per-file loop, and the copy drivers.
+    let t4 = function_text(lyrics_steps, "fn run_for_files(");
+    assert!(
+        locks_before(t4, "lock_blocking(file)", "step(&input)"),
+        "T4 main"
+    );
+    let copies = function_text(companion_lyrics, "pub(crate) async fn run_copies_locked(");
+    assert!(
+        locks_before(copies, ".lock(copy).await", "process_planned("),
+        "T4 copies"
+    );
+    let main_own = function_text(
+        companion_lyrics,
+        "pub(crate) async fn run_main_files_own_locked(",
+    );
+    assert!(
+        locks_before(main_own, ".lock(file).await", "process_copy("),
+        "T4 recovery"
+    );
+    // T5-T7: AcoustID, ReplayGain and song.link are handed the app-wide map.
+    assert!(
+        processing.contains("let enrich_file_locks = crate::utils::file_locks::global().clone();")
+    );
+    assert!(
+        !processing.contains("FileWriteLocks::new()"),
+        "a per-download map came back"
+    );
+    // T8: the music-video cover embed.
+    assert!(
+        locks_before(
+            companions,
+            "file_locks::global().lock(video_path).await",
+            "embed_and_remove_sidecar(video_path)"
+        ),
+        "T8"
+    );
+    // The production extra-copy path uses the locked drivers.
+    assert!(
+        function_text(companion_lyrics, "pub(crate) async fn run(").contains("run_copies_locked(")
+    );
+}
+
+/// The functions that write one file never take the lock themselves (the
+/// lock is not re-entrant; the per-file loop holds it).
+#[test]
+fn the_write_functions_never_take_the_lock() {
+    let tag_service = include_str!("../metadata_tag_service.rs");
+    let lyrics_steps = include_str!("lyrics_steps.rs");
+    let leaves: Vec<(&str, &str)> = vec![
+        (tag_service, "fn tag_single_file("),
+        (tag_service, "pub fn apply_codec_metadata_tags("),
+        (
+            include_str!("../enhanced_lyrics_service.rs"),
+            "pub fn embed_enhanced_lrc_in_file(",
+        ),
+        (
+            include_str!("../rich_srt_service.rs"),
+            "pub fn embed_subtitles_in_file(",
+        ),
+        (
+            include_str!("../music_video_cover_embed.rs"),
+            "pub fn embed_and_remove_sidecar(",
+        ),
+    ];
+    for (src, marker) in leaves {
+        let text = function_text(src, marker);
+        for taker in [".lock(", "lock_blocking(", "file_locks::"] {
+            assert!(!text.contains(taker), "`{marker}` takes the lock ({taker})");
+        }
+    }
+    // Every step function in lyrics_steps.rs.
+    let mut rest = lyrics_steps;
+    let mut seen = 0;
+    while let Some(i) = rest.find("pub(crate) fn step_") {
+        let body = &rest[i..];
+        let end = body.find("\n}\n").map_or(body.len(), |e| e + 3);
+        let body = &body[..end];
+        for taker in [".lock(", "lock_blocking(", "file_locks::"] {
+            assert!(
+                !body.contains(taker),
+                "a lyrics step takes the lock ({taker})"
+            );
+        }
+        seen += 1;
+        rest = &rest[i + 1..];
+    }
+    assert!(seen >= 6, "found only {seen} step functions");
+}

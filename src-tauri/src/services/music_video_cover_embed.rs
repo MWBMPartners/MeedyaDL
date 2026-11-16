@@ -61,6 +61,9 @@ pub enum EmbedOutcome {
 /// modes (sidecar unreadable, MP4 write rejected, verify round-trip
 /// mismatch). This keeps the call site one match arm per outcome
 /// instead of nested Result/match handling.
+///
+/// Takes no write lock itself. The caller must hold the app-wide lock for
+/// `video_path` (`utils::file_locks::global()`) around the call.
 pub fn embed_and_remove_sidecar(video_path: &Path) -> EmbedOutcome {
     let Some(sidecar_path) = find_sidecar(video_path) else {
         return EmbedOutcome::NoSidecar;

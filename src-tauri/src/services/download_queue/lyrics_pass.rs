@@ -402,6 +402,35 @@ pub(crate) fn videos_before_run(download_folder: &Path) -> std::collections::Has
         .collect()
 }
 
+/// Both answers the start of the primary run needs from ONE walk of the
+/// download folder: how many music or video files are in it (the same
+/// count as `count_audio_files_in_directory`), and the music videos in it
+/// (the same list as [`videos_before_run`]).
+pub(crate) fn audio_count_and_videos_before_run(
+    download_folder: &Path,
+) -> (usize, std::collections::HashSet<PathBuf>) {
+    let files = crate::utils::fs_walk::walk_dir_depth(download_folder, 10, |path| {
+        if !path.is_file() || crate::utils::fs_safe::is_filesystem_sidecar(path) {
+            return None;
+        }
+        let ext = path.extension().and_then(|e| e.to_str())?;
+        ["m4a", "m4v", "mp4"]
+            .iter()
+            .any(|x| ext.eq_ignore_ascii_case(x))
+            .then(|| path.to_path_buf())
+    });
+    let videos = files
+        .iter()
+        .filter(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("m4v") || e.eq_ignore_ascii_case("mp4"))
+        })
+        .map(|p| comparable(p))
+        .collect();
+    (files.len(), videos)
+}
+
 /// This download's music videos among `current` (the videos in the album
 /// folder now). With the pre-run list (`before`), every video not in it is
 /// this download's; a video that was already there still counts when it was

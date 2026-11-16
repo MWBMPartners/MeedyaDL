@@ -782,6 +782,57 @@ pub(crate) fn songs_wanted_in(
     wanted.len() + unplaceable.iter().filter(|c| *c != codec).count()
 }
 
+/// The `.m4a` files an extra-format tier added: in `after` but not in
+/// `before` (the music and video files in the folder before and after the
+/// tier's GAMDL run). Only `.m4a` files count; videos are never format-tagged.
+/// With an empty `before`, every `.m4a` in `after` is new. Used so a tier's
+/// format tags reach only the files that tier added.
+pub(crate) fn tier_new_m4a(
+    before: &std::collections::BTreeSet<std::path::PathBuf>,
+    after: &std::collections::BTreeSet<std::path::PathBuf>,
+) -> Vec<std::path::PathBuf> {
+    after
+        .iter()
+        .filter(|p| !before.contains(*p))
+        .filter(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("m4a"))
+        })
+        .cloned()
+        .collect()
+}
+
+/// Writes an extra-format tier's format tags to the files that tier added
+/// (see [`tier_new_m4a`]), each under the app-wide write lock. With
+/// `within`, files outside that folder are left out. Returns how many files
+/// were tagged. Failures are only logged.
+pub(crate) async fn tag_tier_additions(
+    before: &std::collections::BTreeSet<std::path::PathBuf>,
+    after: &std::collections::BTreeSet<std::path::PathBuf>,
+    within: Option<&std::path::Path>,
+    codec: &SongCodec,
+    dl_id: &str,
+) -> usize {
+    let mut tagged = 0usize;
+    for new_file in tier_new_m4a(before, after) {
+        if within.is_some_and(|dir| !new_file.starts_with(dir)) {
+            continue;
+        }
+        let _guard = crate::utils::file_locks::global().lock(&new_file).await;
+        match super::metadata_tag_service::apply_codec_metadata_tags(
+            &new_file.to_string_lossy(),
+            codec,
+        ) {
+            Ok(count) => tagged += count,
+            Err(e) => {
+                log::debug!("Companion metadata tagging failed for {dl_id}: {e}");
+            }
+        }
+    }
+    tagged
+}
+
 /// The plain line for copies not made because a file with the same name
 /// was already there, or `None` when there were none.
 pub(crate) fn already_there_line(codec: &SongCodec, count: usize) -> Option<String> {
@@ -1406,7 +1457,13 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
                 .and_then(|n| n.to_str())
                 .unwrap_or("music video")
                 .to_string();
-            match embed_and_remove_sidecar(video_path) {
+            // The cover write rewrites the video's tags, so it takes the
+            // app-wide write lock (taken here, never inside the embed).
+            let embed_outcome = {
+                let _guard = crate::utils::file_locks::global().lock(video_path).await;
+                embed_and_remove_sidecar(video_path)
+            };
+            match embed_outcome {
                 EmbedOutcome::Embedded {
                     sidecar_filename,
                     bytes_embedded,
@@ -3585,12 +3642,19 @@ pub(crate) fn spawn_companion_downloads(
                     // companion AC3 ran on a track Apple Music doesn't ship in
                     // AC3, GAMDL produced 0 files, but the activity log said
                     // "Companion download complete (tier 0, codec: ac3)".
-                    let pre_run_audio_count = opts
+                    //
+                    // The list itself (not just its length) is kept: the tier's
+                    // format tags are written only to the files this tier adds
+                    // (`tier_new_m4a`), never to the main download's files or to
+                    // older ones. Same walk and same filter as
+                    // `count_audio_files_in_directory`, so the count is unchanged.
+                    let before_tier: std::collections::BTreeSet<std::path::PathBuf> = opts
                         .output_path
                         .as_deref()
                         .map(std::path::Path::new)
-                        .map(count_audio_files_in_directory)
-                        .unwrap_or(0);
+                        .map(super::lyrics_pass::audio_files_in)
+                        .unwrap_or_default();
+                    let pre_run_audio_count = before_tier.len();
 
                     let run_result = super::companion_supervisor::run_supervised(
                         &supervisor_app,
@@ -3634,12 +3698,13 @@ pub(crate) fn spawn_companion_downloads(
                             // this check, the companion task records a false
                             // success — confusing for the user when checking
                             // history / diagnosing missing companions.
-                            let post_run_audio_count = opts
+                            let after_tier: std::collections::BTreeSet<std::path::PathBuf> = opts
                                 .output_path
                                 .as_deref()
                                 .map(std::path::Path::new)
-                                .map(count_audio_files_in_directory)
-                                .unwrap_or(0);
+                                .map(super::lyrics_pass::audio_files_in)
+                                .unwrap_or_default();
+                            let post_run_audio_count = after_tier.len();
                             if post_run_audio_count <= pre_run_audio_count
                                 && tier_done_without_new_files(
                                     already_there.load(Ordering::Relaxed),
@@ -3762,20 +3827,34 @@ pub(crate) fn spawn_companion_downloads(
                                     album_hint.as_deref(),
                                 )
                                 .unwrap_or_else(|| output_dir.clone());
-                                match super::metadata_tag_service::apply_codec_metadata_tags(
-                                    &tag_pass_target,
+                                // **Only the files THIS tier added** get its format
+                                // tags (#1442). The folder-wide pass used to write
+                                // this tier's tags (for example "lossless") into the
+                                // main download's files, earlier copies and older
+                                // downloads in the same folder. When the album
+                                // folder was found, files outside it are left out
+                                // too (another download's files can appear while
+                                // this tier runs). Each file is tagged under the
+                                // app-wide write lock; the tagging function itself
+                                // takes no lock.
+                                let album_dir = std::path::Path::new(&tag_pass_target);
+                                let narrowed = album_dir.is_dir() && tag_pass_target != *output_dir;
+                                let tagged = tag_tier_additions(
+                                    &before_tier,
+                                    &after_tier,
+                                    narrowed.then_some(album_dir),
                                     codec,
-                                ) {
-                                    Ok(count) if count > 0 => {
-                                        log::info!(
-                                            "Tagged {} companion file(s) with {} metadata in {} for {}",
-                                            count, stream_codec, tag_pass_target, comp_dl_id
-                                        );
-                                    }
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        log::debug!("Companion metadata tagging failed for {comp_dl_id}: {e}");
-                                    }
+                                    &comp_dl_id,
+                                )
+                                .await;
+                                if tagged > 0 {
+                                    log::info!(
+                                        "Tagged {} companion file(s) with {} metadata in {} for {}",
+                                        tagged,
+                                        stream_codec,
+                                        tag_pass_target,
+                                        comp_dl_id
+                                    );
                                 }
 
                                 // #843: lyrics conversion was previously called
@@ -3938,13 +4017,15 @@ pub(crate) fn spawn_companion_downloads(
                                 queue_artist.as_deref(),
                                 queue_album.as_deref(),
                             );
-                        if let Some(line) = super::companion_lyrics::recover_pending(
+                        if let Some(line) = super::companion_lyrics::recover_pending_locked(
+                            crate::utils::file_locks::global(),
                             pending_main_handle.as_ref(),
                             &settings,
                             names_artist.as_deref(),
                             names_title.as_deref(),
                             &catch_up_stop,
                         )
+                        .await
                         .as_ref()
                         .and_then(super::companion_lyrics::recovery_line)
                         {
@@ -4045,7 +4126,8 @@ pub(crate) fn spawn_companion_downloads(
                     copy_artist.as_deref(),
                     copy_title.as_deref(),
                     &stop,
-                );
+                )
+                .await;
                 if let Some(line) = super::companion_lyrics::summary_line(&summary) {
                     emit_download_log(&comp_app, &comp_dl_id, &line);
                 }

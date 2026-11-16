@@ -1025,19 +1025,53 @@ pub fn process_queue(
             // succeeded — producing the user-visible "Complete" badge on
             // an item where every single track was actually skipped
             // (#831).
-            let pre_run_audio_count = download_options
-                .output_path
-                .as_deref()
-                .map(std::path::Path::new)
-                .map(count_audio_files_in_directory)
-                .unwrap_or(0);
-
-            // The music videos already in the download folder, taken at the
-            // same moment, so enrichment can tell this download's videos
-            // from older ones without trusting file times (#1441). `None`
-            // when the folder is unknown or the walk failed.
-            let videos_before_run: Option<std::collections::HashSet<std::path::PathBuf>> =
-                match primary_download_folder.clone() {
+            //
+            // The music videos already in the download folder are taken at
+            // the same moment, so enrichment can tell this download's videos
+            // from older ones without trusting file times (#1441). When the
+            // counted folder is also the download folder (the usual case),
+            // one walk gives both answers. The video list is `None` when the
+            // folder is unknown or the walk failed.
+            let same_folder = match (
+                download_options.output_path.as_deref(),
+                primary_download_folder.as_deref(),
+            ) {
+                (Some(a), Some(b)) => std::path::Path::new(a) == std::path::Path::new(b),
+                _ => false,
+            };
+            let (pre_run_audio_count, videos_before_run): (
+                usize,
+                Option<std::collections::HashSet<std::path::PathBuf>>,
+            ) = if same_folder {
+                let folder = primary_download_folder.clone().unwrap_or_default();
+                match tokio::task::spawn_blocking(move || {
+                    super::lyrics_pass::audio_count_and_videos_before_run(std::path::Path::new(
+                        &folder,
+                    ))
+                })
+                .await
+                {
+                    Ok((count, videos)) => (count, Some(videos)),
+                    // The walk itself failed: fall back to the plain count,
+                    // and no video list.
+                    Err(_) => (
+                        download_options
+                            .output_path
+                            .as_deref()
+                            .map(std::path::Path::new)
+                            .map(count_audio_files_in_directory)
+                            .unwrap_or(0),
+                        None,
+                    ),
+                }
+            } else {
+                let count = download_options
+                    .output_path
+                    .as_deref()
+                    .map(std::path::Path::new)
+                    .map(count_audio_files_in_directory)
+                    .unwrap_or(0);
+                let videos = match primary_download_folder.clone() {
                     Some(folder) => tokio::task::spawn_blocking(move || {
                         super::lyrics_pass::videos_before_run(std::path::Path::new(&folder))
                     })
@@ -1045,6 +1079,8 @@ pub fn process_queue(
                     .ok(),
                     None => None,
                 };
+                (count, videos)
+            };
 
             // Run the GAMDL download with real-time event forwarding.
             // This function handles subprocess spawning, output parsing,
@@ -2363,10 +2399,23 @@ pub fn process_queue(
                                     );
                                     match super::apple_music_api::fetch_itunes_lookup(&aid).await {
                                         Ok(Some(itunes_tracks)) => {
-                                            let count = super::metadata_tag_service::apply_itunes_supplementary_tags(
-                                                &album_dir,
-                                                &itunes_tracks,
-                                            );
+                                            // The tag writes are file work that can wait on a
+                                            // slow drive and on the app-wide write lock, so
+                                            // they run on a blocking thread (which is also
+                                            // where that lock may be waited for), held in the
+                                            // in-flight tracker like the other writing jobs.
+                                            let step0_dir = album_dir.clone();
+                                            let count = super::lyrics_steps::run_blocking_held(
+                                                &enrich_in_flight,
+                                                move || {
+                                                    super::metadata_tag_service::apply_itunes_supplementary_tags(
+                                                        &step0_dir,
+                                                        &itunes_tracks,
+                                                    )
+                                                },
+                                            )
+                                            .await
+                                            .unwrap_or(0);
                                             if count > 0 {
                                                 emit_download_log(
                                                     &enrich_app,
@@ -3842,9 +3891,12 @@ pub fn process_queue(
                             // parallel without racing on the tag-write
                             // critical section. MusicBrainz doesn't touch
                             // audio files at all, so it never contends.
-                            let enrich_file_locks = std::sync::Arc::new(
-                                crate::utils::file_locks::FileWriteLocks::new(),
-                            );
+                            //
+                            // This is the ONE app-wide lock map, not a map made for
+                            // this download: the failure path's extra copies, the
+                            // next queued item and actions such as a Library
+                            // re-download can all be writing the same files.
+                            let enrich_file_locks = crate::utils::file_locks::global().clone();
                             let acoustid_file_locks = enrich_file_locks.clone();
                             let replaygain_file_locks = enrich_file_locks.clone();
 
@@ -4789,13 +4841,15 @@ pub fn process_queue(
                                                     })
                                             };
                                             if let Some(line) =
-                                                super::companion_lyrics::recover_pending(
+                                                super::companion_lyrics::recover_pending_locked(
+                                                    crate::utils::file_locks::global(),
                                                     Some(&completion_pending_main),
                                                     &settings,
                                                     names_artist.as_deref(),
                                                     names_title.as_deref(),
                                                     &stop,
                                                 )
+                                                .await
                                                 .as_ref()
                                                 .and_then(super::companion_lyrics::recovery_line)
                                             {

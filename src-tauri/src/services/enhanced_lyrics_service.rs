@@ -404,6 +404,10 @@ pub fn ttml_has_word_timing(ttml_content: &str) -> bool {
 /// Uses the `mp4ameta` crate to read the existing tag, set the lyrics data,
 /// and write back. This preserves all other existing metadata (artwork, track
 /// info, etc.) while updating only the lyrics atom.
+///
+/// Takes no write lock itself. The caller's per-file loop must hold the
+/// app-wide lock for `file_path` (`utils::file_locks::global()`), because
+/// the lock is not re-entrant.
 pub fn embed_enhanced_lrc_in_file(file_path: &Path, lrc_content: &str) -> Result<(), String> {
     let mut tag = Tag::read_from_path(file_path)
         .map_err(|e| format!("Failed to read M4A tags from {}: {e}", file_path.display()))?;
