@@ -12,6 +12,14 @@ This changelog is automatically generated from [conventional commits](https://ww
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
 - Update CHANGELOG.md [skip ci]
+- Update CHANGELOG.md [skip ci]
+
+### 🧹 Maintenance
+
+- **(rust)** Bump toolchain to 1.100.0 (#1422)
+
+Bumps the pinned Rust toolchain on main from 1.99.1 to 1.100.0, editing only src-tauri/rust-toolchain.toml. CI (including clippy -D warnings on all three platforms) passed on 1.100.0.
+
 
 ## [1.10.14] - 2026-11-02
 
