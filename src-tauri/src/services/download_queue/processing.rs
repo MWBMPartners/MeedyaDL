@@ -2213,9 +2213,13 @@ pub fn process_queue(
                             //    copies start only now, so nothing lands
                             //    beside a file whose name may still change.
                             //
-                            // The primary download's own files, taken now.
-                            // Steps 1b, 5, 6 and 8 work on these only.
-                            let mut primary_files: Vec<std::path::PathBuf> =
+                            // Every audio file in the folder, taken now. Step 1b
+                            // and the GAMDL pass place tracks among these; Step 1
+                            // tags them all (its album check is what tells this
+                            // download's files from the rest); the per-file
+                            // renames and the companions' format checks use only
+                            // THIS download's share (`this_download_paths`).
+                            let primary_files: Vec<std::path::PathBuf> =
                                 super::metadata_tag_service::collect_m4a_files(&album_dir);
                             // Which of them this download wrote, judged now —
                             // Step 0 rewrites every file's tags, after which
@@ -2468,39 +2472,38 @@ pub fn process_queue(
                                 (Vec::new(), Vec::new())
                             };
 
-                            // THIS download's own primary tracks: detected
-                            // format, disc and track, read now while every file
-                            // is still where the snapshot found it
-                            // (`is_this_downloads_file`). Used only for the
-                            // per-track list a mixed-album companion asks for;
-                            // the format PROTECTION list comes from the renames
-                            // below, so it always matches what was named by
-                            // format.
-                            let this_downloads_files: Vec<&(std::path::PathBuf, SongCodec)> = file_codecs
+                            // THIS download's own files, out of everything the
+                            // snapshot found in the folder (earlier downloads,
+                            // earlier extra-format copies and other albums can
+                            // share it): written by this run, or named the way it
+                            // names its files unless their album did not match
+                            // (`is_this_downloads_file`). Judged now, while every
+                            // file is still where the snapshot found it. Only
+                            // these get the per-file renames and decide which
+                            // formats the main download is in; other files in the
+                            // folder are left exactly as they are.
+                            let this_download_paths: Vec<std::path::PathBuf> = primary_files
                                 .iter()
-                                .filter(|(path, _)| {
+                                .filter(|path| {
                                     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
                                     super::lyrics_pass::is_this_downloads_file(
-                                        fresh_files.contains(path),
+                                        fresh_files.contains(*path),
                                         super::lyrics_pass::stem_matches_primary_name(stem, primary_suffix),
                                         album_metadata
                                             .as_ref()
-                                            .map(|_| album_matched_files.contains(path)),
+                                            .map(|_| album_matched_files.contains(*path)),
                                     )
                                 })
+                                .cloned()
                                 .collect();
-                            let mut primary_tracks_by_format: Vec<(SongCodec, u32, u32)> = Vec::new();
-                            // This download's songs whose disc or track number
-                            // could not be read (an unknown disc is never
-                            // guessed as disc 1): counted, not requested.
-                            let mut unplaceable_songs: Vec<SongCodec> = Vec::new();
-                            for (path, c) in &this_downloads_files {
-                                let n = super::lyrics_pass::read_audio_numbers(path, false, None);
-                                match (n.disc, n.track) {
-                                    (Some(d), Some(t)) => primary_tracks_by_format.push((c.clone(), d, t)),
-                                    _ => unplaceable_songs.push(c.clone()),
-                                }
-                            }
+                            let split = super::lyrics_pass::split_this_downloads_formats(
+                                &this_download_paths,
+                                &file_codecs,
+                                |path| {
+                                    let n = super::lyrics_pass::read_audio_numbers(path, false, None);
+                                    n.disc.zip(n.track)
+                                },
+                            );
                             // The album's tracks (disc, track, song ID), for
                             // per-track song links.
                             let album_tracks: Vec<(u32, u32, String)> = album_metadata
@@ -3145,6 +3148,7 @@ pub fn process_queue(
                             // now held until this is done, and are pointed at
                             // whichever folder really holds the files.
                             let mut file_codecs = file_codecs;
+                            let mut this_download_paths = this_download_paths;
                             if enrich_settings.content_advisory_in_filenames {
                                 if let Some(ref meta) = album_metadata {
                                     let new_dir = super::metadata_tag_service::apply_advisory_folder_suffix(
@@ -3156,8 +3160,8 @@ pub fn process_queue(
                                             std::path::PathBuf::from(&album_dir),
                                             std::path::PathBuf::from(&new_dir),
                                         );
-                                        primary_files = super::lyrics_pass::remap_under_renamed_folder(
-                                            &primary_files,
+                                        this_download_paths = super::lyrics_pass::remap_under_renamed_folder(
+                                            &this_download_paths,
                                             &old,
                                             &new,
                                         );
@@ -3188,12 +3192,15 @@ pub fn process_queue(
                             // of their files instead, so none can take a
                             // primary file's plain name.
                             let every_file_has_its_format = codec.is_some()
-                                && primary_files
+                                && this_download_paths
                                     .iter()
                                     .filter(|p| p.is_file())
                                     .all(|p| file_codecs.iter().any(|(f, _)| f == p));
+                            // Only THIS download's files are renamed. Older
+                            // files in the folder keep their names (a later
+                            // download used to rename every tagged file there).
                             let renamed_primary = super::metadata_tag_service::apply_deferred_file_renames(
-                                &primary_files,
+                                &this_download_paths,
                                 album_metadata.as_ref(),
                                 &file_codecs,
                                 enrich_settings.content_advisory_in_filenames,
@@ -3218,9 +3225,10 @@ pub fn process_queue(
                                 every_file_has_its_format
                                     && super::metadata_tag_service::renames_complete(&renamed_primary),
                                 detected_codecs,
-                                primary_tracks_by_format,
+                                split.tracks,
                                 album_tracks,
-                                unplaceable_songs,
+                                split.unplaceable,
+                                split.folder_only_codecs,
                             );
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));

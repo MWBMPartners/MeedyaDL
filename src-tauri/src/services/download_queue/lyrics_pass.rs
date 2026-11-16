@@ -752,6 +752,10 @@ pub(crate) struct CompanionGateState {
     /// track number could not be read: they cannot be requested on their
     /// own, and are counted in the "left without an extra copy" line.
     pub unplaceable: Vec<SongCodec>,
+    /// Formats found only among OTHER files in the folder, never in this
+    /// download: a companion in such a format runs normally but with
+    /// overwrite off, so it never replaces somebody else's file.
+    pub folder_only_codecs: Vec<SongCodec>,
 }
 
 /// Enrichment's end of the gate. Dropping it — an early return, a panic,
@@ -783,6 +787,7 @@ impl CompanionGate {
         primary_tracks: Vec<(SongCodec, u32, u32)>,
         album_tracks: Vec<(u32, u32, String)>,
         unplaceable: Vec<SongCodec>,
+        folder_only_codecs: Vec<SongCodec>,
     ) {
         self.0.send_modify(|s| {
             s.renames_done = renames_done;
@@ -790,6 +795,7 @@ impl CompanionGate {
             s.primary_tracks = primary_tracks;
             s.album_tracks = album_tracks;
             s.unplaceable = unplaceable;
+            s.folder_only_codecs = folder_only_codecs;
         });
         // `Drop` sets `released`.
     }
@@ -905,6 +911,51 @@ pub(crate) fn is_this_downloads_file(
     album_matched: Option<bool>,
 ) -> bool {
     fresh || (name_matches_primary && album_matched != Some(false))
+}
+
+/// This download's files sorted for the companions (see
+/// [`split_this_downloads_formats`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ThisDownloadsFormats {
+    /// Each of this download's tagged files with readable numbers:
+    /// format, disc, track.
+    pub tracks: Vec<(SongCodec, u32, u32)>,
+    /// The format of each of this download's tagged files whose disc or
+    /// track number could not be read.
+    pub unplaceable: Vec<SongCodec>,
+    /// Formats found only among OTHER files in the folder (earlier
+    /// downloads, earlier copies, other albums) — never in this download.
+    pub folder_only_codecs: Vec<SongCodec>,
+}
+
+/// Sorts the tagged files (`file_codecs`, every file in the folder) into
+/// this download's (`this_download`) and the rest. `numbers` reads a
+/// file's disc and track (`None` when either is unreadable).
+pub(crate) fn split_this_downloads_formats(
+    this_download: &[PathBuf],
+    file_codecs: &[(PathBuf, SongCodec)],
+    numbers: impl Fn(&Path) -> Option<(u32, u32)>,
+) -> ThisDownloadsFormats {
+    let mut out = ThisDownloadsFormats::default();
+    let mut own_codecs: Vec<&SongCodec> = Vec::new();
+    for (path, codec) in file_codecs {
+        if this_download.contains(path) {
+            own_codecs.push(codec);
+            match numbers(path) {
+                Some((d, t)) => out.tracks.push((codec.clone(), d, t)),
+                None => out.unplaceable.push(codec.clone()),
+            }
+        }
+    }
+    for (path, codec) in file_codecs {
+        if !this_download.contains(path)
+            && !own_codecs.contains(&codec)
+            && !out.folder_only_codecs.contains(codec)
+        {
+            out.folder_only_codecs.push(codec.clone());
+        }
+    }
+    out
 }
 
 /// The companions' format protection list: the format detected in every
@@ -1485,6 +1536,34 @@ mod tests {
     }
 
     #[test]
+    fn a_stale_copy_in_the_folder_is_not_this_downloads_format() {
+        // This download: two Atmos tracks (one unreadable). In the folder
+        // too: a stale `03 X [Lossless]` from an earlier download.
+        let a = PathBuf::from("/m/01 A.m4a");
+        let b = PathBuf::from("/m/02 B.m4a");
+        let stale = PathBuf::from("/m/03 X [Lossless].m4a");
+        let files = vec![
+            (a.clone(), SongCodec::Atmos),
+            (b.clone(), SongCodec::Atmos),
+            (stale.clone(), SongCodec::Alac),
+        ];
+        let split = split_this_downloads_formats(&[a.clone(), b.clone()], &files, |p| {
+            (p == a.as_path()).then_some((1, 1))
+        });
+        assert_eq!(split.tracks, vec![(SongCodec::Atmos, 1, 1)]);
+        assert_eq!(split.unplaceable, vec![SongCodec::Atmos]);
+        // ALAC is only in the stale file: not this download's format.
+        assert_eq!(split.folder_only_codecs, vec![SongCodec::Alac]);
+        // A format both have is this download's, never "folder only".
+        let both = split_this_downloads_formats(
+            std::slice::from_ref(&a),
+            &[(a.clone(), SongCodec::Alac), (stale, SongCodec::Alac)],
+            |_| Some((1, 1)),
+        );
+        assert!(both.folder_only_codecs.is_empty());
+    }
+
+    #[test]
     fn files_from_another_album_never_count_as_this_downloads() {
         // Written by this download: always counts — even when the #452
         // album guard failed (edition wording, a different artist tag).
@@ -1824,6 +1903,7 @@ mod tests {
             vec![(SongCodec::Alac, 1, 1)],
             vec![(1, 1, "100".to_string())],
             vec![SongCodec::Aac],
+            vec![SongCodec::Ac3],
         );
         let state = waiting.await.unwrap().unwrap();
         assert!(state.released);
@@ -1832,6 +1912,7 @@ mod tests {
         assert_eq!(state.primary_tracks, vec![(SongCodec::Alac, 1, 1)]);
         assert_eq!(state.album_tracks, vec![(1, 1, "100".to_string())]);
         assert_eq!(state.unplaceable, vec![SongCodec::Aac]);
+        assert_eq!(state.folder_only_codecs, vec![SongCodec::Ac3]);
         assert_eq!(
             state.album_dir.as_deref(),
             Some("/Music/A/Album [Explicit]")

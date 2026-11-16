@@ -2812,7 +2812,8 @@
             ),
             AttemptLinks::Only {
                 links: vec!["https://music.apple.com/us/album/_/1440857781?i=11".to_string()],
-                left_out: 2,
+                unmapped: 1,
+                unreadable: 1,
                 details_available: true,
             }
         );
@@ -2821,7 +2822,8 @@
             attempt_links(&SongCodec::Alac, true, &album, &primary, &[], &[]),
             AttemptLinks::Only {
                 links: vec![],
-                left_out: 2,
+                unmapped: 2,
+                unreadable: 0,
                 details_available: false,
             }
         );
@@ -2846,19 +2848,115 @@
     #[test]
     fn mixed_album_lines_say_why_songs_got_no_copy() {
         assert_eq!(
-            mixed_album_lines(&SongCodec::Alac, 3, 1, true),
+            mixed_album_lines(&SongCodec::Alac, 3, 1, 0, true),
             vec!["1 song(s) were left without an extra copy in Lossless (ALAC) because their Apple Music details could not be matched.".to_string()]
         );
         assert_eq!(
-            mixed_album_lines(&SongCodec::Alac, 0, 2, false),
+            mixed_album_lines(&SongCodec::Alac, 0, 2, 0, false),
             vec![
                 "2 song(s) were left without an extra copy in Lossless (ALAC) because this album's song details were not available.".to_string(),
                 "No extra copy in Lossless (ALAC) was made for this album: none of its songs could be asked for on their own.".to_string(),
             ]
         );
+        // Unreadable track numbers get their own sentence.
+        assert_eq!(
+            mixed_album_lines(&SongCodec::Alac, 2, 0, 3, true),
+            vec!["3 song(s) were left without an extra copy in Lossless (ALAC) because their track numbers could not be read.".to_string()]
+        );
         // Nothing requested and nothing counted still says so.
-        assert_eq!(mixed_album_lines(&SongCodec::Alac, 0, 0, true).len(), 1);
-        assert!(mixed_album_lines(&SongCodec::Alac, 2, 0, true).is_empty());
+        assert_eq!(mixed_album_lines(&SongCodec::Alac, 0, 0, 0, true).len(), 1);
+        assert!(mixed_album_lines(&SongCodec::Alac, 2, 0, 0, true).is_empty());
+    }
+
+    /// A stale `03 X [Lossless]` from an earlier download sits in the folder
+    /// of an all-Atmos download. ALAC is not this download's format: the
+    /// ALAC copy asks for the whole album as usual (not per track, not
+    /// skipped, no "already in that format" line), with overwrite off so the
+    /// stale file is never replaced; and the stale file is not renamed.
+    #[test]
+    fn a_stale_copy_in_the_folder_does_not_make_the_album_mixed() {
+        let dir = tempfile::tempdir().unwrap();
+        let mine = dir.path().join("01 A.m4a");
+        let stale = dir.path().join("03 X [Lossless].m4a");
+        std::fs::write(&mine, b"a").unwrap();
+        std::fs::write(&stale, b"x").unwrap();
+        let file_codecs = vec![(mine.clone(), SongCodec::Atmos), (stale.clone(), SongCodec::Alac)];
+        let this_download = vec![mine.clone()];
+        let split = super::lyrics_pass::split_this_downloads_formats(
+            &this_download,
+            &file_codecs,
+            |_| Some((1, 1)),
+        );
+        // Only this download's files are renamed.
+        let renamed = crate::services::metadata_tag_service::apply_deferred_file_renames(
+            &this_download,
+            None,
+            &file_codecs,
+            false,
+        );
+        assert!(stale.exists(), "the stale file must keep its name");
+        let primary_codecs = super::lyrics_pass::protection_codecs(&renamed);
+        assert_eq!(primary_codecs, vec![SongCodec::Atmos]);
+
+        let attempt = GamdlOptions {
+            song_codec_priority: Some("alac".into()),
+            ..GamdlOptions::default()
+        };
+        let plan = companion_attempt_naming(
+            &SongCodec::Alac,
+            true,
+            &attempt,
+            &PrimaryNaming::default(),
+            &primary_codecs,
+        )
+        .unwrap();
+        assert!(!plan.only_other_tracks);
+        let album = vec!["https://music.apple.com/us/album/x/1440857781".to_string()];
+        assert_eq!(
+            attempt_links(
+                &SongCodec::Alac,
+                plan.only_other_tracks,
+                &album,
+                &split.tracks,
+                &[],
+                &split.unplaceable
+            ),
+            AttemptLinks::All
+        );
+        assert!(keep_other_files(&SongCodec::Alac, &split.folder_only_codecs, &primary_codecs));
+        // A format this download has is never "somebody else's".
+        assert!(!keep_other_files(&SongCodec::Atmos, &split.folder_only_codecs, &primary_codecs));
+    }
+
+    /// This download's own mixed album still asks per track.
+    #[test]
+    fn this_downloads_own_mixed_album_is_still_split_by_track() {
+        let primary_codecs = vec![SongCodec::Atmos, SongCodec::Alac];
+        let attempt = GamdlOptions {
+            song_codec_priority: Some("alac".into()),
+            ..GamdlOptions::default()
+        };
+        let plan = companion_attempt_naming(
+            &SongCodec::Alac,
+            true,
+            &attempt,
+            &PrimaryNaming::default(),
+            &primary_codecs,
+        )
+        .unwrap();
+        assert!(plan.only_other_tracks);
+        let album = vec!["https://music.apple.com/us/album/x/1440857781".to_string()];
+        assert!(matches!(
+            attempt_links(
+                &SongCodec::Alac,
+                true,
+                &album,
+                &[(SongCodec::Atmos, 1, 1), (SongCodec::Alac, 1, 2)],
+                &[(1, 1, "11".to_string()), (1, 2, "12".to_string())],
+                &[]
+            ),
+            AttemptLinks::Only { ref links, .. } if links.len() == 1
+        ));
     }
 
     #[test]

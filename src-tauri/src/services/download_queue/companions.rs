@@ -480,7 +480,10 @@ pub(crate) enum AttemptLinks {
     /// at all (no developer key, for example).
     Only {
         links: Vec<String>,
-        left_out: usize,
+        /// Songs with no song ID.
+        unmapped: usize,
+        /// Songs whose disc/track number could not be read.
+        unreadable: usize,
         details_available: bool,
     },
     /// Not run, with the plain reason for the activity log.
@@ -533,30 +536,38 @@ pub(crate) fn attempt_links(
     let unplaceable_elsewhere = unplaceable.iter().filter(|c| *c != codec).count();
     AttemptLinks::Only {
         links,
-        left_out: unmapped.len() + unplaceable_elsewhere,
+        unmapped: unmapped.len(),
+        unreadable: unplaceable_elsewhere,
         details_available: !album_tracks.is_empty(),
     }
 }
 
 /// The plain activity-log lines for a mixed-album attempt that asks for
-/// `links` songs and leaves `left_out` without a copy. Always says
-/// something when nothing is requested at all.
+/// `links` songs: one line for songs with no song ID (`unmapped`), one for
+/// songs whose track numbers could not be read (`unreadable`), and always
+/// one when nothing at all is requested.
 pub(crate) fn mixed_album_lines(
     codec: &SongCodec,
     links: usize,
-    left_out: usize,
+    unmapped: usize,
+    unreadable: usize,
     details_available: bool,
 ) -> Vec<String> {
     let name = plain_codec_name(codec);
     let mut lines = Vec::new();
-    if left_out > 0 {
+    if unmapped > 0 {
         let why = if details_available {
             "their Apple Music details could not be matched"
         } else {
             "this album's song details were not available"
         };
         lines.push(format!(
-            "{left_out} song(s) were left without an extra copy in {name} because {why}."
+            "{unmapped} song(s) were left without an extra copy in {name} because {why}."
+        ));
+    }
+    if unreadable > 0 {
+        lines.push(format!(
+            "{unreadable} song(s) were left without an extra copy in {name} because their track numbers could not be read."
         ));
     }
     if links == 0 {
@@ -566,6 +577,7 @@ pub(crate) fn mixed_album_lines(
     }
     lines
 }
+
 
 /// How the primary run named its files, for the companions' guard.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -666,6 +678,19 @@ pub(crate) fn companion_attempt_naming(
         return Ok(plan(apply_suffix, true));
     }
     Err(CompanionSkip::SameNames)
+}
+
+/// Whether an ordinary (whole-link) attempt must run with overwrite off:
+/// its format is found only among OTHER files in the folder (an earlier
+/// download, an earlier copy, another album), never in this download, so
+/// a file it would name the same way belongs to somebody else's download
+/// and must not be replaced.
+pub(crate) fn keep_other_files(
+    codec: &SongCodec,
+    folder_only_codecs: &[SongCodec],
+    primary_codecs: &[SongCodec],
+) -> bool {
+    folder_only_codecs.contains(codec) && !primary_codecs.contains(codec)
 }
 
 /// A format's name for the activity log, without the "(Experimental)"
@@ -2926,6 +2951,7 @@ pub(crate) fn spawn_companion_downloads(
             let mut primary_tracks: Vec<(SongCodec, u32, u32)> = Vec::new();
             let mut album_tracks: Vec<(u32, u32, String)> = Vec::new();
             let mut unplaceable: Vec<SongCodec> = Vec::new();
+            let mut folder_only_codecs: Vec<SongCodec> = Vec::new();
             if let Some(hold) = held_until {
                 let mut waiter = hold.waiter;
                 let state = super::lyrics_pass::wait_for_companion_gate(&mut waiter, || {
@@ -2944,6 +2970,7 @@ pub(crate) fn spawn_companion_downloads(
                 primary_tracks.clone_from(&state.primary_tracks);
                 album_tracks.clone_from(&state.album_tracks);
                 unplaceable.clone_from(&state.unplaceable);
+                folder_only_codecs.clone_from(&state.folder_only_codecs);
                 if !state.renames_done {
                     // The primary files may still have their plain names
                     // (enrichment ended early, or the format could not be
@@ -3161,19 +3188,33 @@ pub(crate) fn spawn_companion_downloads(
                         &album_tracks,
                         &unplaceable,
                     ) {
-                        AttemptLinks::All => comp_urls.clone(),
+                        AttemptLinks::All => {
+                            // The format exists only in OTHER files in the
+                            // folder (an earlier download, another album):
+                            // run the normal request, but never replace an
+                            // existing file, overriding the overwrite setting.
+                            if keep_other_files(codec, &folder_only_codecs, &primary_codecs) {
+                                opts.overwrite = Some(false);
+                            }
+                            comp_urls.clone()
+                        }
                         AttemptLinks::Skip(reason) => {
                             emit_download_log(&comp_app, &comp_dl_id, &reason);
                             continue;
                         }
                         AttemptLinks::Only {
                             links,
-                            left_out,
+                            unmapped,
+                            unreadable,
                             details_available,
                         } => {
-                            for line in
-                                mixed_album_lines(codec, links.len(), left_out, details_available)
-                            {
+                            for line in mixed_album_lines(
+                                codec,
+                                links.len(),
+                                unmapped,
+                                unreadable,
+                                details_available,
+                            ) {
                                 emit_download_log(&comp_app, &comp_dl_id, &line);
                             }
                             if links.is_empty() {
