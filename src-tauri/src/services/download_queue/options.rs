@@ -324,16 +324,16 @@ pub(crate) fn merge_options(
     }
     options.truncate = settings.truncate;
 
-    if !settings.output_path.is_empty() {
-        // Validate output path for traversal sequences (#459)
-        match super::config_service::validate_path_safe(&settings.output_path) {
-            Ok(_) => {
-                options.output_path = Some(settings.output_path.clone());
-            }
-            Err(e) => {
-                log::warn!("Output path rejected: {e}");
-            }
-        }
+    // A folder with a ".." step is left off the command line (and out of
+    // config.ini); the download then refuses it by name (#1419).
+    if let Some(folder) =
+        crate::services::config_service::usable_download_folder(&settings.output_path)
+    {
+        options.output_path = Some(folder);
+    } else if let Some(why) =
+        crate::services::config_service::download_folder_refusal(&settings.output_path)
+    {
+        log::warn!("Output path rejected: {why}");
     }
 
     // Resolve temp_path: use the user's custom path if set, otherwise fall

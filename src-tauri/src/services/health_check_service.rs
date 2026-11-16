@@ -1078,6 +1078,14 @@ pub async fn wrapper_v2_logout(wrapper_url: &str) -> Result<(), String> {
 /// - `None` if the directory is writable
 /// - `Some(PreflightWarning)` if any issue is detected
 pub async fn check_output_path(output_path: &str) -> Option<PreflightWarning> {
+    // A folder MeedyaDL refuses is reported by name before anything is
+    // touched: no test file is written there (#1419).
+    if let Some(message) = crate::services::config_service::download_folder_refusal(output_path) {
+        return Some(PreflightWarning {
+            check: PreflightCheck::OutputPath,
+            message,
+        });
+    }
     let path_owned = output_path.to_string();
 
     let probe_result = tokio::time::timeout(
@@ -1222,6 +1230,18 @@ fn probe_write_access(dir: &std::path::Path, display_path: &str) -> Option<Prefl
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn a_folder_with_a_parent_step_is_refused_by_name_and_nothing_is_written() {
+        let base = std::env::temp_dir().join("meedyadl-1419-check");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let folder = format!("{}/sub/../out", base.display());
+        let w = super::check_output_path(&folder).await.expect("refused");
+        assert!(w.message.contains(&folder), "{}", w.message);
+        // Nothing was created or written, not even the folder.
+        assert_eq!(std::fs::read_dir(&base).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     // ── The name a pre-flight check travels under (#1156) ──────────────
     //

@@ -750,11 +750,10 @@ fn build_gamdl_command(
             if let Ok(settings) = saved {
                 let folder = settings.output_path.trim();
                 if !folder.is_empty() {
-                    if crate::services::config_service::validate_path_safe(folder).is_err() {
-                        return Err(format!(
-                            "The download folder \"{folder}\" cannot be used, because it contains \"..\". \
-                             Choose a folder in Settings, then try again."
-                        ));
+                    if let Some(why) =
+                        crate::services::config_service::download_folder_refusal(folder)
+                    {
+                        return Err(why);
                     }
                     // A folder saved after the item was queued: use it, as
                     // 3.x does (it reads the folder from the settings file
@@ -771,6 +770,23 @@ fn build_gamdl_command(
         }
         return build_gamdl_v4_command(&python_bin, urls, options);
     }
+
+    // GAMDL 3 takes the download folder from the command line, or, when the
+    // download has none of its own, from the config.ini written from the
+    // saved settings. Either way a folder MeedyaDL refuses (a ".." step)
+    // must stop the download here, by name, rather than be used (#1419).
+    let saved_folder = if options
+        .output_path
+        .as_deref()
+        .is_none_or(|p| p.trim().is_empty())
+    {
+        crate::services::config_service::load_settings(app)
+            .ok()
+            .map(|s| s.output_path)
+    } else {
+        None
+    };
+    refuse_unusable_download_folder_v3(options.output_path.as_deref(), saved_folder.as_deref())?;
 
     // Start building the command: `python -m gamdl`
     // The `-m gamdl` flag runs GAMDL as a Python module, equivalent to running
@@ -895,11 +911,8 @@ pub(crate) fn gamdl_v4_args(
         .as_deref()
         .filter(|p| !p.trim().is_empty())
     {
-        if super::config_service::validate_path_safe(folder).is_err() {
-            return Err(format!(
-                "The download folder \"{folder}\" cannot be used, because it contains \"..\". \
-                 Choose a folder in Settings, then try again."
-            ));
+        if let Some(why) = super::config_service::download_folder_refusal(folder) {
+            return Err(why);
         }
     }
     let filled;
@@ -1111,6 +1124,24 @@ fn tool_paths_accepted_on(version: Option<&str>) -> bool {
     version.is_some_and(crate::services::gamdl_capabilities::tool_path_flags_accepted_on)
 }
 
+/// Decides, for GAMDL 3, whether the folder a download would use is refused.
+/// The download's own folder wins when it has one (not blank); otherwise the
+/// saved setting is what GAMDL would read from config.ini. Pure so it can be
+/// tested without an app handle (#1419).
+fn refuse_unusable_download_folder_v3(
+    own: Option<&str>,
+    saved: Option<&str>,
+) -> Result<(), String> {
+    let folder = match own.filter(|p| !p.trim().is_empty()) {
+        Some(f) => Some(f),
+        None => saved,
+    };
+    match folder.and_then(super::config_service::download_folder_refusal) {
+        Some(why) => Err(why),
+        None => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod refusal_agreement_tests {
     use crate::services::gamdl_capabilities::{
@@ -1199,6 +1230,24 @@ mod gamdl_v4_command_tests {
     fn a_link_that_could_read_as_an_option_is_refused() {
         let urls = vec!["--output-dir=/tmp".to_string()];
         assert!(gamdl_v4_args(&urls, &with_folder()).is_err());
+    }
+
+    #[test]
+    fn gamdl_3_refuses_a_folder_with_a_parent_step_from_either_source() {
+        use super::refuse_unusable_download_folder_v3 as check;
+        // Its own folder.
+        let e = check(Some("/a/../b"), None).unwrap_err();
+        assert!(e.contains("/a/../b"), "{e}");
+        // No folder of its own: the saved setting is read and refused.
+        let e = check(None, Some("/x/../y")).unwrap_err();
+        assert!(e.contains("/x/../y"), "{e}");
+        let e = check(Some("   "), Some("/x/../y")).unwrap_err();
+        assert!(e.contains("/x/../y"), "{e}");
+        // Its own safe folder wins over a refused saved one.
+        assert!(check(Some("/ok"), Some("/x/../y")).is_ok());
+        // Blank and spaces-only are never reported as containing "..".
+        assert!(check(None, Some("   ")).is_ok());
+        assert!(check(None, None).is_ok());
     }
 
     #[test]

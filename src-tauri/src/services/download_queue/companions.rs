@@ -1406,7 +1406,7 @@ pub(crate) async fn download_music_video_by_url(
     };
 
     let opts = crate::models::gamdl_options::GamdlOptions {
-        output_path: Some(settings.output_path.clone()),
+        output_path: crate::services::config_service::usable_download_folder(&settings.output_path),
         music_video_resolution: Some(settings.default_video_resolution.clone()),
         music_video_codec_priority: Some(settings.video_codec_priority_cli()),
         music_video_remux_format: Some(settings.default_video_remux_format.clone()),
@@ -1827,7 +1827,9 @@ pub(crate) async fn run_lyrics_fallback(
         let opts = GamdlOptions {
             synced_lyrics_format: Some(format.clone()),
             synced_lyrics_only: Some(true),
-            output_path: Some(settings.output_path.clone()),
+            output_path: crate::services::config_service::usable_download_folder(
+                &settings.output_path,
+            ),
             temp_path: Some(if settings.temp_path.is_empty() {
                 std::env::temp_dir()
                     .join("MeedyaDL")

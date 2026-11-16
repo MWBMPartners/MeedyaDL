@@ -1312,6 +1312,42 @@ pub fn validate_path_safe(path: &str) -> Result<&str, String> {
     Ok(path)
 }
 
+/// The ONE plain-English refusal for a download folder MeedyaDL will not
+/// use because it contains a ".." step (#1419).
+///
+/// Returns `None` when the folder is blank (a blank or spaces-only setting
+/// means "use the usual Music folder", and is never reported as containing
+/// "..") or is safe. Every place that decides whether a folder may be used
+/// (GAMDL 3 and 4 downloads, the config.ini writer, the before-download
+/// check) goes through this so the wording lives here and nowhere else.
+pub fn download_folder_refusal(folder: &str) -> Option<String> {
+    let trimmed = folder.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Checked with the outer spaces removed, as the GAMDL 4 path and the
+    // INI reader (which drops spaces at the ends of a value) both see it;
+    // the message still names the folder exactly as typed.
+    validate_path_safe(trimmed).err().map(|_| {
+        format!(
+            "The download folder \"{folder}\" {}. \
+             Choose a folder in Settings, then try again.",
+            crate::utils::process::DOWNLOAD_FOLDER_REFUSAL_MARK
+        )
+    })
+}
+
+/// The folder as long as it is non-blank and not refused; otherwise `None`.
+/// Used where a folder is handed on to a GAMDL run (extra-format runs) so a
+/// refused folder is never passed along (#1419).
+pub fn usable_download_folder(folder: &str) -> Option<String> {
+    if folder.trim().is_empty() || download_folder_refusal(folder).is_some() {
+        None
+    } else {
+        Some(folder.to_string())
+    }
+}
+
 fn settings_to_ini(settings: &AppSettings) -> String {
     let mut lines = Vec::new();
 
@@ -1464,8 +1500,18 @@ fn ini_cover_section(lines: &mut Vec<String>, settings: &AppSettings) {
 /// Appends output/path INI key-value pairs (`output_path`, `temp_path`, overwrite, truncate).
 fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Output directory for downloaded files. Only written if non-empty.
+    // A folder MeedyaDL refuses (a ".." step) is left out: GAMDL 3 reads
+    // this file as its defaults, so writing it would use the folder anyway
+    // (#1419). The download itself refuses it by name.
     if !settings.output_path.is_empty() {
-        lines.push(format!("output_path = {}", sanitize_ini_value(&settings.output_path)));
+        if let Some(why) = download_folder_refusal(&settings.output_path) {
+            log::warn!("Download folder left out of GAMDL's config.ini: {why}");
+        } else {
+            lines.push(format!(
+                "output_path = {}",
+                sanitize_ini_value(&settings.output_path)
+            ));
+        }
     }
     // Temp directory for intermediate files. If the user left this empty,
     // resolve to a "MeedyaDL" subdirectory within the OS temp directory so
@@ -2277,6 +2323,30 @@ mod tests {
         let settings = default_settings(); // output_path defaults to ""
         let ini = settings_to_ini(&settings);
         assert!(!ini.contains("output_path"));
+    }
+
+    #[test]
+    fn ini_leaves_out_a_folder_with_a_parent_step() {
+        // GAMDL 3 reads output_path from this file, so it must not be here (#1419).
+        let mut settings = default_settings();
+        settings.output_path = "/tmp/a/../music".to_string();
+        assert!(!settings_to_ini(&settings).contains("output_path"));
+    }
+
+    #[test]
+    fn download_folder_refusal_names_the_folder_and_ignores_blanks() {
+        let why = download_folder_refusal("/a/../b").unwrap();
+        assert!(why.contains("/a/../b") && why.contains("\"..\""), "{why}");
+        assert!(download_folder_refusal("   ").is_none());
+        assert!(download_folder_refusal("").is_none());
+        assert!(download_folder_refusal("/fine/folder").is_none());
+        // Outer spaces are ignored for the check (as GAMDL 4 and the INI
+        // reader see it) but the message names the folder as typed.
+        let spaced = download_folder_refusal(" ../music").unwrap();
+        assert!(spaced.contains("\" ../music\""), "{spaced}");
+        assert_eq!(usable_download_folder("/a/../b"), None);
+        assert_eq!(usable_download_folder("  "), None);
+        assert_eq!(usable_download_folder("/ok").as_deref(), Some("/ok"));
     }
 
     #[test]

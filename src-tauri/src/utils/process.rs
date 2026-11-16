@@ -1356,6 +1356,13 @@ pub fn is_io_error(error_message: &str) -> bool {
         || lower.contains("[errno 116]") // ESTALE on Linux
 }
 
+/// The fixed wording at the heart of MeedyaDL's own refusal of a download
+/// folder containing ".." (#1419; built in `config_service::download_folder_refusal`).
+/// `classify_error` looks for it first, because the refusal also contains
+/// the person's folder name, and a folder such as "/Users/author/network"
+/// would otherwise be sorted as a sign-in or network problem.
+pub const DOWNLOAD_FOLDER_REFUSAL_MARK: &str = "cannot be used, because it contains \"..\"";
+
 /// Classifies an error message into a named category for the React UI.
 ///
 /// Error categories serve two purposes:
@@ -1393,8 +1400,13 @@ pub fn is_io_error(error_message: &str) -> bool {
 pub fn classify_error(error_message: &str) -> &'static str {
     let lower = error_message.to_lowercase();
 
+    // MeedyaDL refused the download folder itself (#1419): a settings
+    // problem the person must fix, never retried and never sent down the
+    // format fallback chain, whatever words the folder name contains.
+    if error_message.contains(DOWNLOAD_FOLDER_REFUSAL_MARK) {
+        "io"
     // Authentication / cookie errors: user needs to provide valid credentials.
-    if lower.contains("cookie") || lower.contains("auth") || lower.contains("login") {
+    } else if lower.contains("cookie") || lower.contains("auth") || lower.contains("login") {
         "auth"
     // Filesystem I/O errors: cloud storage timeout, disk full, etc.
     // Checked before network because "operation timed out" contains "timed"
@@ -1888,6 +1900,17 @@ pub fn redact_cli_args(args: &[String]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1419: MeedyaDL's own folder refusal is a settings problem, sorted as
+    /// "io" (never retried, never a format fallback) even when the folder
+    /// name contains words the other categories look for.
+    #[test]
+    fn folder_refusal_is_io_whatever_the_folder_is_called() {
+        for folder in ["/Users/author/../x", "/network/../dns", "/drm/../connection"] {
+            let why = crate::services::config_service::download_folder_refusal(folder).unwrap();
+            assert_eq!(classify_error(&why), "io", "{why}");
+        }
+    }
 
     // ----------------------------------------------------------
     // parse_gamdl_output: Progress events
