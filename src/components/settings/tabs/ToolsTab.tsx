@@ -837,14 +837,16 @@ function GamdlVersionManagement({
         {/* Install recommended button */}
         <div className="flex items-center gap-2">
           <Button
-            variant="primary"
+            variant={installedVersion === recommended ? 'secondary' : 'primary'}
             size="sm"
             icon={<Download size={14} />}
             loading={isInstallingRecommended}
             disabled={anyBusy}
             onClick={handleInstallRecommended}
           >
-            Install recommended (v{recommended})
+            {installedVersion === recommended
+              ? `Reinstall (v${recommended})`
+              : `Install recommended (v${recommended})`}
           </Button>
           {installedVersion === recommended && (
             <span className="text-xs text-content-secondary">

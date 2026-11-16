@@ -49,6 +49,7 @@ const DEFAULT_CAPABILITIES: GamdlCapabilities = {
   native_codec_priority: false,
   ffmpeg_path: false,
   assets_api_unlocks_lossy_codecs: false,
+  wrapper_decrypt_host_port: false,
   // Conservative default: don't offer a PlayReady choice until the
   // probe confirms the installed GAMDL actually understands it (#1189).
   play_ready_drm: false,

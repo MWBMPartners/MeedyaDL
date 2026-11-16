@@ -151,6 +151,29 @@ export function uiLanguageOptions(...chosen: string[]): LanguageOption[] {
 }
 
 /**
+ * Which row of the interface-language list is shown as selected for a saved
+ * `ui_language` value (#1267). Empty means "auto". Otherwise an exact row
+ * wins; failing that, the row for the BASE language (the primary language
+ * subtag, compared without regard to case, per MATCH-020 of the media
+ * language policy), so a saved `de-AT` shows German. A value with no
+ * matching row shows "auto". This only decides what is DISPLAYED; the saved
+ * value is never changed by it.
+ */
+export function selectedUiLanguageValue(
+  saved: string | undefined,
+  options: readonly { value: string }[]
+): string {
+  const value = (saved ?? '').trim();
+  if (!value) return 'auto';
+  const exact = options.find((o) => o.value === value);
+  if (exact) return exact.value;
+  const primary = value.split(/[-_]/)[0] ?? '';
+  if (!/^[A-Za-z]{2,3}$/.test(primary)) return 'auto';
+  const base = options.find((o) => o.value.toLowerCase() === primary.toLowerCase());
+  return base ? base.value : 'auto';
+}
+
+/**
  * Turn whatever the browser/OS reports (e.g. "de-DE", "en-US", "fr") into
  * the base language code we key our locale files by (e.g. "de", "en",
  * "fr"). Falls back to "en" when nothing usable was reported.

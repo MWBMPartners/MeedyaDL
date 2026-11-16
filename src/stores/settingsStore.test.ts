@@ -317,6 +317,7 @@ beforeEach(() => {
     settings: BASE_SETTINGS,
     savedSettings: BASE_SETTINGS,
     isLoading: false,
+    hasLoaded: true,
     isDirty: false,
     error: null,
   });
@@ -483,6 +484,24 @@ describe('settingsStore', () => {
   // saveSettings
   // =========================================================================
   describe('saveSettings', () => {
+    it('refuses to save before a load has succeeded (#1237)', async () => {
+      useSettingsStore.setState({ hasLoaded: false });
+      await expect(useSettingsStore.getState().saveSettings()).rejects.toThrow(
+        'Settings could not be loaded, so they were not saved. Try again or restart MeedyaDL.',
+      );
+      expect(commands.saveSettings).not.toHaveBeenCalled();
+    });
+
+    it('a failed load keeps saving refused, a later successful load allows it', async () => {
+      useSettingsStore.setState({ hasLoaded: false });
+      vi.mocked(commands.getSettings).mockRejectedValueOnce(new Error('boom'));
+      await useSettingsStore.getState().loadSettings();
+      expect(useSettingsStore.getState().hasLoaded).toBe(false);
+      vi.mocked(commands.getSettings).mockResolvedValueOnce(BASE_SETTINGS);
+      await useSettingsStore.getState().loadSettings();
+      expect(useSettingsStore.getState().hasLoaded).toBe(true);
+    });
+
     it('saves current settings to the backend', async () => {
       vi.mocked(commands.saveSettings).mockResolvedValueOnce(undefined);
 

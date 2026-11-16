@@ -34,6 +34,7 @@ import i18n, {
   LOCALES,
   OFFERED_LOCALES,
   uiLanguageOptions,
+  selectedUiLanguageValue,
   baseLanguageOf,
   changeUiLanguage,
   i18nOptions,
@@ -628,5 +629,25 @@ describe('uiLanguageOptions (polish pass M10)', () => {
       const keys = flattenKeys(files[code]);
       expect([...enKeys.keys()].filter((k) => !keys.has(k))).toEqual([]);
     }
+  });
+});
+
+describe('selectedUiLanguageValue (#1267)', () => {
+  const rows = [{ value: 'auto' }, { value: 'en' }, { value: 'de' }];
+  it('keeps auto for an empty value', () => {
+    expect(selectedUiLanguageValue('', rows)).toBe('auto');
+    expect(selectedUiLanguageValue(undefined, rows)).toBe('auto');
+  });
+  it('selects an exact row', () => {
+    expect(selectedUiLanguageValue('de', rows)).toBe('de');
+  });
+  it('selects the base language row for a regional form, ignoring case', () => {
+    expect(selectedUiLanguageValue('de-AT', rows)).toBe('de');
+    expect(selectedUiLanguageValue('DE-at', rows)).toBe('de');
+    expect(selectedUiLanguageValue('en-GB', rows)).toBe('en');
+  });
+  it('falls back to auto when no row matches or the value is malformed', () => {
+    expect(selectedUiLanguageValue('ja-JP', rows)).toBe('auto');
+    expect(selectedUiLanguageValue('???', rows)).toBe('auto');
   });
 });

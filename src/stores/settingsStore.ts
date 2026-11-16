@@ -313,6 +313,13 @@ interface SettingsState {
   isLoading: boolean;
 
   /**
+   * `true` once a `loadSettings()` has succeeded. Until then `settings` is
+   * the built-in placeholder, and saving it would overwrite the person's
+   * real file with placeholder values (#1237), so `saveSettings()` refuses.
+   */
+  hasLoaded: boolean;
+
+  /**
    * `true` when `updateSettings()` has been called but `saveSettings()` has not
    * yet been called (or has failed). The `<SettingsPage>` uses this to
    * conditionally enable the "Save" button and show an unsaved-changes indicator.
@@ -475,6 +482,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   savedSettings: DEFAULT_SETTINGS, // Nothing has been loaded from disk yet, so this is the same placeholder
   isLoading: false, // No load in progress at creation time
+  hasLoaded: false, // No successful load yet: saving is refused until there is one (#1237)
   isDirty: false, // No unsaved changes at creation time
   error: null, // No error at creation time
   seenMetadataLanguages: [], // Nothing shown yet this run (#1249)
@@ -532,7 +540,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const savedSettings: AppSettings = { ...fromFile, ...(queueSays ?? {}) };
 
       // Replace the entire settings object and mark as clean (not dirty).
-      set({ settings, savedSettings, isLoading: false, isDirty: false });
+      set({ settings, savedSettings, isLoading: false, isDirty: false, hasLoaded: true });
     } catch (e) {
       // Normalize the error to a string regardless of its runtime type.
       const message = e instanceof Error ? e.message : String(e);
@@ -566,6 +574,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
    * (e.g., showing a toast notification).
    */
   saveSettings: async () => {
+    // Never write the placeholder values over the real file (#1237).
+    if (!get().hasLoaded) {
+      const message =
+        'Settings could not be loaded, so they were not saved. Try again or restart MeedyaDL.';
+      set({ error: message });
+      throw new Error(message);
+    }
     // Clear any stale error before attempting the save.
     set({ error: null });
     // Snapshot `settings` BEFORE the `await` below, not after. The

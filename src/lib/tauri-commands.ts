@@ -557,6 +557,12 @@ export interface GamdlCapabilities {
    */
   assets_api_unlocks_lossy_codecs: boolean;
   /**
+   * >=3.8.2 -- GAMDL takes the wrapper's decryption address as its own
+   * host and port, so Settings shows the Wrapper Decryption Address with
+   * the newer wrapper layout (#1433).
+   */
+  wrapper_decrypt_host_port: boolean;
+  /**
    * ≥3.9 -- GAMDL understands the PlayReady unlocking method (a second
    * option alongside its original, built-in Widevine one), and will
    * accept a user-supplied `.prd` device file for it. `false` on every

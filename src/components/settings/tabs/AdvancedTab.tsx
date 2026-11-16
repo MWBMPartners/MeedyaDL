@@ -102,7 +102,7 @@
  * @see {@link @/types/index.ts}           -- DownloadMode, RemuxMode types
  */
 
-import { useId, useState, useEffect, useCallback, useMemo, type FormEvent } from 'react';
+import { useId, useState, useEffect, useCallback, useMemo, useRef, type FormEvent } from 'react';
 
 // Zustand store hooks. `useSettingsStore` is retained for the
 // `saveSettings` and `loadSettings` actions only (used by the setup
@@ -129,6 +129,7 @@ import {
   FilePickerButton,
   TextButton,
 } from '@/components/common';
+import { deriveWrapperDecryptAddress, nextWrapperDecryptAddress } from '@/lib/wrapperDecryptAddress';
 import { GamdlFourNote } from '@/components/settings/GamdlFourNote';
 
 // TypeScript union types for download and remux mode values.
@@ -295,6 +296,10 @@ export function AdvancedTab() {
     [wrapperUrl.value],
   );
   const musickitTeamId = useSettingsField('musickit_team_id');
+  // The decryption address follows the Wrapper URL until the person types
+  // their own (#1433). `gamdlCaps` is declared further down, so the effect
+  // that applies this sits just after it.
+  const lastDerivedDecryptAddress = useRef<string | null>(null);
   const musickitKeyId = useSettingsField('musickit_key_id');
   const acoustidApiKey = useSettingsField('acoustid_api_key');
   const odesliApiKey = useSettingsField('odesli_api_key');
@@ -349,6 +354,7 @@ export function AdvancedTab() {
     // Defaults `false` until the dependency probe runs, matching every
     // other capability's cache-empty default (#963, #1002).
     assets_api_unlocks_lossy_codecs: false,
+    wrapper_decrypt_host_port: false,
     // Defaults `false` for the same reason as every other capability
     // above -- the "Unlocking Method" section below stays hidden until
     // the probe confirms the installed GAMDL actually understands
@@ -368,6 +374,25 @@ export function AdvancedTab() {
    * this flag instead of rendering against the default.
    */
   const [gamdlCapsLoading, setGamdlCapsLoading] = useState(true);
+
+  // Keep the Wrapper Decryption Address in step with the Wrapper URL while
+  // the stored value is still automatic (#1433). Only on GAMDL 3.8.2+ with
+  // the wrapper in use; an invalid URL leaves the stored value alone.
+  const decryptFollowsUrl = gamdlCaps.wrapper_decrypt_host_port && useWrapper.value;
+  const wrapperUrlValue = wrapperUrl.value;
+  const decryptStored = wrapperDecryptIp.value;
+  const setDecryptStored = wrapperDecryptIp.set;
+  useEffect(() => {
+    if (!decryptFollowsUrl) return;
+    const next = nextWrapperDecryptAddress(
+      wrapperUrlValue,
+      decryptStored,
+      lastDerivedDecryptAddress.current
+    );
+    const derived = deriveWrapperDecryptAddress(wrapperUrlValue);
+    if (derived) lastDerivedDecryptAddress.current = derived;
+    if (next !== null) setDecryptStored(next);
+  }, [decryptFollowsUrl, wrapperUrlValue, decryptStored, setDecryptStored]);
 
   // ── API Field Audit state ──
   const [auditUrl, setAuditUrl] = useState('');
@@ -870,6 +895,25 @@ export function AdvancedTab() {
                 {/* Interactive sign-in (#1029) -- wrapper-v2 only; wrapper-v1
                     has no equivalent HTTP login endpoint. */}
                 <WrapperSignInSection />
+                {gamdlCaps.wrapper_decrypt_host_port && (
+                  <div className="space-y-1">
+                    <Input
+                      label="Wrapper Decryption Address"
+                      description="The address MeedyaDL uses to unlock protected tracks through your wrapper. It is filled in from the Wrapper URL above, using the standard port 10020, and follows it until you type your own. Change it only if your wrapper listens on a different address or port, for example when it runs on another computer."
+                      value={wrapperDecryptIp.value}
+                      onChange={(e) => wrapperDecryptIp.set(e.target.value)}
+                      placeholder="127.0.0.1:10020"
+                    />
+                    {(() => {
+                      const automatic = deriveWrapperDecryptAddress(wrapperUrl.value);
+                      return automatic && wrapperDecryptIp.value !== automatic ? (
+                        <TextButton size="xs" onClick={() => wrapperDecryptIp.set(automatic)}>
+                          Use the address from the Wrapper URL
+                        </TextButton>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
               </>
             ) : (
               // GAMDL ≤ 3.5.x — wrapper-v1 three sockets.

@@ -39,7 +39,7 @@
  * @see src/lib/tauri-commands.ts -- `GamdlCapabilities.play_ready_drm`
  */
 
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react';
 
 import { AdvancedTab } from './AdvancedTab';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -134,6 +134,7 @@ const ALL_CAPS_FALSE: GamdlCapabilities = {
   native_codec_priority: false,
   ffmpeg_path: false,
   assets_api_unlocks_lossy_codecs: false,
+  wrapper_decrypt_host_port: false,
   play_ready_drm: false,
   gamdl_v4: false,
 };
@@ -243,5 +244,42 @@ describe('AdvancedTab -- Unlocking Method section (#1189)', () => {
     });
 
     expect(screen.getByText('Unlocking Method')).toBeInTheDocument();
+  });
+});
+
+describe('AdvancedTab -- Wrapper Decryption Address on GAMDL 3.8.2+ (#1433)', () => {
+  async function openWrapper(caps: Partial<GamdlCapabilities>) {
+    vi.mocked(getGamdlCapabilities).mockResolvedValueOnce({ ...ALL_CAPS_FALSE, ...caps });
+    await act(async () => {
+      render(<AdvancedTab />);
+    });
+    fireEvent.click(screen.getByText('Wrapper'));
+  }
+
+  it('is hidden with the newer layout on GAMDL older than 3.8.2', async () => {
+    useSettingsStore.setState({
+      settings: { ...useSettingsStore.getState().settings, use_wrapper: true, wrapper_url: 'http://192.168.1.20:80' },
+    });
+    await openWrapper({ wrapper_v2: true });
+    expect(screen.queryByLabelText('Wrapper Decryption Address')).not.toBeInTheDocument();
+  });
+
+  it('is shown, pre-filled from the Wrapper URL, and can be reset after an override', async () => {
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        use_wrapper: true,
+        wrapper_url: 'http://192.168.1.20:80',
+        wrapper_decrypt_ip: '127.0.0.1:10020',
+      },
+    });
+    await openWrapper({ wrapper_v2: true, wrapper_decrypt_host_port: true });
+    const field = screen.getByLabelText('Wrapper Decryption Address') as HTMLInputElement;
+    await waitFor(() => expect(field.value).toBe('192.168.1.20:10020'));
+
+    fireEvent.change(field, { target: { value: 'mybox:4444' } });
+    expect(useSettingsStore.getState().settings.wrapper_decrypt_ip).toBe('mybox:4444');
+    fireEvent.click(screen.getByText('Use the address from the Wrapper URL'));
+    expect(useSettingsStore.getState().settings.wrapper_decrypt_ip).toBe('192.168.1.20:10020');
   });
 });

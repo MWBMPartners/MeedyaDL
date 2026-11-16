@@ -97,7 +97,7 @@ import { Toggle, FilePickerButton, Select, Button, Checkbox, Input, InlineError,
 import ChannelSwitchWarning from '@/components/settings/ChannelSwitchWarning';
 import { NotificationSettingsSection } from './NotificationSettingsSection';
 import { PRE_RELEASE_CHANNELS, type UpdateChannel } from '@/types';
-import { LOCALES, baseLanguageOf, isMachineAssisted } from '@/lib/i18n';
+import { LOCALES, baseLanguageOf, isMachineAssisted, selectedUiLanguageValue } from '@/lib/i18n';
 
 // Lucide icons for the refresh/check action button and export/import buttons.
 import { Download, RefreshCw, Upload } from 'lucide-react';
@@ -422,6 +422,14 @@ export function GeneralTab() {
   // review round 3 of #1244) -- the interface language first, then
   // everything else alphabetical by name in the interface language.
   const interfaceLanguageOrder = useInterfaceLanguageOptions(i18n.language);
+  // The rows of the Interface Language list. A saved regional form such as
+  // `de-AT` is shown on the German row (#1267); the saved value is untouched.
+  const interfaceLanguageRows = uiLanguageOptions(
+    i18n.language,
+    interfaceLanguageOrder,
+    t('settings.general.languageAuto'),
+    [uiLanguageAtOpen, uiLanguage.value ?? '']
+  );
   const storefront = useSettingsField('storefront');
   const storefrontFallback = useSettingsField('storefront_fallback_on_failure');
   const overwrite = useSettingsField('overwrite');
@@ -800,13 +808,8 @@ export function GeneralTab() {
           <Select
             label="Language"
             description="The language MeedyaDL is shown in. Changes straight away."
-            options={uiLanguageOptions(
-              i18n.language,
-              interfaceLanguageOrder,
-              t('settings.general.languageAuto'),
-              [uiLanguageAtOpen, uiLanguage.value ?? '']
-            )}
-            value={uiLanguage.value || 'auto'}
+            options={interfaceLanguageRows}
+            value={selectedUiLanguageValue(uiLanguage.value, interfaceLanguageRows)}
             onChange={(e) => {
               const val = e.target.value;
               uiLanguage.set(val === 'auto' ? '' : val);
@@ -1054,14 +1057,14 @@ export function GeneralTab() {
         <fieldset className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs mb-3 border-0 m-0 p-0">
           <legend className="sr-only">Sections to include in the exported bundle</legend>
           {[
-            { key: 'include_queue', label: 'Queue (queue.json)' },
-            { key: 'include_history', label: 'History (history.json)' },
-            { key: 'include_database', label: 'SQLite index (meedyadl.db)' },
-            { key: 'include_activity_log', label: 'Activity log JSONL files' },
-            { key: 'include_manifests', label: 'manifest.meedyadl files (can be large)' },
+            { key: 'include_queue', label: 'Download queue' },
+            { key: 'include_history', label: 'Download history' },
+            { key: 'include_database', label: 'Library index (speeds up searching)' },
+            { key: 'include_activity_log', label: 'Saved activity log' },
+            { key: 'include_manifests', label: 'Album records (can be large)' },
             {
               key: 'include_credentials',
-              label: 'Credentials (encrypted, requires a password)',
+              label: 'Sign-in details (protected by a password)',
             },
           ].map(({ key, label }) => (
             <Checkbox

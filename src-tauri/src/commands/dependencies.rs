@@ -611,6 +611,11 @@ pub struct GamdlCapabilities {
     /// outright rather than ignoring it, so offering it there would only
     /// produce downloads that stop before they start.
     pub play_ready_drm: bool,
+    /// Whether the installed GAMDL takes the wrapper's decryption address
+    /// as its own host and port. `true` for 3.8.2 and newer. The Settings
+    /// screen shows the Wrapper Decryption Address with the newer layout
+    /// only when this is true (#1433).
+    pub wrapper_decrypt_host_port: bool,
     /// Whether the installed GAMDL is a 4.x release (13 Nov 2026). GAMDL
     /// 4 is started and configured differently and ignores some settings;
     /// the Settings screens use this to say so beside those settings
@@ -649,6 +654,7 @@ pub fn get_gamdl_capabilities() -> GamdlCapabilities {
         // extra package MeedyaDL does not install), so the choice is not
         // offered there; see `plan_drm_backend_on_gamdl_4`.
         play_ready_drm: supports(GamdlFeature::PlayReadyDrmBackend) && !gamdl_v4,
+        wrapper_decrypt_host_port: supports(GamdlFeature::WrapperDecryptHostPort),
         gamdl_v4,
     }
 }
