@@ -2167,6 +2167,56 @@
         assert!(ended_outside_this_attempt(&state).is_some());
     }
 
+    /// #1431, review round 4: the one check used wherever the exit-0 branch
+    /// re-takes the lock. It releases the slot only for a cancel (the
+    /// watchdog has already released it), ignores an Error this attempt set
+    /// itself, and leaves a running item alone.
+    #[test]
+    fn stop_if_ended_outside_releases_the_slot_only_for_a_cancel() {
+        // Running: nothing to stop, slot untouched.
+        let mut q = DownloadQueue::new();
+        let id = enqueue_one(&mut q);
+        let _ = q.next_pending();
+        assert_eq!(q.active_count, 1);
+        assert_eq!(stop_if_ended_outside(&mut q, &id, false), None);
+        assert_eq!(q.active_count, 1);
+
+        // Cancelled by the person (e.g. during gap-fill): stop, and give the
+        // slot back -- nothing else will.
+        assert!(q.cancel(&id));
+        assert_eq!(
+            stop_if_ended_outside(&mut q, &id, false),
+            Some(EndedOutside::Cancelled)
+        );
+        assert_eq!(q.active_count, 0);
+
+        // Failed by the stall watchdog (which released the slot itself):
+        // stop, but do not release again -- that would free another item's
+        // slot and let two downloads run at once.
+        let mut q = DownloadQueue::new();
+        let ids = enqueue_n(&mut q, 2);
+        let first = ids[0].clone();
+        let _ = q.next_pending();
+        q.set_error(&first, "stalled");
+        q.on_task_finished(); // what the watchdog does
+        let second = ids[1].clone();
+        let _ = q.next_pending(); // the next item now holds the slot
+        assert_eq!(q.active_count, 1);
+        assert_eq!(
+            stop_if_ended_outside(&mut q, &first, false),
+            Some(EndedOutside::FailedByWatchdog)
+        );
+        assert_eq!(q.active_count, 1, "the other item's slot is untouched");
+
+        // An Error this attempt set itself (the per-format retry route) is
+        // not the watchdog's: carry on.
+        assert_eq!(stop_if_ended_outside(&mut q, &first, true), None);
+
+        // An unknown item: nothing to do.
+        assert_eq!(stop_if_ended_outside(&mut q, "gone", false), None);
+        let _ = second;
+    }
+
     /// Verifies that set_complete() refuses to overwrite a Cancelled state.
     /// Mirrors the Error guard — both are terminal and must not regress.
     #[test]

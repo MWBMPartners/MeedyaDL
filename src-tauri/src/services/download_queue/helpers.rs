@@ -130,6 +130,51 @@ pub(crate) fn ended_outside_this_attempt(state: &DownloadState) -> Option<EndedO
     }
 }
 
+/// The one check used wherever the exit-0 branch holds (or re-takes) the
+/// queue lock (#1431): has the item ended from outside this attempt?
+///
+/// `Some` means the caller must leave the item as it is: drop the lock,
+/// call [`finish_ended_outside`] and return. This also releases the slot,
+/// but only for a cancel -- the stall watchdog has already released it,
+/// and releasing it twice would let two downloads run at once.
+///
+/// `error_set_by_this_attempt`: the per-format retry route sets Error
+/// itself before trying the next format; that Error is this attempt's own,
+/// not the watchdog's, so it is ignored here.
+pub(crate) fn stop_if_ended_outside(
+    q: &mut DownloadQueue,
+    dl_id: &str,
+    error_set_by_this_attempt: bool,
+) -> Option<EndedOutside> {
+    let state = q
+        .items
+        .iter()
+        .find(|i| i.status.id == dl_id)
+        .map(|i| i.status.state.clone())?;
+    let ended = ended_outside_this_attempt(&state)?;
+    if ended == EndedOutside::FailedByWatchdog && error_set_by_this_attempt {
+        return None;
+    }
+    if ended == EndedOutside::Cancelled {
+        q.on_task_finished();
+    }
+    Some(ended)
+}
+
+/// The rest of leaving an item that ended from outside this attempt: log
+/// it, save the queue and move it on. Call after [`stop_if_ended_outside`]
+/// returned `Some`, with the lock dropped, then return.
+pub(crate) async fn finish_ended_outside(
+    app: &AppHandle,
+    queue: &QueueHandle,
+    dl_id: &str,
+    ended: EndedOutside,
+) {
+    log::info!("Download {dl_id} had already ended ({ended:?}) — leaving it as it is");
+    save_queue_to_disk(app, queue).await;
+    process_queue(app.clone(), queue.clone()).await;
+}
+
 /// Whether a "no output" failure is new for this attempt (#1431): either
 /// the state changed to Error just now, or this attempt had already set it
 /// earlier (the per-format retry route sets Error before trying the next

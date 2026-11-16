@@ -1007,23 +1007,12 @@ pub fn process_queue(
                         // (moving it to Processing and then announcing it
                         // "finished" after it was announced "failed"). Leave
                         // it as it is and move the queue on.
-                        if let Some(ended) = q
-                            .items
-                            .iter()
-                            .find(|i| i.status.id == dl_id)
-                            .and_then(|i| ended_outside_this_attempt(&i.status.state))
-                        {
-                            if ended == EndedOutside::Cancelled {
-                                // A cancel does not release the slot itself
-                                // (the cancelled run does); the watchdog did.
-                                q.on_task_finished();
-                            }
+                        // The same check follows every place below that
+                        // takes the lock again, or is about to change the
+                        // state (`stop_if_ended_outside`).
+                        if let Some(ended) = stop_if_ended_outside(&mut q, &dl_id, false) {
                             drop(q);
-                            log::info!(
-                                "Download {dl_id} exited after it had already ended ({ended:?}) — leaving it as it is"
-                            );
-                            save_queue_to_disk(&app_clone, &queue_clone).await;
-                            process_queue(app_clone, queue_clone).await;
+                            finish_ended_outside(&app_clone, &queue_clone, &dl_id, ended).await;
                             return;
                         }
 
@@ -1132,7 +1121,19 @@ pub fn process_queue(
                                                 log::info!("Download {dl_id} gap-fill succeeded");
                                             }
                                             Err(e) if e.contains("cancelled") => {
+                                                // Release the slot, save and move
+                                                // the queue on, as a cancel on the
+                                                // main run does. (This used to just
+                                                // return: the slot was never given
+                                                // back, so a one-at-a-time queue
+                                                // stopped until MeedyaDL restarted.)
                                                 log::info!("Download {dl_id} gap-fill cancelled");
+                                                {
+                                                    let mut q = queue_clone.lock().await;
+                                                    q.on_task_finished();
+                                                }
+                                                save_queue_to_disk(&app_clone, &queue_clone).await;
+                                                process_queue(app_clone, queue_clone).await;
                                                 return;
                                             }
                                             Err(e) => {
@@ -1150,6 +1151,22 @@ pub fn process_queue(
 
                                         // Re-acquire lock for downstream logic
                                         q = queue_clone.lock().await;
+                                        // While the lock was let go, the stall
+                                        // watchdog may have failed the item, or
+                                        // the person cancelled it (#1431).
+                                        if let Some(ended) =
+                                            stop_if_ended_outside(&mut q, &dl_id, false)
+                                        {
+                                            drop(q);
+                                            finish_ended_outside(
+                                                &app_clone,
+                                                &queue_clone,
+                                                &dl_id,
+                                                ended,
+                                            )
+                                            .await;
+                                            return;
+                                        }
                                     } else {
                                         // No partial success or no viable gap-fill chain
                                         log::info!(
@@ -1504,6 +1521,14 @@ pub fn process_queue(
                                 // may already have set Error in this attempt, in
                                 // which case this call changes nothing but the
                                 // failure is still this attempt's to announce.
+                                if let Some(ended) =
+                                    stop_if_ended_outside(&mut q, &dl_id, failed_here)
+                                {
+                                    drop(q);
+                                    finish_ended_outside(&app_clone, &queue_clone, &dl_id, ended)
+                                        .await;
+                                    return;
+                                }
                                 let changed_now = q.set_error(&dl_id, &error_msg);
                                 let newly_failed = is_new_failure(failed_here, changed_now);
                                 // Read once, and used both for counting and for
@@ -1660,6 +1685,15 @@ pub fn process_queue(
                                 process_queue(app_clone.clone(), queue_clone.clone()).await;
                                 return;
                             }
+                        }
+
+                        // Not if it ended from outside this attempt (#1431):
+                        // moving a watchdog-failed or cancelled item to
+                        // Processing would bring it back to life.
+                        if let Some(ended) = stop_if_ended_outside(&mut q, &dl_id, failed_here) {
+                            drop(q);
+                            finish_ended_outside(&app_clone, &queue_clone, &dl_id, ended).await;
+                            return;
                         }
 
                         // Mark as processing (enrichment + companions still running).
@@ -4661,23 +4695,11 @@ pub fn process_queue(
                     // (network, format or wrapper retry) or announce it
                     // again; just move the queue on.
                     {
-                        let q = queue_clone.lock().await;
-                        let ended = q
-                            .items
-                            .iter()
-                            .find(|i| i.status.id == dl_id)
-                            .and_then(|i| ended_outside_this_attempt(&i.status.state));
-                        drop(q);
-                        if let Some(ended) = ended {
-                            log::info!(
-                                "Download {dl_id} errored after it had already ended ({ended:?}) — not retrying: {error_msg}"
-                            );
-                            if ended == EndedOutside::Cancelled {
-                                let mut q = queue_clone.lock().await;
-                                q.on_task_finished();
-                            }
-                            save_queue_to_disk(&app_clone, &queue_clone).await;
-                            process_queue(app_clone, queue_clone).await;
+                        let mut q = queue_clone.lock().await;
+                        if let Some(ended) = stop_if_ended_outside(&mut q, &dl_id, false) {
+                            drop(q);
+                            log::info!("Download {dl_id} errored after it had ended — not retrying: {error_msg}");
+                            finish_ended_outside(&app_clone, &queue_clone, &dl_id, ended).await;
                             return;
                         }
                     }
