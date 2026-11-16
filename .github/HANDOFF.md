@@ -3,7 +3,7 @@
 **Last updated:** 2026-11-16 — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.90** · `beta` **1.9.4-beta.22** · `release-candidate` **1.0.0-rc.49** — read from each branch's `package.json` on 16 Nov.
+**Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.90** · `beta` **1.9.4-beta.23** · `release-candidate` **1.0.0-rc.50** — read from each branch's `package.json` on 16 Nov.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,25 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-11-16: two releases split across a stray draft (recovery to run from a local PC); duplicate-release fix for beta and release-candidate
+## ★★★★ LATEST — 2026-11-16 (afternoon): notifications rebuilt, #1419 redone, GitHub records checked, in-app help rewritten
+
+All on `work-in-progress`, so all in the combined PR #1420 to `alpha`. Codex was unavailable all day; every review was a fresh Claude Opus agent.
+
+| # | Task | Issue | Status | Notes |
+|---|---|---|---|---|
+| 1 | Duplicate-release fix pushed straight to `beta` and `release-candidate` (maintainer's instruction) | — | **Done** (`e4d13c45` beta, `fddd0078` rc) | beta.23 and rc.50 each came out as ONE published release, 20 files, full `latest.json`. Recovery of beta.22 / rc.28 is in the Previous section — maintainer to run from a local PC. |
+| 2 | PR #1422 (Rust 1.100.0) merged into `main` | — | **Done** (`bb5864f6`) | All follow-on main runs green. |
+| 3 | Notifications rebuild | #1431 | **In review — round 8 running** | `5130cba4` → `0d2ce442` (7 fix rounds). Design and decisions: CLAUDE.md "Notifications — one rule, one owner"; memory `project_notifications_one_rule.md`. Needs real machines: sounds, other-screen detection, dev-build labelling. Close #1236 (covered) when #1420 merges. |
+| 4 | Redo the lost #1419 fix (the 15 Nov commits `959e1add`/`4457dcb0` never reached GitHub) | #1419 | **Done** (`e6023773`, `e277a37b`, `3384db15`) | Reviewed clean over 2 rounds. Closes when #1420 merges. |
+| 5 | Older queue problems found while reviewing #3 | #1432 | **Open, not started** | Old run acting on a retried item; slot freed early on one route; stall-check release race; no History entry for stalled items. Needs attempt numbering. |
+| 6 | GitHub records check (141 open + 243 closed-since-May issues, milestones) | — | **Done** | Closed #847, #949, #984, #1069, #1207, #1212; reopened #387; corrected #1419; comments on #1165, #1232, #1235, #1040, #1244–#1251, #1385. **Maintainer to do by hand** (no tool here): close milestones "v1.0 Release Candidate" and "v1.0 GA" after moving #182, #109, #111, #125, #329; #110 milestone; project board 6. |
+| 7 | In-app help rewrite (20 pages) | — | **In review — round 2 running** | `ea3308ad`, `9bb30b4c`, `f6abe599`, fixes `0e1fb8fd`. New standing rule: help is an end-user guide only (CLAUDE.md; memory `project_help_content_rule.md`). |
+
+**Watching:** this session is subscribed to #1420's GitHub activity; the subscription ends with the session, so a new session should re-check #1420's CI by hand.
+
+---
+
+## ★★★★ Previous — 2026-11-16: two releases split across a stray draft (recovery to run from a local PC); duplicate-release fix for beta and release-candidate
 
 ### What went wrong
 
