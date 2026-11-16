@@ -61,7 +61,7 @@
 // ## References
 //
 // - serde_json for JSON serialization: https://docs.rs/serde_json/latest/serde_json/
-// - configparser crate (GAMDL uses Python's configparser): https://docs.rs/configparser/latest/configparser/
+// - Python's configparser, which GAMDL 3 uses to read config.ini: https://docs.python.org/3/library/configparser.html
 // - GAMDL config file format: https://github.com/glomatico/gamdl#configuration
 // - dirs crate for platform-standard directories: https://docs.rs/dirs/latest/dirs/
 
