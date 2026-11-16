@@ -4886,14 +4886,20 @@ pub fn process_queue(
                             newly_failed |= q.set_error(&dl_id, &error_msg);
                             q.on_task_finished();
                             drop(q);
-                            emit_download_error(
-                                &app_clone,
-                                &dl_id,
-                                &format!(
+                            // MeedyaDL's own refusal of the download folder
+                            // (#1419) is a settings choice, not a disk fault, and
+                            // already says what to do, so it is shown as it is.
+                            let shown = if error_msg
+                                .contains(process::DOWNLOAD_FOLDER_REFUSAL_MARK)
+                            {
+                                error_msg.clone()
+                            } else {
+                                format!(
                                     "Filesystem error — check that the output directory \
                                          is accessible and writable: {error_msg}"
-                                ),
-                            );
+                                )
+                            };
+                            emit_download_error(&app_clone, &dl_id, &shown);
                             false
                         }
                         "io_transient" => {
@@ -5801,6 +5807,12 @@ fn classify_error_for_installed_gamdl(error_msg: &str) -> &'static str {
     if crate::services::gamdl_capabilities::detected_cli_generation()
         == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
     {
+        // MeedyaDL's own folder refusal (#1419) is sorted on the whole
+        // message: trimming it to a GAMDL 4 error "core" could cut away the
+        // marker if the folder's name happened to contain GAMDL error text.
+        if error_msg.contains(process::DOWNLOAD_FOLDER_REFUSAL_MARK) {
+            return "io";
+        }
         let core = process::gamdl_v4_error_core(error_msg);
         // A broken unlocking set-up fails every format the same way, so it
         // must not be read as a codec problem (which retries each format).
