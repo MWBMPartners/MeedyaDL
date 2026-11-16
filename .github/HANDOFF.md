@@ -24,8 +24,9 @@ All on `work-in-progress`, for PR #1420 to `alpha`. Codex unavailable; every rev
 | 5 | Standing rule added: data collection on Haiku/Sonnet, facts only | — | **Done** (`0bcfd728`) | CLAUDE.md, AGENTS.md, both memory trees. |
 | 6 | Reformat all code (cargo fmt + Prettier) | — | **Done — reviewed clean** | Layout-only `c2b02bd3` (in `.git-blame-ignore-revs`); CI checks `c749a579`, `26068842`. Expect cherry-pick friction onto beta/rc until those branches get the same reformat. |
 | 7 | Detailed comments + documentation links across the code | — | **Done — reviewed clean** | `c68d823b` (Rust), `c4abdeeb` (frontend), `36f0a004` (corrections). 92 files, comments only (guard script in the session scratchpad compared code with comments stripped). Written by 6 Sonnet batches; 3 Opus accuracy rounds; ~27 wrong or misplaced comments corrected. Small UI faults noticed: #1439. |
+| 8 | Extra-format copies get the main download's lyrics (word-by-word where it has them), else their own, then every lyric conversion and embedding switched on, per copy | #1440 | **Done — reviewed clean (round 4)** | `8d622fec`, `c407f854`, `6e547f19`, `5b3c9eb8` + a comment fix. New `download_queue/companion_lyrics.rs` (35 tests). Runs inside the companion task after the tiers (synchronous, so the hard timeout waits for it; stop asked between steps; cancel checked). Only this download's copies; pairing by song ID, then folder + disc/track; "written by this run" for a `.ttml` from a pre-companion snapshot. Old folder-wide pass kept only when no scope exists. Follow-ups: #1441 (main download's lyrics steps still folder-wide), #1442 (shared per-file write lock with enrichment; two smaller points). CodeQL alert 73 (test password `"hunter2"`, moved by the reformat) is for the maintainer to dismiss. |
 
-Issues to close when #1420 merges: #1404 (follow-up for making GAMDL 4 routine still to be opened), #1236, #1289, #1385, #1431, #1419, #1433, #1434, #1435 and the quick-fix issues.
+Issues to close when #1420 merges: #1440, #1404 (follow-up for making GAMDL 4 routine still to be opened), #1236, #1289, #1385, #1431, #1419, #1433, #1434, #1435 and the quick-fix issues.
 
 ---
 

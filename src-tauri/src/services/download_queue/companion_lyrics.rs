@@ -25,8 +25,10 @@
 //    file name and a finished `.vtt` or `.lyrics` file in the main
 //    download's folder may be older or edited by the person.
 //
-// Nothing here deletes a file, and no file that was already on disk before
-// the copy appeared is replaced (a test checks the source for delete calls).
+// Nothing here deletes a file (a test checks the source for delete calls).
+// A `.ttml`, `.vtt`, `.ass` or `.lyrics` file that was already on disk is
+// never replaced. The `.lrc` and Rich `.srt` files are always written fresh,
+// exactly as the main download's Steps 2 and 2d do.
 
 use super::lyrics_pass::{
     audio_files_in, fresh_at_snapshot, place_track, read_audio_numbers, read_copy_evidence,
