@@ -95,7 +95,7 @@ Each item in the queue shows:
 
 - A **progress bar** while it is downloading.
 - Its **status**: fetching details, downloading, tagging, finished or failed.
-- A **fallback note** if the quality you asked for was not available and a different one was used.
+- A **Fallback used** note if MeedyaDL had to start the whole item again in another quality.
 
 What you can do with the queue:
 
@@ -223,7 +223,7 @@ If the quality you chose is not available for a track, MeedyaDL tries the next o
 
 ALAC, Atmos, AC3, AAC Binaural, AAC, AAC Legacy
 
-When this happens, the queue item shows that the final quality is different from the one you asked for. To change the order, see [Fallback Quality](fallback-quality.md).
+If MeedyaDL has to start the whole item again in another quality, the queue item shows **Fallback used** with that quality. If only some tracks fall back, the queue does not show it. Each file's name shows its real format. To change the order, see [Fallback Quality](fallback-quality.md).
 
 ### Companion Downloads
 
@@ -231,7 +231,7 @@ MeedyaDL can also download extra versions of the same music in other qualities. 
 
 By default (**Atmos → Lossless (ALAC)**), a Dolby Atmos download also gets a lossless (ALAC) copy. Other modes add lossy AAC copies as well. **Custom…** lets you tick exactly the qualities you want.
 
-Special versions get a label in the file name, for example `[Lossless]` or `[Dolby Atmos]`. The version most players can use has a plain name. Extra versions are made before the next item in the queue starts, and each one gets its own lyric files. You can follow them on the **Activity** page. See [Quality Settings](quality-settings.md#companion-downloads) for what each mode does.
+Each file's name shows the format it contains, for example `[Lossless]` or `[Dolby Atmos]`. Standard AAC files have a plain name. Extra versions are made before the next item in the queue starts, and each one gets its own lyric files. You can follow them on the **Activity** page. See [Quality Settings](quality-settings.md#companion-downloads) for what each mode does.
 
 ---
 
@@ -313,7 +313,7 @@ The same link is only offered once each time you run the app, even if it stays o
 - **Check your sign-in before a big batch.** If your cookies run out partway through a long playlist, the rest of it fails. See [Cookie Management](cookie-management.md).
 - **ALAC for archiving, AAC for everyday listening.** ALAC files are bigger (often 30 to 50 MB a track). AAC files are around 7 to 10 MB a track and sound fine to most people.
 - **Use album links where you can.** One album link is better than many song links.
-- **Watch the fallback note.** If it appears often, the quality you chose is rarely available. Think about changing your default in [Quality Settings](quality-settings.md).
+- **Watch for the Fallback used note.** If it appears often, the quality you chose is rarely available. Think about changing your default in [Quality Settings](quality-settings.md).
 - **Your queue survives restarts.** You do not need to save or re-enter links.
 - **Moving to another computer?** Export the queue and import it there. It will use that computer's settings.
 - **Want to add lots first?** Turn off **Auto-Start Downloads** in **Settings > General**, add everything, then press **Start**.

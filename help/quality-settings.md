@@ -148,11 +148,11 @@ Extra copies are made before the next item in the queue starts. If a format is n
 
 ### File Names
 
-When you have more than one format, special formats get a tag in the file name so files do not overwrite each other. All versions go in the same album folder.
+Each file's name shows the format it really contains, so copies of the same song never overwrite each other. Standard AAC files keep a plain name. All versions go in the same album folder.
 
 - Dolby Atmos: `01 Song Title [Dolby Atmos].m4a`
 - ALAC (lossless): `01 Song Title [Lossless].m4a`
-- The most widely playable copy has a plain name: `01 Song Title.m4a`
+- Standard AAC: plain name, `01 Song Title.m4a`
 
 Example, with "Atmos → Lossless + Lossy; ALAC → Lossy" and a Dolby Atmos download:
 
@@ -167,7 +167,7 @@ The tag always matches what is really in the file. MeedyaDL checks each file aft
 
 ### Custom Mode
 
-With **Custom…** you see a list of tick boxes, one per format. Every format you tick is downloaded as its own extra copy, even if it is the same as your main format. The order of your ticks sets the file names. The last format you tick gets the plain name, and the others get a tag. For example, with Atmos, ALAC and AAC ticked, AAC files are plain, ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]`.
+With **Custom…** you see a list of tick boxes, one per format. Every format you tick is downloaded as its own extra copy, even if it is the same as your main format. Each copy's name shows its format. For example, with Atmos, ALAC and AAC ticked, AAC files are plain, ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]`.
 
 Choose Custom for a mix the other modes don't cover, such as AAC Binaural and ALAC alongside Atmos, or every format for a full archive.
 
@@ -183,7 +183,7 @@ MeedyaDL also saves extra information inside special-format files, so other prog
 
 MeedyaDL checks each finished file to find its real format, using FFmpeg and **MediaInfo**. MediaInfo is installed with the other helper tools during setup, so you do not need to do anything. It is better at telling Dolby Atmos from ordinary Dolby Digital, so it matters most if you download a lot of Atmos.
 
-When you ask for several formats in one go, MeedyaDL only knows which one came back when the download is finished. In that case the main file gets a plain name, and the extra copies get tags so nothing overwrites anything.
+When you ask for several formats in one go, MeedyaDL only knows which one came back once the download is finished, so the tag is added after it checks the file.
 
 </details>
 

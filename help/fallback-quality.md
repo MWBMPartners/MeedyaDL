@@ -134,7 +134,7 @@ Turn it off when you want an exact codec and would rather have a failed download
 Fallback happens **per track**, not per album. Each track is checked on its own, so:
 
 - Some tracks in an album may arrive in your preferred codec (for example ALAC) and others in a fallback (for example AAC).
-- If the whole item had to be started again in another format, the queue item shows **Fallback used** with that format. When only some tracks fall back, the queue does not show it. When MeedyaDL saves more than one format of a song, the format of each file appears in its name tag (for example `[Lossless]`).
+- If the whole item had to be started again in another format, the queue item shows **Fallback used** with that format. When only some tracks fall back, the queue does not show it. Each file's name shows the format it really contains, for example `[Lossless]` or `[Dolby Atmos]`. Standard AAC files have a plain name.
 - One failing codec never fails the whole album.
 
 See [Downloading Music](downloading-music.md).

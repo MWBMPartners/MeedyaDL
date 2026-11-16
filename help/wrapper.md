@@ -42,7 +42,7 @@ If you are happy with the standard lossy AAC quality, skip the wrapper. If you d
 
 ### The address fields
 
-Which fields MeedyaDL uses depends on your GAMDL version. On GAMDL 3.0 the m3u8 field is shown but not used.
+Which fields you see depends on your GAMDL version. On GAMDL 3.0 the m3u8 field is shown but not used.
 
 | GAMDL version | Field | Default |
 |---|---|---|
