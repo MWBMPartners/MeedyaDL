@@ -733,10 +733,13 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage
 # rookie (browser cookie import) has had no release since Nov 2024 and
 # pins rusqlite ^0.31, whose bundled SQLite (libsqlite3-sys 0.28) is
 # covered by RUSTSEC-2026-0459. `vendor/rookie` is rookie 0.5.6 exactly as
-# published (MIT; its licence travels with it in MIT-LICENSE.txt), with ONE
-# change: its rusqlite dependency is 0.43, which bundles a fixed SQLite.
-# rookie only opens the browser's cookie database read-only, prepares a
-# query and reads rows, which works the same on both rusqlite versions.
+# published (MIT; its licence travels with it in MIT-LICENSE.txt), with
+# three changes: its rusqlite dependency is 0.43, which bundles a fixed
+# SQLite; two cookie expiry reads take a signed number (rusqlite 0.43 no
+# longer reads into u64); and its manifest declares `license = "MIT"`
+# instead of pointing at a licence file outside the folder. rookie only
+# opens the browser's cookie database read-only, prepares a query and
+# reads rows, which works the same on both rusqlite versions.
 # Remove this patch (and the vendor folder) once rookie publishes a
 # release on a current rusqlite.
 [patch.crates-io]
