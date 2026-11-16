@@ -3864,9 +3864,9 @@ pub(crate) fn spawn_companion_downloads(
             // Finish the main download's own lyrics first, if enrichment
             // stopped before it was done with them (its deadline, an early
             // return). This does not depend on an extra copy having been
-            // made: the main files are unfinished either way. It still
-            // stops for abort, cancel and shutdown (`stop`, and the checks
-            // right here).
+            // made: the main files are unfinished either way. It stops for
+            // cancel and shutdown (`catch_up_stop`, and the checks right
+            // here), but not for the deadline — see `catch_up_stop`.
             let settings = load_settings_for_queue(&comp_app);
             let stop_aborted = aborted_for_task.clone();
             let stop_shutdown = comp_shutdown.clone();
@@ -3881,6 +3881,22 @@ pub(crate) fn spawn_companion_downloads(
                     || stop_queue
                         .try_lock()
                         .is_ok_and(|q| !q.should_keep_working_on(&stop_dl_id))
+            };
+            // The catch-up's own stop check leaves out the deadline flag:
+            // `recover_pending` takes the whole list before it starts, so a
+            // deadline landing part-way would drop the files not yet reached
+            // and the completion task's own catch-up would find nothing left.
+            // The completion task waits for this task after an abort anyway,
+            // so it simply waits for the catch-up to finish. Cancel and quit
+            // still stop it.
+            let catch_up_shutdown = comp_shutdown.clone();
+            let catch_up_queue = comp_queue.clone();
+            let catch_up_dl_id = comp_dl_id.clone();
+            let catch_up_stop = move || {
+                catch_up_shutdown.is_triggered()
+                    || catch_up_queue
+                        .try_lock()
+                        .is_ok_and(|q| !q.should_keep_working_on(&catch_up_dl_id))
             };
             if comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
                 // Wait for any writing job an abandoned enrichment left
@@ -3927,7 +3943,7 @@ pub(crate) fn spawn_companion_downloads(
                             &settings,
                             names_artist.as_deref(),
                             names_title.as_deref(),
-                            &stop,
+                            &catch_up_stop,
                         )
                         .as_ref()
                         .and_then(super::companion_lyrics::recovery_line)
