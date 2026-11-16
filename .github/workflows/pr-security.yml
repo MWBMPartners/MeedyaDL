@@ -45,7 +45,9 @@
 #                                                comments, a setting the app lets you change that the backend
 #                                                never reads, updater manifest platform keys written down
 #                                                anywhere but the one shared release script, and the
-#                                                "nothing may look unfinished" polish rules)
+#                                                "nothing may look unfinished" polish rules, and
+#                                                capability grants that open files or post notifications)
+#      Also: a BLOCKING step runs the audit checks' own self-tests (see "Audit-check self-tests").
 #
 # Checks 2-7 only scan files CHANGED in the PR. Check 8 validates whole-repo
 # state (a drift can live in an unchanged file that this PR orphaned). The
@@ -610,12 +612,51 @@ jobs:
             add_section "Something looks unfinished (check_polish.py)" "$(echo "$POLISH" | grep -A100 '###')"
           fi
 
+          # --- Capability grants that open files / post notifications -----
+          # The WebView deliberately holds no permission to open arbitrary
+          # files (opening goes through the `open_downloaded_file` command)
+          # and only `notification:allow-is-permission-granted` for
+          # notifications. Nothing else stops someone adding one back.
+          CAPABILITIES=$(python3 tools/audit-checks/check_capabilities_open_path.py 2>&1 || true)
+          if echo "$CAPABILITIES" | grep -q '•'; then
+            add_section "Capability grants that open files or post notifications" "$(echo "$CAPABILITIES" | grep -A100 '###')"
+          fi
+
           echo "hits=$HITS" >> "$GITHUB_OUTPUT"
           echo "Total finding sections: $HITS"
           if [[ -s "$REPORT" ]]; then
             echo "----- report -----"
             cat "$REPORT"
           fi
+
+      # =====================================================================
+      # Audit-check self-tests. Unlike every heuristic above, this step is
+      # BLOCKING: a self-test failing means a check no longer does what it
+      # claims (it could be silently reporting nothing), which is a fault in
+      # the repository's own tooling rather than a judgement about the PR.
+      # It runs with if: always() so the heuristic report and comment still
+      # appear when it fails. Python standard library only; each test is a
+      # plain script that exits non-zero on failure.
+      # =====================================================================
+      - name: Audit-check self-tests
+        if: always()
+        run: |
+          failed=0
+          for t in tools/audit-checks/test_*.py; do
+            echo "::group::$t"
+            if ! python3 "$t"; then
+              echo "::error file=$t::Self-test failed"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          echo "::group::check_user_agent.py --self-test"
+          if ! python3 tools/audit-checks/check_user_agent.py --self-test; then
+            echo "::error file=tools/audit-checks/check_user_agent.py::Self-test failed"
+            failed=1
+          fi
+          echo "::endgroup::"
+          exit "$failed"
 
       # =====================================================================
       # Post (or update) a single advisory comment on the PR.

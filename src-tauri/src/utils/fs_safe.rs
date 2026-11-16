@@ -532,9 +532,13 @@ pub fn is_temporary_subtitle_file(path: &Path) -> bool {
 // plain rename. They may use `copy_to_new_file`, which also never replaces
 // but is not one step (read its limits), or refuse.
 //
-// The Windows branches are compiled for Windows (checked with
-// `cargo check --target x86_64-pc-windows-msvc`) but have not been run on
-// Windows: no Windows machine was available when they were written.
+// The Windows branches are compiled and tested in CI's Windows job
+// (`cargo test` on `windows-latest`, `.github/workflows/ci.yml`), where the
+// `#[cfg(windows)]` tests that call them run. A local
+// `cargo check --target x86_64-pc-windows-msvc` is NOT a reliable substitute:
+// the pinned toolchain may not have that target installed, and a whole-app
+// Windows build stops in the `ring` crate's C code without Windows headers
+// (#1298). They have not been tried by hand on a real Windows machine.
 
 /// Moves `from` to `to` only if nothing is at `to`, as ONE operation the
 /// operating system performs atomically -- no window in which another
