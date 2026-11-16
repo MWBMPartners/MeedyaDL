@@ -181,6 +181,17 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # Step 4b: Check the code layout matches Prettier (.prettierrc).
+      # The whole frontend was formatted in one layout-only commit (listed in
+      # .git-blame-ignore-revs), and this keeps it that way: run
+      # `npm run format` to fix a failure. Linux only, because a Windows
+      # checkout can turn line endings into CRLF, which Prettier's
+      # `endOfLine: lf` would report on every file.
+      # @see https://prettier.io/docs/cli#--check
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        run: npm run format:check
+
       # Step 5: Run TypeScript type checking.
       # Runs 'tsc --noEmit' to verify all TypeScript types are correct without
       # producing output files. Catches: type mismatches, missing imports, etc.
@@ -327,7 +338,7 @@ jobs:
         if: runner.os != 'macOS'
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
-          components: clippy
+          components: clippy, rustfmt
 
       - name: Setup Rust (macOS — upstream rustup, bypasses Homebrew shim)
         if: runner.os == 'macOS'
@@ -455,6 +466,17 @@ jobs:
       - name: Cargo clippy
         working-directory: src-tauri
         run: cargo clippy -- -D warnings
+
+      # Step 9b: Check the Rust code layout matches `cargo fmt` (default
+      # rustfmt style; there is no rustfmt.toml). The whole backend was
+      # formatted in one layout-only commit (listed in .git-blame-ignore-revs);
+      # run `cargo fmt` in src-tauri to fix a failure. Linux only: the layout
+      # is the same on every platform, so one check is enough.
+      # @see https://github.com/rust-lang/rustfmt#checking-style-on-a-ci-server
+      - name: Cargo fmt
+        if: runner.os == 'Linux'
+        working-directory: src-tauri
+        run: cargo fmt --check
 
       # Step 10: Check dependency licences and security advisories.
       # cargo-deny scans the entire dependency tree against:

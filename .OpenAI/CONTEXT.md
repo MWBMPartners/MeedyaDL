@@ -156,6 +156,7 @@ assets/brand/           # Brand assets: SVGs, animated PNGs, icons (ICO/ICNS/PNG
 
 ## Conventions
 
+- **Code layout is checked in CI (16 Nov 2026)**: the whole codebase was formatted in one layout-only commit (`c2b02bd3`, listed in `.git-blame-ignore-revs` so GitHub's Blame skips it). `ci.yml` now fails on unformatted code: `cargo fmt --check` (Backend, Linux) and `npm run format:check` (Frontend, Linux — Windows checkouts can turn line endings into CRLF). Before committing, run `cargo fmt` in `src-tauri/` and `npm run format`. The standing rule's "`rustfmt` on touched files only" dates from when the repo was not formatted; formatting the whole crate is now safe because it only changes what you touched. `src-tauri/vendor/` (copied-in third-party code) is never reformatted.
 - **Copyright header**: Every source file starts with `// Copyright (c) 2024-2026 MeedyaSuite` + MIT license reference
 - **Comments**: Every function and significant code block gets detailed comments
 - **Conventional commits**: Required for automated changelog generation (release-please)
