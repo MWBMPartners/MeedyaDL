@@ -288,4 +288,23 @@ describe('AdvancedTab -- Wrapper Decryption Address on GAMDL 3.8.2+ (#1433)', ()
     fireEvent.click(screen.getByText('Use the address from the Wrapper URL'));
     expect(useSettingsStore.getState().settings.wrapper_decrypt_ip).toBe('');
   });
+
+  it('treats a spaces-only value as blank, and the older layout names the Account URL', async () => {
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        use_wrapper: true,
+        wrapper_account_url: 'http://10.0.0.7:30020',
+        wrapper_decrypt_ip: '',
+      },
+    });
+    await openWrapper({});
+    const field = screen.getByLabelText('Wrapper Decryption Address') as HTMLInputElement;
+    expect(field.placeholder).toBe('10.0.0.7:10020');
+    fireEvent.change(field, { target: { value: '   ' } });
+    expect(useSettingsStore.getState().settings.wrapper_decrypt_ip).toBe('');
+    expect(screen.queryByText(/Use the address from the/)).not.toBeInTheDocument();
+    fireEvent.change(field, { target: { value: 'box:1' } });
+    expect(screen.getByText('Use the address from the Wrapper Account URL')).toBeInTheDocument();
+  });
 });

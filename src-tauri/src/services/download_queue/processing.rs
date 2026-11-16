@@ -54,6 +54,17 @@ pub fn process_queue(
 
                 let settings = load_settings_for_queue(&app);
 
+                // The wrapper checks below pick the newer or older wrapper
+                // from the detected GAMDL version (and the decryption
+                // address follows it, #1433). On the first run of a session
+                // that version may not be known yet, so find it out first;
+                // the answer is remembered by `get_gamdl_version`.
+                if settings.use_wrapper
+                    && crate::services::gamdl_capabilities::detected_version().is_none()
+                {
+                    let _ = gamdl_service::get_gamdl_version(&app).await;
+                }
+
                 // Tell the user we're about to verify the prerequisites.
                 // The old wording ("Pre-flight checks passed") was flagged
                 // in #578 as jargon — even dev-literate users couldn't tell

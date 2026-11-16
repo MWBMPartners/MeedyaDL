@@ -171,7 +171,7 @@ Most users should stick with **cookie-based authentication** (the default — wo
 
 1. **Obtain and run the wrapper service** — [wrapper-v1](https://github.com/WorldObservationLog/wrapper) is a separate native program. Which platforms it has builds for is a question for that project, not MeedyaDL — check its own releases page before assuming one exists for yours. Once running, it listens on `http://127.0.0.1:30020` by default
 2. **Enable in MeedyaDL** — go to **Settings > Advanced** and toggle **Use Wrapper** on
-3. **Configure the URLs** — update the **Wrapper Account URL** (default `http://127.0.0.1:30020`), **Wrapper m3u8 Address** (`127.0.0.1:20020`), and **Wrapper Decryption Address** (`127.0.0.1:10020`) if the wrapper runs on a different host or port. If you've moved the wrapper to a different device entirely, see [Running the wrapper on a different device](#running-the-wrapper-on-a-different-device-on-your-network) below.
+3. **Configure the URLs** — update the **Wrapper Account URL** (default `http://127.0.0.1:30020`), **Wrapper m3u8 Address** (`127.0.0.1:20020`), and, only if your wrapper uses a different decryption address, **Wrapper Decryption Address** (blank by default, which means it is worked out from the wrapper's address) if the wrapper runs on a different host or port. If you've moved the wrapper to a different device entirely, see [Running the wrapper on a different device](#running-the-wrapper-on-a-different-device-on-your-network) below.
 
 ### Auto-Retry without Wrapper
 
@@ -199,21 +199,21 @@ MeedyaDL checks wrapper connectivity in two ways:
 
 You don't have to run the wrapper on the same computer as MeedyaDL. A common setup is to run MeedyaDL on a Mac or Windows PC and the wrapper on a separate Linux box — for example, a Raspberry Pi sitting on the same home network.
 
-This works, but the wrapper actually uses **three** connections — not just one — and MeedyaDL needs to know about all three. If you only update one or two of them, downloads will appear to start successfully but then fail partway through.
+This works, but the wrapper actually uses **three** connections — not just one — and MeedyaDL needs to know where each one is. If you update the Account URL but not the m3u8 address, downloads will appear to start successfully but then fail partway through.
 
-In **Settings > Advanced > Wrapper**, you'll find three address fields. Update *all three* to point at the device running the wrapper:
+In **Settings > Advanced > Wrapper**, you'll find three address fields. Point the first two at the device running the wrapper. Leave the third blank and MeedyaDL works it out from the Account URL:
 
 | Setting                          | What it does                          | Default                  |
 | -------------------------------- | ------------------------------------- | ------------------------ |
 | **Wrapper Account URL**          | The wrapper's account / login service | `http://127.0.0.1:30020` |
 | **Wrapper m3u8 Address**         | The wrapper's playlist service        | `127.0.0.1:20020`        |
-| **Wrapper Decryption Address**   | The wrapper's decryption service      | `127.0.0.1:10020`        |
+| **Wrapper Decryption Address**   | The wrapper's decryption service      | Blank (automatic)        |
 
 If your wrapper runs on a Raspberry Pi at `192.168.1.50`, change them to:
 
 - **Wrapper Account URL:** `http://192.168.1.50:30020`
 - **Wrapper m3u8 Address:** `192.168.1.50:20020`
-- **Wrapper Decryption Address:** `192.168.1.50:10020`
+- **Wrapper Decryption Address:** leave blank (it becomes `192.168.1.50:10020`), or type it if your wrapper uses a different one
 
 Note that the host (`192.168.1.50`) is the same in all three — only the port number differs.
 
@@ -223,7 +223,7 @@ Note that the host (`192.168.1.50`) is the same in all three — only the port n
 
 - **The wrapper service needs to accept network connections, not just local ones.** By default, many wrapper installs only listen on `127.0.0.1` (the device itself). If you've installed it via Docker, that usually means the container needs port-forwarding configured (the `ports:` section in your `compose.yaml`); if you've installed it natively, the wrapper's own configuration needs to listen on `0.0.0.0` instead of `127.0.0.1`.
 - **A firewall on the wrapper's device may be blocking the ports.** On Linux, run something like `sudo ufw allow 30020/tcp` (and the same for `20020` and `10020`).
-- **Forgetting to update all three settings.** If the Account URL points at the Raspberry Pi but the Decryption Address still says `127.0.0.1`, MeedyaDL will fetch metadata fine but downloads silently fail at the decryption stage. The pre-download warnings catch this.
+- **Forgetting to update the m3u8 address.** If the Account URL points at the Raspberry Pi but the m3u8 Address still says `127.0.0.1`, MeedyaDL will fetch metadata fine but downloads fail partway through. The pre-download warnings catch this.
 - **You need three free ports on the same device.** The wrapper can't share its three ports with anything else on its host, but the host *can* run other services on different ports.
 
 #### Quick alternative: SSH tunnel

@@ -75,6 +75,13 @@ def main() -> int:
 
     code, out = run([], open_pattern="((mailto:\\w+)|(https?://\\w+)|(file:\\S+)).+")
     expect("widened shell open (file:) is caught", code == 1 and "file" in out and "tauri.conf.json:0" in out)
+    for label, pat in (
+        ("word scheme", "((https?://\\\\w+)|(\\\\w+:.*))"),
+        ("any text", "((https?://\\\\w+)|(.+))"),
+        ("any path", "((https?://\\\\w+)|(/.*))"),
+    ):
+        code, out = run([], open_pattern=pat)
+        expect(f"bypass '{label}' is caught", code == 1 and "tauri.conf.json:0" in out)
     code, out = run([], open_pattern=".*")
     expect("shell open with no scheme list is caught", code == 1)
     code, out = run([], raw="{ not json")

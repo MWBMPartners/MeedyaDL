@@ -254,24 +254,29 @@ function WrapperDecryptField({
   stored,
   onChange,
   wrapperAddress,
+  wrapperAddressName,
 }: {
   stored: string;
   onChange: (value: string) => void;
   wrapperAddress: string;
+  /** What the address it follows is called on this screen. */
+  wrapperAddressName: 'Wrapper URL' | 'Wrapper Account URL';
 }) {
+  // A spaces-only value counts as blank (automatic).
+  const isAutomatic = stored.trim() === '';
   const automatic = deriveWrapperDecryptAddress(wrapperAddress) ?? '127.0.0.1:10020';
   return (
     <div className="space-y-1">
       <Input
         label="Wrapper Decryption Address"
         description="Used by your wrapper. Leave this blank to use the address worked out from the wrapper address above (its host, with the standard port 10020). Type your own only if your wrapper listens on a different address or port."
-        value={stored}
-        onChange={(e) => onChange(e.target.value)}
+        value={isAutomatic ? '' : stored}
+        onChange={(e) => onChange(e.target.value.trim() === '' ? '' : e.target.value)}
         placeholder={automatic}
       />
-      {stored.trim() !== '' && (
+      {!isAutomatic && (
         <TextButton size="xs" onClick={() => onChange('')}>
-          Use the address from the Wrapper URL
+          Use the address from the {wrapperAddressName}
         </TextButton>
       )}
     </div>
@@ -913,6 +918,7 @@ export function AdvancedTab() {
                     stored={wrapperDecryptIp.value}
                     onChange={wrapperDecryptIp.set}
                     wrapperAddress={wrapperUrl.value}
+                    wrapperAddressName="Wrapper URL"
                   />
                 )}
               </>
@@ -936,6 +942,7 @@ export function AdvancedTab() {
                   stored={wrapperDecryptIp.value}
                   onChange={wrapperDecryptIp.set}
                   wrapperAddress={wrapperAccountUrl.value}
+                  wrapperAddressName="Wrapper Account URL"
                 />
               </>
             )}

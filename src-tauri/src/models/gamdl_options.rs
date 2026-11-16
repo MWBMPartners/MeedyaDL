@@ -940,6 +940,23 @@ pub struct GamdlOptions {
 }
 
 impl GamdlOptions {
+    /// The wrapper decryption address to send, worked out NOW, where the
+    /// newer-or-older wrapper branch is actually chosen (#1433). The options
+    /// hold only what the person typed (`wrapper_decrypt_ip`, empty =
+    /// automatic); deriving it earlier, while the GAMDL version was still
+    /// unknown (queue restore, early enqueue), picked the wrong wrapper
+    /// address. `None` when the wrapper decryption setting is absent (for
+    /// example a retry without the wrapper).
+    fn effective_decrypt_address(&self, newer_wrapper: bool) -> Option<String> {
+        let typed = self.wrapper_decrypt_ip.as_deref()?;
+        Some(crate::utils::wrapper_address::effective_decrypt_address(
+            typed,
+            self.wrapper_url.as_deref().unwrap_or(""),
+            self.wrapper_account_url.as_deref().unwrap_or(""),
+            newer_wrapper,
+        ))
+    }
+
     /// Converts the options struct into a vector of CLI argument strings.
     ///
     /// Only fields that are `Some(...)` generate CLI flags. `None` fields
@@ -1137,9 +1154,9 @@ impl GamdlOptions {
             // (IPv6-safe). A malformed value with no colon is skipped
             // entirely rather than emitting a partial/broken flag.
             if supports(GamdlFeature::WrapperDecryptHostPort) {
-                if let Some(ref addr) = self.wrapper_decrypt_ip {
+                if let Some(addr) = self.effective_decrypt_address(true) {
                     if let Some((host, port)) =
-                        crate::utils::wrapper_address::split_decrypt_address(addr)
+                        crate::utils::wrapper_address::split_decrypt_address(&addr)
                     {
                         args.push("--wrapper-decrypt-host".to_string());
                         args.push(host);
@@ -1154,9 +1171,9 @@ impl GamdlOptions {
                 args.push("--wrapper-account-url".to_string());
                 args.push(url.clone());
             }
-            if let Some(ref ip) = self.wrapper_decrypt_ip {
+            if let Some(ip) = self.effective_decrypt_address(false) {
                 args.push("--wrapper-decrypt-ip".to_string());
-                args.push(ip.clone());
+                args.push(ip);
             }
             // --wrapper-m3u8-ip is itself GAMDL v3.1+ only.
             if let Some(ref ip) = self.wrapper_m3u8_ip {
@@ -1620,9 +1637,9 @@ impl GamdlOptions {
             if let Some(ref url) = self.wrapper_url {
                 push(&mut args, "--wrapper-url", url.clone());
             }
-            if let Some(ref addr) = self.wrapper_decrypt_ip {
+            if let Some(addr) = self.effective_decrypt_address(true) {
                 if let Some((host, port)) =
-                    crate::utils::wrapper_address::split_decrypt_address(addr)
+                    crate::utils::wrapper_address::split_decrypt_address(&addr)
                 {
                     // 4.0 checks the port is a number from 1 to 65535 and
                     // refuses the run otherwise; leave its default in
@@ -2172,6 +2189,47 @@ mod tests {
         assert!(args.contains(&"--wrapper-decrypt-port".to_string()));
         assert!(args.contains(&"10020".to_string()));
         assert!(!args.contains(&"--wrapper-decrypt-ip".to_string()));
+    }
+
+    #[test]
+    fn blank_decrypt_address_is_worked_out_at_spawn_not_at_merge() {
+        // Options merged while the GAMDL version was still unknown (queue
+        // restore) hold only the typed value, so a remote wrapper's host is
+        // still found once the version is known (#1433).
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(None);
+        let options = GamdlOptions {
+            use_wrapper: Some(true),
+            wrapper_url: Some("http://192.168.1.20:80".to_string()),
+            wrapper_account_url: Some("http://127.0.0.1:30020".to_string()),
+            wrapper_decrypt_ip: Some(String::new()),
+            ..Default::default()
+        };
+        set_detected_version(Some("3.8.2".to_string()));
+        let args = options.to_cli_args();
+        set_detected_version(None);
+        let at = args.iter().position(|a| a == "--wrapper-decrypt-host").unwrap();
+        assert_eq!(args[at + 1], "192.168.1.20");
+        assert_eq!(args[at + 3], "10020");
+    }
+
+    #[test]
+    fn blank_decrypt_address_on_the_older_wrapper_follows_the_account_url() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(Some("3.5".to_string()));
+        let options = GamdlOptions {
+            use_wrapper: Some(true),
+            wrapper_url: Some("http://127.0.0.1".to_string()),
+            wrapper_account_url: Some("http://10.0.0.7:30020".to_string()),
+            wrapper_decrypt_ip: Some(String::new()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        set_detected_version(None);
+        let at = args.iter().position(|a| a == "--wrapper-decrypt-ip").unwrap();
+        assert_eq!(args[at + 1], "10.0.0.7:10020");
     }
 
     #[test]

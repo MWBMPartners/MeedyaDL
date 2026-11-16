@@ -37,14 +37,17 @@ Usage:
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 
 ALLOWED_NOTIFICATION = "notification:allow-is-permission-granted"
-# Schemes the WebView may ask the system to open (`plugins.shell.open`):
-# web, mail, phone, and the macOS settings deep link the app uses.
-ALLOWED_OPEN_SCHEMES = {"http", "https", "mailto", "tel", "x-apple.systempreferences"}
+# The exact `plugins.shell.open` patterns accepted (web, mail, phone and the
+# macOS settings deep link). Parsing a pattern for its schemes can be fooled
+# by an extra alternative (`|(\\w+:.*)`), so anything but an exact match is
+# reported. Widening the pattern on purpose means adding it here, in review.
+ALLOWED_OPEN_PATTERNS = {
+    "((mailto:\\w+)|(tel:\\w+)|(https?://\\w+)|(x-apple\\.systempreferences:\\S+)).+",
+}
 # Permissions that let the page open an arbitrary file or folder.
 FORBIDDEN_OPEN = ("opener:allow-open-path", "opener:default")
 
@@ -106,15 +109,11 @@ def check_shell_open(root: Path) -> list[str]:
         return [f"  • {rel}:0 — `plugins.shell.open` is `true`, which lets the page open any address or file"]
     if not isinstance(pattern, str):
         return []  # nothing is opened through the plugin
-    found = re.findall(r"(?:^|[(|])([A-Za-z][\w\\.+-]*\??):", pattern)
-    schemes = {s.replace("\\", "").replace("?", "").lower() for s in found}
-    if not schemes:
-        return [f"  • {rel}:0 — `plugins.shell.open` has no recognisable scheme list; widened or unreadable pattern"]
-    extra = sorted(schemes - ALLOWED_OPEN_SCHEMES)
-    if extra:
+    if pattern not in ALLOWED_OPEN_PATTERNS:
         return [
-            f"  • {rel}:0 — `plugins.shell.open` allows more than web, mail, phone and settings links: "
-            + ", ".join(extra)
+            f"  • {rel}:0 — `plugins.shell.open` is not the known-good pattern "
+            "(web, mail, phone and settings links only); if the change is "
+            "intended, review it and add it to ALLOWED_OPEN_PATTERNS"
         ]
     return []
 

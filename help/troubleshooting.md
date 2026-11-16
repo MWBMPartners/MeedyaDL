@@ -212,17 +212,17 @@ If only **some** tracks are skipped, those tracks probably are not offered in th
 
 #### Running the wrapper on another device
 
-You can run the wrapper on a different computer on your network, such as a Raspberry Pi, and run MeedyaDL on your Mac or PC. MeedyaDL needs the address of the wrapper in **three** places. If you change only one or two, downloads start but fail part-way through.
+You can run the wrapper on a different computer on your network, such as a Raspberry Pi, and run MeedyaDL on your Mac or PC. MeedyaDL needs the address of the wrapper in up to **three** places. If you change only one of the first two, downloads start but fail part-way through.
 
-In **Settings > Advanced > Wrapper** (on GAMDL 3.6 and newer there is one **Wrapper URL** field instead), set all three fields to the other device:
+In **Settings > Advanced > Wrapper** (on GAMDL 3.6 and newer there is one **Wrapper URL** field instead), set the first two fields to the other device. The decryption address can stay blank: MeedyaDL then works it out from the wrapper's address.
 
 | Setting | Default |
 | --- | --- |
 | **Wrapper Account URL** | `http://127.0.0.1:30020` |
 | **Wrapper m3u8 Address** | `127.0.0.1:20020` |
-| **Wrapper Decryption Address** | `127.0.0.1:10020` |
+| **Wrapper Decryption Address** | Blank (worked out from the wrapper's address; `127.0.0.1:10020` for a wrapper on the same computer) |
 
-For a wrapper at `192.168.1.50`, use `http://192.168.1.50:30020`, `192.168.1.50:20020` and `192.168.1.50:10020`. The device address is the same in all three. Only the port number changes.
+For a wrapper at `192.168.1.50`, use `http://192.168.1.50:30020` and `192.168.1.50:20020`, and leave the decryption address blank (it becomes `192.168.1.50:10020`). Type a decryption address yourself only if your wrapper uses a different one.
 
 Before each download, MeedyaDL checks all of them and shows a yellow message that says which one cannot be reached.
 
@@ -231,7 +231,7 @@ Before each download, MeedyaDL checks all of them and shows a yellow message tha
 
 - **The wrapper must accept connections from the network,** not only from its own device. Many installs listen only on `127.0.0.1`. Change its settings, or port forwarding if it runs in Docker, so other devices can reach it.
 - **A firewall may be blocking the ports.** On Linux, something like `sudo ufw allow 30020/tcp` (and the same for `20020` and `10020`) opens them.
-- **Forgetting one of the three.** If the account address points at the other device but the decryption address still says `127.0.0.1`, details load but downloads fail partway through.
+- **Forgetting the playlist address.** If the account address points at the other device but the Wrapper m3u8 Address still says `127.0.0.1`, details load but downloads fail partway through.
 - **Three free ports are needed** on that device.
 - **Quick alternative:** you can leave MeedyaDL's settings alone and forward the three ports with SSH. From a terminal on the computer running MeedyaDL:
 
