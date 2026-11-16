@@ -316,8 +316,19 @@ export function ToastContainer() {
   useEffect(() => () => setToastDismissalPaused(false), []);
   useEffect(() => {
     recheckFocus();
-    // A toast dismissed from under the pointer sends no "pointer left".
-    if (toasts.length === 0) setHovered(false);
+    // A toast removed from under the pointer sends no "pointer left"
+    // (WebKit), so whether the pointer is still over the stack is checked
+    // again whenever the list changes. `:hover` is read from the element
+    // itself; where that is not supported, fall back to "not hovered" and
+    // let the next pointer-enter set it again.
+    const el = stackRef.current;
+    let stillHovered: boolean;
+    try {
+      stillHovered = toasts.length > 0 && !!el && el.matches(':hover');
+    } catch {
+      stillHovered = false;
+    }
+    setHovered(stillHovered);
   }, [toasts]);
 
   /*

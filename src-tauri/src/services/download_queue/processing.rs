@@ -1556,7 +1556,14 @@ pub fn process_queue(
                                 let ar_settings = load_settings_for_queue(&app_clone);
                                 let may_retry_without_wrapper = wrapper_url_for_logging.is_some()
                                     && ar_settings.auto_retry_without_wrapper;
-                                let counted_in_lock = newly_failed && !may_retry_without_wrapper;
+                                // Decide the retry inside this same lock, before
+                                // the slot is released, so a failure that is not
+                                // retried is always counted before anything else
+                                // can start the queue and post "Queue finished"
+                                // without it (#1431, review round 6).
+                                let retried = may_retry_without_wrapper
+                                    && q.retry_without_wrapper(&dl_id, &ar_settings);
+                                let counted_in_lock = newly_failed && !retried;
                                 if counted_in_lock {
                                     crate::services::notification_service::count_result(
                                         crate::services::notification_service::NotifyKind::DownloadFailed,
@@ -1582,10 +1589,6 @@ pub fn process_queue(
                                         &dl_id,
                                         "Wrapper failed — auto-retrying without wrapper",
                                     );
-                                    let retried = {
-                                        let mut q = queue_clone.lock().await;
-                                        q.retry_without_wrapper(&dl_id, &ar_settings)
-                                    };
                                     if retried {
                                         save_queue_to_disk(&app_clone, &queue_clone).await;
                                         let _ = app_clone.emit("download-queued", &dl_id);
@@ -1671,11 +1674,6 @@ pub fn process_queue(
                                 // in-app message, by the one rule, #1431). Only
                                 // the category goes on, never the raw error.
                                 if newly_failed {
-                                    if !counted_in_lock {
-                                        crate::services::notification_service::count_result(
-                                            crate::services::notification_service::NotifyKind::DownloadFailed,
-                                        );
-                                    }
                                     notify_item_failed(
                                         &app_clone,
                                         &queue_clone,

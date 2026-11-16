@@ -137,6 +137,30 @@ describe('ToastContainer', () => {
     expect(screen.getByRole('alert')).not.toHaveTextContent('Older error');
   });
 
+  it('resumes auto-dismiss when the toast under the pointer is removed without a pointer-leave', () => {
+    vi.useFakeTimers();
+    try {
+      act(() => {
+        useUiStore.getState().addToast('Under the pointer', 'info', 0);
+        useUiStore.getState().addToast('Timed one', 'info', 1000);
+      });
+      render(<ToastContainer />);
+      fireEvent.mouseEnter(screen.getByTestId('toast-stack'));
+      // Remove the toast under the pointer the way WebKit does: no
+      // mouseleave reaches the stack.
+      act(() => {
+        const id = useUiStore.getState().toasts[0].id;
+        useUiStore.getState().removeToast(id);
+      });
+      act(() => {
+        vi.advanceTimersByTime(1500);
+      });
+      expect(useUiStore.getState().toasts).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('resumes auto-dismiss when the focused toast is removed without a blur', () => {
     vi.useFakeTimers();
     try {
