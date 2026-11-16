@@ -205,41 +205,17 @@ pub(crate) fn fresh_at_snapshot(
         .collect()
 }
 
-/// The format suffix (`[Dolby Atmos]`, `[Lossless]`, …) written into the
-/// primary run's file templates, if any.
-pub(crate) fn primary_name_suffix(primary: &GamdlOptions) -> Option<&'static str> {
-    let suffixes = metadata_tag_service::registry_codec_suffixes();
-    [
-        primary.single_disc_file_template.as_deref(),
-        primary.multi_disc_file_template.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    .find_map(|t| present_suffixes(t, &suffixes).into_iter().next())
-}
-
-/// The format suffixes in `text`, leaving out one found only inside a
-/// longer one.
-fn present_suffixes(text: &str, suffixes: &[&'static str]) -> Vec<&'static str> {
-    let found: Vec<&'static str> = suffixes
-        .iter()
-        .copied()
-        .filter(|s| text.contains(s))
-        .collect();
-    found
-        .iter()
-        .copied()
-        .filter(|s| !found.iter().any(|o| o != s && o.contains(s)))
-        .collect()
-}
-
-/// Whether a file name carries exactly the primary run's format suffix
-/// (or no format suffix, when the primary's template has none).
+/// Whether a file name ends the way the primary run named its files:
+/// with the format suffix MeedyaDL appended to its templates
+/// (`expected`), or, when it appended none, with no format suffix at all.
+/// Only the END of the name is looked at — where the suffix goes — so a
+/// label the person typed elsewhere in their template does not count.
 pub(crate) fn stem_matches_primary_name(stem: &str, expected: Option<&str>) -> bool {
-    let present = present_suffixes(stem, &metadata_tag_service::registry_codec_suffixes());
     match expected {
-        None => present.is_empty(),
-        Some(s) => present == [s],
+        Some(s) => stem.ends_with(&format!(" {s}")),
+        None => !metadata_tag_service::registry_codec_suffixes()
+            .iter()
+            .any(|s| stem.ends_with(&format!(" {s}"))),
     }
 }
 
@@ -270,8 +246,8 @@ pub(crate) fn numbers_from_file_name(stem: &str) -> (Option<u32>, Option<u32>) {
 /// Reads a file's disc and track numbers from its tags (GAMDL writes
 /// them), falling back to its name. A file with a track number and no
 /// disc number in its tags counts as disc 1, as elsewhere in enrichment.
-/// `fresh` comes from [`fresh_at_snapshot`]; `primary_suffix` from
-/// [`primary_name_suffix`].
+/// `fresh` comes from [`fresh_at_snapshot`]; `primary_suffix` is the
+/// format suffix MeedyaDL appended to the primary run's templates.
 pub(crate) fn read_audio_numbers(
     path: &Path,
     fresh: bool,
@@ -763,8 +739,12 @@ pub(crate) struct CompanionGateState {
     pub album_dir: Option<String>,
     /// The formats detected in the primary's files (one per format; native
     /// format priority can mix them within an album). Companions skip
-    /// these formats and steer clear of their suffixes.
+    /// these formats, or on a mixed album keep the primary's own tracks.
     pub primary_codecs: Vec<SongCodec>,
+    /// Each primary track's detected format, disc and track number, so a
+    /// companion on a mixed album can remove its new copies of tracks the
+    /// primary already has in that format.
+    pub primary_tracks: Vec<(SongCodec, u32, u32)>,
 }
 
 /// Enrichment's end of the gate. Dropping it — an early return, a panic,
@@ -789,10 +769,16 @@ impl CompanionGate {
 
     /// Lets the companions start, saying whether the per-file renames ran
     /// and which formats were detected in the primary's files.
-    pub(crate) fn release(self, renames_done: bool, primary_codecs: Vec<SongCodec>) {
+    pub(crate) fn release(
+        self,
+        renames_done: bool,
+        primary_codecs: Vec<SongCodec>,
+        primary_tracks: Vec<(SongCodec, u32, u32)>,
+    ) {
         self.0.send_modify(|s| {
             s.renames_done = renames_done;
             s.primary_codecs = primary_codecs;
+            s.primary_tracks = primary_tracks;
         });
         // `Drop` sets `released`.
     }
@@ -888,6 +874,68 @@ pub(crate) fn file_templates_allow_fixed_folder(options: &GamdlOptions) -> bool 
     .into_iter()
     .flatten()
     .all(|t| !t.contains('/') && !t.contains('\\'))
+}
+
+/// Every file under `dir` (depth 10, filesystem clutter left out).
+pub(crate) fn all_files_in(dir: &Path) -> std::collections::BTreeSet<PathBuf> {
+    crate::utils::fs_walk::walk_dir_depth(dir, 10, |path| {
+        (path.is_file() && !crate::utils::fs_safe::is_filesystem_sidecar(path))
+            .then(|| path.to_path_buf())
+    })
+    .into_iter()
+    .collect()
+}
+
+/// After a companion attempt in `codec` on a mixed album: removes every
+/// NEW audio file (not in `before`) whose disc and track number (from its
+/// tags, else its name) belong to a primary track already in `codec`,
+/// together with the new files beside it that share its name (its lyrics
+/// and subtitles). Files that were there before are never touched.
+/// Returns the audio files removed.
+pub(crate) fn remove_new_copies_of_primary_tracks(
+    before: &std::collections::BTreeSet<PathBuf>,
+    dir: &Path,
+    codec: &SongCodec,
+    primary_tracks: &[(SongCodec, u32, u32)],
+) -> Vec<PathBuf> {
+    let after = all_files_in(dir);
+    let new: Vec<&PathBuf> = after.difference(before).collect();
+    // Song copies are always saved as .m4a. Music videos (.m4v / .mp4)
+    // and animated artwork (.mp4) can land in the same folder while the
+    // copy runs (enrichment's later steps carry on after the gate opens)
+    // and may carry a matching track number, so only .m4a is ever
+    // considered here.
+    let is_audio = |p: &Path| {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("m4a"))
+    };
+    let mut removed = Vec::new();
+    for audio in new.iter().filter(|p| is_audio(p)) {
+        let numbers = read_audio_numbers(audio, false, None);
+        let (Some(disc), Some(track)) = (numbers.disc.or(Some(1)), numbers.track) else {
+            continue;
+        };
+        if !primary_tracks
+            .iter()
+            .any(|(c, d, t)| c == codec && *d == disc && *t == track)
+        {
+            continue;
+        }
+        let stem = audio.file_stem().map(std::ffi::OsStr::to_os_string);
+        let parent = audio.parent().map(Path::to_path_buf);
+        for file in &new {
+            if file.parent().map(Path::to_path_buf) == parent
+                && file.file_stem().map(std::ffi::OsStr::to_os_string) == stem
+            {
+                if let Err(e) = std::fs::remove_file(file) {
+                    log::warn!("Could not remove extra copy {}: {e}", file.display());
+                }
+            }
+        }
+        removed.push((*audio).clone());
+    }
+    removed
 }
 
 /// How the pass ended, for its summary line.
@@ -1337,12 +1385,7 @@ mod tests {
     }
 
     #[test]
-    fn the_primary_name_suffix_comes_from_its_file_template() {
-        let mut primary = GamdlOptions {
-            single_disc_file_template: Some("{track:02d} {title} [Dolby Atmos]".into()),
-            ..GamdlOptions::default()
-        };
-        assert_eq!(primary_name_suffix(&primary), Some("[Dolby Atmos]"));
+    fn only_the_end_of_a_name_decides_whether_it_is_the_primarys() {
         assert!(stem_matches_primary_name(
             "01 A [Dolby Atmos]",
             Some("[Dolby Atmos]")
@@ -1352,9 +1395,51 @@ mod tests {
             Some("[Dolby Atmos]")
         ));
         assert!(!stem_matches_primary_name("01 A", Some("[Dolby Atmos]")));
-        primary.single_disc_file_template = Some("{track:02d} {title}".into());
-        assert_eq!(primary_name_suffix(&primary), None);
         assert!(stem_matches_primary_name("01 A [Explicit]", None));
+        // A label the person typed in the middle of their template does
+        // not make the name a format-suffixed one.
+        assert!(stem_matches_primary_name("01 [Lossless] A", None));
+        assert!(!stem_matches_primary_name("01 A [Lossless]", None));
+    }
+
+    #[test]
+    fn a_mixed_album_loses_only_new_copies_of_tracks_already_in_that_format() {
+        use crate::services::metadata_tag_service::test_support::minimal_m4a;
+        // The primary: track 1 in Atmos, track 2 in ALAC rated explicit and
+        // already renamed `02 T [Explicit] [Lossless]`.
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        minimal_m4a(&d.join("01 S [Dolby Atmos].m4a"), 1, 1, false);
+        minimal_m4a(&d.join("02 T [Explicit] [Lossless].m4a"), 2, 1, true);
+        std::fs::write(d.join("02 T [Explicit] [Lossless].lrc"), b"primary").unwrap();
+        let primary_tracks = vec![(SongCodec::Atmos, 1, 1), (SongCodec::Alac, 1, 2)];
+        let before = all_files_in(d);
+
+        // The ALAC companion (overwrite off) saves both tracks under its
+        // own names, beside the advisory-renamed primary.
+        minimal_m4a(&d.join("01 S [Lossless].m4a"), 1, 1, false);
+        std::fs::write(d.join("01 S [Lossless].lrc"), b"copy").unwrap();
+        minimal_m4a(&d.join("02 T [Lossless].m4a"), 2, 1, true);
+        std::fs::write(d.join("02 T [Lossless].lrc"), b"dup").unwrap();
+        // A music video for track 2 lands at the same time (enrichment's
+        // later steps run while the copy does). It carries the same disc
+        // and track number but must never be removed.
+        minimal_m4a(&d.join("02 T.m4v"), 2, 1, true);
+
+        let removed =
+            remove_new_copies_of_primary_tracks(&before, d, &SongCodec::Alac, &primary_tracks);
+        assert_eq!(removed, vec![d.join("02 T [Lossless].m4a")]);
+        // The duplicate and its sidecar are gone...
+        assert!(!d.join("02 T [Lossless].m4a").exists());
+        assert!(!d.join("02 T [Lossless].lrc").exists());
+        // ...the wanted copy of the Atmos track stays, and the primary's
+        // own files are untouched.
+        assert!(d.join("01 S [Lossless].m4a").exists());
+        assert!(d.join("01 S [Lossless].lrc").exists());
+        assert!(d.join("02 T [Explicit] [Lossless].m4a").exists());
+        assert!(d.join("02 T [Explicit] [Lossless].lrc").exists());
+        assert!(d.join("01 S [Dolby Atmos].m4a").exists());
+        assert!(d.join("02 T.m4v").exists());
     }
 
     #[test]
@@ -1672,11 +1757,12 @@ mod tests {
                 async move { wait_for_companion_gate(&mut waiter, || async { false }).await },
             );
         tokio::task::yield_now().await;
-        gate.release(true, vec![SongCodec::Alac]);
+        gate.release(true, vec![SongCodec::Alac], vec![(SongCodec::Alac, 1, 1)]);
         let state = waiting.await.unwrap().unwrap();
         assert!(state.released);
         assert!(state.renames_done);
         assert_eq!(state.primary_codecs, vec![SongCodec::Alac]);
+        assert_eq!(state.primary_tracks, vec![(SongCodec::Alac, 1, 1)]);
         assert_eq!(
             state.album_dir.as_deref(),
             Some("/Music/A/Album [Explicit]")

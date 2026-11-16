@@ -754,6 +754,11 @@ pub fn process_queue(
                 .map(|i| i.added_template_suffixes.clone())
                 .unwrap_or_default()
         };
+        // The format suffix MeedyaDL itself appended to the primary run's
+        // templates: the one a format fallback recorded, or (below) the
+        // primary's own single-format suffix. Never a label the person
+        // typed — used to tell the primary's names from the companions'.
+        let mut primary_appended_suffix: Option<&'static str> = recorded_suffixes.last().copied();
         if strip_recorded_codec_suffixes(&mut companion_base_options, &recorded_suffixes) {
             log::info!(
                 "Companion base templates for {download_id}: removed the format suffix a format fallback added ({})",
@@ -821,6 +826,11 @@ pub fn process_queue(
                     &settings_for_companion.companion_mode,
                     &settings_for_companion.custom_companion_codecs,
                 ) {
+                    if let Some(suffix) =
+                        codec_suffix_for_options(&download_options).filter(|s| !s.is_empty())
+                    {
+                        primary_appended_suffix = Some(suffix);
+                    }
                     apply_codec_suffix(&mut download_options);
                     log::info!(
                         "Download {} using codec with file suffix (companion mode: {:?})",
@@ -1753,7 +1763,7 @@ pub fn process_queue(
                                     uses_native_priority,
                                     &traits,
                                     None,
-                                    super::lyrics_pass::primary_name_suffix(&download_options),
+                                    PrimaryNaming::of(&download_options, primary_appended_suffix),
                                 );
 
                                 // Continue processing remaining queued items
@@ -1918,6 +1928,7 @@ pub fn process_queue(
                         // same sign-in, formats and names, and runs only after a
                         // clean primary run (no gap-fill, nothing skipped).
                         let enrich_primary_options = download_options.clone();
+                        let enrich_primary_suffix = primary_appended_suffix;
                         let enrich_primary_clean = warnings.is_empty();
                         let enrich_primary_version = primary_gamdl_version.clone();
                         let enrich_download_folder = primary_download_folder.clone();
@@ -2218,8 +2229,7 @@ pub fn process_queue(
                                     .ok()
                                     .map(std::time::SystemTime::from),
                             );
-                            let primary_suffix =
-                                super::lyrics_pass::primary_name_suffix(&enrich_primary_options);
+                            let primary_suffix = enrich_primary_suffix;
                             // The folder that holds the primary files, for the
                             // companions (album and song links only — other
                             // links can span several folders).
@@ -3137,6 +3147,17 @@ pub fn process_queue(
                                     .iter()
                                     .filter(|p| p.is_file())
                                     .all(|p| file_codecs.iter().any(|(f, _)| f == p));
+                            // Each primary track's detected format, disc and
+                            // track (read before the renames move the files), so
+                            // a companion on a mixed album can clear away its
+                            // copies of tracks already in its format.
+                            let primary_tracks_by_format: Vec<(SongCodec, u32, u32)> = file_codecs
+                                .iter()
+                                .filter_map(|(path, c)| {
+                                    let n = super::lyrics_pass::read_audio_numbers(path, false, None);
+                                    Some((c.clone(), n.disc.unwrap_or(1), n.track?))
+                                })
+                                .collect();
                             let renamed_primary = super::metadata_tag_service::apply_deferred_file_renames(
                                 &primary_files,
                                 album_metadata.as_ref(),
@@ -3162,6 +3183,7 @@ pub fn process_queue(
                                 every_file_has_its_format
                                     && super::metadata_tag_service::renames_complete(&renamed_primary),
                                 detected_codecs,
+                                primary_tracks_by_format,
                             );
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));
@@ -4211,7 +4233,7 @@ pub fn process_queue(
                             waiter: companion_gate_waiter,
                             download_root: primary_download_folder.clone(),
                         }),
-                        super::lyrics_pass::primary_name_suffix(&download_options),
+                        PrimaryNaming::of(&download_options, primary_appended_suffix),
                     );
 
                     // Spawn a completion task that waits for ALL background work
@@ -5388,7 +5410,7 @@ pub fn process_queue(
                                 uses_native_priority,
                                 &traits,
                                 None,
-                                super::lyrics_pass::primary_name_suffix(&download_options),
+                                PrimaryNaming::of(&download_options, primary_appended_suffix),
                             );
                         } else {
                             emit_download_log(

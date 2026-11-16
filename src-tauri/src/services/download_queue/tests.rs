@@ -2689,18 +2689,28 @@
         assert!(!template.contains("[Dolby Atmos]"), "suffixes piled up: {template}");
         let recorded = queue.items[0].added_template_suffixes.clone();
         assert_eq!(recorded.len(), 1);
-        let primary_suffix = super::lyrics_pass::primary_name_suffix(&second);
-        assert_eq!(primary_suffix, Some(recorded[0]));
+        assert!(template.ends_with(&format!(" {}", recorded[0])));
+        let primary = PrimaryNaming::of(&second, recorded.last().copied());
 
         // The companions start from the same saved options.
         let mut base = second.clone();
         assert!(strip_recorded_codec_suffixes(&mut base, &recorded));
-        assert_eq!(super::lyrics_pass::primary_name_suffix(&base), None);
         // The plain (AAC) tier is now plainly named, different from the
         // primary's suffixed name.
+        base.song_codec = None;
+        base.song_codec_priority = Some("aac".into());
         assert_eq!(
-            companion_attempt_naming(&SongCodec::Aac, false, &recorded, &[], None),
+            companion_attempt_naming(&SongCodec::Aac, false, &base, &primary, &[]),
             Ok(AttemptPlan { apply_suffix: false, keep_existing: false })
+        );
+        // Without the strip, the plain copy would have had the primary's
+        // names — and would be skipped rather than overwrite it.
+        let mut unstripped = second.clone();
+        unstripped.song_codec = None;
+        unstripped.song_codec_priority = Some("aac".into());
+        assert_eq!(
+            companion_attempt_naming(&SongCodec::Aac, false, &unstripped, &primary, &[]),
+            Err(CompanionSkip::SameNames)
         );
         // A retry merges afresh and forgets the record.
         queue.set_error(&id, "failed");
@@ -2761,50 +2771,86 @@
     #[test]
     fn a_companion_never_takes_the_primarys_names_or_format() {
         let ok = |apply_suffix, keep_existing| Ok(AttemptPlan { apply_suffix, keep_existing });
-        // Plain primary, nothing detected: nothing judged here.
-        assert_eq!(companion_attempt_naming(&SongCodec::Aac, false, &[], &[], None), ok(false, false));
+        let attempt = |codec: &str, single: &str| GamdlOptions {
+            song_codec_priority: Some(codec.into()),
+            single_disc_file_template: Some(single.into()),
+            multi_disc_file_template: Some(format!("{{disc}}-{single}")),
+            ..GamdlOptions::default()
+        };
+        let named = |single: &str, appended| PrimaryNaming {
+            appended_suffix: appended,
+            single_disc: Some(single.into()),
+            multi_disc: Some(format!("{{disc}}-{single}")),
+        };
+        let plain = "{track:02d} {title}";
+
+        // Plain (native) primary, nothing detected: nothing clashes for a
+        // suffixed copy.
+        assert_eq!(
+            companion_attempt_naming(&SongCodec::Alac, true, &attempt("alac", plain), &named(plain, None), &[]),
+            ok(true, false)
+        );
         // Normal single-format path: primary `[Dolby Atmos]`, ALAC copy
         // `[Lossless]`, AAC copy plain — all different, unchanged.
-        let atmos = ["[Dolby Atmos]"];
+        let atmos = named("{track:02d} {title} [Dolby Atmos]", Some("[Dolby Atmos]"));
         assert_eq!(
-            companion_attempt_naming(&SongCodec::Alac, true, &atmos, &[SongCodec::Atmos], None),
+            companion_attempt_naming(&SongCodec::Alac, true, &attempt("alac", plain), &atmos, &[SongCodec::Atmos]),
             ok(true, false)
         );
         assert_eq!(
-            companion_attempt_naming(&SongCodec::Aac, false, &atmos, &[SongCodec::Atmos], None),
+            companion_attempt_naming(&SongCodec::Aac, false, &attempt("aac", plain), &atmos, &[SongCodec::Atmos]),
             ok(false, false)
         );
         // Custom + native priority: Atmos not offered, GAMDL picked ALAC
-        // and enrichment renamed the primary `[Lossless]`; the forced-suffix
-        // ALAC copy would be `[Lossless]` too, and is pointless — skipped.
-        let lossless = ["[Lossless]"];
+        // and enrichment renamed the primary `[Lossless]`; the ALAC copy is
+        // pointless — skipped.
         assert_eq!(
-            companion_attempt_naming(&SongCodec::Alac, true, &lossless, &[SongCodec::Alac], None),
+            companion_attempt_naming(&SongCodec::Alac, true, &attempt("alac", plain), &named(plain, None), &[SongCodec::Alac]),
             Err(CompanionSkip::SameFormat)
         );
-        // A mixed album (some tracks Atmos, some ALAC): the ALAC copy still
-        // runs for the Atmos tracks, but never replaces the primary's own
-        // ALAC files.
-        let mixed = ["[Dolby Atmos]", "[Lossless]"];
+        // A mixed album (some tracks Atmos, some ALAC): the ALAC copy runs
+        // keeping existing files (its new copies of the ALAC tracks are
+        // removed afterwards).
         assert_eq!(
             companion_attempt_naming(
                 &SongCodec::Alac,
                 true,
-                &mixed,
-                &[SongCodec::Atmos, SongCodec::Alac],
-                None
+                &attempt("alac", plain),
+                &named(plain, None),
+                &[SongCodec::Atmos, SongCodec::Alac]
             ),
             ok(true, true)
         );
-        // A base template still carrying the primary's suffix: a plain
-        // attempt gets its own suffix, or is skipped when it has none.
+        // A label the person typed into their own template: the primary's
+        // names are `01 T [Lossless]` (typed, nothing appended), a plain
+        // AAC copy built from the same template is `01 T [Lossless]` too —
+        // a real clash — but a suffixed ALAC copy (`… [Lossless] [Lossless]`)
+        // is different, so it is not skipped.
+        let typed = "{track:02d} {title} [Lossless]";
+        let primary_typed = named(typed, None);
         assert_eq!(
-            companion_attempt_naming(&SongCodec::AacLegacy, false, &lossless, &[], Some("[Lossless]")),
+            companion_attempt_naming(&SongCodec::Alac, true, &attempt("alac", typed), &primary_typed, &[SongCodec::Atmos]),
             ok(true, false)
         );
+        // The plain AAC copy really would clash; it has no suffix of its
+        // own, so it is skipped.
         assert_eq!(
-            companion_attempt_naming(&SongCodec::Aac, false, &lossless, &[], Some("[Lossless]")),
+            companion_attempt_naming(&SongCodec::Aac, false, &attempt("aac", typed), &primary_typed, &[SongCodec::Atmos]),
             Err(CompanionSkip::SameNames)
+        );
+        // A clashing plain attempt with a suffix of its own takes it.
+        assert_eq!(
+            companion_attempt_naming(&SongCodec::AacLegacy, false, &attempt("aac-legacy", typed), &primary_typed, &[SongCodec::Atmos]),
+            ok(true, false)
+        );
+        // The reviewer's case: an ALAC primary whose typed template gained
+        // MeedyaDL's own `[Lossless]` (`01 T [Lossless] [Lossless]`), and a
+        // wanted plain AAC copy from the typed template (`01 T [Lossless]`).
+        // The names differ, so the copy goes ahead.
+        let alac_primary = named("{track:02d} {title} [Lossless] [Lossless]", Some("[Lossless]"));
+        assert_eq!(
+            companion_attempt_naming(&SongCodec::Aac, false, &attempt("aac", typed), &alac_primary, &[SongCodec::Alac]),
+            ok(false, false)
         );
         assert_eq!(plain_codec_name(&SongCodec::Alac), "Lossless (ALAC)");
     }
