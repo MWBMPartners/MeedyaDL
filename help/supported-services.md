@@ -6,7 +6,7 @@
 
 # Supported Services
 
-MeedyaDL supports downloading from multiple online media services. Each service uses a specialised download engine that handles authentication, content discovery, and file downloading.
+Today MeedyaDL downloads from Apple Music. Other services are planned. This page shows what works now, what is coming, and how MeedyaDL knows which service a link belongs to.
 
 ---
 
@@ -27,9 +27,8 @@ MeedyaDL supports downloading from multiple online media services. Each service 
 | Synced Lyrics (LRC/TTML) | Supported |
 | Animated Artwork | Supported |
 
-**Engine:** [GAMDL](https://github.com/glomatico/gamdl)
-**Authentication:** Browser cookies (Netscape format) or wrapper service
-**Quality:** Up to lossless ALAC and Dolby Atmos spatial audio
+**Sign-in:** your Apple Music cookies (see [Cookie Management](cookie-management.md)), or the optional [wrapper](wrapper.md)
+**Quality:** up to lossless ALAC and Dolby Atmos spatial audio
 
 See [Downloading Music](downloading-music.md) for detailed usage instructions.
 
@@ -48,9 +47,7 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 | Ogg Vorbis audio | Yes |
 | Synced Lyrics | Yes |
 
-**Engine:** [votify](https://github.com/glomatico/votify)
-**Authentication:** Browser cookies (Netscape format), the same way Apple Music works
-**Note:** Spotify does not offer lossless audio — maximum quality is Ogg Vorbis 320kbps.
+**Note:** Spotify does not offer lossless audio. The best quality is Ogg Vorbis 320 kbps.
 **Today:** pasting an `open.spotify.com` link shows that MeedyaDL cannot download from Spotify yet, and the link is not added to the queue.
 
 ### YouTube
@@ -63,9 +60,7 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 | Subtitles/Captions | Yes |
 | Multiple resolutions | Yes |
 
-**Engine:** [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-**Authentication:** Optional (cookies for age-restricted/member content)
-**Note:** Also covers YouTube Music. Audio extraction available.
+**Note:** Also covers YouTube Music. Audio-only downloads are planned too.
 
 ### BBC iPlayer
 
@@ -76,9 +71,7 @@ See [Downloading Music](downloading-music.md) for detailed usage instructions.
 | Subtitles | Yes |
 | Multiple quality levels | Yes |
 
-**Engine:** [get_iplayer](https://github.com/get-iplayer/get_iplayer) / yt-dlp (fallback)
-**Authentication:** None required (UK IP or VPN needed)
-**Note:** Region-restricted to the UK.
+**Note:** BBC iPlayer is only available in the UK, so you will need to be in the UK.
 
 ---
 
@@ -98,31 +91,23 @@ If you paste a link to a service that isn't available yet, the download form say
 
 ---
 
-## Engine Fallback System
-
-Some services support multiple download engines. When the primary engine fails with a tool error (binary missing, crash, or unsupported format), MeedyaDL automatically tries the next engine in the priority order.
-
-**Network and authentication errors skip engine fallback** — if the network is down or credentials are invalid, trying a different engine won't help.
-
-The engine priority for each service is defined in `engines.toml`. There is no Settings screen for changing it yet — that's planned but not built.
-
----
-
 ## When a Service or Feature Is Temporarily Paused
 
 Very occasionally we may need to pause a service or feature for all users at short notice — for example, while we investigate a change on the provider's side. When that happens, MeedyaDL shows an in-app notice so the change reads as what it is: deliberate and temporary, not a fault in your installation. A paused service won't accept new downloads until it returns — anything already downloading finishes normally, and other services are unaffected. The feature comes back automatically once it is re-enabled — there is nothing you need to do. See the Troubleshooting topic ("A Feature Says It Is Temporarily Unavailable") for details.
 
 ---
 
-## Multi-Service Features (Planned)
+## Planned Features
+
+These are ideas for when more than one service is available. They do not exist yet.
 
 ### Smart Download
 
-When multiple services are available, Smart Download will search across all enabled services for the same content and recommend the best quality source. For example, if a song is available in lossless on Apple Music but only in Ogg Vorbis on Spotify, Smart Download will suggest the Apple Music version.
+Smart Download will search across all enabled services for the same content and recommend the best quality source. For example, if a song is available in lossless on Apple Music but only in Ogg Vorbis on Spotify, Smart Download will suggest the Apple Music version.
 
-### Cross-Platform Content Matching
+### Matching Across Services
 
-Uses industry-standard identifiers (ISRC for tracks, UPC/EAN for albums) to match content across services, with fuzzy title/artist matching as a fallback.
+Will match the same song or album across services using the standard codes printed on releases, and fall back to matching by title and artist.
 
 ---
 

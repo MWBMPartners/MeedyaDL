@@ -6,401 +6,363 @@
 
 # Quality Settings
 
-This guide provides a comprehensive overview of the audio and video quality options available in MeedyaDL, including codec differences and format trade-offs.
+This page explains the audio and video quality choices in MeedyaDL, and how to pick the right ones for you.
 
 ---
 
 ## Overview
 
-MeedyaDL gives you control over the quality and format of your downloaded content. Understanding the available options helps you choose the right balance between audio/video fidelity, file size, and compatibility with your playback devices.
+You choose the format and quality of what you download. The choice is a trade-off between sound or picture quality, file size, and whether your devices can play the file.
 
-The quality settings in MeedyaDL map directly to the codec and resolution options supported by the underlying GAMDL command-line tool. Each audio codec and video resolution has distinct characteristics that make it better suited to certain listening or viewing scenarios.
+If you just want a good answer:
 
----
+- **Music for everyday listening:** choose **AAC**. Files are small and play everywhere.
+- **Best possible sound:** choose **ALAC (Lossless)**.
+- **Surround or 3D sound:** choose **Dolby Atmos**, and keep the fallback list on so tracks without an Atmos mix still download.
+- **Videos:** choose **1080p**.
 
-## Codec Reliability Notice
-
-Most audio codecs are marked **(Experimental)** in MeedyaDL's codec selector. This means they may fail intermittently when using cookie-based authentication. **On GAMDL versions before 3.8**, only two codecs are reliably downloadable without the Wrapper service:
-
-- **AAC Legacy** (256kbps at 44.1kHz) — reliable with cookies. **Renamed to `aac-web` on GAMDL 3.6+** but represents the same on-disk M4A file.
-- **AAC-HE Legacy** (64kbps) — reliable with cookies. **Renamed to `aac-he-web` on GAMDL 3.6+**.
-
-### On GAMDL 3.8 and newer, most of that changes
-
-GAMDL 3.8 added a new HLS asset endpoint that lets every codec except **ALAC (Lossless)** download with cookie-based authentication alone — including **Dolby Atmos** and **AC3**, which previously needed the Wrapper on every earlier release. Codecs are still labelled **(Experimental)** regardless of GAMDL version — they can still fail intermittently — but on GAMDL 3.8+ only ALAC actually depends on the Wrapper for reliable downloads. See [Wrapper Authentication](wrapper.md) for the full version-by-version breakdown.
-
-### Why "Legacy" is misleading and why it became "Web" in GAMDL 3.6
-
-The name is a holdover. In reality, "AAC Legacy" / `aac-web` is the **web-player path** — GAMDL fetches it via `apple_music_api.get_webplayback()` using only MusicKit JWT auth. No FairPlay key exchange, no wrapper service, no DRM dance — just a web stream that Apple themselves serve to authenticated browsers.
-
-The other codecs (`alac`, `atmos`, `ac3`, `aac`, `aac-he`, `aac-binaural`, `aac-downmix`, `aac-he-binaural`, `aac-he-downmix`) go through the **m3u8 master playlist path**, which is FairPlay-encrypted and requires either:
-
-1. The **Wrapper service** (wrapper-v1 on GAMDL ≤ 3.5.x, wrapper-v2 on 3.6+) — see [Wrapper Authentication](wrapper.md)
-2. Cookies that happen to have valid decryption tokens (intermittent, hence "Experimental")
-
-On GAMDL 3.6+, the codec.is_web property in upstream's source makes this routing explicit, which is why the rename happened.
-
-### Failure recovery options
-
-1. **Retry** — failures via cookie-only auth are intermittent for non-web codecs
-2. **Enable the fallback chain** — Settings > Codec Fallback Order lets MeedyaDL automatically try the next codec
-3. **Use the Wrapper service** (needed for ALAC on GAMDL 3.8+; needed for the full non-web codec set on GAMDL 3.0–3.7.x) — see [Wrapper Authentication](wrapper.md) for setup. wrapper-v1 is a native program, so whether it has a build for your OS is a question for that project's own releases page, not something MeedyaDL can promise; wrapper-v2 (GAMDL 3.6+) runs natively on Linux but requires Docker Desktop on macOS/Windows.
+Set your default in **Settings > Codec & Resolution** (see [Configuring Quality in MeedyaDL](#configuring-quality-in-meedyadl)).
 
 ---
 
-## Audio Codecs
+## About the "(Experimental)" Label
+
+Most audio formats are marked **(Experimental)** in the format list. This means a download in that format may sometimes fail, even though it works most of the time. If one fails:
+
+1. **Retry it.** These failures are often one-off.
+2. **Turn on the fallback list.** In **Settings > Codec & Resolution**, switch on **Enable Fallback Chain**, so MeedyaDL tries the next format by itself.
+3. **Use the wrapper if you need ALAC.** See [Wrapper Authentication](wrapper.md) for what it is and whether you need it.
+
+**AAC Legacy** and **AAC-HE Legacy** are the most reliable choices.
+
+<details>
+<summary>More detail: which formats need the wrapper</summary>
+
+What needs the wrapper depends on the GAMDL version you have installed:
+
+- **GAMDL 3.8 and newer:** only **ALAC (Lossless)** needs the wrapper to download reliably. Dolby Atmos, AC3 and the AAC variants work without it.
+- **GAMDL 3.0 to 3.7:** the special formats (ALAC, Atmos, AC3, and the AAC variants other than the two Legacy ones) need the wrapper to download reliably. Without it they may fail now and then.
+
+The **(Experimental)** label stays on every GAMDL version. [Wrapper Authentication](wrapper.md) has the full version-by-version list. The wrapper runs directly on Linux. On macOS and Windows it needs Docker Desktop (GAMDL 3.6 and newer).
+
+</details>
+
+---
+
+## Audio Formats
 
 ### AAC (Advanced Audio Coding)
 
-AAC is the standard lossy audio codec used by Apple Music. It delivers high-quality audio at a fraction of the file size required by lossless formats.
+AAC is Apple Music's standard format. It gives good sound in small files.
 
-- **Bitrate:** 256 kbps (constant bitrate)
-- **Type:** Lossy compression
-- **Container:** `.m4a`
-- **File size:** Approximately 2 MB per minute of audio
-- **Compatibility:** Universal — plays on virtually every device, operating system, and media player available today, including all Apple devices, Android, Windows, and web browsers
-- **Best for:** Everyday listening, portable devices, and situations where storage space or bandwidth is limited. For most listeners, AAC at 256 kbps is indistinguishable from lossless audio in typical listening environments
+- **Quality:** 256 kbps (lossy)
+- **File type:** `.m4a`
+- **Size:** about 2 MB per minute
+- **Plays on:** almost everything, including all Apple devices, Android, Windows and web browsers
+- **Best for:** everyday listening and phones. For most people, AAC at 256 kbps sounds the same as lossless.
 
 ### AAC-HE (High Efficiency AAC)
 
-AAC-HE is a lower-bitrate variant of the AAC codec, optimized for streaming and bandwidth-constrained scenarios. It uses Spectral Band Replication (SBR) to reconstruct high-frequency content from a smaller encoded payload.
+A smaller, lower-quality version of AAC.
 
-- **Bitrate:** Lower than standard AAC (typically 48-96 kbps)
-- **Type:** Lossy compression (high efficiency)
-- **Compatibility:** Broadly supported on modern devices and players
-- **Best for:** Streaming over slow connections or situations where minimal file size is the priority. Audio quality is noticeably lower than standard AAC 256 kbps, so this codec is not recommended for critical listening
+- **Quality:** lower than standard AAC (about 48 to 96 kbps)
+- **Plays on:** most modern devices and players
+- **Best for:** when keeping files as small as possible matters more than sound. It is noticeably worse than AAC 256, so it is not good for careful listening.
 
 ### AAC Binaural
 
-AAC Binaural is Apple's binaural rendering of spatial audio content. It takes Dolby Atmos or other spatial audio mixes and renders them as a two-channel stereo signal specifically designed for headphone playback.
+A version of spatial music made for headphones. It turns a Dolby Atmos or other spatial mix into two-channel stereo that feels like it comes from all around you.
 
-- **Type:** Lossy compression with spatial processing
-- **Output:** Stereo (two channels)
-- **Container:** `.m4a`
-- **Best for:** Listening to spatial audio content on standard stereo headphones. The binaural rendering simulates the immersive spatial audio experience without requiring Atmos-compatible hardware. This is ideal if you want to experience spatial mixes through regular wired or wireless headphones
+- **Output:** stereo
+- **File type:** `.m4a`
+- **Best for:** hearing spatial music on ordinary headphones, with no Atmos equipment needed.
 
 ### AAC Downmix
 
-AAC Downmix produces a standard stereo output by downmixing spatial or surround-sound source material into two channels.
+A normal stereo version of music that was made in surround or spatial sound.
 
-- **Type:** Lossy compression with stereo downmix
-- **Output:** Standard stereo (two channels)
-- **Container:** `.m4a`
-- **Best for:** Obtaining a conventional stereo version of content that was originally mixed in surround or spatial audio. Unlike the Binaural option, the Downmix does not attempt to simulate spatial positioning — it produces a straightforward stereo mix suitable for speakers or headphones alike
+- **Output:** stereo
+- **File type:** `.m4a`
+- **Best for:** a plain stereo copy for speakers or headphones. Unlike Binaural, it does not try to make sound seem to come from around you.
 
 ### AAC Legacy
 
-AAC Legacy uses an older AAC encoding profile designed for maximum compatibility with legacy hardware and software.
+An older AAC style made for maximum compatibility.
 
-- **Type:** Lossy compression (legacy profile)
-- **Container:** `.m4a`
-- **Best for:** Playback on older devices, vintage iPods, early-generation media players, or any hardware or software that may not support newer AAC encoding profiles. Choose this option only if you experience playback issues with standard AAC on older equipment
+- **File type:** `.m4a`
+- **Best for:** very old devices and players. Choose it only if standard AAC does not play on your older equipment.
 
-### ALAC (Apple Lossless Audio Codec)
+### ALAC (Apple Lossless)
 
-ALAC is a lossless audio codec developed by Apple. It compresses audio data without discarding any information, meaning the decoded audio is bit-for-bit identical to the original source. This is the highest-fidelity audio option available in MeedyaDL.
+ALAC loses no sound at all. The music is exactly as the original, only packed into a smaller file. It is the best-sounding choice.
 
-- **Type:** Lossless compression
-- **Container:** `.m4a`
-- **Sample rates and bit depths available:**
-  - **16-bit / 44.1 kHz** — CD quality. The standard resolution for most music. File size approximately 5 MB per minute
-  - **24-bit / 48 kHz** — Studio quality. Slightly higher resolution than CD. File size approximately 7 MB per minute
-  - **24-bit / 96 kHz** — Hi-Res Audio. Captures detail beyond the range of CD quality. File size approximately 10 MB per minute
-  - **24-bit / 192 kHz** — Maximum resolution Hi-Res Audio. The highest sample rate available from Apple Music. File size approximately 15 MB per minute
-- **Compatibility:** All Apple devices (iPhone, iPad, Mac, Apple TV, HomePod), iTunes, and many third-party players that support the ALAC codec. Some non-Apple devices may require conversion to FLAC for playback
-- **Best for:** Audiophile listening on high-quality audio equipment, archival purposes where you want to preserve the full quality of the source material, and any scenario where storage space is not a concern
+- **File type:** `.m4a`
+- **Quality levels and approximate size per minute:**
+  - **16-bit / 44.1 kHz:** CD quality, about 5 MB
+  - **24-bit / 48 kHz:** studio quality, about 7 MB
+  - **24-bit / 96 kHz:** hi-res, about 10 MB
+  - **24-bit / 192 kHz:** the highest available, about 15 MB
+- **Plays on:** all Apple devices and iTunes, and many other players. Some non-Apple devices need the file converted to FLAC.
+- **Best for:** careful listening on good equipment, and keeping a lasting copy when storage is not a concern.
 
-### Atmos (Dolby Atmos)
+### Dolby Atmos
 
-Dolby Atmos delivers immersive spatial audio using object-based mixing. Rather than assigning sounds to fixed channels, Atmos places audio objects in three-dimensional space, allowing supported playback systems to render sound all around and above the listener.
+Dolby Atmos places sounds all around and above you instead of just left and right.
 
-- **Type:** Spatial / immersive audio
-- **Codec:** Enhanced AC-3 (EC-3)
-- **Container:** `.m4a`
-- **File size:** Varies depending on the complexity of the spatial mix
-- **Playback requirements:** Dolby Atmos-compatible hardware or software is required for the full spatial experience. Compatible devices include Apple AirPods Pro, AirPods Max, AirPods (3rd generation and later), Dolby Atmos-enabled speakers, soundbars, and AV receivers. On unsupported devices, the content may be played as a stereo or surround downmix
-- **Best for:** Immersive listening experiences where you have compatible playback hardware. Atmos mixes can reveal new details and spatial separation in music that standard stereo cannot provide
-
-### Companion Downloads
-
-MeedyaDL can automatically download additional format versions alongside your primary download, so you have both high-fidelity files for quality hardware and universally compatible files for everything else. The **Companion Downloads** dropdown in **Settings > Codec & Resolution** controls this behavior.
-
-#### Companion Modes
-
-| Mode | What It Does |
-| ---- | ------------ |
-| **Disabled** | No companion downloads. Only the selected format is downloaded. |
-| **Atmos → Lossless (ALAC)** *(default)* | When downloading Dolby Atmos, also download an ALAC (lossless) companion. ALAC downloads get no companion. |
-| **Atmos → Lossless + Lossy** | When downloading Dolby Atmos, also download both ALAC and lossy AAC companions. When downloading ALAC, also download a lossy AAC companion. |
-| **Specialist → Lossy (AAC)** | When downloading Dolby Atmos or ALAC, also download a lossy AAC companion. |
-| **Atmos → All Formats** | When downloading Dolby Atmos, also download companions in every other format (AC3, AAC Binaural, ALAC, AAC). |
-| **Custom...** | Choose exactly which codecs to download as companions using multi-select checkboxes. Each selected codec (excluding your primary format) runs as an independent companion download. The last codec in the list uses a clean filename; others get format suffixes. |
-
-#### File Naming
-
-When companion downloads are enabled, specialist format files receive a suffix in their filename to prevent collisions and clearly identify the format:
-
-- Dolby Atmos files: `01 Song Title [Dolby Atmos].m4a`
-- ALAC (lossless) files: `01 Song Title [Lossless].m4a`
-- The most universally compatible companion always uses a clean filename: `01 Song Title.m4a`
-- All versions are saved in the same album folder.
-
-**Example: "Atmos → Lossless + Lossy" mode with a Dolby Atmos primary download:**
-
-```text
-Artist/Album/
-  01 Song Title [Dolby Atmos].m4a   ← Primary (spatial audio)
-  01 Song Title [Lossless].m4a      ← ALAC companion
-  01 Song Title.m4a                 ← AAC companion (clean filename)
-```
-
-#### How It Works
-
-After a primary download completes successfully, MeedyaDL automatically spawns additional GAMDL invocations for each companion tier defined by the selected mode. Companion downloads run in the background and do not block the download queue. If a companion codec is unavailable for a particular track, MeedyaDL silently skips it without affecting the primary download status.
-
-**Note on native codec priority (GAMDL 3.0+):** When MeedyaDL uses GAMDL's native `--song-codec-priority` flag (which tries multiple codecs in a single process), the primary download uses clean filenames because the actual codec is unknown until GAMDL finishes. All companion tiers then receive suffixed filenames to prevent collisions with the primary's clean files. This ensures filenames always accurately reflect the actual content.
-
-- **Custom metadata:** MeedyaDL also writes custom metadata tags into specialist format files so downstream tools can programmatically identify the codec tier. ALAC files receive `isLossless = Y`; Dolby Atmos files receive `SpatialType = Dolby Atmos`. See [Lyrics and Metadata](lyrics-and-metadata.md#custom-codec-metadata-tags) for full details.
-
-#### Custom Companion Mode
-
-The **Custom...** companion mode gives you full control over which codecs are downloaded alongside your primary format. When you select Custom, a set of checkboxes appears listing all available audio codecs. Check every codec you want as a companion — each selected codec (excluding your primary format) runs as its own independent companion download.
-
-The order of your selections determines file naming: the last codec in your selection list uses a clean filename (no suffix), while all other companions receive a format suffix to prevent collisions. For example, if you select Atmos, ALAC, and AAC as companions, AAC files get clean filenames, ALAC files get `[Lossless]`, and Atmos files get `[Dolby Atmos]`.
-
-Custom mode is useful when you want a specific combination that none of the preset modes cover — for example, downloading both AAC Binaural and ALAC companions alongside Atmos, or downloading every single codec variant for archival purposes.
-
-#### Codec Suffix Detection
-
-The format suffix appended to companion filenames (e.g., `[Lossless]`, `[Dolby Atmos]`) is determined by inspecting the **actual content** of the downloaded file, not the codec that was requested. MeedyaDL uses ffprobe (and optionally MediaInfo) to detect the real codec of each file after GAMDL finishes writing it. This is important because GAMDL's native codec priority mode may select a different codec than the one originally requested — for example, requesting Atmos may result in an ALAC file if Atmos is unavailable for that track.
-
-By basing the suffix on detected content rather than the requested format, filenames always accurately reflect what the file actually contains.
-
-#### MediaInfo
-
-For more accurate codec detection — particularly for identifying Dolby Atmos content — MeedyaDL installs **MediaInfo** alongside FFmpeg, mp4decrypt, N_m3u8DL-RE, and MP4Box during the Setup Wizard. It is one of the five tools every install needs, not an optional extra. MediaInfo provides deeper container-level analysis than ffprobe alone, and can reliably distinguish Atmos (EC-3 with JOC) from standard AC-3 or AAC. MeedyaDL uses it alongside ffprobe for codec identification during the enrichment pipeline.
-
-MediaInfo matters most if you frequently download Dolby Atmos content and want the highest confidence that codec suffixes and metadata tags accurately reflect the spatial audio format, but ffprobe alone still handles the majority of codec detection correctly.
+- **File type:** `.m4a`
+- **Size:** varies with the mix
+- **To hear it properly:** you need Atmos-ready equipment, such as AirPods Pro, AirPods Max, AirPods (3rd generation and later), or Atmos speakers, soundbars and receivers. On other devices it plays as stereo or surround.
+- **Best for:** immersive listening when you have the right equipment. Not every track has an Atmos mix.
 
 ### AC3 (Dolby Digital)
 
-AC3, also known as Dolby Digital, is a multichannel surround-sound audio codec widely used in home theater systems.
+A surround-sound format common in home cinemas.
 
-- **Type:** Lossy compression, multichannel surround
-- **Channels:** Up to 5.1 surround sound (five full-range channels plus one low-frequency effects channel)
-- **Bitrate:** Approximately 48 kB/s per channel
-- **Best for:** Home theater setups with a surround-sound speaker system. AC3 is the standard audio format for DVDs and is widely supported by AV receivers and soundbars. Choose this option if you are downloading music videos or concert content for playback through a traditional surround-sound system
+- **Sound:** up to 5.1 surround (five main channels plus one for deep bass)
+- **Best for:** home cinema systems with a surround receiver or soundbar. It is the standard DVD sound format.
 
-### Ask (Auto Selection)
+### Ask (Automatic)
 
-The "Ask" option defers codec selection to GAMDL's default behavior. When selected, GAMDL will automatically choose the most appropriate audio codec based on what is available for the specific content being downloaded.
+Lets MeedyaDL's download tool pick the most suitable format for each item.
 
-- **Best for:** Users who do not have a strong preference for a specific codec and are happy to let the tool select the best available option automatically
+- **Best for:** when you have no preference.
 
 ---
 
-## Audio Quality Comparison
+## Companion Downloads
 
-The table below summarizes the key audio codec options and their characteristics to help you choose the right format for your needs.
+Companion downloads get you more than one format of the same music in one go. You might want a special format (such as Dolby Atmos) for good equipment, and a plain one that works on every device. Choose the mode from the **Companion Downloads** dropdown in **Settings > Codec & Resolution**.
 
-| Codec | Type | Typical Bitrate | File Size (per min) | Best For |
+### Companion Modes
+
+| Mode | What it does |
+| ---- | ------------ |
+| **Disabled** | No extra copies. You only get the format you chose. |
+| **Atmos → Lossless (ALAC)** *(default)* | When you download Dolby Atmos, you also get an ALAC (lossless) copy. Downloads in other formats get no extra copy. |
+| **Atmos → Lossless + Lossy** | Atmos also gets an ALAC copy and an AAC copy. An ALAC download also gets an AAC copy. |
+| **Specialist → Lossy (AAC)** | Atmos or ALAC downloads also get an AAC copy. |
+| **Atmos → All Formats** | Atmos also gets a copy in every other format (AC3, AAC Binaural, ALAC, AAC). |
+| **Custom...** | You pick exactly which formats to get as extra copies, using tick boxes. |
+
+Extra copies download in the background and do not hold up the queue. If a format is not offered for a track, it is quietly skipped, and your main download is not affected.
+
+### File Names
+
+When you have more than one format, special formats get a tag in the file name so files do not overwrite each other. All versions go in the same album folder.
+
+- Dolby Atmos: `01 Song Title [Dolby Atmos].m4a`
+- ALAC (lossless): `01 Song Title [Lossless].m4a`
+- The most widely playable copy has a plain name: `01 Song Title.m4a`
+
+Example, with "Atmos → Lossless + Lossy" and a Dolby Atmos download:
+
+```text
+Artist/Album/
+  01 Song Title [Dolby Atmos].m4a   ← Main copy (spatial audio)
+  01 Song Title [Lossless].m4a      ← ALAC copy
+  01 Song Title.m4a                 ← AAC copy (plain name)
+```
+
+The tag always matches what is really in the file. MeedyaDL checks each file after it downloads, so a file that came back as ALAC when you asked for Atmos is named `[Lossless]`, not `[Dolby Atmos]`.
+
+### Custom Mode
+
+With **Custom...** you see a list of tick boxes, one per format. Every format you tick (apart from your main format) is downloaded as its own extra copy. The order of your ticks sets the file names. The last format you tick gets the plain name, and the others get a tag. For example, with Atmos, ALAC and AAC ticked, AAC files are plain, ALAC files get `[Lossless]` and Atmos files get `[Dolby Atmos]`.
+
+Choose Custom for a mix the other modes don't cover, such as AAC Binaural and ALAC alongside Atmos, or every format for a full archive.
+
+<details>
+<summary>More detail: extra information saved inside the files</summary>
+
+MeedyaDL also saves extra information inside special-format files, so other programs can tell what they are. ALAC files get `isLossless = Y`. Dolby Atmos files get `SpatialType = Dolby Atmos`. See [Lyrics and Metadata](lyrics-and-metadata.md#custom-codec-metadata-tags) for more.
+
+</details>
+
+<details>
+<summary>More detail: how MeedyaDL tells which format a file is (MediaInfo)</summary>
+
+MeedyaDL looks inside each finished file to find its real format. It does this with FFmpeg's checker, and with **MediaInfo** as well. MediaInfo is installed with the other helper tools during setup, so you do not need to do anything. It is better at telling Dolby Atmos from ordinary Dolby Digital, so it matters most if you download a lot of Atmos. The checker alone still gets most files right.
+
+When MeedyaDL asks for several formats in one go, it does not know which one came back until the download is finished. In that case the main file gets a plain name, and the extra copies get tags so nothing overwrites anything.
+
+</details>
+
+---
+
+## Audio Comparison
+
+| Format | Type | Typical bitrate | Size per minute | Best for |
 | ------- | ------ | ----------------- | --------------------- | ---------- |
-| AAC 256 | Lossy | 256 kbps | ~2 MB | General listening, broad device compatibility |
-| AAC Binaural | Lossy + Spatial | 256 kbps | ~2 MB | Spatial audio on regular headphones |
-| ALAC 16/44.1 | Lossless | ~800 kbps | ~5 MB | CD-quality listening, good balance of quality and size |
-| ALAC 24/96 | Lossless | ~1200 kbps | ~10 MB | Hi-Res audio on quality headphones or speakers |
-| ALAC 24/192 | Lossless | ~1600 kbps | ~15 MB | Highest available quality, archival and audiophile use |
-| AC3 (Dolby Digital) | Lossy, 5.1 surround | ~288 kbps | ~2 MB | Home theatre surround-sound systems |
-| Atmos (EC-3) | Spatial / immersive | Varies | Varies | Immersive spatial listening with compatible hardware |
+| AAC 256 | Lossy | 256 kbps | ~2 MB | Everyday listening, plays everywhere |
+| AAC Binaural | Lossy, spatial | 256 kbps | ~2 MB | Spatial sound on ordinary headphones |
+| ALAC 16/44.1 | Lossless | ~800 kbps | ~5 MB | CD-quality listening |
+| ALAC 24/96 | Lossless | ~1200 kbps | ~10 MB | Hi-res on good headphones or speakers |
+| ALAC 24/192 | Lossless | ~1600 kbps | ~15 MB | Highest quality, for keeping |
+| AC3 (Dolby Digital) | Lossy, 5.1 surround | ~288 kbps | ~2 MB | Home cinema surround |
+| Atmos | Spatial | Varies | Varies | 3D sound with the right equipment |
 
-**Notes:**
+Sizes are rough. They change with the music. Lossless sizes vary most, because quiet or simple passages pack smaller.
 
-- File sizes are approximate and vary depending on the dynamic range and complexity of the source material.
-- Lossless bitrates are variable because ALAC uses variable-rate compression — simpler passages compress more than complex ones.
-- Atmos file sizes depend on the number of audio objects and the complexity of the spatial mix.
+### Pros and Cons
 
----
-
-## Audio Codec Pros & Cons
-
-This table provides a quick comparison of the advantages and trade-offs for each main audio codec to help you make an informed choice.
-
-| Codec | Pros | Cons |
+| Format | Good | Not so good |
 | ----- | ---- | ---- |
-| **ALAC (Lossless)** | Perfect quality — no audio data lost; supports Hi-Res up to 24-bit/192kHz; ideal for archival and critical listening | Large files (2.5–7× bigger than AAC); requires more storage; quality difference may be imperceptible in noisy environments or on basic equipment |
-| **Dolby Atmos** | Immersive 3D spatial audio; stunning on compatible hardware; reveals details and separation that stereo cannot reproduce | Requires Atmos-compatible headphones or speakers (AirPods Pro/Max, Atmos soundbars); falls back to flat stereo on unsupported devices; not all tracks have Atmos mixes |
-| **AC3 (Dolby Digital)** | True multichannel surround sound (5.1); universally supported by AV receivers, soundbars, and home theatre equipment | Lossy compression; limited to 5.1 channels (no object-based positioning like Atmos); not useful on phones or standard headphones; fewer tracks available |
-| **AAC (256 kbps)** | Universal device compatibility; small files (~2 MB/min); indistinguishable from lossless for most listeners in blind tests | Lossy — permanently discards some audio data; not ideal for archival or high-end critical listening |
-| **AAC Binaural** | Simulated spatial audio experience through any standard stereo headphones; same small file size as AAC | Lossy; spatial simulation is approximate — less convincing than native Atmos on compatible hardware; only beneficial with headphones (not speakers) |
-| **AAC Legacy** | Maximum compatibility with vintage devices and legacy media players | No advantage over standard AAC on modern equipment; only needed for very old hardware |
+| **ALAC (Lossless)** | Perfect quality, up to 24-bit/192 kHz, ideal for keeping | Files 2.5 to 7 times bigger than AAC. The difference can be hard to hear on basic equipment. |
+| **Dolby Atmos** | Immersive 3D sound on the right equipment | Needs Atmos equipment (AirPods Pro or Max, an Atmos soundbar). Plays as plain stereo elsewhere. Not every track has an Atmos mix. |
+| **AC3** | True 5.1 surround. Works with receivers and soundbars. | Lossy, and not useful on phones or ordinary headphones. Fewer tracks offer it. |
+| **AAC 256** | Plays everywhere, small files, and most people can't tell it from lossless | Lossy, so some sound is lost for good |
+| **AAC Binaural** | Spatial feel on any headphones, small files | The effect is only an approximation. Only helps with headphones, not speakers. |
+| **AAC Legacy** | Plays on very old devices | No benefit on modern equipment |
 
 ---
 
-## Video Codecs
+## Video Formats
 
 ### H.264 (AVC)
 
-H.264, also known as Advanced Video Coding (AVC), is the most widely supported video codec in use today. Virtually every device, browser, and media player can decode H.264 video without difficulty.
+The most widely supported video format. Almost every device can play it.
 
-- **Compression efficiency:** Good. H.264 provides solid quality at reasonable file sizes, though it is less efficient than newer codecs like HEVC
-- **Compatibility:** Universal. Supported by all modern devices, operating systems, web browsers, smart TVs, and media players
-- **Hardware decoding:** Supported on virtually all hardware manufactured in the last decade
-- **Best for:** Maximum compatibility. Choose H.264 if you need to play videos on a wide range of devices, including older hardware that may not support HEVC
+- **File size:** average.
+- **Plays on:** everything modern, and most old devices.
+- **Best for:** playing on many different devices, including older ones.
 
 ### H.265 (HEVC)
 
-H.265, also known as High Efficiency Video Coding (HEVC), is the successor to H.264. It achieves significantly better compression, delivering the same visual quality at roughly half the file size, or noticeably better quality at the same file size.
+The newer format. It gives the same picture in files that are roughly a third to a half smaller.
 
-- **Compression efficiency:** Excellent. Approximately 30-50% smaller files compared to H.264 at equivalent visual quality
-- **Compatibility:** Supported on most modern devices manufactured from approximately 2017 onward. All recent Apple devices, most recent Android devices, and modern Windows PCs with hardware HEVC decoding support. Some older devices and software may not play HEVC content without additional codec installation
-- **Hardware decoding:** Requires a relatively modern GPU or SoC. Available on Apple A9 chip and later, Intel 6th-generation (Skylake) and later, and most recent AMD and NVIDIA GPUs
-- **Best for:** Saving storage space while maintaining high visual quality. Choose HEVC if your playback devices support it, especially for high-resolution (1080p and above) content where the file size savings are most significant
-
----
-
-## Video Resolution Options
-
-MeedyaDL supports the following video resolutions, listed from highest to lowest quality. The resolution you pick is a **ceiling**, not a request — Apple Music always returns the best quality it has at or below your choice, in a single attempt, so a video that doesn't reach your chosen resolution simply comes back at whatever it does have, rather than failing. See [Fallback Quality](fallback-quality.md#why-there-is-no-resolution-fallback-chain) for why resolution works this way and has no fallback order of its own — unlike video codec, which does.
-
-- **2160p (4K Ultra HD)** — The highest available resolution. Four times the pixel count of 1080p (3840x2160). Ideal for large screens and displays that support 4K. Produces the largest files
-- **1440p (2K QHD)** — Quad HD resolution (2560x1440). A step above Full HD with noticeably sharper detail on larger monitors
-- **1080p (Full HD)** — The recommended resolution for most users (1920x1080). Excellent quality on screens up to approximately 27 inches. The best balance between visual quality and file size
-- **720p (HD)** — Standard HD resolution (1280x720). Good quality on smaller screens such as tablets and phones. Significantly smaller files than 1080p
-- **540p (qHD)** — A step below standard HD (960x540). A middle ground between 720p and 480p when you want smaller files without dropping all the way to standard definition
-- **480p (Widescreen SD)** — Standard definition at 16:9 widescreen proportions (854x480) — wider than the 4:3 shape of the old NTSC broadcast standard. Suitable for small screens or limited storage
-- **360p** — Low resolution. Very small file sizes. Suitable only for previewing content or extremely limited storage situations
-- **240p** — Minimum resolution. Smallest possible file sizes. Suitable only for thumbnail previews or extremely constrained bandwidth/storage
-
-For more information on downloading videos, see [Downloading Videos](downloading-videos.md).
+- **File size:** about 30 to 50 percent smaller than H.264 for the same picture.
+- **Plays on:** most devices made since about 2017. Some older devices and players can't play it without extra software.
+- **Best for:** saving space, especially at 1080p and above, if your devices support it.
 
 ---
 
-## Video Quality Comparison
+## Video Resolution
 
-The table below summarizes typical file sizes for common resolution and codec combinations, based on a standard 4-minute music video.
+The resolution you pick is a **ceiling**, not a promise. MeedyaDL gets the best picture the video has, up to your choice. If a video does not reach your resolution, you get what it does have. The download does not fail. See [Fallback Quality](fallback-quality.md#why-there-is-no-resolution-fallback-chain) for why resolution has no fallback list, unlike video format.
 
-| Resolution | Codec | Typical File Size (4 min) | Best For |
+From best to smallest:
+
+- **2160p (4K Ultra HD):** the sharpest, and the largest files. For big 4K screens.
+- **1440p (2K):** a step up from Full HD on large monitors.
+- **1080p (Full HD):** the best choice for most people. Great on screens up to about 27 inches.
+- **720p (HD):** good on phones and tablets, with much smaller files.
+- **540p:** between 720p and 480p, for smaller files without dropping to standard definition.
+- **480p:** standard definition in widescreen shape. For small screens or little storage.
+- **360p:** low quality, very small. For previews.
+- **240p:** the smallest. Only for thumbnails or very little storage.
+
+For how to download videos, see [Downloading Videos](downloading-videos.md).
+
+### Typical Video File Sizes
+
+Based on a 4-minute music video:
+
+| Resolution | Format | Typical size | Best for |
 | ------------ | ------- | --------------------------- | ---------- |
-| 1080p | H.264 | ~150 MB | Broad compatibility across all devices |
+| 1080p | H.264 | ~150 MB | Plays on every device |
 | 1080p | HEVC | ~100 MB | Smaller files on modern devices |
-| 4K UHD (2160p) | HEVC | ~400 MB | Highest visual quality on large screens |
+| 4K (2160p) | HEVC | ~400 MB | Best picture on large screens |
 
-**Notes:**
-
-- Actual file sizes vary depending on the visual complexity of the content (fast-moving scenes with many details produce larger files).
-- 4K content with H.264 encoding is uncommon because HEVC is significantly more efficient at high resolutions.
-- For most users, 1080p with HEVC provides the best combination of quality and file size.
+Sizes change with how busy the picture is, because fast, detailed scenes make bigger files. 4K with H.264 is uncommon, because HEVC is much better at high resolutions. For most people, 1080p with HEVC gives the best mix of quality and size.
 
 ---
 
 ## Configuring Quality in MeedyaDL
 
-### Setting Default Quality
+### Setting Your Default Quality
 
-You can set your preferred default audio codec and video resolution so that every new download uses your chosen quality settings automatically.
+1. Open **Settings**.
+2. Go to the **Codec & Resolution** tab.
+3. Under **Audio Quality**, pick your preferred audio format.
+4. Under **Video Quality**, pick your preferred video resolution.
+5. Click **Save Changes**.
 
-1. Open **Settings** from the application menu or toolbar
-2. Navigate to the **Codec & Resolution** tab
-3. Under **Audio Quality**, select your preferred audio codec from the dropdown (AAC, ALAC, Atmos, etc.)
-4. Under **Video Quality**, select your preferred video resolution from the dropdown (1080p, 720p, 4K, etc.)
-5. Click **Save Changes** to store your defaults
+Every new download uses these unless you change them for one download (see below).
 
-These defaults will be used for all subsequent downloads unless you override them on a per-download basis (see below).
+### Companion Downloads Setting
 
-### Companion Downloads
-
-The Codec & Resolution tab also includes a **Companion Downloads** dropdown. This controls whether MeedyaDL automatically downloads additional format versions alongside your primary download. The default mode (**Atmos → Lossless**) downloads an ALAC companion whenever you download Dolby Atmos content. Other preset modes offer more or fewer companion tiers. Selecting **Custom...** reveals multi-select checkboxes for all 11 audio codecs, letting you choose exactly which formats to download as companions. See [Companion Downloads](#companion-downloads) above for a full description of each mode and the file naming conventions.
+The same tab has the **Companion Downloads** dropdown. The default is **Atmos → Lossless**. **Custom...** shows tick boxes for all 11 audio formats. See [Companion Downloads](#companion-downloads) above.
 
 ### Artist Auto-Select
 
-When downloading from an **artist URL**, MeedyaDL can automatically select which content types to download. The **Artist Auto-Select** setting in the Codec & Resolution tab lets you choose from:
+When you download an **artist link**, **Artist Auto-Select** (in the **Codec & Resolution** tab) decides which kinds of release to get:
 
-- **Main Albums** — Studio albums and standard releases
-- **Compilation Albums** — Greatest hits, anthologies, and collections
-- **Live Albums** — Concert recordings and live performances
-- **Singles & EPs** — Singles, EPs, and short releases
-- **All Albums** — Every album type combined
-- **Top Songs** — The artist's most popular tracks
-- **Music Videos** — The artist's music video catalog
+- **Main Albums:** studio albums and standard releases
+- **Compilation Albums:** greatest hits and collections
+- **Live Albums:** concert recordings
+- **Singles & EPs:** singles and short releases
+- **All Albums:** every album type
+- **Top Songs:** the artist's most popular tracks
+- **Music Videos:** the artist's music videos
 
-You can select **multiple content types** simultaneously using the checkbox group. When multiple types are selected, MeedyaDL creates a separate queue item for each selected type (since the underlying GAMDL tool only accepts one content type per invocation). Leave all checkboxes unchecked to use GAMDL's default behavior.
-
-**Requires GAMDL 3.0 or later.**
+You can tick several. MeedyaDL then makes one download for each kind you ticked. Leave all of them empty to use the download tool's own default. This needs GAMDL 3.0 or later.
 
 ### Download Notifications
 
-When a download finishes, fails, or finishes with warnings, MeedyaDL shows a message inside the app naming what it was, for example "Daft Punk — Discovery finished." A failed download says, in a few plain words, what probably went wrong. When the whole queue is done you see how it went, for example "Queue finished: 5 downloaded, 1 failed."
+When a download finishes, fails, or finishes with warnings, MeedyaDL shows a message inside the app naming it, for example "Daft Punk — Discovery finished." A failed download says in a few plain words what probably went wrong. When the whole queue is done, you see how it went, for example "Queue finished: 5 downloaded, 1 failed."
 
-By default your computer also shows these as system notifications, but only while MeedyaDL is not in front (behind another app, minimised, or hidden in the tray) or while your mouse pointer is on a different screen. The first download to finish is shown straight away, by name. If more finish or fail within the next ten seconds, your system shows one notification that sums those up ("2 more downloads finished, 1 failed") instead of one each — each of them still appears inside MeedyaDL. When the whole queue finishes, its summary covers any that were still waiting.
+By default your computer also shows these as system notifications, but only while MeedyaDL is not in front (behind another app, minimised or hidden in the tray) or while your pointer is on a different screen. The first download to finish is shown straight away, by name. If more finish or fail within the next ten seconds, your system shows one notification that sums them up ("2 more downloads finished, 1 failed") instead of one each. Each of them still appears inside MeedyaDL. When the whole queue finishes, its summary covers any that were still waiting.
 
 Choose when and for which messages in **Settings > General > Notifications**:
 
-| Style | Behavior |
+| Style | What it does |
 |------|----------|
 | **In-app only** | Messages inside MeedyaDL only |
 | **System and in-app** (default) | System notifications as well as messages inside MeedyaDL |
 | **System only** | A plain message your system has shown is not repeated inside MeedyaDL. Errors, warnings and anything the system was not asked to show still appear inside MeedyaDL |
 
-There you can also switch the system notification off for each kind of event (a download finished, a download failed, the queue finished, a copied link was found) — the message inside the app still appears. See [Settings](settings.md) for every option.
+You can also switch the system notification off for each kind of event (a download finished, a download failed, the queue finished, a copied link was found). The message inside the app still appears. See [Settings](settings.md) for every option. If notifications do not appear, see [Troubleshooting](troubleshooting.md#notifications-dont-appear).
 
-### Per-Download Quality Selection
+### Quality for One Download
 
-You can override the default quality settings for any individual download without changing your global defaults.
+You can change the quality for one download without changing your defaults.
 
-1. Paste or enter the URL into the download form as usual
-2. Before starting the download, expand the **Quality Override** panel in the download form
-3. Select the desired audio codec and/or video resolution from the quality selector dropdowns
-4. Start the download — it will use the overridden settings for this download only
+1. Paste your link into the download form as usual.
+2. Open the **Quality Overrides** panel in the form.
+3. Pick the audio format and/or video resolution you want.
+4. Start the download.
 
-The per-download override applies only to that specific download. Your global default settings remain unchanged, and the next download will revert to using your defaults.
+That choice applies to this download only. The next one goes back to your defaults.
 
-### Quality Fallback
+### When Your Format Isn't Available
 
-When your preferred **codec** is not available for a particular track or video, MeedyaDL automatically falls back to the next codec in your configured chain — this applies to both audio codecs and video codecs, each with its own chain in Settings.
+When your preferred **format** isn't offered for a track or video, MeedyaDL moves to the next one on your fallback list. Audio formats and video formats each have their own list in Settings.
 
-Video **resolution** works differently: it is a ceiling rather than a fallback chain. If you request 4K but a video only exists up to 1080p, Apple Music simply returns the 1080p version in the same attempt — there is no separate resolution to "fall back" to, because nothing failed.
+Video **resolution** works differently. It is a ceiling. If you ask for 4K and the video only goes up to 1080p, you get the 1080p version straight away, because nothing failed.
 
-For full details on how the codec fallback chains work, and why resolution doesn't have one, see [Fallback Quality](fallback-quality.md).
+See [Fallback Quality](fallback-quality.md) for how the lists work.
 
 ---
 
-## Format Differences and Recommendations
-
-The right quality setting depends on your listening or viewing environment, your playback equipment, and how much storage space you are willing to use.
+## Which Quality Should I Choose?
 
 ### Our Top Recommendations
 
-There are two main goals when choosing an audio codec, and each has its own ideal setup:
+#### Best sound: ALAC (Lossless)
 
-#### Recommendation 1: Best Raw Audio Quality → ALAC (Lossless)
+If you want the highest quality, an exact copy of the studio recording, choose **ALAC** and switch on **Enable Fallback Chain** in **Settings > Codec & Resolution**. ALAC keeps every detail and goes up to 24-bit/192 kHz. The fallback list makes sure that if lossless isn't offered for a track, MeedyaDL tries the next format, so you still get the track.
 
-If your priority is **pure audio fidelity** — the highest quality, bit-for-bit identical reproduction of the original studio master — choose **ALAC** as your default codec and enable the **fallback chain** in Settings > Codec & Resolution.
+**Choose ALAC if** you use good speakers or headphones, or you want a lasting archive. Make sure you have the space. ALAC files are 2.5 to 7 times bigger than AAC.
 
-ALAC preserves every detail of the original recording with no data lost. It supports Hi-Res up to 24-bit/192kHz, making it ideal for audiophile listening, high-quality speakers and headphones, and archival. The fallback chain ensures that when lossless isn't available for a particular track, MeedyaDL automatically tries the next codec in your chain so you always get a download.
+#### Immersive sound: Dolby Atmos
 
-**Choose ALAC if:** you listen on quality speakers or headphones, you want the best your equipment can reproduce, or you want to build a future-proof archive. ALAC files are larger (2.5–7× bigger than AAC), so make sure you have the storage space.
+If you want sound placed all around you, choose **Dolby Atmos** and switch on the fallback list. On AirPods Pro or Max, an Atmos soundbar or a compatible receiver, it feels much more spacious. Not every track has an Atmos mix, so the fallback list matters. When Atmos isn't offered, MeedyaDL tries AC3 (5.1 surround), then AAC Binaural (spatial for ordinary headphones), then AAC.
 
-#### Recommendation 2: Immersive Spatial/Multichannel Audio → Dolby Atmos
+**Choose Atmos if** you have the right equipment. Consider a **Companion Download** of ALAC too, so every track also has a lossless copy.
 
-If your priority is **immersive, three-dimensional audio** — hearing instruments and sounds placed all around you in 3D space — choose **Dolby Atmos** as your default codec and enable the **fallback chain**.
+#### Want both?
 
-Dolby Atmos uses object-based mixing to position sounds in 3D space rather than just left/right stereo. On compatible hardware (AirPods Pro, AirPods Max, Atmos soundbars, compatible AV receivers), the result is a dramatically more spacious and enveloping listening experience. The fallback chain is especially important here because not every track has an Atmos mix — when Atmos isn't available, MeedyaDL will automatically fall back through AC3 (5.1 surround), AAC Binaural (simulated spatial for regular headphones), and then standard AAC.
+Set Dolby Atmos as your default with a Companion Download of ALAC. You get the spatial version where there is one, and a lossless copy of everything.
 
-**Choose Atmos if:** you have AirPods Pro/Max, a Dolby Atmos soundbar, or a compatible home theatre system, and you want the most immersive listening experience available. Consider enabling a **Companion Download** of ALAC (in Settings > Codec & Resolution) so you also get a lossless copy of every track alongside the Atmos version.
+### Other Common Situations
 
-#### Want Both?
-
-If you care about both raw quality and spatial audio, set Dolby Atmos as your default with a Companion Download of ALAC. You'll get the spatial experience on compatible tracks and a lossless backup for everything.
-
-### Other Common Scenarios
-
-- **Casual mobile listening:** Choose **AAC 256 kbps**. At approximately 2 MB per minute, file sizes are small enough to carry a large library on your phone. The 256 kbps bitrate is transparent (indistinguishable from lossless) for the vast majority of listeners, especially in noisy mobile environments
-- **Home audio system:** Choose **ALAC 16-bit/44.1 kHz** (CD quality) or **ALAC 24-bit/96 kHz** (Hi-Res) depending on your equipment. CD quality at ~5 MB per minute is sufficient for most home audio setups. If your DAC and amplifier support Hi-Res audio, 24/96 at ~10 MB per minute offers measurably higher fidelity
-- **Home theatre (surround sound without Atmos):** Choose **AC3** (Dolby Digital) for 5.1 multichannel content on AV receivers and soundbars that don't support Atmos
-- **Archival and preservation:** Choose **ALAC 24-bit/192 kHz** for the highest possible quality at approximately 15 MB per minute. This preserves the full resolution of the source material and can always be converted to lower-quality formats later without re-downloading
-- **Spatial audio on regular headphones:** Choose **AAC Binaural** for simulated 3D spatial audio through any standard wired or wireless headphones
-- **Video viewing:** Choose **1080p** for the best balance of visual quality and file size. Most screens and viewing distances do not benefit from 4K. Pair with HEVC if your devices support it for smaller file sizes
-- **Limited storage:** Choose **AAC 256 kbps** for audio and **720p** for video. This combination provides good quality while keeping file sizes manageable. A typical album will be approximately 80-100 MB in AAC, and a music video approximately 50-75 MB at 720p
+- **Listening on a phone:** choose **AAC 256 kbps**. Files are small and the quality is excellent for most listeners, especially on the move.
+- **Home audio system:** choose **ALAC 16-bit/44.1 kHz** (CD quality, about 5 MB a minute) or **ALAC 24-bit/96 kHz** if your equipment supports hi-res (about 10 MB a minute).
+- **Home cinema without Atmos:** choose **AC3** for 5.1 surround.
+- **Keeping a lasting archive:** choose **ALAC 24-bit/192 kHz** (about 15 MB a minute). You can always convert it to a smaller format later.
+- **Spatial sound on ordinary headphones:** choose **AAC Binaural**.
+- **Watching videos:** choose **1080p**. Most screens don't gain from 4K. Add HEVC if your devices support it for smaller files.
+- **Little storage:** choose **AAC 256 kbps** and **720p**. An album is about 80 to 100 MB, and a music video about 50 to 75 MB.
 
 ---
 

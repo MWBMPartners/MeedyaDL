@@ -6,7 +6,7 @@
 
 # Getting Started
 
-This guide walks you through the first-time setup of MeedyaDL, from system requirements to your first download.
+This guide takes you from installing MeedyaDL to your first download. In short: install the app, let the setup wizard run, sign in to Apple Music, then paste a link.
 
 ---
 
@@ -29,12 +29,12 @@ Additional requirements:
 
 ### Required Software
 
-MeedyaDL has **no special software prerequisites**. All dependencies — including Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo — are automatically downloaded and installed into the application's sandboxed data directory on first launch. You do not need to install any of these tools yourself.
+You do not need to install anything else first. The setup wizard downloads everything MeedyaDL needs (Python, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box and MediaInfo) into the app's own folder. None of it touches the rest of your computer.
 
 The only things you need before using MeedyaDL are:
 
 - A valid Apple Music subscription for accessing content
-- A way to provide your Apple Music cookies — either via the built-in login window, browser auto-import, or manual export from a browser extension (see [Cookie Management](cookie-management.md))
+- A way to give MeedyaDL your Apple Music sign-in details (called cookies). You can use the built-in login window, import them from your browser, or export them with a browser extension. See [Cookie Management](cookie-management.md).
 
 ---
 
@@ -48,17 +48,22 @@ The only things you need before using MeedyaDL are:
 4. Eject the `.dmg` disk image.
 5. Open MeedyaDL from your Applications folder.
 
-**About the Gatekeeper warning:** Official MeedyaDL releases are signed with an Apple Developer ID and notarised by Apple, so macOS should open them normally with no warning at all.
+Official MeedyaDL releases are signed and approved by Apple, so macOS should open them normally.
 
-If you do see a "can't be opened" or "cannot check it for malicious software" message anyway, it is almost certainly one of these:
+<details>
+<summary>More detail: if macOS shows a warning anyway</summary>
 
-- **You are on an older download.** Disk images published before September 2026 were signed but not fully notarised, and macOS warns about the disk image even though the app inside was fine. Download the current release and it will open normally.
+If you see a "can't be opened" or "cannot check it for malicious software" message, it is almost certainly one of these:
+
+- **You have an older download.** Disk images published before September 2026 were signed but not fully approved, so macOS warned about the disk image even though the app inside was fine. Download the current release.
 - **You built it yourself.** Builds made outside our release process are unsigned, and macOS will warn about them.
 - **The download was interrupted or altered.** Download it again.
 
-If you are on an older download and would rather not update yet, right-click (or Control-click) the app and choose **Open**, then **Open** again in the dialog. That tells macOS you trust this one app, and it only needs doing once.
+If you would rather not update yet, right-click (or Control-click) the app and choose **Open**, then **Open** again in the dialog. That tells macOS you trust this one app, and you only do it once.
 
-**We used to suggest running `xattr -cr` here. Please do not.** That command strips *every* extended attribute from the app, not just the one macOS uses for this check, and getting into the habit of running it teaches you to wave away a warning that is usually worth reading. Right-clicking and choosing Open does the same job for one app, and nothing more.
+**Please do not run `xattr -cr`.** It strips information from the app that macOS relies on, not just the one thing behind this warning. Right-click and **Open** does the same job for one app and nothing more.
+
+</details>
 
 ### Windows
 
@@ -66,7 +71,7 @@ If you are on an older download and would rather not update yet, right-click (or
 2. Run the installer and follow the on-screen prompts.
 3. Launch MeedyaDL from the Start Menu or desktop shortcut.
 
-**SmartScreen warning:** Windows builds are not code-signed at all today, so Windows SmartScreen will show a warning every time you install a new version. This is not specific to pre-release builds — it applies to every Windows build until code signing is added. To proceed:
+**SmartScreen warning:** Windows builds are not code-signed yet, so Windows SmartScreen shows a warning each time you install a new version. To continue:
 
 - Click **"More info"** in the SmartScreen dialog.
 - Click **"Run anyway"** to continue with the installation.
@@ -95,12 +100,12 @@ Follow the same Debian / Ubuntu instructions above using the ARM64 `.deb` packag
 
 ### First-Run Setup Wizard
 
-The first time you launch MeedyaDL, a setup wizard will guide you through the initial configuration. The wizard consists of **6 steps**:
+The first time you launch MeedyaDL, a setup wizard will guide you through the initial configuration. The wizard has **6 steps**:
 
 1. **Welcome** — Introduction and overview of the setup process.
-2. **Python** — MeedyaDL needs Python 3.10 or newer. If you already have a compatible Python installed (for example via Homebrew or python.org), the wizard detects it and offers a **"Use this"** button — MeedyaDL then builds an isolated environment from it (your system Python is never modified), skipping the download entirely. Otherwise, it downloads and installs a sandboxed Python runtime into its data directory. A **Browse…** button lets you point at a specific interpreter.
-3. **Engine** — GAMDL, the free download engine MeedyaDL uses for Apple Music, is installed into MeedyaDL's own Python automatically.
-4. **Dependency Installation** — Additional tools are installed: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo. All dependencies are placed in the application's sandboxed data directory and do not affect your system.
+2. **Python** — MeedyaDL needs Python 3.10 or newer. If you already have a compatible Python installed (for example via Homebrew or python.org), the wizard detects it and offers a **"Use this"** button — MeedyaDL then sets up its own separate copy from it (your system Python is never changed), so there is nothing to download. Otherwise, it downloads and installs a sandboxed Python runtime into its data directory. A **Browse…** button lets you point at a specific interpreter.
+3. **Engine** — GAMDL, the free download tool MeedyaDL uses for Apple Music, is installed automatically.
+4. **Dependency Installation** — Additional tools are installed: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, and MediaInfo. They go into MeedyaDL's own folder and do not affect your system. If you already have one of them installed, you can point MeedyaDL at it with **Browse**.
 5. **Cookie Import** — You will be prompted to import your Apple Music cookies (see below).
 6. **Complete** — Setup is finished and MeedyaDL is ready to use.
 
@@ -108,15 +113,15 @@ The wizard handles everything automatically. Simply follow the prompts and wait 
 
 ### Setting Up Cookies
 
-Before you can download any content, you must provide your Apple Music cookies. These cookies authenticate MeedyaDL with Apple Music on your behalf. MeedyaDL offers three ways to set up cookies:
+Before you can download, MeedyaDL needs your Apple Music cookies. They let it sign in as you. There are three ways to provide them:
 
-1. **Built-in Apple Music login** (easiest) — Sign in to Apple Music directly within the app. MeedyaDL opens a login window, you sign in with your Apple ID, and the cookies are extracted automatically. No browser extensions needed.
+1. **Built-in Apple Music login** (easiest) — Sign in to Apple Music directly within the app. MeedyaDL opens a login window, you sign in with your Apple ID, and the cookies are picked up automatically. No browser extensions needed.
 
-2. **Browser auto-import** — MeedyaDL can detect installed browsers (Chrome, Firefox, Edge, Safari, etc.) and automatically extract your Apple Music cookies from them. You must already be signed in to music.apple.com in that browser.
+2. **Browser auto-import** — MeedyaDL can find your installed browsers (Chrome, Firefox, Edge, Safari and others) and take your Apple Music cookies from them. You must already be signed in to music.apple.com in that browser.
 
 3. **Manual cookie file import** — Export your cookies from your browser in **Netscape cookie format** using a browser extension such as "Get cookies.txt LOCALLY" or "cookies.txt", then import the file into MeedyaDL.
 
-For detailed instructions on all three methods, supported browsers, and troubleshooting cookie issues, see [Cookie Management](cookie-management.md).
+For step-by-step instructions on all three, and help with cookie problems, see [Cookie Management](cookie-management.md). Most people never need the optional [wrapper](wrapper.md).
 
 ### Choosing an Output Directory
 
@@ -124,9 +129,9 @@ By default, MeedyaDL saves downloaded files to an **"Apple Music" folder inside*
 
 To change the output directory:
 
-1. Open **Settings** from the application menu or toolbar.
-2. Navigate to the **General** tab.
-3. Set your preferred output directory using the folder picker or by entering a path directly.
+1. Open **Settings** from the sidebar.
+2. Go to the **General** tab.
+3. Under **Output Directory**, pick a folder or type a path.
 
 ### Configuring Default Quality
 
@@ -134,8 +139,8 @@ The default audio codec is **ALAC** (Apple Lossless), which provides the highest
 
 To change the default quality:
 
-1. Open **Settings** from the application menu or toolbar.
-2. Navigate to the **Codec & Resolution** tab.
+1. Open **Settings** from the sidebar.
+2. Go to the **Codec & Resolution** tab.
 3. Select your preferred audio codec and quality level.
 
 For a full explanation of available quality options, including lossless and Hi-Res Lossless formats, see [Quality Settings](quality-settings.md).

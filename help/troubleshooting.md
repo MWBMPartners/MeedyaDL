@@ -6,470 +6,374 @@
 
 # Troubleshooting
 
-This guide covers common errors you may encounter while using MeedyaDL, along with their solutions and guidance on finding and interpreting log files.
+This page helps you fix common problems in MeedyaDL. Find your problem below and follow the steps. If nothing works, see [Reporting a Bug](#reporting-a-bug) at the end.
 
 ---
 
-## Overview
+## Start Here
 
-MeedyaDL classifies errors into the following categories: **auth**, **network**, **codec**, **not_found**, **rate_limit**, **tool**, and **unknown**. When an error occurs, the application identifies which category it belongs to and displays an appropriate message with guidance. If MeedyaDL is not working as expected, start by identifying your problem in the common errors section below, then consult the log files for more detailed diagnostic information if needed.
+When something goes wrong, MeedyaDL shows a short message that says what happened and what to do next. The technical text behind the message is folded away under **Details**. On a failed download in the Queue or History, it sits under the short summary. Open **Details** when you report a problem, because that text helps us find the cause.
 
-Every error message says what went wrong and what to do next. The technical text behind it — what the download tool or your computer actually reported — is folded away under **Details** below the message (on a failed download in the Queue or History, under the short summary). Open **Details** when you report a problem: that text is what helps track it down.
+MeedyaDL sorts problems into a few groups: sign-in (**auth**), connection (**network**), format (**codec**), not found, too many requests (**rate limit**), and helper tools (**tool**). The sections below follow those groups.
+
+Three quick checks fix many problems:
+
+1. Check that you are online.
+2. Re-import your cookies (see [Cookie Management](cookie-management.md)).
+3. Look at the **Activity** page in the sidebar. It shows what MeedyaDL was doing when the problem happened.
 
 ---
 
 ## Common Errors and Solutions
 
-### Authentication / Cookie Errors (auth)
+### Sign-in and Cookie Errors
 
 #### "Authentication failed"
 
-Your Apple Music cookies have expired or are invalid. This is the most common error and typically happens when your browser session with Apple Music has ended since you last exported cookies.
+Your Apple Music cookies have run out or are not valid. This is the most common error. It usually means your browser's Apple Music session ended after you last exported cookies.
 
-- **Cause:** The cookies that MeedyaDL uses to authenticate with Apple Music are expired, revoked, or were not exported correctly.
-- **Solution:** Re-export your cookies from your browser and re-import them into MeedyaDL. Open your browser, sign in to Apple Music if needed, export the cookies, then go to **Settings > Cookies** in MeedyaDL and import the new cookie file. See [Cookie Management](cookie-management.md) for step-by-step instructions.
+- **Fix:** Sign in to Apple Music in your browser, export your cookies again, then import the new file in **Settings > Cookies**. See [Cookie Management](cookie-management.md) for step-by-step help.
 
 #### "Cookie file not found"
 
-The cookie file that MeedyaDL is configured to use does not exist at the expected path. This can happen if the file was moved, deleted, or if the path was entered incorrectly.
+MeedyaDL is set to use a cookie file that is no longer where it expects. It may have been moved or deleted.
 
-- **Cause:** The cookie file path stored in MeedyaDL's settings points to a file that no longer exists or is inaccessible.
-- **Solution:** Re-import your cookie file via **Settings > Cookies** tab. This will update the stored path to the correct location. If you need to export cookies again, see [Cookie Management](cookie-management.md).
-
----
-
-### Pre-Download Connectivity Check
-
-MeedyaDL checks your internet connection before every download. If you are offline when you click "Add to Queue", the download is still added to the queue but **will not start processing** until connectivity returns. A yellow warning toast appears: **"Download queued — will start when internet is available."**
-
-Once you are back online, adding another download or clicking **Start** on the Queue page will trigger the queue to process all waiting items. Cookies are not checked when offline since the check would fail anyway.
-
-**Note:** Downloads that ultimately fail due to network issues do **not** generate error reports, since the root cause is connectivity rather than an application bug.
+- **Fix:** Import your cookie file again in **Settings > Cookies**. That saves the new location.
 
 ---
 
-### Network Errors (network)
+### When You Are Offline
 
-Network errors include connection timeouts, name-lookup failures, and server-side errors from Apple Music. MeedyaDL automatically retries a network error up to **3 times** — four attempts in total, one straight after another — before reporting a failure. So if you see a network error, several attempts have already been made in quick succession. Because there is no pause between them, a connection that is down will fail all four; wait until you are back online and retry the item yourself.
+MeedyaDL checks your internet connection before each download. If you are offline when you add a download, it is still added to the queue. It will not start until you are back online. A yellow message says: **"Download queued — will start when internet is available."**
 
-#### Connection Timeout / DNS Failure
+When you are back online, click **Start** on the Queue page, or add another download. The waiting items then run. Cookies are not checked while you are offline.
 
-- **Cause:** Your internet connection is down, unstable, or a DNS server is unreachable.
-- **Solution:** Check your internet connection. Try loading `https://music.apple.com` in your browser to verify connectivity to Apple's servers. If your connection is working but the error persists, try again in a few minutes as Apple's servers may be experiencing temporary issues.
-
-#### Server Errors (HTTP 5xx)
-
-- **Cause:** Apple Music's servers are experiencing problems or undergoing maintenance.
-- **Solution:** Wait a few minutes and try again. You can check [Apple's System Status page](https://www.apple.com/support/systemstatus/) to see if Apple Music is experiencing a known outage.
-
-#### Firewall and Proxy Configuration
-
-If you are behind a corporate firewall or use a proxy, MeedyaDL needs to be able to reach Apple Music's servers. The application respects the system proxy settings on all platforms. If you are using a VPN, ensure it does not interfere with connections to Apple's content delivery servers.
-
-#### Downloads Stuck at 0%
-
-- Check your internet connection
-- Try cancelling and re-adding the download
-- Check if FFmpeg is properly installed in **Settings > Tools**
+Downloads that fail only because of your connection do not create an error report.
 
 ---
 
-### Codec / Quality Errors (codec)
+### Connection Errors
+
+These include timeouts, name-lookup failures, and problems on Apple's side. MeedyaDL tries again by itself up to 3 more times (4 tries in all) before it reports a failure. The tries come straight after each other, so if your connection is down, all of them fail. Wait until you are back online, then retry the item yourself.
+
+#### Timeout or lookup failure
+
+- **Cause:** Your internet is down or unstable.
+- **Fix:** Check your connection. Try opening `https://music.apple.com` in your browser. If that works and the error stays, try again in a few minutes.
+
+#### Server errors
+
+- **Cause:** Apple Music is having problems or is being worked on.
+- **Fix:** Wait a few minutes and try again. You can check [Apple's System Status page](https://www.apple.com/support/systemstatus/).
+
+#### Behind a firewall, proxy or VPN
+
+MeedyaDL follows your computer's proxy settings. On a work network, make sure Apple Music is allowed. If you use a VPN and downloads fail, try turning it off to see if it is the cause.
+
+#### Downloads stuck at 0%
+
+- Check your internet connection.
+- Cancel the download and add it again.
+- Open **Settings > Tools** and check that FFmpeg is installed.
+
+---
+
+### Format and Quality Errors
 
 #### "Requested quality not available"
 
-Not all content on Apple Music is available in every codec. Some tracks or videos may only be available in specific codecs. Video resolution is not part of this error — it's a ceiling, so Apple Music always returns the best quality it has at or below what you asked for, never a failure.
+Not every track or video comes in every format.
 
-- **Cause:** The specific audio or video codec you requested is not available for this particular content on Apple Music.
-- **Solution:** Turn on the **Enable Fallback Chain** switch in **Settings > Codec & Resolution** so that MeedyaDL automatically selects the next best available codec when your preferred choice is unavailable. Alternatively, manually select a different codec before downloading. See [Fallback Quality](fallback-quality.md) for configuration details and [Quality Settings](quality-settings.md) for an overview of available formats.
-- **Note:** ALAC (lossless) has the widest availability among audio codecs.
+- **Cause:** The format you chose is not offered for this item.
+- **Fix:** Turn on **Enable Fallback Chain** in **Settings > Codec & Resolution**. MeedyaDL then tries the next format on your list. You can also pick a different format before you download. See [Fallback Quality](fallback-quality.md) and [Quality Settings](quality-settings.md).
+- **Tip:** ALAC (lossless) is offered for the most tracks.
+- **Video:** Video resolution never causes this error. It is a ceiling, so you always get the best the video has at or below your choice.
 
----
+#### Some tracks skipped (partial album)
 
-### Not Found Errors (not_found)
+Only some tracks downloaded, and the Activity page says "Requested format is not available" for the rest.
 
-#### Storefront Mismatch (different country in URL vs your account)
+- **Cause:** The special format you picked (such as Dolby Atmos) is not offered for every track on the album.
+- **What MeedyaDL does:** It spots the gaps and downloads the missing tracks in a more common format, without touching files that already worked. The Activity page shows "Gap-fill complete" when this succeeds.
+- **If that also fails:** Choose a common format such as **ALAC** or **AAC**. If your lossless downloads need the wrapper, check that it is on (see below).
 
-If you paste a URL from a country other than your Apple Music account region (e.g. a `/us/` link while your account is `gb`), and the album either isn't published in the URL's catalog or your account can't license it from that storefront, MeedyaDL will see an `AMP API Status code: 404 Resource Not Found` error.
+#### Output file won't play
 
-- **Default behaviour:** MeedyaDL automatically retries the download once using your account region (Settings > General > Storefront). You will see an activity-log line such as `Storefront 'us' returned no catalog entry — retrying with your account region 'gb'…`. If the album exists in your region, the retry succeeds and the file lands without further action.
-- **If both storefronts fail:** the activity log shows `Album not available in 'us' or 'gb'` and the item moves to the failed bucket. The album may genuinely be region-locked or removed from the catalog.
-- **To disable the auto-retry:** uncheck **Settings > General > Auto-retry with your region when a URL's storefront fails**. Strict URL-storefront behaviour is restored.
-- **Why the auto-retry is one-shot only:** to prevent two URLs whose albums are mutually unavailable from ping-ponging forever. A manual click on the **Retry** button refreshes the budget, so you can ask for the rewrite again.
-
-#### Content Not Found
-
-- **Cause:** The content has been removed from Apple Music, the URL is invalid or malformed, or the content is not available in your configured region.
-- **Solution:** Verify that the URL is correct by opening it directly in your browser at `https://music.apple.com`. If the content no longer appears on Apple Music, it has been removed by the rights holder and cannot be downloaded.
+- **Cause:** Your player does not support the format. This is most common with lossless (ALAC) and high-resolution files.
+- **Fix:** Try [VLC](https://www.videolan.org/vlc/), which plays almost everything. For files that work on the most devices, download in **AAC**.
 
 ---
 
-### Rate Limit Errors (rate_limit)
+### Not Found Errors
 
-#### Too Many Requests
+#### Content not found
 
-Apple Music enforces a per-account limit on **license (DRM-key) requests**. It's most often hit part-way through a large album, playlist, or discography — the download starts fine and then every remaining track fails with HTTP 429.
+- **Cause:** The item was removed from Apple Music, the link is wrong, or the item is not offered in your region.
+- **Fix:** Open the link in your browser at `https://music.apple.com`. If it is gone there, it can't be downloaded.
 
-- **Cause:** Apple's per-account license-request throttle — not a MeedyaDL bug.
-- **What MeedyaDL does:** on an HTTP 429, MeedyaDL **automatically pauses the queue** so it stops adding to the throttle (continuing would only extend the block and burn more license requests). Your already-downloaded files are kept.
-- **Solution:** wait for the cooldown — it is usually **1–2+ hours**, not minutes — then click **Resume** on the Queue page. Because completed files are preserved (downloads don't overwrite), resuming only re-fetches what's still missing. Downloading in **smaller batches** (a few albums at a time rather than a whole discography) is the best way to avoid triggering it in the first place.
+#### Link from another country
+
+If you paste a link from another country (for example a `/us/` link while your account is in `gb`) and the album is not available there, the download first fails with "Resource Not Found".
+
+- **What MeedyaDL does:** It tries once more with your own region. The Activity page says so, for example: `Storefront 'us' returned no catalog entry — retrying with your account region 'gb'…`. If the album exists in your region, the download works with no more action from you.
+- **If both fail:** The Activity page says `Album not available in 'us' or 'gb'`, and the item shows as failed. The album may be region-locked or removed.
+- **To turn this off:** Untick **Settings > General > Auto-retry with your region when a URL's storefront fails**.
+
+<details>
+<summary>More detail: why the region retry happens only once</summary>
+
+The retry is limited to one go so that two links whose albums are not available in each other's region cannot bounce back and forth forever. Pressing **Retry** on the item gives it a fresh try.
+
+</details>
 
 ---
 
-### Playlist Save Errors
+### Too Many Requests
 
-#### The first playlist track fails with "Save Playlist" enabled
+Apple limits how many requests one account can make in a short time. You are most likely to hit it part-way through a big album, playlist or whole discography. The download starts well, and then every remaining track fails.
 
-- **Cause:** A known bug in GAMDL's playlist-file writer (reported to GAMDL's developers in [their issue 322](https://github.com/glomatico/gamdl/issues/322)) can make the **first** track of a playlist fail while the rest download normally, when the **Save Playlist** option is enabled.
-- **Solution:** Retry the failed first track on its own, or download the album it belongs to. If you don't need the `.m3u8` playlist sidecar, turning **Save Playlist** off also avoids the bug. This is a GAMDL-side issue — MeedyaDL will pick up the fix automatically once it lands upstream and is admitted to the support window.
+- **What MeedyaDL does:** It pauses the queue by itself so it does not make things worse. Files already downloaded are kept.
+- **Fix:** Wait. The pause usually lasts **1 to 2 hours or more**, not minutes. Then click **Resume** on the Queue page. Only the missing tracks are fetched.
+- **To avoid it:** Download in smaller batches, a few albums at a time instead of a whole discography.
 
 ---
 
-### Tool Errors (tool)
+### Playlist File Problems
 
-#### Missing Dependencies
+If you turn on the option that saves a playlist file (`.m3u8`), the **first** track of a playlist can fail while the rest download fine. This is a known problem in a tool MeedyaDL uses, and the fix has to come from its makers.
 
-MeedyaDL relies on external tools such as **FFmpeg** and **mp4decrypt** to process downloaded content. If these tools are missing or corrupted, you will see a tool error.
+- **Fix:** Retry the failed first track on its own, or download the album it belongs to. Turning the playlist-file option off also avoids the problem.
 
-- **Cause:** A required dependency (FFmpeg, mp4decrypt, or another tool) is not installed, is not on the system PATH, or has become corrupted.
-- **Solution:** Go to **Settings > Advanced > Setup** and press **Re-run Setup Wizard** to re-download and install all required dependencies automatically. This will verify and repair the dependency installation without affecting your other settings.
+---
 
-> **Already have these tools?** MeedyaDL now recognises tools you installed yourself with a package manager — Homebrew, MacPorts, apt, dnf, pipx, Scoop or snap — and reuses them in place instead of downloading a duplicate copy. The setup wizard shows a **Homebrew** / **System** badge next to a reused tool. MeedyaDL does not check a reused copy for updates or try to update it — that stays with the package manager that installed it (for example `brew upgrade ffmpeg`), so the two never fight over it. If a tool you installed via Homebrew still shows as missing, make sure it's a recent enough version (see the version requirements) and re-open the setup wizard.
+### Helper Tool Errors
+
+#### Missing tools
+
+MeedyaDL needs helper programs, such as FFmpeg. If one is missing or damaged, you see a tool error.
+
+- **Fix:** Open **Settings > Advanced > Setup** and press **Re-run Setup Wizard**. It installs what is missing and does not change your other settings. You can also press **Reinstall** next to a tool in **Settings > Tools**.
+- **Tools you installed yourself:** If you installed a tool with a package manager (Homebrew, MacPorts, apt, dnf, pipx, Scoop or snap), MeedyaDL uses that copy and does not download another. The wizard marks it with a **Homebrew** or **System** badge. Updates stay with the package manager that installed it. If a tool you installed still shows as missing, check that it is a recent enough version, then reopen the wizard.
+
+#### Python stopped working after a system update
+
+If you told MeedyaDL to use a Python already on your computer, and you later upgrade or move that Python (for example with `brew upgrade python`), MeedyaDL's Python setup can break.
+
+- **Fix:** Reopen the **Python** step of the setup wizard. MeedyaDL notices this and offers a **Rebuild** button. If the old Python is gone, pick another from the list, or let MeedyaDL download its own copy.
 
 #### Downloads fail after trying GAMDL 4
 
-GAMDL 4 is not yet tested on real downloads, so problems are possible.
+GAMDL 4 has not been tested on real downloads yet, so problems are possible.
 
-- **Downloads will not start, with a message about lyrics:** **Synced Lyrics Only** (Settings > Lyrics) cannot work with GAMDL 4. Turn it off.
-- **Anything else:** go back to GAMDL 3.9.1 from **Settings > Tools > GAMDL Version Management**, and please report what happened. See [Trying GAMDL 4](tools.md#trying-gamdl-4).
+- **A message about lyrics:** **Synced Lyrics Only** (Settings > Lyrics) does not work with GAMDL 4. Turn it off.
+- **Anything else:** Go back to GAMDL 3.9.1 in **Settings > Tools > GAMDL Version Management**, and please report what happened. See [Trying GAMDL 4](tools.md#trying-gamdl-4).
 
-#### Python stopped working after upgrading or changing your system Python
+#### "GAMDL backend not found"
 
-If you set MeedyaDL up to reuse a Python already on your system (rather than downloading its own copy), and you later upgrade or move that Python — for example running `brew upgrade python` — the shared environment MeedyaDL built can break, because it points back at the exact interpreter that just moved.
+The Python setup or GAMDL itself is damaged or missing.
 
-- **Cause:** The system Python that MeedyaDL's environment was built from was relocated or removed by a later upgrade, leaving MeedyaDL's Python environment pointing at a file that no longer exists.
-- **Solution:** Re-open the setup wizard's **Python** step. MeedyaDL now detects this specific situation and, instead of just reporting "Python not found", shows a notice explaining what happened with a one-click **Rebuild** button that recreates the environment from your current Python. If the original interpreter is gone entirely, pick another Python from the list (or download MeedyaDL's own copy) — all of which the same step offers.
+- **Fix:** Open **Settings > Advanced > Setup** and press **Re-run Setup Wizard**. Your cookies, settings and downloaded files are not touched.
 
 ---
 
-### Wrapper Errors
+### Wrapper Problems
 
-> **GAMDL 3.6 changed the wrapper protocol.** If you've recently upgraded GAMDL, see [Wrapper Authentication](wrapper.md) for the wrapper-v1 → wrapper-v2 transition. The error patterns below cover **both** flavours — MeedyaDL picks the right preflight based on your installed GAMDL.
+If you use the wrapper, see [Wrapper Authentication](wrapper.md) for how to set it up.
 
-#### Wrapper Service Unreachable
+#### "Wrapper unreachable" warning
 
-If you use wrapper authentication and MeedyaDL reports the wrapper is unreachable (yellow toast notification), check that the wrapper service is running and that the URL(s) in **Settings > Advanced > Wrapper** are correct. On GAMDL 3.6+ there is a single **Wrapper URL** field (wrapper-v2); on earlier releases there are three fields (account URL + m3u8 IP + decrypt IP). See [Wrapper Authentication](wrapper.md) for the full setup walkthrough.
-
-**How the warning behaves:** Wrapper warnings appear as yellow messages inside MeedyaDL that stay until the wrapper becomes reachable again on a later download, and then go away by themselves. Identical messages are never stacked — only one wrapper warning is shown at a time.
+A yellow message says MeedyaDL cannot reach the wrapper. Check that the wrapper is running, and that the addresses in **Settings > Advanced > Wrapper** are right. The yellow message stays until the wrapper can be reached on a later download, then goes away by itself. You only ever see one wrapper warning at a time.
 
 #### Auto-Retry without Wrapper
 
-If wrapper downloads fail frequently, you can enable **Auto-Retry without Wrapper** in **Settings > Advanced > Wrapper**. When enabled, failed wrapper downloads are automatically re-queued with wrapper disabled (falls back to cookie-based authentication). This saves you from manually clicking "Retry without Wrapper" on each failed item.
+If wrapper downloads fail often, turn on **Auto-Retry without Wrapper** in **Settings > Advanced > Wrapper**. A failed wrapper download is then queued again with the wrapper off, using your cookies. With it off, a failed item shows a **Retry without Wrapper** button so you can do this yourself.
 
-Without this setting enabled, failed wrapper downloads show a **"Retry without Wrapper"** button on the queue item, allowing you to manually retry with cookie-based auth.
+#### "Decryption is not available" on every track
 
-#### "Decryption is not available" warnings (wrapper enabled, downloads still skipping)
-
-This is a GAMDL warning that means: *"the wrapper accepted the connection, but it couldn't decrypt this track."* You'll see lines like this in the Activity Log:
+The Activity page shows lines like:
 
 ```text
 [Track 14/14] Skipping "Just Getting Started.": Decryption is not available for media ID: 1021848727
 ```
 
-The most common cause when the wrapper is enabled is **stale wrapper authentication**. The wrapper service logs into Apple Music once with your credentials and keeps the resulting tokens in its data directory. Those tokens can expire over time — often after a few weeks or after Apple invalidates the session for any reason. When that happens, the wrapper still *appears* to be working: MeedyaDL's pre-download checks for the account / m3u8 / decryption services all pass (the sockets accept connections), the download starts, and the manifest fetch succeeds — but every per-track decryption request fails because the wrapper's stored Apple Music tokens are no longer valid.
+If **every** track in a download shows this, the wrapper's sign-in to Apple Music has most likely run out, even though the wrapper looks like it is running. Sign the wrapper in to Apple Music again by following the wrapper's own instructions, then retry the download. [Wrapper Authentication](wrapper.md) has the details.
 
-##### How to re-authenticate the wrapper
+If only **some** tracks are skipped, those tracks probably are not offered in the format you asked for. Adjust your [Fallback Quality](fallback-quality.md) list so another format is tried for them.
 
-You re-run the wrapper's one-off **login command** with your Apple Music username and password. The wrapper saves fresh tokens to its data directory; subsequent runs use those tokens normally.
+<details>
+<summary>More detail: other reasons tracks are skipped</summary>
 
-**If you're running the wrapper via Docker** (the most common setup):
+- **You have not turned the wrapper on.** On older versions of GAMDL (before 3.8), Dolby Atmos, AC-3 and most other special formats need the wrapper. On GAMDL 3.8 and newer, only ALAC needs it. If you are on 3.8 or newer and want ALAC, switch on **Use Wrapper** in **Settings > Advanced**.
+- **The track is not offered in that format.** Some regions have different versions of an album, and not every track has an Atmos mix. A fallback list handles this by itself.
+- **The track was replaced.** Apple sometimes replaces a song, for example when it moves to another release. Look the album up in your browser to see if it has a new link.
+- **Does Download Mode help?** No. **Download Mode** in **Settings > Advanced** does not change sign-in. Downloads sometimes seem to start working after you change it only because changing a setting starts the attempt fresh.
 
-1. Stop the running wrapper container:
+</details>
 
-   ```sh
-   docker compose down
-   ```
+#### Running the wrapper on another device
 
-2. Run the wrapper in **login mode** with your Apple credentials:
+You can run the wrapper on a different computer on your network, such as a Raspberry Pi, and run MeedyaDL on your Mac or PC. MeedyaDL needs the address of the wrapper in **three** places. If you change only one or two, downloads start but fail part-way through.
 
-   ```sh
-   docker run --privileged --rm -it \
-     -v ./rootfs/data:/app/rootfs/data \
-     --entrypoint ./wrapper \
-     ghcr.io/worldobservationlog/wrapper:local \
-     -L "your.apple.id@example.com:your-apple-password" \
-     -H 0.0.0.0
-   ```
+In **Settings > Advanced > Wrapper** (on GAMDL 3.6 and newer there is one **Wrapper URL** field instead), set all three fields to the other device:
 
-   The wrapper will sign into Apple Music. If your Apple ID has two-factor authentication, it will prompt for the 6-digit code — enter it and let the login finish.
+| Setting | Default |
+| --- | --- |
+| **Wrapper Account URL** | `http://127.0.0.1:30020` |
+| **Wrapper m3u8 Address** | `127.0.0.1:20020` |
+| **Wrapper Decryption Address** | `127.0.0.1:10020` |
 
-3. Once login completes (you'll see confirmation in the terminal), press **Ctrl-C** to quit.
+For a wrapper at `192.168.1.50`, use `http://192.168.1.50:30020`, `192.168.1.50:20020` and `192.168.1.50:10020`. The device address is the same in all three. Only the port number changes.
 
-4. Start the wrapper normally again:
+Before each download, MeedyaDL checks all of them and shows a yellow message that says which one cannot be reached.
 
-   ```sh
-   docker compose up -d
-   ```
+<details>
+<summary>More detail: common problems with a wrapper on another device</summary>
 
-**If you're running the wrapper natively** (not via Docker), the equivalent is to run the wrapper binary with the `-L "username:password"` flag once, let it sign in, quit, then start it again normally.
+- **The wrapper must accept connections from the network,** not only from its own device. Many installs listen only on `127.0.0.1`. Change its settings, or port forwarding if it runs in Docker, so other devices can reach it.
+- **A firewall may be blocking the ports.** On Linux, something like `sudo ufw allow 30020/tcp` (and the same for `20020` and `10020`) opens them.
+- **Forgetting one of the three.** If the account address points at the other device but the decryption address still says `127.0.0.1`, details load but downloads fail partway through.
+- **Three free ports are needed** on that device.
+- **Quick alternative:** you can leave MeedyaDL's settings alone and forward the three ports with SSH. From a terminal on the computer running MeedyaDL:
 
-##### How to tell if it's an auth issue vs a different problem
+  ```sh
+  ssh -L 10020:localhost:10020 -L 20020:localhost:20020 -L 30020:localhost:30020 user@your-pi-address
+  ```
 
-Stale wrapper auth typically shows *every* track in a download skipping with the same "Decryption is not available" message. If only some tracks skip and others succeed, it's more likely that those specific tracks just aren't available in the requested codec — adjust the [Fallback Quality chain](fallback-quality.md) so MeedyaDL retries with a different format (ALAC / AAC) for the skipped ones. The Activity Log entries themselves look identical for both cases; the rate of skips is your diagnostic.
+  While that session stays open, MeedyaDL's default addresses reach the other device.
 
-##### Other possible causes
-
-- **You haven't enabled wrapper auth at all.** On GAMDL versions before 3.8, Atmos, AC-3 and the other non-web codecs are wrapper-only — cookie-based auth alone can't decrypt them. On GAMDL 3.8 and newer, a new HLS asset endpoint means only **ALAC** still needs the wrapper — Atmos, AC-3, and the AAC variants all work cookie-only. If you're on 3.8+, this cause doesn't apply to Atmos/AC-3; check the other causes below instead, or toggle **Use Wrapper** in Settings > Advanced if you specifically need ALAC.
-- **The track genuinely isn't available in the requested codec.** Some Apple Music regions have different mastering catalogues; not every track has an Atmos mix. The fallback chain handles this automatically when configured.
-- **The track was withdrawn or replaced.** Apple periodically replaces individual tracks (e.g., a song migrated from one album release to another). Re-fetching the album page in your browser may reveal it's been re-listed under a different ID.
-
-##### Does changing **Download Mode** help?
-
-No — Download Mode (yt-dlp vs N_m3u8DL-RE in Settings > Advanced) only changes the tool that downloads the encrypted HLS streams from Apple's CDN. It doesn't affect authentication or decryption. If decryption is failing, switching Download Mode won't fix it. (Some users see downloads "start working again" after switching modes because changing the setting forces a fresh attempt with reset state — not because of the mode itself.)
-
-#### Running the wrapper on a different device on your network
-
-You don't have to run the wrapper on the same computer as MeedyaDL. A common setup is to run MeedyaDL on a Mac or Windows PC and the wrapper on a separate Linux box — for example, a Raspberry Pi sitting on the same home network.
-
-This works, but the wrapper actually uses **three** connections — not just one — and MeedyaDL needs to know about all three. If you only update one or two of them, downloads will appear to start successfully but then fail partway through.
-
-In **Settings > Advanced > Wrapper**, you'll find three address fields. Update *all three* to point at the device running the wrapper:
-
-| Setting                          | What it does                          | Default                    |
-| -------------------------------- | ------------------------------------- | -------------------------- |
-| **Wrapper Account URL**          | The wrapper's account / login service | `http://127.0.0.1:30020`   |
-| **Wrapper m3u8 Address**         | The wrapper's playlist service        | `127.0.0.1:20020`          |
-| **Wrapper Decryption Address**   | The wrapper's decryption service      | `127.0.0.1:10020`          |
-
-If your wrapper runs on a Raspberry Pi at `192.168.1.50`, change them to:
-
-- **Wrapper Account URL:** `http://192.168.1.50:30020`
-- **Wrapper m3u8 Address:** `192.168.1.50:20020`
-- **Wrapper Decryption Address:** `192.168.1.50:10020`
-
-Note that the host (`192.168.1.50`) is the same in all three — only the port number differs.
-
-**MeedyaDL will warn you if anything's unreachable.** Before each download starts, MeedyaDL quietly checks all three services and shows a yellow warning toast if any of them can't be reached. The warning tells you which service failed and at what address, so you can fix the right setting.
-
-##### Common gotchas when using a remote wrapper
-
-- **The wrapper service needs to accept network connections, not just local ones.** By default, many wrapper installs only listen on `127.0.0.1` (the device itself). If you've installed it via Docker, that usually means the container needs port-forwarding configured (the `ports:` section in your `compose.yaml`); if you've installed it natively, the wrapper's own configuration needs to listen on `0.0.0.0` instead of `127.0.0.1`.
-- **A firewall on the wrapper's device may be blocking the ports.** On Linux, run something like `sudo ufw allow 30020/tcp` (and the same for `20020` and `10020`).
-- **Forgetting to update all three settings.** If the Account URL points at the Raspberry Pi but the Decryption Address still says `127.0.0.1`, MeedyaDL will fetch metadata fine but downloads silently fail at the decryption stage. The pre-download warnings catch this.
-- **You need three free ports on the same device.** The wrapper can't share its three ports with anything else on its host, but the host *can* run other services on different ports.
-
-##### Quick alternative: SSH tunnel
-
-If you'd rather not change MeedyaDL's settings at all, you can forward all three ports through SSH from your MeedyaDL machine. From a terminal on the Mac/PC running MeedyaDL:
-
-```sh
-ssh -L 10020:localhost:10020 -L 20020:localhost:20020 -L 30020:localhost:30020 user@your-pi-address
-```
-
-While the SSH session stays open, the three ports on the Mac/PC tunnel through to the same ports on the Raspberry Pi. MeedyaDL can keep its default `127.0.0.1` settings and everything just works. Useful for trying it out before committing to the address-change approach.
+</details>
 
 ---
 
 ### Retrying Failed or Partial Downloads
 
-#### Per-item retry
+#### Retry one item
 
-- **Queue page:** every failed item has a circular-arrow **Retry** button on the right of its row. Wrapper-using items also expose **Retry without Wrapper**. Right-click a row for the same actions plus **Copy Source Link** and **Open Folder**.
-- **History page:** every failed entry now has a **Retry** button (rotate-ccw icon) and the same actions are available via right-click. The original history entry is preserved when you retry; the new download writes its own entry on completion.
+- **Queue page:** every failed item has a **Retry** button (a circular arrow). Items that used the wrapper also have **Retry without Wrapper**. Right-click a row for the same actions plus **Copy Source Link** and **Open Folder**.
+- **History page:** every failed entry has a **Retry** button and a right-click menu. The old entry is kept, and the new download adds its own.
 
-#### Bulk retry: "Retry All Failed"
+#### Retry all failed items
 
-When at least one failed item exists, the **History** page shows a **Retry All Failed (N)** button in its header, and the **Queue** page offers **Retry all failed (N)** in its **More** menu. A confirmation modal lists the count before re-queueing. On the History page, duplicate URLs are deduplicated automatically (12 failed entries for the same URL → 1 re-enqueue).
+When any item has failed, the **History** page shows **Retry All Failed (N)** at the top, and the **Queue** page has **Retry all failed (N)** in its **More** menu. A window asks you to confirm. On the History page, repeated links are only queued once.
 
-#### Smart retry: only the failed tracks re-run
+#### Smart retry: only the missing tracks
 
-When you retry an item that previously produced a partial download (e.g. `GAMDL reported N per-track error(s)`), MeedyaDL reads the `manifest.meedyadl` file in the album folder, diffs the expected track list against the audio files actually on disk, and re-runs GAMDL with `album_url?i={song_id}` URLs covering only the missing tracks. Behaviour:
+When you retry an album that only partly downloaded, MeedyaDL compares the tracks the album should have with the files already in its folder, and fetches only the missing ones. A 50-track box set with 3 failed tracks takes seconds.
 
-- If **every track** is already on disk, the retry is refused with `Nothing to retry — all N track(s) are already on disk` instead of pointlessly re-queueing.
-- If **some tracks** are missing, only those are re-fetched. A 50-track box set with 3 failed tracks runs in seconds, not minutes.
-- If **no manifest** is found (the previous run failed before enrichment finished), the retry falls back to the original behaviour: re-running the full album URL with `overwrite=false` so existing files are kept.
-- The Activity Log shows the smart-retry decision: `Smart retry for {id}: targeting 3 of 50 track(s) — 3 URL(s) queued`.
+- If **all** tracks are already there, the retry says `Nothing to retry — all N track(s) are already on disk`.
+- If **some** are missing, only those are fetched. The Activity page says, for example, `Smart retry for {id}: targeting 3 of 50 track(s) — 3 URL(s) queued`.
+- If the album folder has no `manifest.meedyadl` file (the first run failed too early to write one), MeedyaDL retries the whole album and keeps the files that already exist.
 
 ---
 
-### Application Errors
+### App Problems
 
-#### MeedyaDL Won't Launch
+#### MeedyaDL won't open
 
 ##### macOS
 
-Official MeedyaDL releases are signed with an Apple Developer ID and notarised by Apple, so macOS should open them normally with no Gatekeeper warning at all. If you still see a "can't be opened" message, it is almost certainly one of these:
+Official MeedyaDL downloads are signed and checked by Apple, so macOS should open them with no warning. If you still see "can't be opened", it is almost certainly one of these:
 
-- **You are on an older download.** Disk images published before September 2026 were signed but not fully notarised, and macOS warns about the disk image even though the app inside was fine. Download the current release and it will open normally.
-- **You built it yourself.** Builds made outside our release process are unsigned, and macOS will warn about them.
-- **The download was interrupted or altered.** Download it again.
+- **An older download.** Disk images made before September 2026 were signed but not fully checked by Apple, so macOS warned about the disk image. Download the current version.
+- **You built it yourself.** Builds made outside our release process are not signed, and macOS warns about them.
+- **The download was cut short or changed.** Download it again.
 
-- **Solution (if you're on an older download and don't want to update yet):**
-  1. Right-click (or Control-click) the MeedyaDL app and select **Open** from the context menu.
-  2. In the dialog that appears, click **Open** to confirm.
-  3. If that does not work, go to **System Settings > Privacy & Security**, scroll down, and click **Open Anyway** next to the MeedyaDL message.
-  4. You may need to repeat this process twice on the first launch.
+If you are on an older download and do not want to update yet:
 
-Do not run `xattr -cr` to work around this. That command strips *every* extended attribute from the app, not just the one macOS uses for this check — right-clicking and choosing Open does the same job for one app, and nothing more.
+1. Right-click (or Control-click) the MeedyaDL app and choose **Open**.
+2. In the window that appears, click **Open**.
+3. If that does not work, go to **System Settings > Privacy & Security**, scroll down and click **Open Anyway** next to the MeedyaDL message.
+4. You may need to do this twice the first time.
+
+Please do not run `xattr -cr`. It strips every extra label from the app, not only the one macOS checks. Right-click and **Open** does the same job for one app and nothing more.
 
 ##### Windows
 
-Windows SmartScreen may block the installer or the application from running because it is not recognized.
+Windows SmartScreen may stop the installer or app from running.
 
-- **Solution:**
-  1. When the SmartScreen dialog appears, click **More info**.
-  2. Click **Run anyway** to proceed.
-  3. If the installer fails to run or install correctly, try downloading the installer again. If the issue persists, check that your system meets the minimum requirements (Windows 10 or later).
+1. When the SmartScreen window appears, click **More info**.
+2. Click **Run anyway**.
+3. If the installer still fails, download it again. Also check that you have Windows 10 or later.
 
 ##### Linux
 
-MeedyaDL requires certain system libraries that may not be installed by default on all Linux distributions.
+MeedyaDL needs a few system libraries that some Linux systems do not have.
 
-- **Solution:**
-  1. Install the required system libraries:
+1. Install them. On Debian-based systems:
 
-     ```bash
-     sudo apt-get install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
-     ```
+   ```bash
+   sudo apt-get install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
+   ```
 
-  2. If you are using the AppImage distribution, make sure it is executable:
+   On other systems, use your package manager to install the matching packages (for example `webkit2gtk4.1`, `libappindicator-gtk3`, `librsvg2`).
 
-     ```bash
-     chmod +x MeedyaDL.AppImage
-     ```
+2. For the AppImage version, make it runnable, then start it:
 
-     Then run it directly: `./MeedyaDL.AppImage`
-  3. On non-Debian-based distributions, use your package manager to install the equivalent packages (e.g., `webkit2gtk4.1`, `libappindicator-gtk3`, `librsvg2`).
+   ```bash
+   chmod +x MeedyaDL.AppImage
+   ./MeedyaDL.AppImage
+   ```
 
-#### Application Won't Start
+#### MeedyaDL stops right after it opens
 
-- Delete the settings file from the app data directory and restart
-- On macOS: ~/Library/Application Support/com.meedyasuite.meedyadl/
-- On Windows: %APPDATA%/com.meedyasuite.meedyadl/
-- On Linux: ~/.local/share/com.meedyasuite.meedyadl/
+Try these in order:
 
-#### Crash on Launch (Queue Recovery Panic)
+1. Update to the latest version of MeedyaDL.
+2. Delete the `queue.json` file from the app data folder (the folders are listed below). This clears queued and failed downloads from the last session. It does not touch your settings, cookies or finished downloads.
+3. If it still won't start, delete `settings.json` from the same folder. MeedyaDL makes a new one with default settings.
 
-The application crashes immediately on startup, and macOS shows a dialog asking whether to "reopen windows".
+| System | App data folder |
+| --- | --- |
+| macOS | `~/Library/Application Support/com.meedyasuite.meedyadl/` |
+| Windows | `%APPDATA%/com.meedyasuite.meedyadl/` |
+| Linux | `~/.local/share/com.meedyasuite.meedyadl/` |
 
-- **Cause:** A corrupt or incompatible `queue.json` file in the app data directory used to make the app stop while restoring the queue at startup. Current versions no longer do this.
-- **Solution:** Update to the latest version of MeedyaDL. If you cannot update immediately, delete the `queue.json` file from your app data directory to allow the application to start:
+#### Settings not saving
 
-  | Platform | Path |
-  | --- | --- |
-  | macOS | `~/Library/Application Support/com.meedyasuite.meedyadl/queue.json` |
-  | Windows | `%APPDATA%/com.meedyasuite.meedyadl/queue.json` |
-  | Linux | `~/.local/share/com.meedyasuite.meedyadl/queue.json` |
+Your changes are gone after you restart.
 
-  Deleting this file clears any queued or failed downloads from the previous session but does not affect your settings, cookies, or already-downloaded files.
+- **Cause:** MeedyaDL cannot write to its app data folder (the table above).
+- **Fix:** Make sure your user account can write to that folder. If that does not help, delete `settings.json` there to go back to the defaults.
 
-#### Temp Directory Write Errors
+#### Write errors in the temp folder
 
-Downloads fail with a permission error related to the temp or working directory.
+Downloads fail with a permission error about a temporary or working folder.
 
-- **Cause:** On macOS, apps launched from `/Applications` have a working directory of `/`, which is not writable. GAMDL's default temp path of `.` (current directory) fails in this scenario.
-- **Solution:** MeedyaDL automatically resolves the temp path to `{OS temp}/MeedyaDL` to avoid this issue. If you still see write errors, verify the temp directory on the **Settings > Tools** tab points to a writable location, or clear it to use the default.
+- **Fix:** MeedyaDL uses a temporary folder named `MeedyaDL` inside your system's temp folder. If you still see write errors, open **Settings > Tools**, and make sure the **Temp Directory** is a place you can write to. Clear it to go back to the default.
 
-#### FUSE Mount / Cloud Mount Issues
+#### Cloud drives and network folders
 
-If the app freezes during downloads or shows "Output directory timed out" errors when using cloud storage mounts:
+If the app seems slow, or you see "Output directory timed out" while saving to a cloud drive:
 
-- **Cause:** The output directory points to an unresponsive cloud mount (CloudMounter on macOS, rclone/SSHFS on Linux). File operations on disconnected or slow FUSE mounts can block for minutes.
-- **Solution:** MeedyaDL does its file work in the background with time limits, so a stuck mount does not freeze the window, and it checks that the output folder can be written to (waiting at most 5 seconds) before a download starts. If your cloud mount is unresponsive:
-  1. Check that the cloud mount is connected and responsive
-  2. Consider using a local output directory and moving files to cloud storage after download
-  3. If the mount is permanently disconnected, change the output directory in **Settings > General > Output**
+- **Cause:** The output folder is on a cloud or network drive that is disconnected or slow to answer.
+- **What MeedyaDL does:** Before a download starts, it checks that it can write to the output folder (waiting up to 5 seconds), so a stuck drive does not freeze the window.
+- **Fix:**
+  1. Check that the drive is connected and working.
+  2. Download to a folder on your own computer, then move the files to the cloud drive.
+  3. If the drive is gone for good, change the folder in **Settings > General > Output**.
 
-#### GAMDL Backend Not Found
+#### No output files, though the download looked fine
 
-The embedded Python environment or the GAMDL package itself is corrupted, incomplete, or missing from the expected location.
+If a download seems to finish but MeedyaDL says "no output files":
 
-- **Cause:** The bundled Python installation or the GAMDL package has been corrupted, was not installed correctly during initial setup, or was accidentally deleted.
-- **Solution:** Go to **Settings > Advanced > Setup** and press **Re-run Setup Wizard**. This will re-download and install both the embedded Python environment and the GAMDL package from scratch without affecting your cookies, settings, or downloaded files.
-
-#### Settings Not Saving
-
-Changes to settings are not persisted between application restarts.
-
-- **Cause:** The application data directory or the settings file within it does not have the correct file permissions, preventing MeedyaDL from writing changes.
-- **Solution:** Verify that the app data directory is writable by your user account. The settings file is located at:
-
-  | Platform | Settings Directory |
-  | --- | --- |
-  | macOS | `~/Library/Application Support/com.meedyasuite.meedyadl/` |
-  | Windows | `%APPDATA%/com.meedyasuite.meedyadl/` |
-  | Linux | `~/.local/share/com.meedyasuite.meedyadl/` |
-
-  If fixing permissions does not help, try deleting the `settings.json` file in that directory to reset all settings to their defaults. MeedyaDL will recreate the file on next launch.
+- **Fix:** Update to the latest version. If it still happens, check that the output folder's path has no unusual characters and that you can write to it.
 
 ---
 
 ### A Feature Says It Is "Temporarily Unavailable"
 
-Occasionally you may see a notice at the top of the app saying that a feature is temporarily unavailable, or a feature you have used before may be paused.
+You may sometimes see a notice at the top of the app that a feature is temporarily unavailable.
 
-**This is deliberate, and it is not a problem with your computer or your installation.** Very occasionally we need to pause a feature for everyone at short notice — for example, while we investigate a change on the service the feature talks to. When that happens, the app shows a notice so the feature doesn't just silently vanish.
+**This is on purpose. It is not a problem with your computer or your install.** Now and then we pause a feature for everyone at short notice, for example while we look into a change on the service it uses. The app shows a notice so the feature does not just vanish.
 
-What to know:
+- **You don't need to do anything.** Reinstalling, changing settings or refreshing cookies will not bring it back sooner. It returns by itself.
+- **The rest of the app keeps working.** Only the named feature is paused.
+- **If the notice has extra text,** it comes from us and usually says why, or when to expect it back.
+- **Being offline never causes this.** If MeedyaDL can't check in, it keeps what it last knew.
 
-- **You don't need to do anything.** No reinstall, no settings change, no cookie refresh will bring the feature back sooner — it returns automatically once we switch it back on.
-- **The rest of the app keeps working normally.** Only the named feature is paused.
-- **If the notice includes extra text, that message comes from us** and will usually say why the feature is paused or when to expect it back.
-- **Being offline never causes this.** If MeedyaDL can't check in, it simply keeps its last known state — a lost connection cannot switch anything off, and a brand-new install with no internet runs with everything enabled.
+If a whole download service is paused, MeedyaDL does not start new downloads for it and shows you the reason. A download already running finishes normally, and other services are not affected.
 
-**If the paused item is a whole download service** (rather than a smaller feature), MeedyaDL will not start any new downloads for it while it is paused — you'll see the reason instead of a confusing failure. Two things worth knowing:
-
-- **Anything already downloading finishes normally.** A pause only ever stops new work from starting; it never interrupts a download that's already in progress.
-- **Queued items for other services are unaffected.** If one service is paused, downloads for every other service keep starting as usual.
-
-If a notice has been showing for a long time, check [GitHub Releases](https://github.com/MWBMPartners/MeedyaDL/releases) for an app update — a newer version may restore or replace the paused feature.
-
----
-
-### Quality and Format Errors
-
-#### Output File Won't Play
-
-After downloading, the file does not play in your media player.
-
-- **Cause:** Your media player does not support the codec or container format of the downloaded file. This is especially common with lossless (ALAC) or high-resolution formats.
-- **Solution:** Use [VLC](https://www.videolan.org/vlc/), which supports virtually all audio and video codecs. If you need files that are compatible with the widest range of players and devices, re-download the content in **AAC** format, which is the most universally supported audio format.
-
-#### Some Tracks Skipped / Partial Album Download
-
-Only some tracks in an album were downloaded, with the rest showing "Requested format is not available" in the Activity Log.
-
-- **Cause:** These experimental formats may not be available for every track on the album. GAMDL skips tracks where the format is unavailable instead of falling back per-track. On GAMDL versions before 3.8, downloading Dolby Atmos or AC-3 *without* a wrapper made this more likely, since those codecs needed the wrapper on those releases; on GAMDL 3.8 and newer only ALAC still needs the wrapper, so Atmos/AC-3 gaps there are usually just genuine per-track unavailability rather than a missing wrapper.
-- **What MeedyaDL does:** MeedyaDL automatically detects partial downloads and re-runs the download with non-experimental codecs (e.g., ALAC, AAC) and `overwrite` disabled. This fills in the missing tracks without overwriting the successfully downloaded Atmos/AC-3 files. You'll see "Gap-fill complete" in the Activity Log when this succeeds.
-- **If gap-fill also fails:** Enable a wrapper in **Settings > Advanced** to allow experimental codecs to fall back correctly for all tracks, or switch to a non-experimental preferred codec like **ALAC** or **AAC**.
-
----
-
-### Download Output Issues
-
-#### "No output files" but GAMDL Succeeded
-
-The download appears to complete (GAMDL exits successfully) but MeedyaDL reports "no output files" or marks the item as failed.
-
-- **Cause:** In earlier versions, MeedyaDL's output detection could miss files when GAMDL used certain naming patterns or when the output directory contained unexpected characters.
-- **Solution:** Update to the latest version of MeedyaDL. This issue has been fixed in recent releases with improved output file detection logic. If you are already on the latest version and still see this error, check that your output directory path does not contain special characters, and verify the directory is writable.
-
-#### Activity Log Shows Authentication Method
-
-When a download starts, the Activity Log now displays which authentication method is being used: **"Downloading via wrapper at {url}"** or **"Downloading with cookie-based authentication"**. This is normal informational output, not an error.
-
-- **Purpose:** This helps you confirm which authentication path is active for each download, which is useful when troubleshooting failures. If a download fails with an auth error and the log shows cookie-based authentication, the most likely fix is to refresh your cookies. If the log shows wrapper authentication, check that the wrapper service is running and reachable.
-- **Note:** When the **Verbose Activity Log** is enabled in Settings > Advanced, additional authentication details are shown, including wrapper URL, credential status, and token expiry information.
-
-#### Activity Log Auto-Scroll
-
-The Activity Log auto-scrolls to the bottom by default. An **Auto-scroll** switch at the top of the page shows the current state:
-
-- **On (default):** The log scrolls to the bottom as new entries arrive.
-- **Scrolling up:** The switch turns itself off, freezing the view so you can read earlier entries without losing your place.
-- **Turning it back on:** Jumps back to the bottom and resumes auto-scrolling.
-
-The Activity Log retains up to **10,000 entries** per session. When the limit is reached, the oldest entries are trimmed. Trimmed entries are not lost — they are persisted to the on-disk activity log (see below) so post-hoc forensic analysis remains possible.
+If a notice has been showing for a long time, check [GitHub Releases](https://github.com/MWBMPartners/MeedyaDL/releases) for an app update.
 
 ---
 
@@ -478,114 +382,91 @@ The Activity Log retains up to **10,000 entries** per session. When the limit is
 Messages always appear inside MeedyaDL. Your computer shows them as system notifications only when the settings in **Settings > General > Notifications** allow it. Check these first:
 
 - **System Notifications** is on, and **Notification Style** is not **In-app only**.
-- **Show System Notifications** — by default a system notification is shown only while MeedyaDL is not in front (behind another app, minimised or hidden in the tray) or while your pointer is on another screen. While you are looking at MeedyaDL, the message appears inside the app only. **Only when the pointer is on another screen** never shows one if you have a single screen.
-- **Which Messages** — by default only important messages (downloads finishing or failing, the queue finishing, a copied link, a shut-down warning, an app update) become system notifications.
+- **Show System Notifications**: by default a system notification is shown only while MeedyaDL is not in front (behind another app, minimised or hidden in the tray) or while your pointer is on another screen. While you are looking at MeedyaDL, the message appears inside the app only. **Only when the pointer is on another screen** never shows one if you have a single screen.
+- **Which Messages**: by default only important messages (downloads finishing or failing, the queue finishing, a copied link, a shut-down warning, an app update) become system notifications.
 - The switch for that kind of event (for example **A Download Finished**) is on.
-- You pressed **Save Changes** — the app acts on saved settings.
+- You pressed **Save Changes**. The app acts on saved settings.
 
 Then press **Send Test Notification**. If the test does not appear, the setting to change is on your computer:
 
-- **macOS** — open **System Settings > Notifications > MeedyaDL** and allow notifications. Check that a Focus mode (such as Do Not Disturb) is not on. A development build of MeedyaDL shows its notifications as **Terminal**, so look under Terminal instead.
-- **Windows** — open the Windows Settings app, go to **System**, then **Notifications**. Make sure notifications are on, and on for MeedyaDL, and that **Do not disturb** is off.
-- **Linux** — notifications are shown by your desktop's notification service. Most desktops (GNOME, KDE Plasma, Cinnamon, XFCE) run one for you; a minimal window manager may not, so install and start one (for example `dunst` or `mako`). Also check your desktop's own notification settings and any do-not-disturb mode.
+- **macOS:** open **System Settings > Notifications > MeedyaDL** and allow notifications. Check that a Focus mode (such as Do Not Disturb) is not on. A development build of MeedyaDL shows its notifications as **Terminal**, so look under Terminal instead.
+- **Windows:** open the Windows Settings app, go to **System**, then **Notifications**. Make sure notifications are on, and on for MeedyaDL, and that **Do not disturb** is off.
+- **Linux:** notifications are shown by your desktop's notification service. Most desktops (GNOME, KDE Plasma, Cinnamon, XFCE) run one for you. A minimal window manager may not, so install and start one (for example `dunst` or `mako`). Also check your desktop's own notification settings and any do-not-disturb mode.
 
-**Settings > Advanced > Diagnostics** shows which system MeedyaDL thinks it is on and whether it is a development build. On Windows it also shows the name your notifications are listed under; a copy run straight from a build folder has its notifications listed under PowerShell instead.
+<details>
+<summary>More detail: checking what MeedyaDL thinks your system is</summary>
 
-### Activity Log Export
+**Settings > Advanced > Diagnostics** shows which system MeedyaDL thinks it is on and whether it is a development build. On Windows it also shows the name your notifications are listed under. A copy run straight from a build folder has its notifications listed under PowerShell instead.
 
-The **More** menu at the top of the Activity Log page offers **three** actions for preserving log data, each suited to a different scenario:
-
-| Menu item | What it exports | When to use it |
-| --- | --- | --- |
-| **Export the lines shown** | The entries currently visible in the Activity Log panel — respects any active search or category filter. | Quick share of a specific slice of the log. Matches what you see on screen. |
-| **Export the full log (last 3 days)** | The persistent on-disk activity log — the complete, untrimmed record of the last three days. | Bug reports and post-hoc forensic analysis. Captures events that were trimmed from the 10,000-line in-memory view and every verbose line regardless of filter state. |
-| **Open the logs folder** | Opens the logs folder in Finder / Explorer / your file manager. | Attaching raw log files to a GitHub issue, archiving them manually, or pointing a support channel at them. |
-
-#### How to Export the Visible Activity Log
-
-1. Open the **Activity** page from the sidebar (or press Cmd/Ctrl + K).
-2. (Optional) Narrow the view with the search box or the System / Download / Verbose category toggles.
-3. Open the **More** menu at the top of the Activity Log page and choose **Export the lines shown**.
-4. Choose a save location in the native file dialog — the default filename includes a timestamp (e.g., `MeedyaDL-activity-log_2026-04-22_14h05m.log`).
-5. The exported `.log` file is plain-text with one entry per line, each prefixed with a timestamp. System events are marked with `[System]` and download events include the download ID.
-
-To export the complete unfiltered in-memory view, clear the search field and enable all category filters (System, Download, Verbose) before exporting.
-
-#### How to Export the On-Disk Activity Log
-
-MeedyaDL writes every activity log event to a daily-rotating file on disk (`activity-YYYY-MM-DD.log`) as it happens. This is the authoritative record for bug hunting because it includes:
-
-- Entries from earlier in the session that were trimmed from the 10,000-line in-memory buffer.
-- Every verbose event, even when the Verbose filter in the UI is off.
-- Events written before the Activity Log panel was ever opened in that session.
-
-To export it, open the **More** menu at the top of the Activity Log page and choose **Export the full log (last 3 days)**. MeedyaDL concatenates the last three daily log files, prepends a header line with each file's date, and opens a native save dialog. A success toast shows how many KB were written.
-
-You can also browse the log files directly with **Open the logs folder** in the same menu — this opens the logs folder in your OS file manager. Files are named `activity-YYYY-MM-DD.log`; you can attach them directly to bug reports.
-
-> **Retention:** On-disk activity logs are kept for **7 days** before being pruned automatically, matching the retention window for the tracing log. A heavy download session typically writes under 5 MB per day.
-
-#### Changing where on-disk activity logs are stored
-
-By default, activity logs live in the same `logs/` directory as the tracing and session logs (see *Log File Locations* below). You can point them at a different directory — for example, an external drive — via **Settings > Advanced > Diagnostics > On-disk activity log location**. Click **Browse…** to select a folder, or paste a path directly into the field. Click **Reset** to return to the default. The change applies on the next app restart. If the chosen path is not writable at startup, MeedyaDL falls back to the default and logs a warning.
+</details>
 
 ---
 
-## Log Files
+## The Activity Page and Log Files
+
+### Reading the Activity page
+
+The **Activity** page (sidebar, or Cmd/Ctrl + K) lists what MeedyaDL does, as it happens. Lines marked `[System]` are about the app itself. Others belong to a download.
+
+- **Auto-scroll** is on by default, so the page follows new lines. If you scroll up to read earlier lines, the switch turns itself off so your place is kept. Turn it back on to jump to the bottom.
+- The page holds up to **10,000 lines** per session. Older lines are dropped from the view but are kept in the log files (see below).
+- When a download starts, the page says how it signs in: **"Downloading via wrapper at {url}"** or **"Downloading with cookie-based authentication"**. This is normal. If a download fails with a sign-in error and the line says cookies, refresh your cookies. If it says wrapper, check that the wrapper is running.
+- Turn on **Verbose Activity Log** in **Settings > Advanced** for extra detail. This is the best first step when a problem is about tags or formats. On a full (Stable) release it turns itself off every time you restart MeedyaDL, so you need to turn it on again each time. On Alpha, Beta and Release Candidate builds (the version has `-alpha`, `-beta` or `-rc` in it), it stays on.
+
+### Saving the log
+
+The **More** menu at the top of the Activity page has three actions:
+
+| Menu item | What it does | When to use it |
+| --- | --- | --- |
+| **Export the lines shown** | Saves the lines you can see now. Any search or filter you set is applied. | Sharing a small part of the log. |
+| **Export the full log (last 3 days)** | Saves the complete record of the last three days from your disk. | Bug reports. It includes lines that are no longer on screen, and every detailed line even if the Verbose filter is off. |
+| **Open the logs folder** | Opens the folder with the log files. | Attaching the files to a bug report. |
+
+To save what you see: open **More**, choose **Export the lines shown**, then pick where to save. The file name includes the date and time, for example `MeedyaDL-activity-log_2026-04-22_14h05m.log`. It is plain text, one entry per line. To save the whole list, first clear the search box and tick all the category filters (System, Download, Verbose).
 
 ### Log File Locations
 
-MeedyaDL writes three kinds of daily-rotating log files to its `logs/` subdirectory under the platform app data directory:
+MeedyaDL keeps its log files in a `logs` folder inside the app data folder:
 
-| Filename pattern | Contents | Retention |
-| --- | --- | --- |
-| `meedyadl.YYYY-MM-DD.log` | `tracing` structured log output from the Rust backend. | 7 days |
-| `activity-YYYY-MM-DD.log` | Persistent on-disk activity log — every event emitted to the Activity Log panel, including events that were trimmed from the in-memory buffer and every verbose line regardless of UI filter state. Written by a dedicated background writer with buffered I/O so it never blocks downloads. | 7 days |
-| `session-YYYY-MM-DD.log` | Older fallback: entries that were trimmed out of the 10,000-line Activity Log as a session overflowed. Largely superseded by `activity-*.log`, but kept for backwards compatibility. | 30 days |
-
-The default `logs/` directory:
-
-| Platform | Log File Location |
+| System | Log folder |
 | --- | --- |
 | macOS | `~/Library/Application Support/com.meedyasuite.meedyadl/logs/` |
 | Windows | `%APPDATA%/com.meedyasuite.meedyadl/logs/` |
 | Linux | `~/.local/share/com.meedyasuite.meedyadl/logs/` |
 
-You can override the location of `activity-*.log` files via **Settings > Advanced > Diagnostics > On-disk activity log location** — useful for pointing logs at an external drive. The `meedyadl.*` tracing logs and `session-*` files always live in the default directory.
+The easiest way to get there is **Open the logs folder** in the Activity page's **More** menu.
 
-### Reading Log Files
+You can keep the activity log files somewhere else, for example on an external drive, in **Settings > Advanced > Diagnostics > On-disk activity log location**. Click **Browse…** to pick a folder, or **Reset** to go back to the default. The change applies the next time you start MeedyaDL. If the folder can't be written to, MeedyaDL uses the default instead.
 
-Log entries are prefixed with a timestamp, log level, and module name. The log levels indicate the severity of each message:
+<details>
+<summary>More detail: what each log file holds and how long it is kept</summary>
+
+| File name | What it holds | Kept for |
+| --- | --- | --- |
+| `meedyadl.YYYY-MM-DD.log` | The app's own detailed log. | 7 days |
+| `activity-YYYY-MM-DD.log` | Everything shown on the Activity page, including lines trimmed from the on-screen list and every detailed line. | 7 days |
+| `session-YYYY-MM-DD.log` | An older record of lines that were trimmed from the on-screen list. Mostly replaced by the `activity-` files. | 30 days |
+
+A busy day usually writes under 5 MB. The `meedyadl.*` and `session-*` files always stay in the default folder, even if you move the activity log.
+
+Entries in the app's own log start with a time, a level and a name. Levels, from most to least serious:
 
 | Level | Meaning |
 | --- | --- |
-| **ERROR** | Something failed. An operation could not be completed. These entries are the most important to look at when diagnosing problems. |
-| **WARN** | A potential issue was detected, but the operation may still have succeeded. Worth reviewing if something seems wrong. |
-| **INFO** | Normal operational messages. These confirm that the application is working as expected (e.g., download started, download completed). |
-| **DEBUG** | Detailed diagnostic information intended for developers and advanced troubleshooting. Only visible when verbose logging is enabled. |
+| **ERROR** | Something failed. Look here first. |
+| **WARN** | A possible problem. The step may still have worked. |
+| **INFO** | Normal progress, such as a download starting or finishing. |
+| **DEBUG** | Fine detail for troubleshooting. Only shown when detailed logging is on. |
 
-When diagnosing a problem, search the log file for **ERROR** entries first. The timestamp on the error entry will help you correlate it with the specific download attempt that failed. Look at the lines immediately before the error for additional context about what the application was doing when the failure occurred.
+When you look for a problem, search for **ERROR** first. The time on the line tells you which download it belongs to, and the lines just before it show what the app was doing.
 
-### Verbose Activity Log
+</details>
 
-MeedyaDL includes a **Verbose Activity Log** setting in **Settings > Advanced** that shows detailed diagnostic information directly in the Activity Log panel.
+<details>
+<summary>More detail: turning on detailed logging when you start the app</summary>
 
-> **Session-only on full releases:** As a safety measure, on a full (Stable) release verbose logging automatically turns back **off** every time MeedyaDL is restarted. This prevents sensitive data (authentication tokens, cookie paths, API responses, MusicKit credentials) from being logged permanently by accident, so you will need to turn it on again each session if you need it. On an unfinished build (Alpha, Beta or Release Candidate — the version number has `-alpha`, `-beta` or `-rc` in it) it stays on across restarts if you leave it on, because people testing those builds need the extra detail.
-
-When enabled, you will see:
-
-- **Codec detection results**: ffprobe-detected codec vs. requested codec, and the resolved effective codec used for tagging
-- **Enrichment parameters**: requested codec, native priority mode, output directory
-- **Suffix decisions**: Why files get or don't get codec suffixes (e.g., native priority uses clean filenames)
-- **JWT claims**: Team ID, Key ID, and token expiry used for Apple Music API authentication
-- **API parse results**: Album name, track count, artwork availability, UPC
-- **API response dump**: The raw Apple Music API response is saved as `<AlbumName>-applemusic-data.json` in the album output directory. Useful for verifying API integration after endpoint changes.
-
-This is the recommended first step for troubleshooting metadata, codec tagging, or API issues.
-
-### Enabling Verbose Logging
-
-By default, MeedyaDL logs at the **INFO** level. To capture more detailed diagnostic information, set the `RUST_LOG` environment variable to `debug` before launching the application:
+MeedyaDL writes only normal (INFO) detail to its log files. To get more, set the `RUST_LOG` environment variable to `debug` before you start the app:
 
 **macOS / Linux (Terminal):**
 
@@ -607,70 +488,66 @@ $env:RUST_LOG="debug"
 .\MeedyaDL.exe
 ```
 
-Verbose logging produces significantly more output and may cause log files to grow quickly. Only enable it when actively troubleshooting an issue, and remember to disable it afterward by launching the application normally without the environment variable.
+This makes the log files grow quickly, so only use it while troubleshooting. Start the app normally afterwards to go back to normal detail. It is separate from the **Verbose Activity Log** switch, which only affects the Activity page.
 
-> **Note:** The `RUST_LOG` environment variable controls the *log file* verbosity and is independent of the in-app **Verbose Activity Log** toggle (which controls the Activity Log panel). `RUST_LOG` stops applying as soon as you launch the application normally without it. The in-app toggle turns itself off at restart on a full release, but stays on across restarts on an Alpha, Beta or Release Candidate build (see above).
+</details>
 
 ---
 
 ## Crash Reports
 
-When MeedyaDL encounters a crash (Rust panic) or an unhandled frontend error, it automatically saves a JSON crash report to the crashes directory. These reports contain the error message, stack trace, app version, and platform information.
+If MeedyaDL crashes or hits an unexpected error, it saves a short report on your computer. It contains the error message, technical details, the app version and your system type. Reports are named `crash-YYYYMMDD-HHMMSS.json` and are deleted after 30 days.
 
-### Crash Report Locations
-
-| Platform | Crash Report Directory |
+| System | Crash report folder |
 | --- | --- |
 | macOS | `~/Library/Application Support/com.meedyasuite.meedyadl/crashes/` |
 | Windows | `%APPDATA%/com.meedyasuite.meedyadl/crashes/` |
 | Linux | `~/.local/share/com.meedyasuite.meedyadl/crashes/` |
 
-Crash reports are named `crash-YYYYMMDD-HHMMSS.json` and are automatically cleaned up after 30 days.
-
 ### Anonymous Crash Reporting (Optional)
 
-You can optionally help improve MeedyaDL by enabling anonymous crash reporting. When enabled, crash data (error message, stack trace, app version, OS) is sent to our error tracking service. No personal data, download history, or account information is ever included. This feature is off by default and only turns on if you say yes.
+You can choose to send crash reports to help improve MeedyaDL. They include the error message, technical details, app version and your system type. They never include personal details, download history or account information. This is off unless you say yes.
 
-MeedyaDL asks you once, in a **Help Improve MeedyaDL** window: **Yes, send crash reports** or **No thanks**. Closing that window counts as No thanks. Your answer is remembered, so you are not asked again — unless MeedyaDL could not save it, in which case it tells you and asks again next time you open the app. You can change your mind at any time with the **Send Anonymous Crash Reports** switch in **Settings > Advanced > Error Reporting**; the change takes effect after you restart MeedyaDL.
+MeedyaDL asks you once, in a **Help Improve MeedyaDL** window: **Yes, send crash reports** or **No thanks**. Closing the window counts as No thanks. Your answer is remembered, so you are not asked again. If MeedyaDL could not save your answer, it tells you and asks again next time. You can change your mind any time with the **Send Anonymous Crash Reports** switch in **Settings > Advanced > Error Reporting**. The change applies after you restart MeedyaDL.
 
 ### Reporting a Crash via GitHub Issues
 
-You can report crashes directly to the developer from within MeedyaDL. This opens a pre-filled GitHub Issue in your browser — no API tokens or server accounts needed, just a GitHub account.
+You can send a crash to the developers from inside MeedyaDL. This opens a ready-filled GitHub issue in your browser. You need a [GitHub account](https://github.com/signup).
 
 1. Go to **Settings > Advanced > Error Reporting**.
-2. Recent crash reports are listed below the crash reporting switch. Each entry shows the date, time, and error summary.
-3. Click **Report** next to the crash report you want to submit.
-4. A preview dialog appears showing exactly what data will be included: error message, backtrace, app version, operating system, and timestamp. Review the information to ensure you are comfortable sharing it.
-5. Click **Open GitHub Issue** to open a pre-filled issue in your default web browser.
-6. On GitHub, add any additional context such as the steps you took before the crash occurred, then click **Submit new issue**.
+2. Recent crash reports are listed under the crash reporting switch, each with its date, time and a short summary.
+3. Click **Report** next to the one you want to send.
+4. A preview shows exactly what will be included: the error message, technical details, app version, operating system and time. Check you are happy to share it.
+5. Click **Open GitHub Issue**. Your browser opens a ready-filled issue.
+6. Add anything else that helps, such as what you were doing, then click **Submit new issue**.
 
-**Notes:**
+Good to know:
 
-- A [GitHub account](https://github.com/signup) is required to submit issues.
-- No personal data, download history, cookies, or account information is included in the report.
-- If the crash report's backtrace is very long, it will be automatically truncated to fit within URL length limits.
-- You can also **Delete** crash reports you no longer need from the same list.
+- No personal details, download history, cookies or account information are included.
+- Very long technical details are shortened automatically so they fit in the link.
+- Use **Delete** in the same list to remove reports you no longer need.
 
 ---
 
 ## Reporting a Bug
 
-If you encounter a problem that is not covered in this guide, or if the suggested solutions do not resolve your issue, please report it as a bug:
+If your problem is not covered here, or the fixes did not work, please report it:
 
-1. **Note the app version.** You can find this in **Help > About** or in the application title bar.
-2. **Copy relevant log entries.** Open the log file (see [Log File Locations](#log-file-locations) above) and copy the ERROR entries along with the surrounding context lines. If possible, enable verbose logging, reproduce the issue, and include the debug-level log entries.
-3. **Note the steps to reproduce.** Write down exactly what you did that triggered the error, including the URL you were trying to download, the quality settings you had selected, and any other relevant configuration.
-4. **Open an issue on the GitHub repository.** Include the app version, your operating system and version, the log entries, and the reproduction steps. The more detail you provide, the faster the issue can be diagnosed and resolved.
+1. **Note the app version.** It is in **Help > About**.
+2. **Copy the relevant log lines.** Use **Export the full log (last 3 days)** (see above) and copy the ERROR lines with the lines around them. If you can, turn on **Verbose Activity Log**, repeat the problem, and include the extra lines.
+3. **Write down the steps.** Say what you did, the link you used, and the quality settings you had chosen.
+4. **Open an issue on the GitHub page.** Include the app version, your operating system and version, the log lines and your steps. The more detail you give, the faster it can be fixed.
 
 ---
 
 ## Related Topics
 
-- [Cookie Management](cookie-management.md) — Resolving authentication and cookie issues
+- [Cookie Management](cookie-management.md) — Fixing sign-in and cookie problems
+- [Wrapper Authentication](wrapper.md) — Setting up and fixing the wrapper
 - [Quality Settings](quality-settings.md) — Understanding quality and format options
-- [Fallback Quality](fallback-quality.md) — Configuring quality fallback behavior
+- [Fallback Quality](fallback-quality.md) — Setting up automatic fallback
 - [FAQ](faq.md) — Frequently asked questions
-- [Getting Started](getting-started.md) — Initial setup and configuration
+- [Getting Started](getting-started.md) — First setup
 
 ---
 

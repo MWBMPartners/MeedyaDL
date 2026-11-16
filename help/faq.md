@@ -14,7 +14,7 @@ Answers to the most commonly asked questions about MeedyaDL.
 
 ### What is MeedyaDL?
 
-MeedyaDL is a desktop app for Mac, Windows and Linux that downloads songs, albums, playlists, artists' discographies and music videos from Apple Music, with your choice of quality, format, lyrics and tags. Behind the scenes it uses GAMDL, a free download tool that is normally run by typing commands; MeedyaDL gives it windows and buttons instead, so you never have to. MeedyaDL is open-source software from MeedyaSuite, released under the MIT License.
+MeedyaDL is a desktop app for Mac, Windows and Linux that downloads songs, albums, playlists, artists' discographies and music videos from Apple Music, with your choice of quality, format, lyrics and tags. Behind the scenes it uses GAMDL, a free download tool that is normally run by typing commands. MeedyaDL gives it windows and buttons instead, so you never have to. MeedyaDL is open-source software from MeedyaSuite, released under the MIT License.
 
 For more information, see [Getting Started](getting-started.md).
 
@@ -31,7 +31,7 @@ See [Getting Started](getting-started.md) for installation instructions on each 
 
 ### Do I need an Apple Music subscription?
 
-Yes, a valid Apple Music subscription is required to use MeedyaDL. Any subscription tier that grants access to the Apple Music catalog will work. The subscription is used for authentication via cookies — without an active subscription, the app cannot access content from Apple's servers.
+Yes, a valid Apple Music subscription is required to use MeedyaDL. Any subscription tier that grants access to the Apple Music catalog will work. MeedyaDL signs in with your account, so without an active subscription it cannot get any content.
 
 ### Is MeedyaDL free?
 
@@ -49,7 +49,7 @@ If the paused item is a whole download service, MeedyaDL won't start new downloa
 
 ### Why do I need to provide cookies?
 
-Apple Music requires authentication to access its content catalog. Cookies are session tokens exported from your web browser after you sign in to Apple Music. By providing these cookies, the app can authenticate with Apple's servers on your behalf. Importantly, your Apple ID password is never stored or transmitted by the app — only the browser session tokens are used.
+Apple Music requires authentication to access its content catalog. Cookies are small sign-in details that your web browser keeps after you sign in to Apple Music. By giving them to MeedyaDL, you let it sign in as you. Your Apple ID password is never stored or sent by the app.
 
 For full details on how to export and import cookies, see [Cookie Management](cookie-management.md).
 
@@ -59,9 +59,13 @@ Cookies typically remain valid for 1 to 12 months, depending on your browser and
 
 See [Cookie Management](cookie-management.md) for detailed guidance on the export and import process.
 
+### Do I need the wrapper?
+
+Almost certainly not. The wrapper is an optional extra program for people who want lossless ALAC or who prefer not to use cookies. See [Wrapper Authentication](wrapper.md).
+
 ### Is my Apple ID password stored anywhere?
 
-No. Never. MeedyaDL never sees, stores, or transmits your Apple ID password. Authentication is handled entirely through browser cookies, which contain session tokens rather than your credentials. Your password remains solely within your browser and Apple's servers.
+No. Never. MeedyaDL never sees, stores, or sends your Apple ID password. Signing in uses browser cookies, which are not your password. Your password stays with your browser and Apple.
 
 ---
 
@@ -136,7 +140,7 @@ Both are in the **More** menu at the top of the Queue page. If you want to keep 
 
 ### What is smart re-download detection?
 
-When you re-download an album you have previously downloaded, MeedyaDL automatically checks the Apple Music API to see if the album has changed since your last download. If the album was previously downloaded, an info toast shows the date of the original download. The feature detects audio quality upgrades (such as Atmos or Lossless becoming available), tracks being added, metadata corrections, and Apple Digital Master certification. It cannot detect silent audio remasters where the audio files change but the catalog metadata stays the same. This feature is enabled by default and can be toggled in **Settings > General > Preferences**. See [Downloading Music](downloading-music.md#smart-re-download-detection) for full details.
+When you re-download an album you have previously downloaded, MeedyaDL automatically checks Apple Music to see if the album has changed since your last download. If the album was previously downloaded, an info toast shows the date of the original download. The feature detects audio quality upgrades (such as Atmos or Lossless becoming available), tracks being added, metadata corrections, and Apple Digital Master certification. It cannot detect silent audio remasters where the audio files change but the catalog metadata stays the same. This feature is enabled by default and can be toggled in **Settings > General > Preferences**. See [Downloading Music](downloading-music.md#smart-re-download-detection) for full details.
 
 ### What is clipboard monitoring?
 
@@ -204,31 +208,21 @@ MeedyaDL does not include a built-in metadata editor. If you need to modify meta
 
 ### What is Tauri?
 
-[Tauri](https://tauri.app/) is the application framework used to build MeedyaDL. Similar in concept to Electron, but significantly lighter and more efficient, Tauri uses a Rust backend combined with a web-based frontend (React and TypeScript in MeedyaDL's case). This approach results in small, fast, native desktop applications with low memory and disk usage compared to Electron-based alternatives.
+[Tauri](https://tauri.app/) is the toolkit MeedyaDL is built with. It makes small, fast desktop apps that use little memory and disk space.
 
 ### What is GAMDL?
 
-GAMDL is a command-line Apple Music download tool created by glomatico. It handles the core download functionality — authentication, content fetching, decryption, and file writing. MeedyaDL provides a friendly graphical interface on top of GAMDL's capabilities. GAMDL is installed automatically during MeedyaDL's first-run setup, so you do not need to install it separately.
+GAMDL is a command-line Apple Music download tool created by glomatico. It does the actual downloading, and MeedyaDL provides a friendly graphical interface on top of GAMDL's capabilities. GAMDL is installed automatically during MeedyaDL's first-run setup, so you do not need to install it separately.
 
 ### Can I use MeedyaDL and the GAMDL CLI at the same time?
 
 This is not recommended. Running the GUI and CLI simultaneously may cause conflicts over shared cookie files or output directories, leading to authentication errors or corrupted downloads. Use one at a time to avoid issues.
 
-### Why did my album's initial metadata phase get slower after upgrading GAMDL?
+### Why did the start of an album get slower after upgrading GAMDL?
 
-Starting with **GAMDL 3.2**, track metadata is fetched from Apple Music sequentially by default — one track at a time. Previously, GAMDL fanned out up to 5 parallel requests per album during the metadata phase.
+From GAMDL 3.2, the details of each track are looked up one at a time instead of several at once. This is deliberate. It makes downloads more reliable, because one bad answer can no longer break the whole album. The download speed of each track is the same.
 
-This is an intentional upstream change. The parallel fetch was triggering Apple Music API rate-limits and occasional cascading failures (one bad response could cause the whole metadata gather to fail). The slower phase is a fair trade for more reliable downloads; **actual download speed per track is unchanged** once the metadata is gathered.
-
-This change aligns with MeedyaDL's own serial-queue processing, which already completes one queue item's full pipeline (download → companions → enrichment → lyrics → manifest) before starting the next. Both decisions favour reliability over throughput for music-downloader workloads where the Apple Music API is the slowest and most failure-prone component.
-
-The typical real-world impact:
-
-- **Single song**: no observable change.
-- **~10-track album**: metadata phase ~5–10 s instead of ~1–2 s.
-- **100-track playlist**: metadata phase ~30–60 s but reliably completes (previously prone to rate-limit cascades).
-
-There is no setting to re-enable parallel fetch — the control is internal to GAMDL and was not exposed as a command-line option. If a future GAMDL release adds one, MeedyaDL will surface it in **Settings > Codec & Resolution**.
+You will notice it mostly at the start of a large album or playlist. A single song looks the same. A 10-track album may take several seconds longer to begin. A 100-track playlist may take a minute. There is no setting to change this.
 
 ### How do I update MeedyaDL?
 
@@ -241,6 +235,33 @@ MeedyaDL checks for updates automatically (you can also press **Check for Update
 No manual intervention is needed — simply follow the prompts when the update banner appears.
 
 If MeedyaDL could not check something — for example because you have no internet connection, or a tool would not tell it its version — the Updates page says **No updates found** instead of **You're up to date!**, and lists what it could not check and why. That list is there so you are never told "up to date" when nobody actually knows.
+
+---
+
+## Installing and Opening MeedyaDL
+
+### macOS shows "MeedyaDL can't be opened because Apple cannot check it for malicious software"
+
+**This should no longer happen for official releases.** MeedyaDL is signed with an Apple Developer ID and notarised by Apple, so macOS opens it normally.
+
+If you do see this warning, it is almost certainly one of these:
+
+- **You are on an older download.** Disk images published before September 2026 were signed but not fully notarised, and macOS warns about the disk image even though the app inside was fine. Download the current release and it will open normally.
+- **You built it yourself.** Builds made outside our release process are unsigned, and macOS will warn about them.
+- **The download was interrupted or altered.** Download it again.
+
+If you are on an older download and would rather not update yet, right-click (or Control-click) the app and choose **Open**, then **Open** again in the dialog. That tells macOS you trust this one app, and it only needs doing once.
+
+**We used to suggest running `xattr -cr` here. Please do not.** That command strips *every* extended attribute from the app, not just the one macOS uses for this check, and getting into the habit of running it teaches you to wave away a warning that is usually worth reading. Right-clicking and choosing Open does the same job for one app, and nothing more.
+
+### Windows shows "Windows protected your PC" (SmartScreen)
+
+Windows SmartScreen shows this warning for software from unverified publishers. Windows builds of MeedyaDL are not code-signed at all today — this isn't specific to pre-release versions, it applies to every Windows build until code signing is added. To proceed:
+
+1. Click **More info** on the SmartScreen dialog
+2. Click **Run anyway**
+
+This only needs to be done once per version. The warning will not reappear for the same version after you choose "Run anyway".
 
 ---
 
@@ -301,29 +322,6 @@ Open **Settings > General**, scroll down to the update settings at the bottom of
 - [Cookie Management](cookie-management.md) — Authentication and cookie setup
 - [Lyrics and Metadata](lyrics-and-metadata.md) — Lyric formats and metadata fields
 - [Troubleshooting](troubleshooting.md) — Error resolution and diagnostics
-
-### macOS shows "MeedyaDL can't be opened because Apple cannot check it for malicious software"
-
-**This should no longer happen for official releases.** MeedyaDL is signed with an Apple Developer ID and notarised by Apple, so macOS opens it normally.
-
-If you do see this warning, it is almost certainly one of these:
-
-- **You are on an older download.** Disk images published before September 2026 were signed but not fully notarised, and macOS warns about the disk image even though the app inside was fine. Download the current release and it will open normally.
-- **You built it yourself.** Builds made outside our release process are unsigned, and macOS will warn about them.
-- **The download was interrupted or altered.** Download it again.
-
-If you are on an older download and would rather not update yet, right-click (or Control-click) the app and choose **Open**, then **Open** again in the dialog. That tells macOS you trust this one app, and it only needs doing once.
-
-**We used to suggest running `xattr -cr` here. Please do not.** That command strips *every* extended attribute from the app, not just the one macOS uses for this check, and getting into the habit of running it teaches you to wave away a warning that is usually worth reading. Right-clicking and choosing Open does the same job for one app, and nothing more.
-
-### Windows shows "Windows protected your PC" (SmartScreen)
-
-Windows SmartScreen shows this warning for software from unverified publishers. Windows builds of MeedyaDL are not code-signed at all today — this isn't specific to pre-release versions, it applies to every Windows build until code signing is added. To proceed:
-
-1. Click **More info** on the SmartScreen dialog
-2. Click **Run anyway**
-
-This only needs to be done once per version. The warning will not reappear for the same version after you choose "Run anyway".
 
 ---
 
