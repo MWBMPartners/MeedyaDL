@@ -61,6 +61,7 @@ Enhanced LRC adds a time before every word. Players that support it can highligh
 - Songs that only have line-by-line timing get ordinary LRC instead.
 - It is on by default. Turn it on or off in **Settings > Lyrics > Enhanced Lyrics (Word-by-Word Sync)**.
 - While it is on, TTML is kept as the main format, because the word timing comes from it. You can still tick LRC and SRT as extra formats.
+- With GAMDL 4.0.2 or later, word-by-word lyrics can also be added when you sign in with the wrapper.
 
 **Test word-level lyrics connection.** This button, next to the toggle, checks whether word-by-word lyrics can be fetched for you right now, without waiting for a real download.
 

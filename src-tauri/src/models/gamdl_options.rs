@@ -937,6 +937,19 @@ pub struct GamdlOptions {
     pub read_urls_as_txt: Option<bool>,
     /// Skip using GAMDL's own config file
     pub no_config_file: Option<bool>,
+
+    /// Ask GAMDL 4.0.2 or later for the word-by-word (`enhanced-ttml`)
+    /// lyrics file instead of the line-by-line one. Set only by the
+    /// enrichment pipeline's word-timed lyrics pass
+    /// (`download_queue::lyrics_pass`), never by a setting, so it is not
+    /// saved, sent to the page or read from it.
+    ///
+    /// Never used for an ordinary download: a track Apple has no word
+    /// timing for gets NO `.ttml` at all with `enhanced-ttml` (GAMDL does
+    /// not fall back to the line version), and every lyrics file MeedyaDL
+    /// builds comes from that `.ttml`.
+    #[serde(skip)]
+    pub word_timed_lyrics_file: Option<bool>,
 }
 
 impl GamdlOptions {
@@ -1791,8 +1804,19 @@ impl GamdlOptions {
         // lyrics formats are built from (Enhanced LRC, WebVTT, styled SRT,
         // ASS, Lyricsfile). Lyrics inside the music file stay 4.0's default
         // (plain text); MeedyaDL writes its own there later.
+        //
+        // The word-by-word file (`enhanced-ttml`) is asked for only by the
+        // lyrics pass that fills in tracks MeedyaDL's own lookup could not
+        // check, and only from 4.0.2 (the first release checked to handle
+        // it; earlier 4.x gets the plain `.ttml`).
+        let word_timed = self.word_timed_lyrics_file == Some(true)
+            && crate::services::gamdl_capabilities::supports(
+                crate::services::gamdl_capabilities::GamdlFeature::GamdlFourWordTimedLyricsFile,
+            );
         if self.no_synced_lyrics == Some(true) {
             args.push("--no-lyrics-file".to_string());
+        } else if word_timed {
+            push(&mut args, "--lyrics-file-format", "enhanced-ttml".to_string());
         } else if let Some(ref format) = self.synced_lyrics_format {
             push(
                 &mut args,
@@ -2872,6 +2896,7 @@ mod gamdl_v4_args_tests {
             save_playlist: Some(true),
             read_urls_as_txt: Some(true),
             no_config_file: Some(true),
+            word_timed_lyrics_file: None,
         }
     }
 
@@ -2978,6 +3003,54 @@ mod gamdl_v4_args_tests {
         assert!(!args.iter().any(|a| a == "--file-cover-size"));
 
         set_detected_version(None);
+    }
+
+    #[test]
+    fn the_word_timed_lyrics_file_is_asked_for_only_from_4_0_2_and_only_when_set() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        let word_timed = GamdlOptions {
+            word_timed_lyrics_file: Some(true),
+            synced_lyrics_only: None,
+            ..everything()
+        };
+
+        // 4.0.1 and earlier: the plain `.ttml`, as before.
+        for old in ["4.0.0", "4.0.1"] {
+            set_detected_version(Some(old.to_string()));
+            let args = word_timed.to_cli_args_v4();
+            assert_eq!(value_of(&args, "--lyrics-file-format"), Some("ttml"), "{old}");
+        }
+
+        set_detected_version(Some("4.0.2".to_string()));
+        let args = word_timed.to_cli_args_v4();
+        assert_eq!(value_of(&args, "--lyrics-file-format"), Some("enhanced-ttml"));
+        // An ordinary download never asks for it.
+        let args = everything().to_cli_args_v4();
+        assert_eq!(value_of(&args, "--lyrics-file-format"), Some("ttml"));
+        // Lyrics files switched off still wins.
+        let args = GamdlOptions {
+            no_synced_lyrics: Some(true),
+            ..word_timed.clone()
+        }
+        .to_cli_args_v4();
+        assert!(args.iter().any(|a| a == "--no-lyrics-file"));
+        assert!(!args.iter().any(|a| a == "--lyrics-file-format"));
+
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn the_word_timed_lyrics_request_is_never_saved_or_read() {
+        let options = GamdlOptions {
+            word_timed_lyrics_file: Some(true),
+            ..GamdlOptions::default()
+        };
+        let json = serde_json::to_string(&options).unwrap();
+        assert!(!json.contains("word_timed"));
+        let back: GamdlOptions =
+            serde_json::from_str(r#"{"word_timed_lyrics_file": true}"#).unwrap();
+        assert_eq!(back.word_timed_lyrics_file, None);
     }
 
     #[test]

@@ -194,7 +194,7 @@
     #[test]
     fn compute_total_timeout_small_album_gets_base() {
         // Single-track single → 10 min base + 30 s/track = 10 min 30 s.
-        let t = compute_total_timeout(1, 0, 0);
+        let t = compute_total_timeout(1, 0, 0, false);
         assert_eq!(t.as_secs(), 600 + 30);
     }
 
@@ -203,7 +203,7 @@
         // Shouldn't normally reach the timeout with zero tracks — the
         // #567 enrichment guard short-circuits earlier — but if it does,
         // the base still applies.
-        let t = compute_total_timeout(0, 0, 0);
+        let t = compute_total_timeout(0, 0, 0, false);
         assert_eq!(t.as_secs(), 600);
     }
 
@@ -211,7 +211,7 @@
     fn compute_total_timeout_typical_album_under_20_minutes() {
         // 12-track album: 10 min + 12 × 30 s = 16 min. Stays comfortably
         // under 20 min so small albums don't see a regression.
-        let t = compute_total_timeout(12, 0, 0);
+        let t = compute_total_timeout(12, 0, 0, false);
         assert_eq!(t.as_secs(), 600 + 12 * 30);
         assert!(t.as_secs() / 60 < 20);
     }
@@ -221,7 +221,7 @@
         // The originating #776 case: a 19-track live album was hitting
         // the old 13 min budget. New formula: 10 min + 19 × 30 s
         // = 19.5 min — comfortable headroom.
-        let t = compute_total_timeout(19, 0, 0);
+        let t = compute_total_timeout(19, 0, 0, false);
         assert_eq!(t.as_secs(), 600 + 19 * 30);
         assert!(
             t.as_secs() / 60 >= 19,
@@ -234,7 +234,7 @@
         // 200-track box set — the originating #579 case. New formula:
         // 10 min + 200 × 30 s = 110 min. Well above the 40 min floor
         // the original test asserted.
-        let t = compute_total_timeout(200, 0, 0);
+        let t = compute_total_timeout(200, 0, 0, false);
         assert_eq!(t.as_secs(), 600 + 200 * 30);
         assert!(t.as_secs() / 60 >= 40);
     }
@@ -244,23 +244,23 @@
         // Pathologically large workloads get capped so an accidental
         // recursion into a full music library doesn't propose an
         // unbounded deadline.
-        let t = compute_total_timeout(100_000, 0, 0);
+        let t = compute_total_timeout(100_000, 0, 0, false);
         assert_eq!(t.as_secs(), 4 * 3600);
     }
 
     #[test]
     fn compute_total_timeout_saturates_on_usize_max() {
         // usize::MAX in any input must not overflow the arithmetic.
-        let t = compute_total_timeout(usize::MAX, usize::MAX, usize::MAX);
+        let t = compute_total_timeout(usize::MAX, usize::MAX, usize::MAX, false);
         assert_eq!(t.as_secs(), 4 * 3600);
     }
 
     #[test]
     fn compute_total_timeout_monotonic_in_tracks() {
         // Scaling should never go backwards as track count rises.
-        let mut prev = compute_total_timeout(0, 0, 0);
+        let mut prev = compute_total_timeout(0, 0, 0, false);
         for n in (1..1000).step_by(37) {
-            let t = compute_total_timeout(n, 0, 0);
+            let t = compute_total_timeout(n, 0, 0, false);
             assert!(
                 t >= prev,
                 "non-monotonic at n={n}: {t:?} vs prev {prev:?}"
@@ -277,7 +277,7 @@
     fn compute_total_timeout_single_tier_adds_eight_minutes() {
         // 12-track Atmos→Lossless: enrichment (10 + 12×30 s = 16 min)
         // + 1 tier × 8 min = 24 min.
-        let t = compute_total_timeout(12, 1, 0);
+        let t = compute_total_timeout(12, 1, 0, false);
         assert_eq!(t.as_secs(), 600 + 12 * 30 + 8 * 60);
     }
 
@@ -285,7 +285,7 @@
     fn compute_total_timeout_four_tier_typical_album() {
         // 12-track Atmos→all formats (Atmos, ALAC, AAC, AAC-Legacy):
         // 10 + 12×30 s + 4×8 min = 48 min. Well above 40 min floor.
-        let t = compute_total_timeout(12, 4, 0);
+        let t = compute_total_timeout(12, 4, 0, false);
         assert_eq!(t.as_secs(), 600 + 12 * 30 + 4 * 8 * 60);
         assert!(t.as_secs() / 60 >= 40);
     }
@@ -293,9 +293,9 @@
     #[test]
     fn compute_total_timeout_monotonic_in_tiers() {
         // More tiers should never propose a smaller deadline than fewer.
-        let mut prev = compute_total_timeout(50, 0, 0);
+        let mut prev = compute_total_timeout(50, 0, 0, false);
         for tiers in 1..=8 {
-            let t = compute_total_timeout(50, tiers, 0);
+            let t = compute_total_timeout(50, tiers, 0, false);
             assert!(
                 t >= prev,
                 "non-monotonic at tiers={tiers}: {t:?} vs prev {prev:?}"
@@ -312,7 +312,7 @@
     fn compute_total_timeout_each_mv_adds_one_minute() {
         // Five MV companions on a typical album: enrichment (16 min)
         // + 1 tier (8 min) + 5 MVs × 1 min = 29 min.
-        let t = compute_total_timeout(12, 1, 5);
+        let t = compute_total_timeout(12, 1, 5, false);
         assert_eq!(t.as_secs(), 600 + 12 * 30 + 8 * 60 + 5 * 60);
     }
 
@@ -321,7 +321,7 @@
         // The originating #776 case + 1 companion tier + 5 MV companions:
         // 10 + 19×30 s + 8 min + 5 min = 32.5 min. Well above the 13 min
         // budget that was firing.
-        let t = compute_total_timeout(19, 1, 5);
+        let t = compute_total_timeout(19, 1, 5, false);
         assert_eq!(t.as_secs(), 600 + 19 * 30 + 8 * 60 + 5 * 60);
         assert!(
             t.as_secs() / 60 >= 30,
@@ -332,15 +332,28 @@
     #[test]
     fn compute_total_timeout_monotonic_in_mvs() {
         // More MV companions should never propose a smaller deadline.
-        let mut prev = compute_total_timeout(50, 1, 0);
+        let mut prev = compute_total_timeout(50, 1, 0, false);
         for mvs in 1..=20 {
-            let t = compute_total_timeout(50, 1, mvs);
+            let t = compute_total_timeout(50, 1, mvs, false);
             assert!(
                 t >= prev,
                 "non-monotonic at mvs={mvs}: {t:?} vs prev {prev:?}"
             );
             prev = t;
         }
+    }
+
+    #[test]
+    fn compute_total_timeout_adds_the_word_lyrics_pass_deadline() {
+        // 12 tracks: one minute plus 6 s a track = 132 s more.
+        let without = compute_total_timeout(12, 0, 0, false);
+        let with = compute_total_timeout(12, 0, 0, true);
+        assert_eq!(with.as_secs() - without.as_secs(), 132);
+        // Still capped at four hours.
+        assert_eq!(
+            compute_total_timeout(100_000, 0, 0, true).as_secs(),
+            4 * 3600
+        );
     }
 
     // ----------------------------------------------------------

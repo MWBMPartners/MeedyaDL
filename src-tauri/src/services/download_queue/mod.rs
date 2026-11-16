@@ -188,6 +188,7 @@ mod options;
 mod companions;
 mod processing;
 mod persistence;
+mod lyrics_pass;
 
 // Flatten each submodule's items back into the `download_queue` namespace
 // so intra-crate references and the `#[cfg(test)] mod tests` block resolve

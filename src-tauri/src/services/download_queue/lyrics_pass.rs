@@ -1,0 +1,1307 @@
+// Copyright (c) 2024-2026 MeedyaSuite
+// Licensed under the MIT License. See LICENSE file in the project root.
+//
+// Word-level (word-by-word) lyrics after a download: MeedyaDL's own
+// lookup (enrichment Step 1b), and the GAMDL 4.0.2+ pass that fills in the
+// tracks that lookup could not check.
+//
+// The order, decided by the maintainer (16 Nov 2026):
+//   1. MeedyaDL's own lookup first, on every GAMDL version (`run_step_1b`);
+//   2. on GAMDL 4.0.2 or later, a second GAMDL run that asks only for the
+//      word-by-word lyrics file — and only for tracks step 1 could not ask
+//      about (no developer key, no usable sign-in, a refused request, a
+//      file it could not place). Never for "Apple Music has none", and not
+//      run at all when nothing needs it (`needs_gamdl_fallback`,
+//      `should_run_word_lyrics_pass`);
+//   3. every lyrics-file conversion after both, then the per-file renames.
+//
+// The GAMDL run works only because the audio is still exactly where GAMDL
+// put it: GAMDL skips a track whose file already exists (overwrite off),
+// and then still refreshes its `.ttml`. So it must run before any per-file
+// rename, and refuses if a primary file has moved
+// (`primary_files_unmoved`). The album folder is the one exception: it is
+// renamed first (`[Explicit]` / `[Clean]`), and the pass is given the same
+// suffixed folder template the extra-format copies already use (#528).
+
+use super::*;
+use std::path::{Path, PathBuf};
+
+use crate::services::apple_music_api::{AlbumMetadata, TrackMetadata};
+
+// ============================================================
+// Step 1b: per-track result
+// ============================================================
+
+/// What MeedyaDL's own word-level lookup found for one track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WordLyricsOutcome {
+    /// The track's `.ttml` has word-by-word timing (already, or now).
+    WordTimed,
+    /// Apple Music has no word-by-word lyrics for it (or no lyrics at all).
+    /// Never a reason to ask GAMDL again: it would get the same answer.
+    AppleHasNone,
+    /// The question could not be asked or was not answered: no developer
+    /// key or sign-in, a refused or failed request, or the app stopping.
+    CouldNotAsk,
+    /// Word-by-word lyrics came back but could not be saved next to the
+    /// right file (no single matching file, or the write failed).
+    NotPlaced,
+}
+
+/// One track's result from [`run_step_1b`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TrackLyricsResult {
+    /// What happened.
+    pub outcome: WordLyricsOutcome,
+    /// Whether the track was on the list to look up once a lookup could
+    /// start (as opposed to already word-timed, or marked as having no
+    /// lyrics). Only these are counted in the summary line.
+    pub looked_up: bool,
+}
+
+/// What [`run_step_1b`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Step1b {
+    /// Not run at all: no album details from Apple Music (a song or
+    /// library link, no developer key), or Enhanced LRC is off.
+    NotRun,
+    /// Run, with one result per track of this download.
+    Ran(Vec<TrackLyricsResult>),
+}
+
+/// Sorts one lookup answer. `placed` is whether the word-by-word lyrics
+/// (if any) were written next to the right track.
+///
+/// A document with no word timing is "Apple has none" — and is not
+/// written, so it cannot replace the line-by-line `.ttml` GAMDL saved.
+pub(crate) fn classify(fetch: &Result<Option<String>, String>, placed: bool) -> WordLyricsOutcome {
+    match fetch {
+        Ok(Some(ttml)) if enhanced_lyrics_service::ttml_has_word_timing(ttml) => {
+            if placed {
+                WordLyricsOutcome::WordTimed
+            } else {
+                WordLyricsOutcome::NotPlaced
+            }
+        }
+        Ok(_) => WordLyricsOutcome::AppleHasNone,
+        Err(_) => WordLyricsOutcome::CouldNotAsk,
+    }
+}
+
+/// Whether the GAMDL pass has anything to do after Step 1b.
+///
+/// Yes when Step 1b did not run, or left any track it could not check or
+/// could not save. No when every track is word-timed or has none on Apple
+/// Music.
+pub(crate) fn needs_gamdl_fallback(result: &Step1b) -> bool {
+    match result {
+        Step1b::NotRun => true,
+        Step1b::Ran(tracks) => tracks.iter().any(|t| {
+            matches!(
+                t.outcome,
+                WordLyricsOutcome::CouldNotAsk | WordLyricsOutcome::NotPlaced
+            )
+        }),
+    }
+}
+
+/// The one activity-log line for Step 1b, or `None` when nothing was
+/// looked up.
+pub(crate) fn step_1b_summary(
+    results: &[TrackLyricsResult],
+    stopped_on_sign_in: bool,
+) -> Option<String> {
+    let looked: Vec<_> = results.iter().filter(|r| r.looked_up).collect();
+    let total = looked.len();
+    if total == 0 {
+        return None;
+    }
+    let count = |o: WordLyricsOutcome| looked.iter().filter(|r| r.outcome == o).count();
+    let added = count(WordLyricsOutcome::WordTimed);
+    let none = count(WordLyricsOutcome::AppleHasNone);
+    let unchecked = count(WordLyricsOutcome::CouldNotAsk);
+    let unsaved = count(WordLyricsOutcome::NotPlaced);
+
+    if added == total {
+        return Some(format!("Word-level lyrics added for {added} track(s)"));
+    }
+    if none == total {
+        return Some(format!(
+            "Word-level lyrics: Apple Music has none for any of the {total} track(s) — keeping line-by-line lyrics"
+        ));
+    }
+    let mut parts = Vec::new();
+    if added > 0 {
+        parts.push(format!("{added} added"));
+    }
+    if none > 0 {
+        parts.push(format!("{none} not available on Apple Music"));
+    }
+    if unchecked > 0 {
+        parts.push(format!("{unchecked} could not be checked"));
+    }
+    if unsaved > 0 {
+        parts.push(format!("{unsaved} could not be saved"));
+    }
+    let mut line = format!(
+        "Word-level lyrics: {} (of {total} track(s))",
+        parts.join(", ")
+    );
+    if stopped_on_sign_in {
+        line.push_str(" — stopped early because Apple Music did not accept the sign-in");
+    }
+    Some(line)
+}
+
+// ============================================================
+// Step 1b: which file is which track
+// ============================================================
+
+/// A downloaded audio file and the disc and track numbers it carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AudioFileNumbers {
+    pub path: PathBuf,
+    /// `None` when the number could not be read.
+    pub disc: Option<u32>,
+    /// `None` when the number could not be read.
+    pub track: Option<u32>,
+    /// Written (or rewritten) since this download started. Only used to
+    /// choose between two files claiming the same track — the new one and
+    /// a copy left from an earlier download.
+    pub fresh: bool,
+}
+
+/// Disc and track numbers from a file name, for a file whose tags cannot
+/// be read: `1-01 Title` → disc 1, track 1; `01 Title` → track 1, disc
+/// unknown. Anything else gives neither.
+pub(crate) fn numbers_from_file_name(stem: &str) -> (Option<u32>, Option<u32>) {
+    let first_len = stem.chars().take_while(char::is_ascii_digit).count();
+    if first_len == 0 {
+        return (None, None);
+    }
+    let first: Option<u32> = stem[..first_len].parse().ok();
+    let rest = &stem[first_len..];
+    if let Some(after_dash) = rest.strip_prefix('-') {
+        let second_len = after_dash.chars().take_while(char::is_ascii_digit).count();
+        let after_second = &after_dash[second_len..];
+        if second_len > 0 && (after_second.is_empty() || after_second.starts_with(' ')) {
+            return (first, after_dash[..second_len].parse().ok());
+        }
+        return (None, None);
+    }
+    if rest.is_empty() || rest.starts_with(' ') {
+        return (None, first);
+    }
+    (None, None)
+}
+
+/// Reads a file's disc and track numbers from its tags (GAMDL writes
+/// them), falling back to its name. A file with a track number and no
+/// disc number in its tags counts as disc 1, as elsewhere in enrichment.
+///
+/// `fresh_since` is when this download started (`None`: unknown, nothing
+/// counts as fresh). Two seconds of slack cover file systems that store
+/// times coarsely.
+pub(crate) fn read_audio_numbers(
+    path: &Path,
+    fresh_since: Option<std::time::SystemTime>,
+) -> AudioFileNumbers {
+    let fresh = fresh_since.is_some_and(|since| {
+        let since = since
+            .checked_sub(std::time::Duration::from_secs(2))
+            .unwrap_or(since);
+        std::fs::metadata(path)
+            .and_then(|m| m.modified())
+            .is_ok_and(|modified| modified >= since)
+    });
+    if let Ok(tag) = mp4ameta::Tag::read_from_path(path) {
+        if let Some(track) = tag.track_number() {
+            return AudioFileNumbers {
+                path: path.to_path_buf(),
+                disc: Some(u32::from(tag.disc_number().unwrap_or(1))),
+                track: Some(u32::from(track)),
+                fresh,
+            };
+        }
+    }
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let (disc, track) = numbers_from_file_name(stem);
+    AudioFileNumbers {
+        path: path.to_path_buf(),
+        disc,
+        track,
+        fresh,
+    }
+}
+
+/// Where a track's file is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Placement {
+    /// Exactly one file is this track.
+    Found(PathBuf),
+    /// No file is this track, and every file's numbers are known: the
+    /// track is simply not part of this download (a single song from an
+    /// album, for example).
+    NotInDownload,
+    /// More than one file could be this track (two discs both with a
+    /// "01"), or some file's numbers are unknown.
+    Unclear,
+}
+
+/// Finds the one file that is disc `disc`, track `track`.
+///
+/// A file whose disc is unknown (named `01 Title`, tags unreadable)
+/// matches only on a single-disc album, as disc 1 — on a multi-disc album
+/// it could be any disc, so it makes the answer [`Placement::Unclear`]
+/// rather than a guess. (The old lookup matched on the `"01 "` name prefix
+/// alone, so with two discs it could overwrite the wrong disc's lyrics,
+/// and a `1-01 Title` name never matched at all.)
+pub(crate) fn place_track(
+    disc: u32,
+    track: u32,
+    files: &[AudioFileNumbers],
+    single_disc: bool,
+) -> Placement {
+    let disc_of = |f: &AudioFileNumbers| f.disc.or(if single_disc { Some(1) } else { None });
+    let matches: Vec<&AudioFileNumbers> = files
+        .iter()
+        .filter(|f| f.track == Some(track) && disc_of(f) == Some(disc))
+        .collect();
+    match matches.len() {
+        1 => Placement::Found(matches[0].path.clone()),
+        0 if files
+            .iter()
+            .all(|f| f.track.is_some() && disc_of(f).is_some()) =>
+        {
+            Placement::NotInDownload
+        }
+        0 => Placement::Unclear,
+        _ => {
+            // Several files claim the track (a copy from an earlier
+            // download in the same folder): the one this download wrote,
+            // if exactly one was.
+            let fresh: Vec<_> = matches.iter().filter(|f| f.fresh).collect();
+            if fresh.len() == 1 {
+                Placement::Found(fresh[0].path.clone())
+            } else {
+                Placement::Unclear
+            }
+        }
+    }
+}
+
+// ============================================================
+// Step 1b: the lookup
+// ============================================================
+
+/// MeedyaDL's own word-level lyrics lookup (enrichment Step 1b), for the
+/// primary download's files only.
+///
+/// Writes word-by-word `.ttml` files next to the tracks they belong to,
+/// writes one summary line, and returns a result per track so the GAMDL
+/// pass knows whether it has anything to do. Never fails the download.
+///
+/// `set_label` updates the progress caption.
+#[allow(clippy::too_many_lines, clippy::too_many_arguments)]
+pub(crate) async fn run_step_1b(
+    app: &AppHandle,
+    dl_id: &str,
+    settings: &AppSettings,
+    metadata: Option<&AlbumMetadata>,
+    primary_files: &[PathBuf],
+    fresh_since: Option<std::time::SystemTime>,
+    shutdown: &ShutdownSignal,
+    set_label: &(dyn Fn(&str) + Sync),
+) -> Step1b {
+    if !settings.enhanced_lrc {
+        return Step1b::NotRun;
+    }
+    let Some(metadata) = metadata else {
+        return Step1b::NotRun;
+    };
+
+    // Which file is which track — worked out before anything else, so an
+    // album that is already fully word-timed never gets a sign-in message.
+    let numbers: Vec<AudioFileNumbers> = primary_files
+        .iter()
+        .map(|p| read_audio_numbers(p, fresh_since))
+        .collect();
+    let single_disc = metadata.tracks.iter().all(|t| t.disc_number <= 1);
+
+    let mut results: Vec<TrackLyricsResult> = Vec::new();
+    // Tracks to look up, with the `.ttml` to write (None: no single file).
+    let mut to_ask: Vec<(&TrackMetadata, Option<PathBuf>)> = Vec::new();
+    for track in &metadata.tracks {
+        let placement = place_track(track.disc_number, track.track_number, &numbers, single_disc);
+        if placement == Placement::NotInDownload {
+            continue;
+        }
+        // Apple omits `hasLyrics` on some tracks that do have them, so only
+        // an explicit `false` means none (a missing flag is looked up).
+        if track.has_lyrics == Some(false) {
+            results.push(TrackLyricsResult {
+                outcome: WordLyricsOutcome::AppleHasNone,
+                looked_up: false,
+            });
+            continue;
+        }
+        let sidecar = match placement {
+            Placement::Found(audio) => Some(audio.with_extension("ttml")),
+            _ => None,
+        };
+        // Already word-timed (span presence is the signal, #969 — Apple
+        // labels word-timed TTML inconsistently).
+        let already = sidecar
+            .as_ref()
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .is_some_and(|c| enhanced_lyrics_service::ttml_has_word_timing(&c));
+        if already {
+            results.push(TrackLyricsResult {
+                outcome: WordLyricsOutcome::WordTimed,
+                looked_up: false,
+            });
+        } else {
+            to_ask.push((track, sidecar));
+        }
+    }
+    if to_ask.is_empty() {
+        return Step1b::Ran(results);
+    }
+
+    // Developer key (MusicKit credentials, else the web player's) and the
+    // person's own sign-in from the cookies file.
+    let private_key = apple_music_api::get_private_key_from_keychain()
+        .ok()
+        .flatten();
+    let jwt = apple_music_api::resolve_premium_feature_token(
+        settings.musickit_team_id.as_deref(),
+        settings.musickit_key_id.as_deref(),
+        private_key.as_deref(),
+    )
+    .ok()
+    .flatten()
+    .map(|(token, source)| {
+        log::debug!("Syllable-lyrics: using MusicKit token from {source}");
+        token
+    });
+    let music_user_token = match settings.cookies_path.as_deref() {
+        Some(p) => match apple_music_api::extract_media_user_token(p) {
+            Ok(Some(token)) => Some(token),
+            Ok(None) => {
+                emit_download_log(
+                    app,
+                    dl_id,
+                    "Word-level lyrics skipped: Apple Music cookies expired or missing. Re-import from your browser.",
+                );
+                None
+            }
+            Err(_) => None,
+        },
+        None => None,
+    };
+
+    let (Some(jwt), Some(token)) = (jwt, music_user_token) else {
+        set_label("Skipping word-level lyrics (no credentials)");
+        log::debug!(
+            "Syllable-lyrics skipped for {dl_id}: MusicKit JWT or Music-User-Token unavailable"
+        );
+        results.extend(to_ask.iter().map(|_| TrackLyricsResult {
+            outcome: WordLyricsOutcome::CouldNotAsk,
+            looked_up: false,
+        }));
+        return Step1b::Ran(results);
+    };
+
+    set_label("Fetching word-level lyrics…");
+    let (asked, stopped_on_sign_in) = ask_each_track(
+        to_ask,
+        |song_id| {
+            let song_id = song_id.to_string();
+            let jwt = jwt.clone();
+            let token = token.clone();
+            async move {
+                apple_music_api::fetch_syllable_lyrics(
+                    &jwt,
+                    &settings.storefront,
+                    &song_id,
+                    &token,
+                    Some(&settings.language),
+                )
+                .await
+            }
+        },
+        || shutdown.is_triggered(),
+        std::time::Duration::from_millis(200),
+    )
+    .await;
+    results.extend(asked);
+
+    if let Some(line) = step_1b_summary(&results, stopped_on_sign_in) {
+        emit_download_log(app, dl_id, &line);
+    }
+    Step1b::Ran(results)
+}
+
+/// Asks about each track in turn and saves word-by-word lyrics beside it.
+///
+/// - Lyrics with no word timing are NOT written: they would replace the
+///   line-by-line `.ttml` GAMDL saved with nothing better.
+/// - A refused sign-in (HTTP 401/403) stops the asking; every track not
+///   yet asked counts as "could not be checked", as does every track left
+///   when `stopping` says the app is closing.
+/// - `pause` is waited between requests.
+///
+/// Returns the results and whether it stopped on a refused sign-in.
+pub(crate) async fn ask_each_track<F, Fut>(
+    to_ask: Vec<(&TrackMetadata, Option<PathBuf>)>,
+    mut fetch: F,
+    stopping: impl Fn() -> bool,
+    pause: std::time::Duration,
+) -> (Vec<TrackLyricsResult>, bool)
+where
+    F: FnMut(&str) -> Fut,
+    Fut: std::future::Future<Output = Result<Option<String>, String>>,
+{
+    let mut results = Vec::with_capacity(to_ask.len());
+    let mut stopped_on_sign_in = false;
+    let total = to_ask.len();
+    for (index, (track, sidecar)) in to_ask.into_iter().enumerate() {
+        if stopped_on_sign_in || stopping() {
+            results.push(TrackLyricsResult {
+                outcome: WordLyricsOutcome::CouldNotAsk,
+                looked_up: true,
+            });
+            continue;
+        }
+        let answer = fetch(&track.song_id).await;
+        let has_words =
+            matches!(&answer, Ok(Some(t)) if enhanced_lyrics_service::ttml_has_word_timing(t));
+        let placed = match (&answer, &sidecar) {
+            (Ok(Some(ttml)), Some(path)) if has_words => match std::fs::write(path, ttml) {
+                Ok(()) => true,
+                Err(e) => {
+                    log::debug!("Failed to write TTML for track {}: {e}", track.song_id);
+                    false
+                }
+            },
+            _ => false,
+        };
+        if let Err(e) = &answer {
+            log::debug!(
+                "Syllable-lyrics fetch failed for disc {} track {} (song {}): {e}",
+                track.disc_number,
+                track.track_number,
+                track.song_id
+            );
+            // A refused sign-in affects every track: stop asking.
+            if e.contains("401") || e.contains("403") {
+                stopped_on_sign_in = true;
+            }
+        }
+        results.push(TrackLyricsResult {
+            outcome: classify(&answer, placed),
+            looked_up: true,
+        });
+        // A short pause between requests, so Apple Music is not flooded.
+        if index + 1 < total && !stopped_on_sign_in && !pause.is_zero() {
+            tokio::time::sleep(pause).await;
+        }
+    }
+    (results, stopped_on_sign_in)
+}
+
+// ============================================================
+// The GAMDL pass (4.0.2 and later)
+// ============================================================
+
+/// The options for the GAMDL pass: the primary run's own options (same
+/// sign-in, formats, folder and file names), with:
+///
+/// - overwrite off, so every track whose file already exists is skipped
+///   rather than downloaded again — GAMDL still refreshes its `.ttml`;
+/// - no saved cover, no playlist file, lyrics files on;
+/// - the word-by-word lyrics file asked for;
+/// - the album and compilation folder templates given `renamed_folder_suffix`
+///   (`[Explicit]` / `[Clean]`) when, and only when, the album folder
+///   really was renamed, so GAMDL looks where the files now are.
+///
+/// Never sends `--overwrite`, `--save-cover`, `--file-cover-size`,
+/// `--save-playlist` or `--no-lyrics-file` (tested).
+pub(crate) fn plan_word_lyrics_pass(
+    primary: &GamdlOptions,
+    renamed_folder_suffix: Option<&str>,
+) -> GamdlOptions {
+    let mut options = primary.clone();
+    options.overwrite = Some(false);
+    options.save_cover = Some(false);
+    options.save_playlist = None;
+    options.no_synced_lyrics = Some(false);
+    options.synced_lyrics_only = None;
+    options.synced_lyrics_format = Some(LyricsFormat::Ttml);
+    options.word_timed_lyrics_file = Some(true);
+    if let Some(suffix) = renamed_folder_suffix {
+        if let Some(t) =
+            inject_advisory_suffix_into_template(options.album_folder_template.as_deref(), suffix)
+        {
+            options.album_folder_template = Some(t);
+        }
+        if let Some(t) = inject_advisory_suffix_into_template(
+            options.compilation_folder_template.as_deref(),
+            suffix,
+        ) {
+            options.compilation_folder_template = Some(t);
+        }
+    }
+    options
+}
+
+/// Whether the links are ones the pass may run for: albums and songs
+/// only. Not artist links (they mean many albums), music videos (no word
+/// lyrics), playlists (their tracks are not in one album folder), or
+/// anything unrecognised.
+pub(crate) fn links_allow_word_lyrics_pass(urls: &[String]) -> bool {
+    !urls.is_empty()
+        && urls.iter().all(|u| {
+            apple_music_api::parse_apple_music_url(u)
+                .is_some_and(|p| p.content_type == "album" || p.content_type == "song")
+        })
+}
+
+/// Everything that decides whether the GAMDL pass runs.
+#[derive(Debug, Clone, Copy, Default)]
+#[allow(clippy::struct_excessive_bools)]
+pub(crate) struct WordLyricsPassConditions {
+    /// The installed GAMDL is 4.0.2 or later.
+    pub gamdl_can: bool,
+    /// Enhanced LRC is on (word-level lyrics are wanted at all).
+    pub enhanced_lrc: bool,
+    /// The primary run saved lyrics files.
+    pub lyrics_files_on: bool,
+    /// An Apple Music album or song link ([`links_allow_word_lyrics_pass`]).
+    pub links_allow: bool,
+    /// A link to the person's own library.
+    pub is_library: bool,
+    /// The primary run reported nothing skipped or failed, and needed no
+    /// gap-fill: every track's file is where GAMDL expects it.
+    pub primary_clean: bool,
+    /// The app is closing or the item was cancelled.
+    pub stopping: bool,
+    /// [`needs_gamdl_fallback`].
+    pub needed: bool,
+}
+
+/// Whether the GAMDL pass runs.
+pub(crate) fn should_run_word_lyrics_pass(c: &WordLyricsPassConditions) -> bool {
+    c.gamdl_can
+        && c.enhanced_lrc
+        && c.lyrics_files_on
+        && c.links_allow
+        && !c.is_library
+        && c.primary_clean
+        && !c.stopping
+        && c.needed
+}
+
+/// The safety net: every primary file is still where it was. If any has
+/// moved, GAMDL would not find it and would download the track again, so
+/// the pass does not run.
+pub(crate) fn primary_files_unmoved(files: &[PathBuf]) -> bool {
+    !files.is_empty() && files.iter().all(|p| p.is_file())
+}
+
+/// Moves paths under `old_dir` to the same place under `new_dir` (after
+/// the album folder was renamed). Paths elsewhere are kept as they are.
+pub(crate) fn remap_under_renamed_folder(
+    files: &[PathBuf],
+    old_dir: &Path,
+    new_dir: &Path,
+) -> Vec<PathBuf> {
+    files
+        .iter()
+        .map(|p| match p.strip_prefix(old_dir) {
+            Ok(rel) => new_dir.join(rel),
+            Err(_) => p.clone(),
+        })
+        .collect()
+}
+
+/// How long the pass may run: one minute, plus six seconds a track, at
+/// most fifteen minutes. It downloads no music, only lyrics.
+pub(crate) fn word_lyrics_pass_deadline(track_count: usize) -> std::time::Duration {
+    let secs = 60u64
+        .saturating_add(6u64.saturating_mul(track_count as u64))
+        .min(15 * 60);
+    std::time::Duration::from_secs(secs)
+}
+
+/// How many of these audio files have a word-timed `.ttml` beside them.
+pub(crate) fn count_word_timed_sidecars(files: &[PathBuf]) -> usize {
+    files
+        .iter()
+        .filter(|audio| {
+            std::fs::read_to_string(audio.with_extension("ttml"))
+                .is_ok_and(|c| enhanced_lyrics_service::ttml_has_word_timing(&c))
+        })
+        .count()
+}
+
+/// How the pass ended, for its summary line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PassEnd {
+    /// GAMDL finished (whatever its exit code).
+    Finished { success: bool },
+    /// It could not start, ran out of time, or was stopped.
+    Stopped,
+}
+
+/// The pass's one summary line.
+pub(crate) fn word_lyrics_pass_summary(gained: usize, end: PassEnd) -> String {
+    if gained > 0 {
+        return format!("Word-level lyrics added for {gained} more track(s)");
+    }
+    match end {
+        PassEnd::Finished { success: true } => {
+            "Word-level lyrics: none available for the remaining tracks — keeping line-by-line lyrics"
+                .to_string()
+        }
+        _ => "Word-level lyrics: the remaining tracks could not be checked this time".to_string(),
+    }
+}
+
+/// Runs the GAMDL pass. Never fails the item: a failed, slow or stopped
+/// run just leaves the line-by-line lyrics in place.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_word_lyrics_pass(
+    app: &AppHandle,
+    dl_id: &str,
+    urls: &[String],
+    options: &GamdlOptions,
+    queue: &QueueHandle,
+    shutdown: &ShutdownSignal,
+    album_dir: &str,
+    primary_files: &[PathBuf],
+) {
+    let before = count_word_timed_sidecars(primary_files);
+    let audio_before = count_audio_files_in_directory(Path::new(album_dir));
+
+    let end = 'run: {
+        let mut cmd = match gamdl_service::build_gamdl_command_public(app, urls, options) {
+            Ok(c) => c,
+            Err(e) => {
+                log::debug!("Word-level lyrics pass could not be built for {dl_id}: {e}");
+                break 'run PassEnd::Stopped;
+            }
+        };
+        // Its output is not needed: what counts is the files it leaves.
+        cmd.stdout(std::process::Stdio::null());
+        cmd.stderr(std::process::Stdio::null());
+        // Stop the program if this task is dropped (the enrichment
+        // deadline aborting it).
+        cmd.kill_on_drop(true);
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                log::debug!("Word-level lyrics pass could not start for {dl_id}: {e}");
+                break 'run PassEnd::Stopped;
+            }
+        };
+        let deadline = tokio::time::Instant::now() + word_lyrics_pass_deadline(primary_files.len());
+        loop {
+            tokio::select! {
+                status = child.wait() => {
+                    break 'run match status {
+                        Ok(s) => {
+                            if !s.success() {
+                                log::debug!("Word-level lyrics pass for {dl_id} exited with {s}");
+                            }
+                            PassEnd::Finished { success: s.success() }
+                        }
+                        Err(e) => {
+                            log::debug!("Word-level lyrics pass for {dl_id} failed: {e}");
+                            PassEnd::Stopped
+                        }
+                    };
+                }
+                () = tokio::time::sleep(std::time::Duration::from_millis(500)) => {
+                    let cancelled = { queue.lock().await.is_cancelled(dl_id) };
+                    if cancelled || shutdown.is_triggered() || tokio::time::Instant::now() >= deadline {
+                        log::info!(
+                            "Word-level lyrics pass for {dl_id} stopped (cancelled={cancelled}, shutdown={}, deadline passed={})",
+                            shutdown.is_triggered(),
+                            tokio::time::Instant::now() >= deadline,
+                        );
+                        let _ = child.kill().await;
+                        let _ = child.wait().await;
+                        break 'run PassEnd::Stopped;
+                    }
+                }
+            }
+        }
+    };
+
+    let audio_after = count_audio_files_in_directory(Path::new(album_dir));
+    if audio_after > audio_before {
+        log::warn!(
+            "Word-level lyrics pass for {dl_id} added {} audio file(s) (expected none)",
+            audio_after - audio_before
+        );
+        emit_download_warn(
+            app,
+            dl_id,
+            &format!(
+                "The word-level lyrics check also saved {} music file(s) that were not there before — please check the album folder",
+                audio_after - audio_before
+            ),
+        );
+    }
+    let after = count_word_timed_sidecars(primary_files);
+    emit_download_log(
+        app,
+        dl_id,
+        &word_lyrics_pass_summary(after.saturating_sub(before), end),
+    );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const WORD_TTML: &str = r#"<tt xmlns="http://www.w3.org/ns/ttml"><body><div><p begin="0s" end="2s"><span begin="0s" end="1s">Hi</span></p></div></body></tt>"#;
+    const LINE_TTML: &str = r#"<tt xmlns="http://www.w3.org/ns/ttml"><body><div><p begin="0s" end="2s">Hi</p></div></body></tt>"#;
+
+    fn result(outcome: WordLyricsOutcome, looked_up: bool) -> TrackLyricsResult {
+        TrackLyricsResult { outcome, looked_up }
+    }
+
+    // ---------------- classification ----------------
+
+    #[test]
+    fn classify_covers_every_answer() {
+        assert_eq!(
+            classify(&Ok(Some(WORD_TTML.into())), true),
+            WordLyricsOutcome::WordTimed
+        );
+        assert_eq!(
+            classify(&Ok(Some(WORD_TTML.into())), false),
+            WordLyricsOutcome::NotPlaced
+        );
+        // Lyrics with no word timing count as "Apple has none".
+        assert_eq!(
+            classify(&Ok(Some(LINE_TTML.into())), true),
+            WordLyricsOutcome::AppleHasNone
+        );
+        assert_eq!(
+            classify(&Ok(Some(LINE_TTML.into())), false),
+            WordLyricsOutcome::AppleHasNone
+        );
+        assert_eq!(classify(&Ok(None), false), WordLyricsOutcome::AppleHasNone);
+        assert_eq!(
+            classify(&Err("HTTP 500".into()), false),
+            WordLyricsOutcome::CouldNotAsk
+        );
+        assert_eq!(
+            classify(&Err("HTTP 401".into()), false),
+            WordLyricsOutcome::CouldNotAsk
+        );
+    }
+
+    fn track(song_id: &str, disc: u32, number: u32) -> TrackMetadata {
+        serde_json::from_value(serde_json::json!({
+            "song_id": song_id,
+            "isrc": null,
+            "content_rating": null,
+            "artist_id": null,
+            "artist_name": null,
+            "name": "T",
+            "track_number": number,
+            "disc_number": disc,
+            "audio_traits": [],
+            "is_apple_digital_master": null,
+            "release_date": null,
+            "composer_name": null,
+            "duration_in_millis": null,
+            "has_lyrics": null,
+            "play_params_id": null,
+            "url": null,
+            "preview_url": null,
+            "genre_names": [],
+        }))
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn asking_writes_only_word_timed_lyrics_and_stops_on_a_refused_sign_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let ttml = |n: &str| dir.path().join(format!("{n}.ttml"));
+        std::fs::write(ttml("02"), LINE_TTML).unwrap();
+        let tracks = [
+            track("1", 1, 1),
+            track("2", 1, 2),
+            track("3", 1, 3),
+            track("4", 1, 4),
+            track("5", 1, 5),
+        ];
+        let to_ask = vec![
+            (&tracks[0], Some(ttml("01"))), // word-timed: written
+            (&tracks[1], Some(ttml("02"))), // line-only answer: NOT written
+            (&tracks[2], None),             // word-timed but nowhere to put it
+            (&tracks[3], Some(ttml("04"))), // refused sign-in
+            (&tracks[4], Some(ttml("05"))), // never asked
+        ];
+        let asked = std::cell::RefCell::new(Vec::new());
+        let (results, stopped) = ask_each_track(
+            to_ask,
+            |id| {
+                asked.borrow_mut().push(id.to_string());
+                let answer = match id {
+                    "1" | "3" => Ok(Some(WORD_TTML.to_string())),
+                    "2" => Ok(Some(LINE_TTML.to_string())),
+                    _ => Err("HTTP 401 Unauthorized".to_string()),
+                };
+                async move { answer }
+            },
+            || false,
+            std::time::Duration::ZERO,
+        )
+        .await;
+
+        let outcomes: Vec<_> = results.iter().map(|r| r.outcome).collect();
+        assert_eq!(
+            outcomes,
+            vec![
+                WordLyricsOutcome::WordTimed,
+                WordLyricsOutcome::AppleHasNone,
+                WordLyricsOutcome::NotPlaced,
+                WordLyricsOutcome::CouldNotAsk,
+                WordLyricsOutcome::CouldNotAsk,
+            ]
+        );
+        assert!(stopped);
+        assert!(results.iter().all(|r| r.looked_up));
+        assert_eq!(*asked.borrow(), vec!["1", "2", "3", "4"]);
+        assert_eq!(std::fs::read_to_string(ttml("01")).unwrap(), WORD_TTML);
+        assert_eq!(std::fs::read_to_string(ttml("02")).unwrap(), LINE_TTML);
+        assert!(!ttml("04").exists());
+        assert!(needs_gamdl_fallback(&Step1b::Ran(results)));
+    }
+
+    #[tokio::test]
+    async fn tracks_left_when_the_app_closes_could_not_be_checked() {
+        let tracks = [track("1", 1, 1), track("2", 1, 2)];
+        let (results, stopped) = ask_each_track(
+            vec![(&tracks[0], None), (&tracks[1], None)],
+            |_| async { Ok(None) },
+            || true,
+            std::time::Duration::ZERO,
+        )
+        .await;
+        assert!(!stopped);
+        assert!(results
+            .iter()
+            .all(|r| r.outcome == WordLyricsOutcome::CouldNotAsk));
+    }
+
+    #[test]
+    fn the_gamdl_pass_is_needed_only_for_tracks_that_could_not_be_checked_or_saved() {
+        assert!(needs_gamdl_fallback(&Step1b::NotRun));
+        assert!(!needs_gamdl_fallback(&Step1b::Ran(vec![])));
+        assert!(!needs_gamdl_fallback(&Step1b::Ran(vec![
+            result(WordLyricsOutcome::WordTimed, true),
+            result(WordLyricsOutcome::AppleHasNone, true),
+            result(WordLyricsOutcome::AppleHasNone, false),
+        ])));
+        assert!(needs_gamdl_fallback(&Step1b::Ran(vec![
+            result(WordLyricsOutcome::WordTimed, true),
+            result(WordLyricsOutcome::CouldNotAsk, true),
+        ])));
+        assert!(needs_gamdl_fallback(&Step1b::Ran(vec![result(
+            WordLyricsOutcome::NotPlaced,
+            true
+        )])));
+        // Not asked because there was no sign-in: still needs the pass.
+        assert!(needs_gamdl_fallback(&Step1b::Ran(vec![result(
+            WordLyricsOutcome::CouldNotAsk,
+            false
+        )])));
+    }
+
+    #[test]
+    fn the_summary_is_one_plain_line_and_none_when_nothing_was_looked_up() {
+        assert_eq!(
+            step_1b_summary(&[result(WordLyricsOutcome::WordTimed, false)], false),
+            None
+        );
+        assert_eq!(
+            step_1b_summary(&[result(WordLyricsOutcome::WordTimed, true)], false).unwrap(),
+            "Word-level lyrics added for 1 track(s)"
+        );
+        assert!(
+            step_1b_summary(&[result(WordLyricsOutcome::AppleHasNone, true)], false)
+                .unwrap()
+                .contains("has none")
+        );
+        let mixed = step_1b_summary(
+            &[
+                result(WordLyricsOutcome::WordTimed, true),
+                result(WordLyricsOutcome::CouldNotAsk, true),
+                result(WordLyricsOutcome::CouldNotAsk, true),
+                result(WordLyricsOutcome::NotPlaced, true),
+            ],
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            mixed,
+            "Word-level lyrics: 1 added, 2 could not be checked, 1 could not be saved (of 4 track(s)) — stopped early because Apple Music did not accept the sign-in"
+        );
+    }
+
+    // ---------------- placement ----------------
+
+    fn numbered(path: &str, disc: Option<u32>, track: Option<u32>) -> AudioFileNumbers {
+        AudioFileNumbers {
+            path: PathBuf::from(path),
+            disc,
+            track,
+            fresh: false,
+        }
+    }
+
+    #[test]
+    fn file_names_give_disc_and_track() {
+        assert_eq!(numbers_from_file_name("1-01 Title"), (Some(1), Some(1)));
+        assert_eq!(
+            numbers_from_file_name("2-13 Title [Lossless]"),
+            (Some(2), Some(13))
+        );
+        assert_eq!(numbers_from_file_name("01 Title"), (None, Some(1)));
+        assert_eq!(numbers_from_file_name("07"), (None, Some(7)));
+        assert_eq!(numbers_from_file_name("Title"), (None, None));
+        assert_eq!(numbers_from_file_name("1999.Title"), (None, None));
+        assert_eq!(numbers_from_file_name("1-Title"), (None, None));
+    }
+
+    #[test]
+    fn two_discs_each_with_a_track_one_are_told_apart() {
+        let files = vec![
+            numbered("/a/1-01 A.m4a", Some(1), Some(1)),
+            numbered("/a/2-01 B.m4a", Some(2), Some(1)),
+        ];
+        assert_eq!(
+            place_track(2, 1, &files, false),
+            Placement::Found("/a/2-01 B.m4a".into())
+        );
+        assert_eq!(
+            place_track(1, 1, &files, false),
+            Placement::Found("/a/1-01 A.m4a".into())
+        );
+        assert_eq!(place_track(1, 2, &files, false), Placement::NotInDownload);
+    }
+
+    #[test]
+    fn a_name_without_a_disc_number_is_placed_only_on_a_single_disc_album() {
+        let files = vec![
+            numbered("/a/01 A.m4a", None, Some(1)),
+            numbered("/a/02 B.m4a", None, Some(2)),
+        ];
+        assert_eq!(
+            place_track(1, 2, &files, true),
+            Placement::Found("/a/02 B.m4a".into())
+        );
+        // Multi-disc: "01 " could be either disc, so it is not guessed.
+        assert_eq!(place_track(1, 1, &files, false), Placement::Unclear);
+        assert_eq!(place_track(2, 1, &files, false), Placement::Unclear);
+    }
+
+    #[test]
+    fn two_files_claiming_the_same_track_are_unclear_unless_only_one_is_new() {
+        let mut files = vec![
+            numbered("/a/01 A [Lossless].m4a", Some(1), Some(1)),
+            numbered("/a/01 A.m4a", Some(1), Some(1)),
+        ];
+        assert_eq!(place_track(1, 1, &files, true), Placement::Unclear);
+        // The copy this download wrote wins over one left from before.
+        files[1].fresh = true;
+        assert_eq!(
+            place_track(1, 1, &files, true),
+            Placement::Found("/a/01 A.m4a".into())
+        );
+        files[0].fresh = true;
+        assert_eq!(place_track(1, 1, &files, true), Placement::Unclear);
+    }
+
+    #[test]
+    fn an_unreadable_file_makes_missing_tracks_unclear_not_absent() {
+        let files = vec![
+            numbered("/a/01 A.m4a", Some(1), Some(1)),
+            numbered("/a/Bonus.m4a", None, None),
+        ];
+        assert_eq!(place_track(1, 2, &files, true), Placement::Unclear);
+        assert_eq!(
+            place_track(1, 1, &files, true),
+            Placement::Found("/a/01 A.m4a".into())
+        );
+    }
+
+    #[test]
+    fn tags_tell_two_discs_apart_even_when_both_files_start_with_01() {
+        use crate::services::metadata_tag_service::test_support::minimal_m4a;
+        let dir = tempfile::tempdir().unwrap();
+        let d1 = dir.path().join("Disc 1");
+        let d2 = dir.path().join("Disc 2");
+        std::fs::create_dir(&d1).unwrap();
+        std::fs::create_dir(&d2).unwrap();
+        let first = d1.join("01 Opening.m4a");
+        let second = d2.join("01 Encore.m4a");
+        minimal_m4a(&first, 1, 1, false);
+        minimal_m4a(&second, 1, 2, false);
+        let files = vec![
+            read_audio_numbers(&first, None),
+            read_audio_numbers(&second, None),
+        ];
+        assert_eq!(place_track(2, 1, &files, false), Placement::Found(second));
+        assert_eq!(place_track(1, 1, &files, false), Placement::Found(first));
+    }
+
+    #[test]
+    fn unreadable_tags_fall_back_to_the_file_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("2-05 Song.m4a");
+        std::fs::write(&path, b"not an mp4").unwrap();
+        assert_eq!(
+            read_audio_numbers(&path, None),
+            numbered(path.to_str().unwrap(), Some(2), Some(5))
+        );
+        // Written just now: fresh for a download that started a minute ago.
+        let started = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        assert!(read_audio_numbers(&path, Some(started)).fresh);
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        assert!(!read_audio_numbers(&path, Some(later)).fresh);
+    }
+
+    // ---------------- the GAMDL pass: options ----------------
+
+    fn primary() -> GamdlOptions {
+        GamdlOptions {
+            song_codec_priority: Some("atmos,alac".into()),
+            overwrite: Some(true),
+            save_cover: Some(true),
+            cover_size: Some(3000),
+            save_playlist: Some(true),
+            no_synced_lyrics: Some(true),
+            synced_lyrics_format: Some(LyricsFormat::Lrc),
+            album_folder_template: Some("{album_artist}/{album}".into()),
+            compilation_folder_template: Some("Compilations/{album}".into()),
+            single_disc_file_template: Some("{track:02d} {title} [Dolby Atmos]".into()),
+            output_path: Some("/Music".into()),
+            ..GamdlOptions::default()
+        }
+    }
+
+    #[test]
+    fn the_pass_keeps_names_and_never_overwrites_or_saves_extras() {
+        let plan = plan_word_lyrics_pass(&primary(), None);
+        assert_eq!(plan.overwrite, Some(false));
+        assert_eq!(plan.save_cover, Some(false));
+        assert_eq!(plan.save_playlist, None);
+        assert_eq!(plan.no_synced_lyrics, Some(false));
+        assert_eq!(plan.synced_lyrics_format, Some(LyricsFormat::Ttml));
+        assert_eq!(plan.word_timed_lyrics_file, Some(true));
+        // The primary's own (format-suffixed) file template and folder.
+        assert_eq!(
+            plan.single_disc_file_template.as_deref(),
+            Some("{track:02d} {title} [Dolby Atmos]")
+        );
+        assert_eq!(
+            plan.album_folder_template.as_deref(),
+            Some("{album_artist}/{album}")
+        );
+        assert_eq!(plan.song_codec_priority.as_deref(), Some("atmos,alac"));
+
+        let _lock = gamdl_capabilities::capability_cache_test_lock();
+        gamdl_capabilities::set_detected_version(Some("4.0.2".to_string()));
+        let args = plan.to_cli_args_v4();
+        for never in [
+            "--overwrite",
+            "--save-cover",
+            "--file-cover-size",
+            "--save-playlist",
+            "--no-lyrics-file",
+        ] {
+            assert!(!args.iter().any(|a| a == never), "sent {never}");
+        }
+        let at = args
+            .iter()
+            .position(|a| a == "--lyrics-file-format")
+            .unwrap();
+        assert_eq!(args[at + 1], "enhanced-ttml");
+        // The embedded cover size is sent as the primary run sent it.
+        assert!(args.iter().any(|a| a == "--embedded-cover-size"));
+
+        // 4.0.1 would get plain ttml (and the pass never runs there).
+        gamdl_capabilities::set_detected_version(Some("4.0.1".to_string()));
+        let args = plan.to_cli_args_v4();
+        let at = args
+            .iter()
+            .position(|a| a == "--lyrics-file-format")
+            .unwrap();
+        assert_eq!(args[at + 1], "ttml");
+        gamdl_capabilities::set_detected_version(None);
+    }
+
+    #[test]
+    fn the_folder_suffix_is_added_only_when_the_folder_was_renamed() {
+        let plan = plan_word_lyrics_pass(&primary(), Some("[Explicit]"));
+        assert_eq!(
+            plan.album_folder_template.as_deref(),
+            Some("{album_artist}/{album} [Explicit]")
+        );
+        assert_eq!(
+            plan.compilation_folder_template.as_deref(),
+            Some("Compilations/{album} [Explicit]")
+        );
+        let plan = plan_word_lyrics_pass(&primary(), None);
+        assert_eq!(
+            plan.album_folder_template.as_deref(),
+            Some("{album_artist}/{album}")
+        );
+    }
+
+    // ---------------- the GAMDL pass: when it runs ----------------
+
+    fn all_yes() -> WordLyricsPassConditions {
+        WordLyricsPassConditions {
+            gamdl_can: true,
+            enhanced_lrc: true,
+            lyrics_files_on: true,
+            links_allow: true,
+            is_library: false,
+            primary_clean: true,
+            stopping: false,
+            needed: true,
+        }
+    }
+
+    #[test]
+    fn the_pass_runs_only_when_every_condition_holds() {
+        assert!(should_run_word_lyrics_pass(&all_yes()));
+        let each_no: [fn(&mut WordLyricsPassConditions); 8] = [
+            |c| c.gamdl_can = false,
+            |c| c.enhanced_lrc = false,
+            |c| c.lyrics_files_on = false,
+            |c| c.links_allow = false,
+            |c| c.is_library = true,
+            |c| c.primary_clean = false,
+            |c| c.stopping = true,
+            |c| c.needed = false,
+        ];
+        for (i, change) in each_no.iter().enumerate() {
+            let mut c = all_yes();
+            change(&mut c);
+            assert!(
+                !should_run_word_lyrics_pass(&c),
+                "condition {i} should stop it"
+            );
+        }
+    }
+
+    #[test]
+    fn the_installed_version_decides_whether_gamdl_can_run_the_pass() {
+        let _lock = gamdl_capabilities::capability_cache_test_lock();
+        for (version, can) in [("3.9.1", false), ("4.0.1", false), ("4.0.2", true)] {
+            gamdl_capabilities::set_detected_version(Some(version.to_string()));
+            assert_eq!(
+                gamdl_capabilities::supports(
+                    gamdl_capabilities::GamdlFeature::GamdlFourWordTimedLyricsFile
+                ),
+                can,
+                "{version}"
+            );
+        }
+        gamdl_capabilities::set_detected_version(None);
+    }
+
+    #[test]
+    fn only_album_and_song_links_allow_the_pass() {
+        assert!(links_allow_word_lyrics_pass(&[
+            "https://music.apple.com/us/album/x/1440857781".into()
+        ]));
+        assert!(links_allow_word_lyrics_pass(&[
+            "https://music.apple.com/us/album/x/1440857781?i=1440857795".into()
+        ]));
+        assert!(!links_allow_word_lyrics_pass(&[
+            "https://music.apple.com/us/artist/x/368433979".into()
+        ]));
+        assert!(!links_allow_word_lyrics_pass(&[
+            "https://music.apple.com/us/music-video/x/1445789862".into()
+        ]));
+        assert!(!links_allow_word_lyrics_pass(&[
+            "https://music.apple.com/us/playlist/x/pl.u-GgA567VCXX".into()
+        ]));
+        assert!(!links_allow_word_lyrics_pass(&[]));
+    }
+
+    // ---------------- the GAMDL pass: files ----------------
+
+    #[test]
+    fn after_the_folder_rename_the_files_are_still_unmoved_but_not_after_a_file_rename() {
+        let root = tempfile::tempdir().unwrap();
+        let old_dir = root.path().join("Album");
+        std::fs::create_dir(&old_dir).unwrap();
+        let audio = old_dir.join("01 T.m4a");
+        std::fs::write(&audio, b"a").unwrap();
+        let snapshot = vec![audio];
+
+        // The album folder rename first.
+        let new_dir = root.path().join("Album [Explicit]");
+        std::fs::rename(&old_dir, &new_dir).unwrap();
+        assert!(!primary_files_unmoved(&snapshot));
+        let mapped = remap_under_renamed_folder(&snapshot, &old_dir, &new_dir);
+        assert!(primary_files_unmoved(&mapped));
+        // Where the pass's suffixed folder template predicts the file.
+        assert_eq!(mapped[0], new_dir.join("01 T.m4a"));
+
+        // A per-file rename, and the pass must refuse.
+        std::fs::rename(&mapped[0], new_dir.join("01 T [Explicit].m4a")).unwrap();
+        assert!(!primary_files_unmoved(&mapped));
+        assert!(!primary_files_unmoved(&[]));
+    }
+
+    #[test]
+    fn word_timed_sidecars_are_counted_for_the_given_tracks_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("01 A.m4a");
+        let b = dir.path().join("02 B.m4a");
+        std::fs::write(&a, b"a").unwrap();
+        std::fs::write(&b, b"b").unwrap();
+        std::fs::write(dir.path().join("01 A.ttml"), WORD_TTML).unwrap();
+        std::fs::write(dir.path().join("02 B.ttml"), LINE_TTML).unwrap();
+        // A companion's word-timed file is not one of ours.
+        std::fs::write(dir.path().join("02 B [Lossless].ttml"), WORD_TTML).unwrap();
+        assert_eq!(count_word_timed_sidecars(&[a, b]), 1);
+    }
+
+    #[test]
+    fn the_deadline_scales_and_is_capped() {
+        assert_eq!(word_lyrics_pass_deadline(0).as_secs(), 60);
+        assert_eq!(word_lyrics_pass_deadline(10).as_secs(), 120);
+        assert_eq!(word_lyrics_pass_deadline(10_000).as_secs(), 15 * 60);
+    }
+
+    #[test]
+    fn the_pass_summary_says_what_happened() {
+        assert_eq!(
+            word_lyrics_pass_summary(3, PassEnd::Stopped),
+            "Word-level lyrics added for 3 more track(s)"
+        );
+        assert!(
+            word_lyrics_pass_summary(0, PassEnd::Finished { success: true })
+                .contains("none available")
+        );
+        assert!(
+            word_lyrics_pass_summary(0, PassEnd::Finished { success: false })
+                .contains("could not be checked")
+        );
+        assert!(word_lyrics_pass_summary(0, PassEnd::Stopped).contains("could not be checked"));
+    }
+}

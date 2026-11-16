@@ -76,7 +76,6 @@ pub fn process_queue(
                     let _ = gamdl_service::get_gamdl_version(&app).await;
                 }
 
-
                 // Build every preflight check as a future first, then await
                 // them one at a time further down ("Await the async checks").
                 // In Rust, a future does nothing until it is awaited — building
@@ -569,16 +568,18 @@ pub fn process_queue(
         // whether we already know the version with a brief lock, run the
         // slow probe with NO lock held at all, and take the lock again only
         // long enough to write the answer down.
-        let already_known = { queue.lock().await.gamdl_version.clone() };
-        // The preflight above may already have asked GAMDL for its version
-        // (the answer is kept in the capability cache), so reuse that
-        // instead of running the slow probe a second time.
+        // The capability cache is read FIRST: it is refreshed whenever GAMDL
+        // is installed or upgraded, while the queue's own copy is written
+        // once per session and would otherwise keep an old version after
+        // an upgrade. The preflight above may also already have filled the
+        // cache, which saves running the slow probe a second time.
+        let queued_copy = queue.lock().await.gamdl_version.clone();
         let already_known =
-            already_known.or_else(crate::services::gamdl_capabilities::detected_version);
+            crate::services::gamdl_capabilities::detected_version().or(queued_copy);
         let gamdl_version = if let Some(ver) = already_known {
             // Keep the queue's own copy in step (other code reads it).
             let mut q = queue.lock().await;
-            if q.gamdl_version.is_none() {
+            if q.gamdl_version.as_deref() != Some(ver.as_str()) {
                 q.gamdl_version = Some(ver.clone());
             }
             drop(q);
@@ -1878,6 +1879,13 @@ pub fn process_queue(
                                 .find(|i| i.status.id == dl_id)
                                 .and_then(|i| i.request.mv_companion_override)
                         };
+                        // The primary run's own options and whether it reported
+                        // anything skipped or failed, for the GAMDL 4.0.2+
+                        // word-level lyrics pass (`lyrics_pass`): it reuses the
+                        // same sign-in, formats and names, and runs only after a
+                        // clean primary run (no gap-fill, nothing skipped).
+                        let enrich_primary_options = download_options.clone();
+                        let enrich_primary_clean = warnings.is_empty();
                         Some(tokio::spawn(async move {
                             // Determine the album directory from the output path.
                             // For single tracks, output_path is a file -- use its parent.
@@ -2133,6 +2141,108 @@ pub fn process_queue(
                                 );
                             }
 
+
+                            // ── The order of the first steps (16 Nov 2026) ──
+                            // 1. The album's details from Apple Music, once.
+                            // 2. The album FOLDER's advisory suffix
+                            //    (`Album` → `Album [Explicit]`), at once: the
+                            //    extra-format copies (companions) already write
+                            //    into the suffixed folder (#528), and a rename
+                            //    left until later would find it taken and leave
+                            //    two folders.
+                            // 3. Step 0 (iTunes details).
+                            // 4. Step 1b: MeedyaDL's own word-level lyrics
+                            //    lookup, on every GAMDL version.
+                            // 5. GAMDL 4.0.2+ only, and only if Step 1b left
+                            //    tracks it could not check: a GAMDL pass that
+                            //    asks for the word-by-word lyrics file. It
+                            //    relies on every audio file still having the
+                            //    name GAMDL gave it.
+                            // 6. Step 1 tagging, with NO file renames.
+                            // 7. Every lyrics conversion (Steps 2-2g), built
+                            //    from the best timing either lookup found.
+                            // 8. The per-file renames (advisory, then format
+                            //    suffix), each taking its lyrics files along.
+                            //
+                            // The primary download's own files, taken now,
+                            // before the extra-format copies start landing
+                            // beside them. Steps 1b, 5, 6 and 8 work on these
+                            // only.
+                            let mut primary_files: Vec<std::path::PathBuf> =
+                                super::metadata_tag_service::collect_m4a_files(&album_dir);
+
+                            // The album's details from Apple Music, fetched once
+                            // and shared by every step below (library links have
+                            // none in the catalogue, #871). Before 16 Nov 2026
+                            // this happened inside Step 1, and only when the
+                            // download's format was recognised, so an
+                            // unrecognised format also switched Step 1b off.
+                            let album_metadata = if is_library {
+                                None
+                            } else {
+                                super::metadata_tag_service::try_fetch_metadata(
+                                    &enrich_app,
+                                    &enrich_urls,
+                                    Some((&enrich_app, &enrich_dl_id)),
+                                )
+                                .await
+                            };
+                            // Update artist_name from API metadata for progress bar display
+                            if let Some(ref meta) = album_metadata {
+                                if let Ok(mut q) = enrich_queue.try_lock() {
+                                    if let Some(item) = q
+                                        .items
+                                        .iter_mut()
+                                        .find(|i| i.status.id == enrich_dl_id)
+                                    {
+                                        if item.status.artist_name.is_none() {
+                                            item.status.artist_name =
+                                                meta.artist_name.clone();
+                                        }
+                                        if item.status.album_name.is_none() {
+                                            item.status.album_name =
+                                                meta.album_name.clone();
+                                        }
+                                    }
+                                }
+                            }
+
+                            // The album folder's advisory suffix, first (see
+                            // the order above). Records the suffix only if the
+                            // folder really was renamed: the GAMDL lyrics pass
+                            // then looks in the suffixed folder.
+                            let mut renamed_folder_suffix: Option<&'static str> = None;
+                            if enrich_settings.content_advisory_in_filenames {
+                                if let Some(ref meta) = album_metadata {
+                                    let new_dir = super::metadata_tag_service::apply_advisory_folder_suffix(
+                                        &album_dir,
+                                        meta,
+                                    );
+                                    if new_dir != album_dir {
+                                        renamed_folder_suffix = meta
+                                            .content_rating
+                                            .as_deref()
+                                            .and_then(super::metadata_tag_service::advisory_suffix);
+                                        primary_files = super::lyrics_pass::remap_under_renamed_folder(
+                                            &primary_files,
+                                            std::path::Path::new(&album_dir),
+                                            std::path::Path::new(&new_dir),
+                                        );
+                                        album_dir = new_dir.clone();
+                                        // Update queue item's output_path so "Open Folder" works
+                                        if let Ok(mut q) = enrich_queue.try_lock() {
+                                            if let Some(item) = q
+                                                .items
+                                                .iter_mut()
+                                                .find(|i| i.status.id == enrich_dl_id)
+                                            {
+                                                item.status.output_path = Some(new_dir);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             // --- Step 0: iTunes Lookup API enrichment (#454) ---
                             // Run FIRST (no auth required). Writes baseline metadata
                             // (country, disc count) that Apple Music API can overwrite.
@@ -2177,28 +2287,120 @@ pub fn process_queue(
                                 }
                             }
 
+                            // --- Step 1b: MeedyaDL's own word-level lyrics lookup ---
+                            // Runs before Step 1 tagging and before any file is
+                            // renamed. Writes word-by-word `.ttml` files beside
+                            // the primary download's tracks, matched by disc AND
+                            // track number (the old lookup matched the "01 "
+                            // name prefix, which missed `1-01 Title` names and
+                            // could pick the wrong disc).
+                            let lyrics_label = |label: &str| {
+                                set_label(label, ProgressStage::WordLyrics.weight());
+                            };
+                            let step_1b = super::lyrics_pass::run_step_1b(
+                                &enrich_app,
+                                &enrich_dl_id,
+                                &enrich_settings,
+                                album_metadata.as_ref(),
+                                &primary_files,
+                                chrono::DateTime::parse_from_rfc3339(&enrich_started_at)
+                                    .ok()
+                                    .map(std::time::SystemTime::from),
+                                &enrich_shutdown,
+                                &lyrics_label,
+                            )
+                            .await;
+
+                            tokio::task::yield_now().await;
+                            if enrich_shutdown.is_triggered() {
+                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
+                                return;
+                            }
+
+                            // --- Step 1b (GAMDL 4.0.2+): fill in what Step 1b could not check ---
+                            // Only for tracks Step 1b could not ask about or
+                            // could not save, never for "Apple Music has none",
+                            // and not at all when nothing needs it. GAMDL skips
+                            // every track whose file exists and refreshes its
+                            // `.ttml`, so no music is downloaded again — which
+                            // is why it must run before any per-file rename.
+                            let pass_conditions = super::lyrics_pass::WordLyricsPassConditions {
+                                gamdl_can: gamdl_capabilities::supports(
+                                    gamdl_capabilities::GamdlFeature::GamdlFourWordTimedLyricsFile,
+                                ),
+                                enhanced_lrc: enrich_settings.enhanced_lrc,
+                                lyrics_files_on: enrich_primary_options.no_synced_lyrics != Some(true),
+                                links_allow: super::lyrics_pass::links_allow_word_lyrics_pass(&enrich_urls),
+                                is_library,
+                                primary_clean: enrich_primary_clean,
+                                stopping: enrich_shutdown.is_triggered()
+                                    || enrich_queue.lock().await.is_cancelled(&enrich_dl_id),
+                                needed: super::lyrics_pass::needs_gamdl_fallback(&step_1b),
+                            };
+                            if super::lyrics_pass::should_run_word_lyrics_pass(&pass_conditions) {
+                                if super::lyrics_pass::primary_files_unmoved(&primary_files) {
+                                    set_label("Adding word-level lyrics…", ProgressStage::WordLyrics.weight());
+                                    let pass_options = super::lyrics_pass::plan_word_lyrics_pass(
+                                        &enrich_primary_options,
+                                        renamed_folder_suffix,
+                                    );
+                                    super::lyrics_pass::run_word_lyrics_pass(
+                                        &enrich_app,
+                                        &enrich_dl_id,
+                                        &enrich_urls,
+                                        &pass_options,
+                                        &enrich_queue,
+                                        &enrich_shutdown,
+                                        &album_dir,
+                                        &primary_files,
+                                    )
+                                    .await;
+                                } else {
+                                    log::info!(
+                                        "Word-level lyrics pass skipped for {enrich_dl_id}: a downloaded file has moved, so GAMDL would download it again"
+                                    );
+                                }
+                            }
+
+                            tokio::task::yield_now().await;
+                            if enrich_shutdown.is_triggered() {
+                                log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
+                                return;
+                            }
+
+                            // --- Step 1: Enriched metadata tagging ---
+                            // Tags the primary download's files. The renames
+                            // (advisory, format suffix) are deferred until every
+                            // lyrics step has run, so the lyrics files are built
+                            // beside the names GAMDL gave and then move with
+                            // their tracks.
+                            set_label("Enriching metadata tags…", ProgressStage::WordLyrics.weight());
                             emit_download_log(
                             &enrich_app,
                             &enrich_dl_id,
                             "Enriching metadata (codec tags, source tags, channel detection, Apple Music API)...",
                         );
-                            let album_metadata = if let Some(ref codec) = codec {
+                            let file_codecs = if let Some(ref codec) = codec {
                                 match super::metadata_tag_service::apply_enriched_metadata_tags(
                                     &enrich_app,
                                     &album_dir,
                                     codec,
                                     &enrich_urls,
-                                    None, // No pre-fetched metadata; will fetch from API if possible (skipped for library)
+                                    album_metadata.as_ref(),
                                     Some((&enrich_app, &enrich_dl_id)),
                                     enrich_native_priority,
                                     enrich_settings.content_advisory_in_filenames,
-                                    is_library,
+                                    // The details were already asked for once,
+                                    // above: never ask again here.
+                                    is_library || album_metadata.is_none(),
+                                    Some(&primary_files),
                                 )
                                 .await
                                 {
-                                    Ok((count, metadata, renamed_path)) => {
+                                    Ok(result) => {
+                                        let count = result.tagged_count;
                                         if count > 0 {
-                                            let api_note = if metadata.is_some() {
+                                            let api_note = if album_metadata.is_some() {
                                                 " (including Apple Music API metadata: ISRC, UPC, genre)"
                                             } else {
                                                 " (Apple Music API metadata unavailable)"
@@ -2212,41 +2414,7 @@ pub fn process_queue(
                                             &format!("Enriched {count} file(s) with metadata tags{api_note}"),
                                         );
                                         }
-                                        // Update album_dir if advisory suffix renamed the folder
-                                        if let Some(ref new_path) = renamed_path {
-                                            album_dir = new_path.clone();
-                                            // Update queue item's output_path so "Open Folder" works
-                                            if let Ok(mut q) = enrich_queue.try_lock() {
-                                                if let Some(item) = q
-                                                    .items
-                                                    .iter_mut()
-                                                    .find(|i| i.status.id == enrich_dl_id)
-                                                {
-                                                    item.status.output_path =
-                                                        Some(new_path.clone());
-                                                }
-                                            }
-                                        }
-                                        // Update artist_name from API metadata for progress bar display
-                                        if let Some(ref meta) = metadata {
-                                            if let Ok(mut q) = enrich_queue.try_lock() {
-                                                if let Some(item) = q
-                                                    .items
-                                                    .iter_mut()
-                                                    .find(|i| i.status.id == enrich_dl_id)
-                                                {
-                                                    if item.status.artist_name.is_none() {
-                                                        item.status.artist_name =
-                                                            meta.artist_name.clone();
-                                                    }
-                                                    if item.status.album_name.is_none() {
-                                                        item.status.album_name =
-                                                            meta.album_name.clone();
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        metadata
+                                        result.file_codecs
                                     }
                                     Err(e) => {
                                         log::debug!(
@@ -2257,11 +2425,11 @@ pub fn process_queue(
                                             &enrich_dl_id,
                                             &format!("Metadata enrichment failed: {e}"),
                                         );
-                                        None
+                                        Vec::new()
                                     }
                                 }
                             } else {
-                                None
+                                Vec::new()
                             };
 
                             if album_metadata.is_some() {
@@ -2509,293 +2677,6 @@ pub fn process_queue(
                             if enrich_shutdown.is_triggered() {
                                 log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
                                 return;
-                            }
-
-                            // --- Step 1b: Syllable-lyrics fetch (word-level TTML) ---
-                            // When Enhanced LRC is enabled and album metadata is available,
-                            // check if GAMDL's TTML files have word-level timing. If not,
-                            // fetch syllable-lyrics directly from Apple Music API and write
-                            // upgraded TTML sidecars before the Enhanced LRC conversion step.
-                            if enrich_settings.enhanced_lrc {
-                                if let Some(ref metadata) = album_metadata {
-                                    // Resolve JWT for API calls (premium feature resolver with web player fallback).
-                                    let private_key = super::apple_music_api::get_private_key_from_keychain()
-                                        .ok()
-                                        .flatten();
-                                    let jwt_pair = super::apple_music_api::resolve_premium_feature_token(
-                                        enrich_settings.musickit_team_id.as_deref(),
-                                        enrich_settings.musickit_key_id.as_deref(),
-                                        private_key.as_deref(),
-                                    )
-                                    .ok()
-                                    .flatten();
-                                    if let Some((_, ref src)) = jwt_pair {
-                                        log::debug!("Syllable-lyrics: using MusicKit token from {src}");
-                                    }
-                                    let jwt = jwt_pair.map(|(t, _)| t);
-
-                                    // Extract Music-User-Token from cookies for subscriber-only endpoint.
-                                    // Emit to activity log if the token is expired so the user knows
-                                    // to re-import cookies (instead of a silent skip or HTTP 401).
-                                    let music_user_token = if let Some(p) = enrich_settings.cookies_path.as_deref() {
-                                        match super::apple_music_api::extract_media_user_token(p) {
-                                            Ok(Some(token)) => Some(token),
-                                            Ok(None) => {
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    "Word-level lyrics skipped: Apple Music cookies expired or missing. Re-import from your browser.",
-                                                );
-                                                None
-                                            }
-                                            Err(_) => None,
-                                        }
-                                    } else {
-                                        None
-                                    };
-
-                                    if let (Some(jwt), Some(token)) = (jwt, music_user_token) {
-                                        // Scan existing TTML files to find which tracks lack word-level timing
-                                        let dir_for_scan = album_dir.clone();
-                                        let tracks_needing_upgrade: Vec<_> = metadata.tracks.iter()
-                                            // Attempt tracks whose `hasLyrics` flag is true OR absent
-                                            // (None). Apple omits the flag on some album tracks even
-                                            // when word-level lyrics exist; only an explicit
-                                            // `hasLyrics == false` is a reliable "no lyrics" signal.
-                                            // A track with genuinely no lyrics simply 404s and is
-                                            // skipped by fetch_syllable_lyrics (Ok(None)), so treating
-                                            // None as "try anyway" only adds a cheap probe, never a
-                                            // spurious write. (ITAMenhancer uses the same heuristic.)
-                                            .filter(|t| t.has_lyrics != Some(false))
-                                            .filter(|t| {
-                                                // Check if a TTML file exists and already has word-level timing
-                                                let ttml_path = std::path::Path::new(&dir_for_scan);
-                                                let pattern = format!("{:02} ", t.track_number);
-                                                if let Ok(entries) = std::fs::read_dir(ttml_path) {
-                                                    for entry in entries.flatten() {
-                                                        let path = entry.path();
-                                                        if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("ttml")) {
-                                                            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                                                                if name.starts_with(&pattern) {
-                                                                    // Read the file and check for word-level timing.
-                                                                    // Uses span-presence (not the itunes:timing attribute
-                                                                    // string) as the authoritative signal (#969) -- Apple
-                                                                    // labels word-timed TTML inconsistently ("Word",
-                                                                    // "Syllable", or the attribute omitted entirely), so a
-                                                                    // substring check against itunes:timing="Word" missed
-                                                                    // files that already had usable word timing and
-                                                                    // triggered a needless re-fetch.
-                                                                    if let Ok(content) = std::fs::read_to_string(&path) {
-                                                                        if super::enhanced_lyrics_service::ttml_has_word_timing(&content) {
-                                                                            return false; // Already has word-level timing
-                                                                        }
-                                                                    }
-                                                                    return true; // TTML exists but no word-level timing
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                                true // No TTML file found at all
-                                            })
-                                            .collect();
-
-                                        if !tracks_needing_upgrade.is_empty() {
-                                            set_label(
-                                                "Fetching word-level lyrics...",
-                                                ProgressStage::WordLyrics.weight(),
-                                            );
-                                            emit_download_log(
-                                                &enrich_app,
-                                                &enrich_dl_id,
-                                                &format!(
-                                                    "Fetching word-level lyrics from Apple Music API for {} track(s)...",
-                                                    tracks_needing_upgrade.len()
-                                                ),
-                                            );
-
-                                            let mut upgraded = 0u32;
-                                            let mut no_lyrics_available = 0u32;
-                                            let mut errored = 0u32;
-                                            for track in &tracks_needing_upgrade {
-                                                if enrich_shutdown.is_triggered() {
-                                                    break;
-                                                }
-                                                match super::apple_music_api::fetch_syllable_lyrics(
-                                                    &jwt,
-                                                    &enrich_settings.storefront,
-                                                    &track.song_id,
-                                                    &token,
-                                                    Some(&enrich_settings.language),
-                                                )
-                                                .await
-                                                {
-                                                    Ok(Some(ttml_xml)) => {
-                                                        // Find the matching TTML file to overwrite, or create one
-                                                        let pattern = format!("{:02} ", track.track_number);
-                                                        let mut written = false;
-                                                        if let Ok(entries) = std::fs::read_dir(&album_dir) {
-                                                            for entry in entries.flatten() {
-                                                                let path = entry.path();
-                                                                if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("ttml")) {
-                                                                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                                                                        if name.starts_with(&pattern) {
-                                                                            if let Err(e) = std::fs::write(&path, &ttml_xml) {
-                                                                                log::debug!("Failed to write TTML for track {}: {e}", track.song_id);
-                                                                            } else {
-                                                                                upgraded += 1;
-                                                                                written = true;
-                                                                            }
-                                                                            break;
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                        // If no existing TTML file, try to find a matching audio file and create one
-                                                        if !written {
-                                                            if let Ok(entries) = std::fs::read_dir(&album_dir) {
-                                                                for entry in entries.flatten() {
-                                                                    let path = entry.path();
-                                                                    if path.extension().is_some_and(|e| {
-                                                                        let e = e.to_ascii_lowercase();
-                                                                        e == "m4a" || e == "m4v" || e == "mp4"
-                                                                    }) {
-                                                                        if let Some(name) = path.file_stem().and_then(|n| n.to_str()) {
-                                                                            if name.starts_with(&pattern) {
-                                                                                let ttml_path = path.with_extension("ttml");
-                                                                                if let Err(e) = std::fs::write(&ttml_path, &ttml_xml) {
-                                                                                    log::debug!("Failed to create TTML for track {}: {e}", track.song_id);
-                                                                                } else {
-                                                                                    upgraded += 1;
-                                                                                }
-                                                                                break;
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                    Ok(None) => {
-                                                        // Apple has no word-level TTML for this
-                                                        // specific track — usually a very old
-                                                        // catalog entry or a track that simply
-                                                        // never received syllable lyrics
-                                                        // upstream. Not an error; just count
-                                                        // so the post-loop summary surfaces it.
-                                                        no_lyrics_available += 1;
-                                                        log::debug!(
-                                                            "No syllable-lyrics available for track {} (song {})",
-                                                            track.track_number,
-                                                            track.song_id
-                                                        );
-                                                    }
-                                                    Err(e) => {
-                                                        errored += 1;
-                                                        log::debug!(
-                                                            "Syllable-lyrics fetch failed for track {} (song {}): {e}",
-                                                            track.track_number,
-                                                            track.song_id
-                                                        );
-                                                        // Auth errors affect all tracks — stop early
-                                                        if e.contains("401") || e.contains("403") {
-                                                            emit_download_log(
-                                                                &enrich_app,
-                                                                &enrich_dl_id,
-                                                                &format!("Word-level lyrics fetch stopped: {e}"),
-                                                            );
-                                                            break;
-                                                        }
-                                                    }
-                                                }
-                                                // Rate-limit: small delay between API requests to
-                                                // avoid hitting Apple Music API rate limits.
-                                                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                                            }
-
-                                            // Post-loop summary — #935 quick win A.
-                                            //
-                                            // Pre-#935 / pre-A: only the upgraded > 0 path
-                                            // surfaced anything to the user. Albums where every
-                                            // track had no syllable-lyrics available (the
-                                            // `Ok(None)` path) or every fetch failed (the
-                                            // `Err(_)` path before the 401/403 break) ran in
-                                            // total silence — the user had no idea Step 1b had
-                                            // even tried, much less why their LRC was line-only.
-                                            //
-                                            // We now always emit at least one summary entry
-                                            // when ≥1 track was attempted. The three counters
-                                            // distinguish the three failure modes so the user
-                                            // can route their next action (re-import cookies
-                                            // vs. accept that this track has no word-level
-                                            // upstream vs. retry later).
-                                            let total_attempted = upgraded + no_lyrics_available + errored;
-                                            if total_attempted > 0 {
-                                                let summary = if upgraded == total_attempted {
-                                                    // Happy path — all tracks upgraded
-                                                    // cleanly. Keep the pre-A wording so
-                                                    // long-time users see the message they
-                                                    // expect.
-                                                    format!(
-                                                        "Word-level lyrics fetched from Apple Music API for {upgraded} track(s)"
-                                                    )
-                                                } else if upgraded > 0 {
-                                                    // Mixed outcome — surface all three
-                                                    // counters so the user sees the breakdown.
-                                                    format!(
-                                                        "Word-level lyrics: {upgraded} upgraded, {no_lyrics_available} unavailable on Apple Music, {errored} failed (of {total_attempted} attempted)"
-                                                    )
-                                                } else if no_lyrics_available == total_attempted {
-                                                    // Every track was an `Ok(None)` — Apple
-                                                    // genuinely has no syllable TTML for any
-                                                    // of them. Not an error; the user keeps
-                                                    // GAMDL's line-level TTML.
-                                                    format!(
-                                                        "Word-level lyrics: not available on Apple Music for any of the {total_attempted} track(s) — keeping line-level lyrics"
-                                                    )
-                                                } else if errored == total_attempted {
-                                                    // Every fetch failed (no 401/403 since
-                                                    // those would have broken the loop).
-                                                    // Almost always a network / rate-limit
-                                                    // issue.
-                                                    format!(
-                                                        "Word-level lyrics fetch failed for all {total_attempted} track(s) — check network connectivity"
-                                                    )
-                                                } else {
-                                                    // No upgrades + mix of unavailable + errored.
-                                                    format!(
-                                                        "Word-level lyrics: {no_lyrics_available} unavailable on Apple Music, {errored} failed (of {total_attempted} attempted)"
-                                                    )
-                                                };
-                                                if upgraded > 0 {
-                                                    log::info!(
-                                                        "Word-level lyrics fetched for {upgraded} track(s) for {enrich_dl_id}"
-                                                    );
-                                                }
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    &summary,
-                                                );
-                                            }
-                                        }
-                                    } else {
-                                        set_label(
-                                            "Skipping word-level lyrics (no credentials)",
-                                            ProgressStage::WordLyrics.weight(),
-                                        );
-                                        log::debug!(
-                                            "Syllable-lyrics skipped for {enrich_dl_id}: MusicKit JWT or Music-User-Token unavailable"
-                                        );
-                                    }
-                                }
-
-                                tokio::task::yield_now().await;
-                                if enrich_shutdown.is_triggered() {
-                                    log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
-                                    return;
-                                }
                             }
 
                             set_label(
@@ -3167,6 +3048,24 @@ pub fn process_queue(
                                 log::info!("Enrichment stopping early for {enrich_dl_id} (app shutting down)");
                                 return;
                             }
+
+                            // --- Per-file renames, after every lyrics step ---
+                            // The advisory suffix (`[Explicit]` / `[Clean]`) and
+                            // then the format suffix (`[Lossless]`, …) on each of
+                            // the primary download's tracks, each time moving its
+                            // `.ttml`, `.lrc`, `.srt`, `.vtt`, `.ass` and `.lyrics`
+                            // along. Extra-format copies that arrived meanwhile
+                            // are left to the final pass after they finish.
+                            let renamed_primary = super::metadata_tag_service::apply_deferred_file_renames(
+                                &primary_files,
+                                album_metadata.as_ref(),
+                                &file_codecs,
+                                enrich_settings.content_advisory_in_filenames,
+                            );
+                            log::debug!(
+                                "Per-file renames done for {enrich_dl_id}: {} file(s)",
+                                renamed_primary.len()
+                            );
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));
 
@@ -4294,8 +4193,18 @@ pub fn process_queue(
                             } else {
                                 0
                             };
-                            let enrichment_timeout =
-                                compute_total_timeout(track_count, 0, mv_count_estimate);
+                            // The GAMDL 4.0.2+ word-level lyrics pass may run
+                            // inside enrichment; give it its own time.
+                            let may_run_word_lyrics_pass = timeout_settings.enhanced_lrc
+                                && gamdl_capabilities::supports(
+                                    gamdl_capabilities::GamdlFeature::GamdlFourWordTimedLyricsFile,
+                                );
+                            let enrichment_timeout = compute_total_timeout(
+                                track_count,
+                                0,
+                                mv_count_estimate,
+                                may_run_word_lyrics_pass,
+                            );
                             let timeout_mins = enrichment_timeout.as_secs() / 60;
                             log::info!(
                                 "Completion timeout for {}: {} min ({} track(s), ~{} MV companion(s) estimated)",
@@ -4357,6 +4266,7 @@ pub fn process_queue(
                                     track_count,
                                     tier_count,
                                     mv_count_for_companion,
+                                    may_run_word_lyrics_pass,
                                 );
                                 let companion_timeout_mins = companion_timeout.as_secs() / 60;
                                 let mv_source = if mv_count_actual.is_some() {

@@ -364,11 +364,23 @@ pub async fn apply_enriched_metadata_tags(
     uses_native_priority: bool,
     content_advisory_in_filenames: bool,
     is_library: bool,
-) -> Result<(usize, Option<AlbumMetadata>, Option<String>), String> {
-    // Collect all M4A files from the output path
-    let m4a_files = collect_m4a_files(output_path);
+    deferred_primary_files: Option<&[PathBuf]>,
+) -> Result<EnrichedTagsResult, String> {
+    // Collect the M4A files to tag. When the renames are deferred, only the
+    // primary download's own files are tagged: by the time this runs the
+    // extra-format copies (companions) may have started landing in the
+    // same folder, and they are tagged by their own run.
+    let m4a_files = match deferred_primary_files {
+        Some(files) => files.iter().filter(|p| p.is_file()).cloned().collect(),
+        None => collect_m4a_files(output_path),
+    };
     if m4a_files.is_empty() {
-        return Ok((0, pre_fetched_metadata.cloned(), None));
+        return Ok(EnrichedTagsResult {
+            tagged_count: 0,
+            metadata: pre_fetched_metadata.cloned(),
+            renamed_folder: None,
+            file_codecs: Vec::new(),
+        });
     }
 
     // Get ffprobe path (optional — channel detection and codec detection
@@ -418,7 +430,12 @@ pub async fn apply_enriched_metadata_tags(
     // Apply content advisory suffixes ([Explicit] / [Clean]) to filenames
     // and album folder before tag writing. Must happen AFTER metadata fetch
     // (we need content_rating) and BEFORE enrichment (paths must be stable).
+    //
+    // Skipped entirely when the caller defers the renames: it has already
+    // renamed the folder and renames the files itself, after the lyrics
+    // steps (`apply_deferred_file_renames`).
     let (_effective_output_path, files_to_enrich, renamed_output) = if content_advisory_in_filenames
+        && deferred_primary_files.is_none()
     {
         if let Some(ref metadata) = album_metadata {
             let (new_path, new_files) = apply_advisory_suffixes(output_path, metadata);
@@ -467,10 +484,14 @@ pub async fn apply_enriched_metadata_tags(
     // based on the ffprobe-detected codec per file. This ensures the suffix
     // reflects the ACTUAL content (e.g., ALAC when native priority fell back
     // from Atmos), not just what was requested.
-    for (file_path, detected_codec) in &file_codecs {
-        if let Some(suffix) = codec_suffix_from_registry(detected_codec) {
-            if !suffix.is_empty() {
-                apply_codec_rename_suffix(file_path, suffix);
+    //
+    // Deferred callers do this themselves, later, with the list returned.
+    if deferred_primary_files.is_none() {
+        for (file_path, detected_codec) in &file_codecs {
+            if let Some(suffix) = codec_suffix_from_registry(detected_codec) {
+                if !suffix.is_empty() {
+                    let _ = apply_codec_rename_suffix(file_path, suffix);
+                }
             }
         }
     }
@@ -481,7 +502,91 @@ pub async fn apply_enriched_metadata_tags(
         files_to_enrich.len()
     );
 
-    Ok((tagged_count, album_metadata, renamed_output))
+    Ok(EnrichedTagsResult {
+        tagged_count,
+        metadata: album_metadata,
+        renamed_folder: renamed_output,
+        file_codecs,
+    })
+}
+
+/// What [`apply_enriched_metadata_tags`] did.
+#[derive(Debug)]
+pub struct EnrichedTagsResult {
+    /// How many files were tagged.
+    pub tagged_count: usize,
+    /// The album's Apple Music details, when they were available.
+    pub metadata: Option<AlbumMetadata>,
+    /// The album folder's new path, when the advisory suffix renamed it
+    /// (never set when the renames are deferred).
+    pub renamed_folder: Option<String>,
+    /// Each tagged file and the format detected in it. Used by a caller
+    /// that deferred the renames, to add the format suffix later
+    /// ([`apply_deferred_file_renames`]).
+    pub file_codecs: Vec<(PathBuf, SongCodec)>,
+}
+
+/// Renames the primary download's files once every lyrics step has run:
+/// first the advisory suffix (`[Explicit]` / `[Clean]`), then the format
+/// suffix (`[Lossless]`, `[Dolby Atmos]`, …), each time taking every lyrics
+/// and subtitle file with the same name along (`.ttml`, `.lrc`, `.srt`,
+/// `.vtt`, `.ass`, `.lyrics`).
+///
+/// Only the files in `primary_files` are touched. Copies in other formats
+/// that arrived in the meantime are left to the final advisory pass after
+/// they finish (`apply_advisory_suffixes_from_tags`), as before.
+///
+/// Returns the files' final paths, in the same order (a file that no
+/// longer exists is left out).
+pub fn apply_deferred_file_renames(
+    primary_files: &[PathBuf],
+    album_metadata: Option<&AlbumMetadata>,
+    file_codecs: &[(PathBuf, SongCodec)],
+    advisory_on: bool,
+) -> Vec<PathBuf> {
+    let mut finals = Vec::with_capacity(primary_files.len());
+    for file in primary_files {
+        if !file.is_file() {
+            continue;
+        }
+        let advisory = if advisory_on {
+            album_metadata.and_then(|meta| advisory_suffix_for_file(file, &meta.tracks))
+        } else {
+            None
+        };
+        let codec = file_codecs
+            .iter()
+            .find(|(p, _)| p == file)
+            .and_then(|(_, c)| codec_suffix_from_registry(c))
+            .filter(|s| !s.is_empty());
+        finals.push(rename_with_suffixes(file, advisory, codec));
+    }
+    finals
+}
+
+/// The advisory suffix for one track file, from its track and disc
+/// numbers and Apple Music's rating for that track.
+fn advisory_suffix_for_file(
+    file_path: &Path,
+    tracks: &[apple_music_api::TrackMetadata],
+) -> Option<&'static str> {
+    let tag = mp4ameta::Tag::read_from_path(file_path).ok()?;
+    let track_meta = match_track_to_metadata(tag.track_number(), tag.disc_number().unwrap_or(1), tracks)?;
+    advisory_suffix(track_meta.content_rating.as_deref()?)
+}
+
+/// Adds the advisory suffix and then the format suffix to one file,
+/// moving its lyrics and subtitle files with it. Either suffix may be
+/// absent. Returns where the file ended up.
+fn rename_with_suffixes(file_path: &Path, advisory: Option<&str>, codec: Option<&str>) -> PathBuf {
+    let mut current = file_path.to_path_buf();
+    if let Some(suffix) = advisory {
+        current = rename_file_with_advisory(&current, suffix);
+    }
+    if let Some(suffix) = codec {
+        current = apply_codec_rename_suffix(&current, suffix);
+    }
+    current
 }
 
 // ============================================================
@@ -1599,6 +1704,24 @@ pub fn apply_advisory_suffixes(
     (new_output_path, renamed_files)
 }
 
+/// Renames the album folder to add the album's advisory suffix
+/// (`Album` → `Album [Explicit]`), and nothing else. Returns the folder's
+/// path afterwards — unchanged when there was nothing to do, or when a
+/// folder of the new name already exists (the files are then left where
+/// they are rather than merged into it).
+///
+/// The download pipeline does this at the very start of enrichment,
+/// before any lyrics work, because the extra-format copies (companions)
+/// already write into the suffixed folder name (#528): renaming later
+/// would find it taken and leave two folders.
+#[must_use]
+pub fn apply_advisory_folder_suffix(
+    album_dir: &str,
+    album_metadata: &apple_music_api::AlbumMetadata,
+) -> String {
+    rename_folder_with_advisory(album_dir, album_metadata)
+}
+
 /// Apply content advisory suffixes (`[Explicit]` / `[Clean]`) to any M4A
 /// files in `output_path` that don't yet carry them, reading the advisory
 /// directly from each file's `rtng` atom.
@@ -1738,8 +1861,11 @@ fn rename_matching_advisory_sidecars(audio_path: &Path, old_stem: &str, new_stem
 /// When we rename the audio to add a codec suffix, these sidecars must be
 /// renamed in lockstep so downstream lyrics conversion and embedding can
 /// still pair them by stem (see #535).
+///
+/// `lyrics` (the Lyricsfile sidecar, #596) is included because the per-file
+/// renames now run after every lyrics step, so it always exists by then.
 const CODEC_RENAME_SIDECAR_EXTENSIONS: &[&str] =
-    &["ttml", "lrc", "srt", "vtt", "ass"];
+    &["ttml", "lrc", "srt", "vtt", "ass", "lyrics"];
 
 /// Rename a single M4A file to include its codec suffix, plus any
 /// lyrics/subtitle sidecars that share its stem.
@@ -1756,9 +1882,9 @@ const CODEC_RENAME_SIDECAR_EXTENSIONS: &[&str] =
 /// primary audio would end up with no lyrics sidecars and no embedded
 /// lyrics. So we also rename any matching `.ttml` / `.lrc` / `.srt` /
 /// `.vtt` / `.ass` next to the audio file.
-fn apply_codec_rename_suffix(file_path: &Path, suffix: &str) {
+fn apply_codec_rename_suffix(file_path: &Path, suffix: &str) -> PathBuf {
     if suffix.is_empty() {
-        return;
+        return file_path.to_path_buf();
     }
 
     let stem = file_path
@@ -1768,7 +1894,7 @@ fn apply_codec_rename_suffix(file_path: &Path, suffix: &str) {
 
     // Idempotency: skip if suffix already present
     if stem.contains(suffix) {
-        return;
+        return file_path.to_path_buf();
     }
 
     let ext = file_path
@@ -1781,23 +1907,26 @@ fn apply_codec_rename_suffix(file_path: &Path, suffix: &str) {
     // `safe_rename` auto-disambiguates if `new_path` is already
     // occupied by an unrelated file (e.g. a previous session left the
     // suffixed version on disk with different content).
-    match crate::utils::fs_safe::safe_rename(file_path, &new_path) {
+    let landed = match crate::utils::fs_safe::safe_rename(file_path, &new_path) {
         Ok(final_path) => {
             log::debug!(
                 "Codec suffix: {} → {}",
                 file_path.display(),
                 final_path.display()
             );
+            final_path
         }
         Err(e) => {
             log::warn!(
                 "Failed to rename {} with codec suffix: {e}",
                 file_path.display()
             );
+            file_path.to_path_buf()
         }
-    }
+    };
 
     rename_matching_sidecars(file_path, stem, suffix);
+    landed
 }
 
 /// Rename any lyrics/subtitle sidecars next to `audio_path` that share the
@@ -1867,6 +1996,14 @@ fn rename_track_with_advisory(
         return file_path.to_path_buf();
     };
 
+    rename_file_with_advisory(file_path, suffix)
+}
+
+/// Adds `suffix` (`[Explicit]` / `[Clean]`) to one file's name, before any
+/// format suffix, and moves its lyrics and subtitle files with it.
+/// Returns where the file ended up (the original path when nothing was
+/// renamed).
+fn rename_file_with_advisory(file_path: &Path, suffix: &str) -> PathBuf {
     // Check if the file stem already contains this suffix (idempotency).
     // Matches case-insensitively so re-runs don't double-suffix a file
     // that was renamed during a previous attempt with different casing.
@@ -1896,6 +2033,15 @@ fn rename_track_with_advisory(
                 file_path.display(),
                 final_path.display()
             );
+            // The lyrics and subtitle files follow the audio. (Before this,
+            // only the final pass after the extra-format copies moved them,
+            // so a primary track's `.ttml` kept the old name.)
+            let final_stem = final_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(&new_stem)
+                .to_string();
+            rename_matching_advisory_sidecars(&final_path, stem, &final_stem);
             final_path
         }
         Err(e) => {
@@ -2602,6 +2748,51 @@ pub async fn try_fetch_metadata(
 // Unit Tests
 // ============================================================
 
+/// Test helpers shared with other modules' tests.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::path::Path;
+
+    /// The smallest MP4 file `mp4ameta` will read and write tags in: an
+    /// `ftyp` box, a `moov` box holding only an `mvhd`, and an empty `mdat`.
+    pub(crate) fn minimal_m4a(path: &Path, track: u16, disc: u16, explicit: bool) {
+        fn mp4_box(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+            let mut out = u32::try_from(8 + body.len()).unwrap().to_be_bytes().to_vec();
+            out.extend_from_slice(kind);
+            out.extend_from_slice(body);
+            out
+        }
+        let mut ftyp = b"M4A ".to_vec();
+        ftyp.extend_from_slice(&0u32.to_be_bytes());
+        ftyp.extend_from_slice(b"M4A isommp42");
+        // mvhd version 0: flags, times, timescale, duration, rate, volume,
+        // reserved, matrix, pre-defined, next track id.
+        let mut mvhd = vec![0u8; 4 + 4 + 4];
+        mvhd.extend_from_slice(&1000u32.to_be_bytes());
+        mvhd.extend_from_slice(&0u32.to_be_bytes());
+        mvhd.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+        mvhd.extend_from_slice(&0x0100u16.to_be_bytes());
+        mvhd.extend_from_slice(&[0u8; 10]);
+        for v in [0x0001_0000u32, 0, 0, 0, 0x0001_0000, 0, 0, 0, 0x4000_0000] {
+            mvhd.extend_from_slice(&v.to_be_bytes());
+        }
+        mvhd.extend_from_slice(&[0u8; 24]);
+        mvhd.extend_from_slice(&2u32.to_be_bytes());
+        let mut bytes = mp4_box(b"ftyp", &ftyp);
+        bytes.extend(mp4_box(b"moov", &mp4_box(b"mvhd", &mvhd)));
+        bytes.extend(mp4_box(b"mdat", &[]));
+        std::fs::write(path, bytes).unwrap();
+
+        let mut tag = mp4ameta::Tag::default();
+        tag.set_track_number(track);
+        tag.set_disc_number(disc);
+        if explicit {
+            tag.set_advisory_rating(mp4ameta::AdvisoryRating::Explicit);
+        }
+        tag.write_to_path(path).unwrap();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3194,6 +3385,153 @@ mod tests {
                 .join("05 Song [Lossless] [Lossless].ttml")
                 .exists()
         );
+    }
+
+    // ----------------------------------------------------------
+    // Deferred per-file renames (16 Nov 2026)
+    // ----------------------------------------------------------
+
+    /// Every lyrics and subtitle sidecar the pipeline writes.
+    const ALL_SIDECARS: [&str; 6] = ["ttml", "lrc", "srt", "vtt", "ass", "lyrics"];
+
+    use super::test_support::minimal_m4a;
+
+    /// Album details with one track: disc 1, track 1, rated explicit
+    /// (`sample_tracks()`'s first).
+    fn album_with_explicit_track() -> AlbumMetadata {
+        let mut meta: AlbumMetadata = serde_json::from_value(serde_json::json!({
+            "album_id": "1",
+            "album_name": "Album",
+            "genre_names": [],
+            "tracks": [],
+        }))
+        .unwrap();
+        meta.tracks = vec![sample_tracks().remove(0)];
+        meta
+    }
+
+    #[test]
+    fn the_final_advisory_pass_moves_the_lyrics_file_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("01 T [Lossless].m4a");
+        minimal_m4a(&audio, 1, 1, true);
+        for ext in ALL_SIDECARS {
+            std::fs::write(dir.path().join(format!("01 T [Lossless].{ext}")), ext).unwrap();
+        }
+        apply_advisory_suffixes_from_tags(dir.path().to_str().unwrap());
+        assert!(dir.path().join("01 T [Explicit] [Lossless].m4a").is_file());
+        for ext in ALL_SIDECARS {
+            assert!(
+                dir.path().join(format!("01 T [Explicit] [Lossless].{ext}")).exists(),
+                ".{ext} should follow"
+            );
+        }
+    }
+
+    #[test]
+    fn the_lyrics_file_travels_with_its_track() {
+        assert!(CODEC_RENAME_SIDECAR_EXTENSIONS.contains(&"lyrics"));
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("05 Song.m4a");
+        std::fs::write(&audio, b"audio").unwrap();
+        std::fs::write(dir.path().join("05 Song.lyrics"), b"y").unwrap();
+        let _ = apply_codec_rename_suffix(&audio, "[Lossless]");
+        assert!(dir.path().join("05 Song [Lossless].lyrics").exists());
+    }
+
+    #[test]
+    fn deferred_renames_add_advisory_then_format_and_move_every_sidecar() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("01 T.m4a");
+        minimal_m4a(&audio, 1, 1, true);
+        for ext in ALL_SIDECARS {
+            std::fs::write(dir.path().join(format!("01 T.{ext}")), ext).unwrap();
+        }
+        // A companion copy that arrived meanwhile: not in the list, untouched.
+        let companion = dir.path().join("01 T [Dolby Atmos].m4a");
+        std::fs::write(&companion, b"c").unwrap();
+        std::fs::write(dir.path().join("01 T [Dolby Atmos].ttml"), b"c").unwrap();
+
+        let meta = album_with_explicit_track();
+        let finals = apply_deferred_file_renames(
+            std::slice::from_ref(&audio),
+            Some(&meta),
+            &[(audio.clone(), SongCodec::Alac)],
+            true,
+        );
+
+        let expected = dir.path().join("01 T [Explicit] [Lossless].m4a");
+        assert_eq!(finals, vec![expected.clone()]);
+        assert!(expected.is_file());
+        for ext in ALL_SIDECARS {
+            let moved = dir.path().join(format!("01 T [Explicit] [Lossless].{ext}"));
+            assert!(moved.exists(), ".{ext} should follow its track");
+            assert!(!dir.path().join(format!("01 T.{ext}")).exists());
+        }
+        assert!(companion.exists());
+        assert!(dir.path().join("01 T [Dolby Atmos].ttml").exists());
+    }
+
+    #[test]
+    fn deferred_renames_without_advisory_add_only_the_format_suffix() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("02 U.m4a");
+        std::fs::write(&audio, b"a").unwrap();
+        std::fs::write(dir.path().join("02 U.ttml"), b"t").unwrap();
+        let finals = apply_deferred_file_renames(
+            std::slice::from_ref(&audio),
+            None,
+            &[(audio.clone(), SongCodec::Alac)],
+            true,
+        );
+        assert_eq!(finals, vec![dir.path().join("02 U [Lossless].m4a")]);
+        assert!(dir.path().join("02 U [Lossless].ttml").exists());
+
+        // A plain AAC file keeps its name (empty suffix); a missing file is skipped.
+        let aac = dir.path().join("03 V.m4a");
+        std::fs::write(&aac, b"a").unwrap();
+        let gone = dir.path().join("04 Gone.m4a");
+        let finals = apply_deferred_file_renames(
+            &[aac.clone(), gone],
+            None,
+            &[(aac.clone(), SongCodec::Aac)],
+            false,
+        );
+        assert_eq!(finals, vec![aac]);
+    }
+
+    #[test]
+    fn the_advisory_file_rename_now_moves_the_sidecars_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio = dir.path().join("01 T [Lossless].m4a");
+        std::fs::write(&audio, b"a").unwrap();
+        for ext in ALL_SIDECARS {
+            std::fs::write(dir.path().join(format!("01 T [Lossless].{ext}")), ext).unwrap();
+        }
+        let landed = rename_file_with_advisory(&audio, "[Clean]");
+        assert_eq!(landed, dir.path().join("01 T [Clean] [Lossless].m4a"));
+        for ext in ALL_SIDECARS {
+            assert!(dir.path().join(format!("01 T [Clean] [Lossless].{ext}")).exists());
+        }
+    }
+
+    #[test]
+    fn the_folder_rename_is_skipped_when_the_suffixed_folder_exists() {
+        let root = tempfile::tempdir().unwrap();
+        let album = root.path().join("Album");
+        std::fs::create_dir(&album).unwrap();
+        let mut meta = album_with_explicit_track();
+        meta.content_rating = Some("explicit".into());
+
+        // A companion already made the suffixed folder: no merge, no rename.
+        std::fs::create_dir(root.path().join("Album [Explicit]")).unwrap();
+        let kept = apply_advisory_folder_suffix(album.to_str().unwrap(), &meta);
+        assert_eq!(kept, album.to_str().unwrap());
+        assert!(album.is_dir());
+
+        std::fs::remove_dir(root.path().join("Album [Explicit]")).unwrap();
+        let renamed = apply_advisory_folder_suffix(album.to_str().unwrap(), &meta);
+        assert_eq!(renamed, root.path().join("Album [Explicit]").to_str().unwrap());
     }
 
     // ----------------------------------------------------------

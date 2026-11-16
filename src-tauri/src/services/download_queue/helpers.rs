@@ -702,10 +702,16 @@ pub(crate) fn integrity_failure_message(checked: usize, suspect_files: &[String]
 /// (`gamdl_idle_timeout_minutes`) still kills any individual GAMDL run
 /// that genuinely stalls, so this completion-level deadline only needs
 /// to cover the *legitimate* total wall-clock cost.
+///
+/// **`word_lyrics_pass`** (16 Nov 2026): when the GAMDL 4.0.2+ word-level
+/// lyrics pass may run inside enrichment, its own deadline (one minute
+/// plus six seconds a track, `lyrics_pass::word_lyrics_pass_deadline`) is
+/// added, so a slow lyrics pass cannot eat the time the other stages need.
 pub(crate) fn compute_total_timeout(
     track_count: usize,
     companion_tier_count: usize,
     mv_count: usize,
+    word_lyrics_pass: bool,
 ) -> std::time::Duration {
     /// 10-minute base timeout (unchanged from #461's original design).
     const BASE_SECS: u64 = 600;
@@ -728,10 +734,16 @@ pub(crate) fn compute_total_timeout(
     /// check ever mis-resolves.
     const MAX_SECS: u64 = 4 * 3600;
 
+    let lyrics_pass_secs = if word_lyrics_pass {
+        super::lyrics_pass::word_lyrics_pass_deadline(track_count).as_secs()
+    } else {
+        0
+    };
     let scaled = BASE_SECS
         .saturating_add(PER_TRACK_SECS.saturating_mul(track_count as u64))
         .saturating_add(PER_TIER_SECS.saturating_mul(companion_tier_count as u64))
-        .saturating_add(PER_MV_SECS.saturating_mul(mv_count as u64));
+        .saturating_add(PER_MV_SECS.saturating_mul(mv_count as u64))
+        .saturating_add(lyrics_pass_secs);
     let clamped = scaled.min(MAX_SECS);
     std::time::Duration::from_secs(clamped)
 }

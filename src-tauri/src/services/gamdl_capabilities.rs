@@ -1419,6 +1419,14 @@ pub enum GamdlFeature {
     /// picture was saved per track, so the setting had no effect and is
     /// not sent.
     GamdlFourSharedAlbumCover,
+
+    /// GAMDL 4.0.2's `--lyrics-file-format enhanced-ttml`: the word-by-word
+    /// lyrics file. MeedyaDL asks for it only in the extra lyrics pass
+    /// after a download, for tracks its own word-timed lookup could not
+    /// check (no developer key, or no sign-in it can use — a wrapper-only
+    /// set-up, for example). Checked against 4.0.2's own source; earlier
+    /// 4.x releases are refused anyway (`KNOWN_BAD_VERSIONS`).
+    GamdlFourWordTimedLyricsFile,
 }
 
 impl GamdlFeature {
@@ -1495,6 +1503,7 @@ impl GamdlFeature {
             Self::PlayReadyDrmBackend => is_version_at_least(version, "3.9"),
             Self::GamdlFourRestoredOptions => is_version_at_least(version, "4.0.1"),
             Self::GamdlFourSharedAlbumCover => is_version_at_least(version, "4.0.2"),
+            Self::GamdlFourWordTimedLyricsFile => is_version_at_least(version, "4.0.2"),
         }
     }
 }
@@ -2487,6 +2496,16 @@ mod tests {
         }
         for newer in ["4.0.1", "4.1"] {
             assert!(GamdlFeature::GamdlFourRestoredOptions.is_available_on(newer));
+        }
+    }
+
+    #[test]
+    fn gamdl_four_word_timed_lyrics_file_starts_at_4_0_2() {
+        for older in ["3.9.1", "4.0", "4.0.0", "4.0.1"] {
+            assert!(!GamdlFeature::GamdlFourWordTimedLyricsFile.is_available_on(older));
+        }
+        for newer in ["4.0.2", "4.1"] {
+            assert!(GamdlFeature::GamdlFourWordTimedLyricsFile.is_available_on(newer));
         }
     }
 
