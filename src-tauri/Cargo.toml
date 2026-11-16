@@ -295,14 +295,6 @@ sha2 = "0.10"
 
 # ---- Configuration ----
 
-# configparser -- INI-style configuration file parser.
-# GAMDL (the Python CLI tool) uses an INI-format config.ini file for settings
-# like codec preferences, download paths, and Apple Music cookies.
-# This crate reads and writes that config file from Rust, allowing the GUI
-# to manage GAMDL's configuration without spawning a Python process.
-# @see https://docs.rs/configparser/ -- configparser API reference
-configparser = "3"
-
 # toml -- TOML configuration file parser.
 # Used to read the tool-versions.toml file that defines minimum supported
 # versions for external tool dependencies (FFmpeg, mp4decrypt, N_m3u8DL-RE,

@@ -1642,6 +1642,10 @@ mod tests {
         );
     }
 
+    // Used only by the macOS-only tests below, so it is compiled only
+    // there; elsewhere it would be an unused function, which fails a
+    // Clippy run that includes the tests.
+    #[cfg(target_os = "macos")]
     fn only_stream() -> SubtitleStream {
         let json = serde_json::json!({ "streams": [
             { "index": 2, "codec_name": "mov_text", "tags": { "language": "eng" } },

@@ -62,7 +62,6 @@ exact number.
 | arboard | 3.6 | MIT/Apache-2.0 | Cross-platform clipboard access |
 | base64 | 0.22 | MIT/Apache-2.0 | Base64 encoding/decoding (animated artwork, API payloads) |
 | chrono | 0.4 | MIT/Apache-2.0 | Date and time library |
-| configparser | 3.1 | MIT/LGPL-3.0+ | INI file parsing (GAMDL config) |
 | cookie | 0.18 | MIT/Apache-2.0 | HTTP cookie parsing |
 | dirs | 6.0 | MIT/Apache-2.0 | Platform-standard directories |
 | flate2 | 1.1 | MIT/Apache-2.0 | Gzip compression/decompression |
