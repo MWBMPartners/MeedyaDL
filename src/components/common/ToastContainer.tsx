@@ -330,6 +330,25 @@ export function ToastContainer() {
     }
     setHovered(stillHovered);
   }, [toasts]);
+  // While the pointer is counted as over the stack, re-check on every
+  // pointer move. WebKit sends the stack no pointer-leave if the last
+  // element under the pointer was removed, so without this the pause
+  // could stay on after the pointer moved away until the list changed.
+  useEffect(() => {
+    if (!hovered) return undefined;
+    const recheckHover = () => {
+      const el = stackRef.current;
+      let over: boolean;
+      try {
+        over = !!el && el.matches(':hover');
+      } catch {
+        over = false;
+      }
+      if (!over) setHovered(false);
+    };
+    document.addEventListener('pointermove', recheckHover);
+    return () => document.removeEventListener('pointermove', recheckHover);
+  }, [hovered]);
 
   /*
    * Screen readers (#1431): an error is announced at once (`role="alert"`),

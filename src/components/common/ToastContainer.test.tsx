@@ -161,6 +161,24 @@ describe('ToastContainer', () => {
     }
   });
 
+  it('resumes auto-dismiss when the pointer moves off the stack without a pointer-leave', () => {
+    vi.useFakeTimers();
+    try {
+      act(() => useUiStore.getState().addToast('Timed one', 'info', 1000));
+      render(<ToastContainer />);
+      fireEvent.mouseEnter(screen.getByTestId('toast-stack'));
+      // The pointer moves elsewhere; no mouseleave reaches the stack
+      // (jsdom never matches :hover, standing in for "not over it").
+      fireEvent.pointerMove(document);
+      act(() => {
+        vi.advanceTimersByTime(1500);
+      });
+      expect(useUiStore.getState().toasts).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('resumes auto-dismiss when the focused toast is removed without a blur', () => {
     vi.useFakeTimers();
     try {
