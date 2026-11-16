@@ -427,7 +427,7 @@ The test only works on an address on your own computer or your own local network
 
 Every time the download queue starts processing, MeedyaDL runs automatic health checks for internet connectivity, cookies, and (if the wrapper is enabled) the wrapper service. If the wrapper is unreachable, a **yellow toast notification** appears with the specific error message (e.g., "Wrapper service at `http://127.0.0.1:30020` timed out — check that it is running").
 
-This check is **advisory** — downloads will still be attempted, but they may fail if the wrapper is genuinely down. Wrapper notifications are **deduplicated** (only one is shown at a time) and **auto-dismiss** when the wrapper becomes reachable again on a subsequent download.
+This check is **advisory** — downloads will still be attempted, but they may fail if the wrapper is genuinely down. Wrapper warnings are **deduplicated** (only one is shown at a time) and **go away by themselves** when the wrapper becomes reachable again on a later download. They appear inside MeedyaDL; whether your computer also shows them as system notifications follows **Settings > General > Notifications**.
 
 ### Troubleshooting Wrapper Connectivity
 

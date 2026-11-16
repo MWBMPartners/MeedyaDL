@@ -143,7 +143,7 @@ import type {
 } from '@/types';
 
 // Platform detection hook for Wrapper feature gating.
-import { usePlatform } from '@/hooks/usePlatform';
+import { usePlatform, type Platform } from '@/hooks/usePlatform';
 
 // IPC commands for wrapper testing, credentials, AcoustID key check, and API audit.
 import {
@@ -189,6 +189,7 @@ import {
   shouldShowSecurityHint,
   type WrapperUrlClass,
 } from '@/lib/wrapper-url-classifier';
+import { whereToLookForNotifications } from '@/lib/notificationAdvice';
 import { LOGS_FOLDER_FAILED, WRAPPER_SIGN_IN_FAILED, explainError, rawError, showError } from '@/lib/errorMessages';
 
 /**
@@ -638,13 +639,9 @@ export function AdvancedTab() {
 
       {/* ── Diagnostics ── */}
       <SettingsSection title="Diagnostics" description="Verbose logging for troubleshooting.">
-        {/* Native notification diagnostic readout (#834). Surfaces the
-            current notification configuration AND the OS-level
-            permission state so users on macOS — where `sendNotification`
-            can succeed silently while the OS drops the notification —
-            can see at a glance whether the toggle / style / permission
-            are aligned. Pure read-only: NEVER triggers a permission
-            prompt (use Send Test Notification in General for that). */}
+        {/* Notification facts (#834, reworked #1431): the saved switch
+            and style, the platform, whether this is a development build,
+            and on Windows the app identity. Read-only. */}
         <NotificationDiagnosticsRow />
 
         {/* Output-directory integrity scan (#537 chunk B). User-initiated
@@ -1331,47 +1328,28 @@ export function AdvancedTab() {
  */
 
 /**
- * Native notification configuration + OS permission diagnostic readout (#834).
+ * Notification facts for Settings > Advanced > Diagnostics (#834, reworked #1431).
  *
- * Compact 4-row table showing:
- *   - "Desktop Notifications" toggle state (from settings)
- *   - "Notification Style" selection (from settings)
- *   - Platform (`darwin` / `linux` / `windows-style`)
- *   - OS-level permission grant (from the JS plugin's `isPermissionGranted`)
+ * Shows the SAVED notification switch and style (what the app acts on),
+ * the platform, whether this is a development build (on macOS a
+ * development build's notifications appear as Terminal's, governed by
+ * Terminal's notification settings), and on Windows the identity
+ * notifications are filed under.
  *
- * Lives in Settings → Advanced → Diagnostics rather than Settings → General
- * (where the Send Test Notification button is) because Advanced is where
- * users go to *diagnose* issues. General is for everyday tuning.
- *
- * Pure read-only: does NOT call `requestPermission()` — only
- * `isPermissionGranted()` which silently returns the current cached
- * state without prompting. Triggering a prompt from a diagnostic
- * readout would confuse users who just wanted to see their config.
+ * There used to be an "OS Permission" row. It always said "granted":
+ * on desktop systems the notification plugin answers that without asking
+ * the system, so the row could never explain a missing notification.
  */
 function NotificationDiagnosticsRow() {
   const [diag, setDiag] = useState<NotificationDiagnostics | null>(null);
-  const [osPermission, setOsPermission] = useState<string>('unknown');
   const [error, setError] = useState<string | null>(null);
 
-  // Load both halves on mount: the backend snapshot and the JS-side
-  // permission state. Wrapped in a single async IIFE so errors from
-  // either source land in the same `setError` and we don't render a
-  // half-loaded readout.
   useEffect(() => {
     (async () => {
       try {
-        const backend = await getNotificationDiagnostics();
-        setDiag(backend);
+        setDiag(await getNotificationDiagnostics());
       } catch (e) {
         setError(rawError(e));
-        return;
-      }
-      try {
-        const { isPermissionGranted } = await import('@tauri-apps/plugin-notification');
-        const granted = await isPermissionGranted();
-        setOsPermission(granted ? 'granted' : 'not granted');
-      } catch {
-        setOsPermission('could not be checked');
       }
     })();
   }, []);
@@ -1392,16 +1370,24 @@ function NotificationDiagnosticsRow() {
     );
   }
 
-  // Pretty-format the style key — the backend stores it as snake_case
-  // so the diagnostics readout matches what the dropdown shows in the
-  // General tab. Falls back to the raw key for unknown values so a
-  // future style enum addition doesn't render as a blank cell.
+  // Pretty-format the style key. Falls back to the raw key for unknown
+  // values so a future style does not render as a blank cell.
   const styleLabels: Record<string, string> = {
     in_app_only: 'In-app only',
-    native_and_in_app: 'Native + in-app',
-    native_only: 'Native only',
+    native_and_in_app: 'System and in-app',
+    native_only: 'System only',
   };
   const styleLabel = styleLabels[diag.notification_style] ?? diag.notification_style;
+  const platformLabels: Record<string, string> = {
+    macos: 'macOS',
+    windows: 'Windows',
+    linux: 'Linux',
+  };
+  const platformLabel = platformLabels[diag.platform] ?? diag.platform;
+
+  const platformForAdvice: Platform =
+    diag.platform === 'macos' || diag.platform === 'windows' ? diag.platform : 'linux';
+  const whereToLook = whereToLookForNotifications(platformForAdvice, diag.development_build);
 
   return (
     /* `border-border-default` was never a defined colour -- Tailwind's
@@ -1409,35 +1395,29 @@ function NotificationDiagnosticsRow() {
        suffix, it is simply `border-border`. This box had no border. */
     <div className="p-3 rounded-platform-lg bg-surface-secondary border border-border">
       <p className="text-xs font-semibold text-content-primary mb-2">
-        Native notification diagnostics (#834)
+        System notification diagnostics
       </p>
       <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-        <span className="text-content-tertiary">Desktop Notifications</span>
+        <span className="text-content-tertiary">System Notifications (saved)</span>
         <span className="text-content-primary">
-          {diag.desktop_notifications_enabled ? 'ON' : 'OFF'}
+          {diag.desktop_notifications_enabled ? 'On' : 'Off'}
         </span>
-        <span className="text-content-tertiary">Notification Style</span>
+        <span className="text-content-tertiary">Notification Style (saved)</span>
         <span className="text-content-primary">{styleLabel}</span>
         <span className="text-content-tertiary">Platform</span>
-        <span className="text-content-primary">{diag.platform}</span>
-        <span className="text-content-tertiary">OS Permission</span>
-        <span
-          className={
-            osPermission === 'granted'
-              ? 'text-status-success-text'
-              : osPermission === 'not granted'
-                ? 'text-status-warning-text'
-                : 'text-content-primary'
-          }
-        >
-          {osPermission}
-        </span>
+        <span className="text-content-primary">{platformLabel}</span>
+        <span className="text-content-tertiary">Development build</span>
+        <span className="text-content-primary">{diag.development_build ? 'Yes' : 'No'}</span>
+        {diag.platform === 'windows' && (
+          <>
+            <span className="text-content-tertiary">App identity</span>
+            <span className="text-content-primary break-all">{diag.app_identity}</span>
+          </>
+        )}
       </div>
       <p className="text-xs text-content-tertiary mt-2">
-        If notifications aren't appearing despite all four rows looking correct, check
-        macOS System Settings → Notifications → MeedyaDL, and ensure Focus / Do Not
-        Disturb is off. Use <strong>Send Test Notification</strong> in Settings → General
-        to verify the full pipeline end-to-end.
+        {whereToLook} Use <strong>Send Test Notification</strong> in Settings &gt; General &gt;
+        Notifications to try it.
       </p>
     </div>
   );

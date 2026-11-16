@@ -269,36 +269,60 @@ pub fn save_session_log(app: tauri::AppHandle, entries: Vec<String>) -> Result<(
     Ok(())
 }
 
-/// Sends a one-off test notification through the **backend** notification
-/// pipeline (#834).
+/// Sends the Settings screen's test notification (#834, reworked #1431).
 ///
-/// The "Send Test Notification" button in Settings → General used to call
-/// the JS notification plugin directly, which:
-/// 1. Tested a different code path than what production downloads use, and
-/// 2. Was unable to surface OS-level send failures because the plugin's
-///    `sendNotification()` resolves successfully even when macOS silently
-///    drops the notification (Focus mode, sandbox, etc.).
+/// Takes the two values currently ON SCREEN -- the System Notifications
+/// switch and the Notification Style -- so the person can test a choice
+/// before saving it. Ignores whether they are looking at MeedyaDL (they
+/// are; they just pressed the button) and never merges or skips a repeat.
+/// Returns a plain sentence when nothing was sent and why.
 ///
-/// This IPC routes the test through the same Rust pipeline as
-/// `send_desktop_notification`, but bypasses the focus-check and throttle
-/// (the user is explicitly testing — silently no-opping defeats the
-/// purpose). Returns a structured error string the frontend can render
-/// directly into a toast so the user knows whether the failure is at the
-/// settings layer, the permission layer, or the OS layer.
+/// `async` so it runs off the main thread: asking the window system about
+/// the window from the main thread's own command handler can wait on
+/// itself on some systems.
 ///
 /// **Frontend caller:** `testDesktopNotification()` in `src/lib/tauri-commands.ts`.
 #[tauri::command]
-pub fn test_desktop_notification(app: tauri::AppHandle) -> Result<(), String> {
-    crate::services::download_queue::test_desktop_notification(&app)
+pub async fn test_desktop_notification(
+    app: tauri::AppHandle,
+    desktop_notifications: bool,
+    notification_style: String,
+) -> Result<(), String> {
+    crate::services::download_queue::test_desktop_notification(
+        &app,
+        desktop_notifications,
+        &notification_style,
+    )
 }
 
-/// Returns a diagnostic snapshot of the desktop-notification configuration
-/// and current OS permission state (#834).
+/// The page's half of the one notification rule (#1431).
 ///
-/// Used by the Settings → Advanced → Diagnostics panel so users on macOS 26+
-/// (where notifications have been silently failing) can see at a glance
-/// whether the toggle, the style, and the OS permission are all in the
-/// expected state. Pure read-only — never triggers a permission prompt.
+/// The page calls this as it shows a message. The backend reads the SAVED
+/// settings, asks whether the person is looking at MeedyaDL, applies
+/// `notification_service::decide`, sends the system notification when the
+/// rule says so, and answers whether it did and whether the page should
+/// still show its own copy. A failure to send is logged only, never
+/// returned as an error -- so a failing system can never set off another
+/// error message (and another, and another).
+///
+/// **Frontend caller:** `notifySystem()` in `src/lib/tauri-commands.ts`.
+#[tauri::command]
+pub async fn notify_system(
+    app: tauri::AppHandle,
+    kind: crate::services::notification_service::NotifyKind,
+    title: String,
+    body: String,
+) -> crate::services::notification_service::NotifySystemAnswer {
+    crate::services::notification_service::notify_system_for_page(&app, kind, &title, &body)
+}
+
+/// Facts about how this copy of MeedyaDL shows notifications, for the
+/// Settings > Advanced > Diagnostics readout (#834, reworked #1431).
+///
+/// Read-only. On desktop systems the notification plugin cannot tell
+/// whether notifications are allowed (it always says yes), so this no
+/// longer pretends to; it shows the facts that do explain a missing
+/// notification instead.
 ///
 /// **Frontend caller:** `getNotificationDiagnostics()` in `src/lib/tauri-commands.ts`.
 #[tauri::command]
@@ -315,24 +339,28 @@ pub fn get_notification_diagnostics(
         desktop_notifications_enabled: settings.desktop_notifications,
         notification_style: settings.notification_style,
         platform: std::env::consts::OS.to_string(),
-        // The actual OS permission grant lives in the JS plugin layer
-        // — the frontend fills `os_permission_state` itself by calling
-        // `isPermissionGranted()` and merges it with this snapshot.
+        development_build: cfg!(debug_assertions),
+        app_identity: app.config().identifier.clone(),
     }
 }
 
-/// Backend half of the notification diagnostics readout (#834). The
-/// frontend tops this up with the JS-side permission state.
+/// The notification diagnostics readout (#834, reworked #1431).
 #[derive(serde::Serialize)]
 pub struct NotificationDiagnostics {
-    /// Mirrors `AppSettings::desktop_notifications`.
+    /// Mirrors `AppSettings::desktop_notifications` (saved value).
     pub desktop_notifications_enabled: bool,
     /// Mirrors `AppSettings::notification_style` — one of
     /// `in_app_only`, `native_and_in_app`, `native_only`.
     pub notification_style: String,
     /// Current build's target OS — `macos`, `windows`, `linux`, etc.
-    /// Lets the frontend hint at OS-specific troubleshooting steps.
     pub platform: String,
+    /// Whether this is a development build. On macOS a development build
+    /// posts its notifications as Terminal, not as MeedyaDL, so they are
+    /// governed by Terminal's notification settings.
+    pub development_build: bool,
+    /// The identity MeedyaDL's notifications are filed under. Windows uses
+    /// it to group them in Settings > System > Notifications.
+    pub app_identity: String,
 }
 
 /// Runs the output-directory integrity scan (#537 chunk B).

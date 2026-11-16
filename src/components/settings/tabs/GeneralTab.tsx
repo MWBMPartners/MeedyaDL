@@ -95,11 +95,12 @@ import type {
 // - Button: platform-adaptive button with loading/icon support
 import { Toggle, FilePickerButton, Select, Button, Checkbox, Input, InlineError, SettingsSection, Modal } from '@/components/common';
 import ChannelSwitchWarning from '@/components/settings/ChannelSwitchWarning';
+import { NotificationSettingsSection } from './NotificationSettingsSection';
 import { PRE_RELEASE_CHANNELS, type UpdateChannel } from '@/types';
 import { LOCALES, baseLanguageOf, isMachineAssisted } from '@/lib/i18n';
 
 // Lucide icons for the refresh/check action button and export/import buttons.
-import { Bell, Download, RefreshCw, Upload } from 'lucide-react';
+import { Download, RefreshCw, Upload } from 'lucide-react';
 import type { AfterQueueAction } from '@/types';
 import { explainError, isCancellation, showError } from '@/lib/errorMessages';
 
@@ -317,24 +318,6 @@ const UPDATE_CHANNEL_OPTIONS_PUBLIC = UPDATE_CHANNEL_OPTIONS_FULL.filter(
 );
 
 /**
- * Notification auto-dismiss duration options (seconds).
- */
-const NOTIFICATION_STYLE_OPTIONS = [
-  { value: 'in_app_only', label: 'In-app only' },
-  { value: 'native_and_in_app', label: 'Native + in-app (default)' },
-  { value: 'native_only', label: 'Native only' },
-];
-
-const NOTIFICATION_DISMISS_OPTIONS = [
-  { value: '3', label: '3 seconds' },
-  { value: '5', label: '5 seconds (default)' },
-  { value: '10', label: '10 seconds' },
-  { value: '15', label: '15 seconds' },
-  { value: '30', label: '30 seconds' },
-  { value: '60', label: '60 seconds' },
-];
-
-/**
  * After-queue action options.
  * "once" variants are handled via the context menu on the Download page;
  * the Settings dropdown controls the persistent "always" action.
@@ -342,7 +325,7 @@ const NOTIFICATION_DISMISS_OPTIONS = [
 const AFTER_QUEUE_OPTIONS = [
   { value: 'do_nothing', label: 'Do nothing' },
   { value: 'open_output_folder', label: 'Open output folder' },
-  { value: 'play_sound', label: 'Play notification sound' },
+  { value: 'play_sound', label: 'Play a sound' },
   { value: 'close_meedyadl', label: 'Close MeedyaDL' },
   { value: 'restart_computer', label: 'Restart computer' },
   { value: 'hibernate_computer', label: 'Hibernate / Sleep' },
@@ -445,9 +428,6 @@ export function GeneralTab() {
   const autoStartQueue = useSettingsField('auto_start_queue');
   const abortQueueConfirm = useSettingsField('abort_queue_confirm');
   const afterQueueAction = useSettingsField('after_queue_action');
-  const desktopNotifications = useSettingsField('desktop_notifications');
-  const notificationStyle = useSettingsField('notification_style');
-  const notificationDismissSeconds = useSettingsField('notification_auto_dismiss_seconds');
   const smartRedownload = useSettingsField('smart_redownload_detection');
   const clipboardMonitoring = useSettingsField('clipboard_monitoring');
   const autoCheckUpdates = useSettingsField('auto_check_updates');
@@ -928,110 +908,8 @@ export function GeneralTab() {
           onChange={(e) => afterQueueAction.set(e.target.value as AfterQueueAction)}
         />
 
-        {/* Desktop notifications */}
-        <Toggle
-          label="Desktop Notifications"
-          description="Show native OS notifications when downloads complete or fail. Notifications are only shown when the app window is not focused."
-          checked={desktopNotifications.value}
-          onChange={desktopNotifications.set}
-        />
-
-        {/* Notification style — controls how notifications are delivered */}
-        {desktopNotifications.value && (
-          <Select
-            label="Notification Style"
-            description="How notifications are delivered. 'In-app only' shows toasts inside the app. 'Native + in-app' shows both OS notifications and in-app toasts. 'Native only' uses OS notifications exclusively -- if your computer blocks them, messages are shown in the app instead."
-            options={NOTIFICATION_STYLE_OPTIONS}
-            value={notificationStyle.value ?? 'native_and_in_app'}
-            onChange={(e) =>
-              notificationStyle.set(e.target.value as 'in_app_only' | 'native_and_in_app' | 'native_only')
-            }
-          />
-        )}
-
-        {/* Test Notification button (#658).
-            Fires a real native notification so the user can verify that the
-            OS-level permission has been granted and the plugin pipeline works.
-            On macOS this also forces the system permission prompt the first
-            time it is invoked if the user dismissed the startup prompt. */}
-        {desktopNotifications.value &&
-          (notificationStyle.value ?? 'native_and_in_app') !== 'in_app_only' && (
-            <div className="flex flex-col gap-1">
-              <Button
-                variant="secondary"
-                icon={<Bell size={14} />}
-                onClick={async () => {
-                  // Two-stage test (#834):
-                  //
-                  // 1. Ensure the JS plugin has the OS permission granted.
-                  //    If not, prompt for it. macOS only fires its system
-                  //    prompt the first time `requestPermission()` is called
-                  //    per bundle ID, so this is also the safety net for
-                  //    users who dismissed (rather than granted) the
-                  //    startup preflight.
-                  //
-                  // 2. Send the test notification through the **Rust**
-                  //    pipeline via `testDesktopNotification()` IPC. This
-                  //    is the same code path production downloads use, so
-                  //    a successful test means production will work; a
-                  //    failure surfaces the actual OS-level error string
-                  //    (e.g. "permission denied", "Focus mode active")
-                  //    instead of silently appearing to succeed.
-                  //
-                  // Pre-#834 this button called `sendNotification()`
-                  // directly, which:
-                  //   - tested a different code path than production, and
-                  //   - returned success even when macOS dropped the
-                  //     notification, leaving users with no diagnostic.
-                  try {
-                    const { isPermissionGranted, requestPermission } =
-                      await import('@tauri-apps/plugin-notification');
-                    let granted = await isPermissionGranted();
-                    if (!granted) {
-                      const result = await requestPermission();
-                      granted = result === 'granted';
-                    }
-                    if (!granted) {
-                      addToast(
-                        'Notification permission was not granted. Open System Settings > Notifications > MeedyaDL to enable, then try again.',
-                        'warning',
-                      );
-                      return;
-                    }
-                    const { testDesktopNotification } = await import('@/lib/tauri-commands');
-                    await testDesktopNotification();
-                    addToast(
-                      'Test notification sent via the production pipeline. If you do not see it on your desktop, check OS notification settings — likely causes: Focus / DND mode, app bundle missing from System Settings → Notifications.',
-                      'info',
-                    );
-                  } catch (err) {
-                    // The backend's reason (the system's own) is under
-                    // "Details"; the message says what usually fixes it.
-                    showError(
-                      'MeedyaDL could not send a test notification. Check that notifications are allowed for MeedyaDL in your system settings, then try again.',
-                      err,
-                    );
-                  }
-                }}
-              >
-                Send Test Notification
-              </Button>
-              <p className="text-xs text-content-tertiary">
-                Sends a one-off native notification so you can verify the OS pipeline.
-              </p>
-            </div>
-          )}
-
-        {/* Notification auto-dismiss duration — only visible when notifications are enabled */}
-        {desktopNotifications.value && (
-          <Select
-            label="Notification Auto-Dismiss"
-            description="How long transient notifications (download complete, added to queue) stay visible before auto-dismissing. Error and warning notifications always require manual dismissal."
-            options={NOTIFICATION_DISMISS_OPTIONS}
-            value={String(notificationDismissSeconds.value ?? 5)}
-            onChange={(e) => notificationDismissSeconds.set(Number(e.target.value))}
-          />
-        )}
+        {/* The notification controls moved to their own section below,
+            "Notifications" (NotificationSettingsSection, #1431). */}
 
         {/* Smart re-download detection */}
         <Toggle
@@ -1135,6 +1013,8 @@ export function GeneralTab() {
           ("Backup" and "Profile Bundle" here, "Backups" in Tools). Each name
           now says what it holds: Settings File (settings only), Full Copy of
           MeedyaDL (everything you tick), and Automatic Snapshots (Tools). */}
+      <NotificationSettingsSection />
+
       <SettingsSection title="Settings File">
         <p className="text-xs text-content-secondary mb-2">
           Save just your settings to a file, or load them from one: to keep a copy, or to set up

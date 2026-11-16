@@ -721,4 +721,8 @@ libc = "0.2"
 # other runs' temporary files that used it (Codex's review of rounds 6-7,
 # findings 3 and 4).
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+#
+# `Win32_System_Diagnostics_Debug` + `Win32_UI_WindowsAndMessaging`:
+# `MessageBeep`, the system alert sound the after-queue "Play a sound"
+# action plays (`services::notification_service::play_alert_sound`, #1431).
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_UI_WindowsAndMessaging"] }

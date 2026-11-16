@@ -160,7 +160,7 @@ If you set MeedyaDL up to reuse a Python already on your system (rather than dow
 
 If you use wrapper authentication and MeedyaDL reports the wrapper is unreachable (yellow toast notification), check that the wrapper service is running and that the URL(s) in **Settings > Advanced > Wrapper** are correct. On GAMDL 3.6+ there is a single **Wrapper URL** field (wrapper-v2); on earlier releases there are three fields (account URL + m3u8 IP + decrypt IP). See [Wrapper Authentication](wrapper.md) for the full setup walkthrough.
 
-**Notification behaviour:** Wrapper warnings appear as persistent yellow toast notifications that auto-dismiss when the wrapper becomes reachable again on a subsequent download. Identical notifications are never stacked — only one wrapper warning is shown at a time.
+**How the warning behaves:** Wrapper warnings appear as yellow messages inside MeedyaDL that stay until the wrapper becomes reachable again on a later download, and then go away by themselves. Identical messages are never stacked — only one wrapper warning is shown at a time.
 
 #### Auto-Retry without Wrapper
 
@@ -472,6 +472,24 @@ The Activity Log auto-scrolls to the bottom by default. An **Auto-scroll** switc
 The Activity Log retains up to **10,000 entries** per session. When the limit is reached, the oldest entries are trimmed. Trimmed entries are not lost — they are persisted to the on-disk activity log (see below) so post-hoc forensic analysis remains possible.
 
 ---
+
+### Notifications Don't Appear
+
+Messages always appear inside MeedyaDL. Your computer shows them as system notifications only when the settings in **Settings > General > Notifications** allow it. Check these first:
+
+- **System Notifications** is on, and **Notification Style** is not **In-app only**.
+- **Show System Notifications** — by default a system notification is shown only while MeedyaDL is not in front (behind another app, minimised or hidden in the tray) or while your pointer is on another screen. While you are looking at MeedyaDL, the message appears inside the app only. **Only when the pointer is on another screen** never shows one if you have a single screen.
+- **Which Messages** — by default only important messages (downloads finishing or failing, the queue finishing, a copied link, a shut-down warning, an app update) become system notifications.
+- The switch for that kind of event (for example **A Download Finished**) is on.
+- You pressed **Save Changes** — the app acts on saved settings.
+
+Then press **Send Test Notification**. If the test does not appear, the setting to change is on your computer:
+
+- **macOS** — open **System Settings > Notifications > MeedyaDL** and allow notifications. Check that a Focus mode (such as Do Not Disturb) is not on. A development build of MeedyaDL shows its notifications as **Terminal**, so look under Terminal instead.
+- **Windows** — open the Windows Settings app, go to **System**, then **Notifications**. Make sure notifications are on, and on for MeedyaDL, and that **Do not disturb** is off.
+- **Linux** — notifications are shown by your desktop's notification service. Most desktops (GNOME, KDE Plasma, Cinnamon, XFCE) run one for you; a minimal window manager may not, so install and start one (for example `dunst` or `mako`). Also check your desktop's own notification settings and any do-not-disturb mode.
+
+**Settings > Advanced > Diagnostics** shows which system MeedyaDL thinks it is on and whether it is a development build.
 
 ### Activity Log Export
 

@@ -21,10 +21,12 @@
  *    limit. Fixed with a bounded cap (`MAX_SEEN_URLS`, oldest dropped
  *    first).
  *
- * 3. The native-notification permission check used to also fire when
- *    permission was `'default'`, which means "never asked, not granted" --
- *    the opposite of what the code treated it as. Fixed to require
- *    `'granted'` specifically.
+ * 3. The hook used to send a second, direct system notification that
+ *    ignored the notification style and said "click to download" (clicking
+ *    did nothing). Now there is one prompt, by one path (#1431): the
+ *    in-app toast, tagged `clipboard_link`, and the backend decides about
+ *    the system copy. The plugin mock stays so the tests can prove it is
+ *    never called.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -283,64 +285,47 @@ describe('useClipboardMonitor', () => {
     });
   });
 
-  describe('native notification permission check (fault #3 -- "default" used to be treated as granted)', () => {
+  describe('one prompt, one path (fault #3 -- a second, direct system notification, #1431)', () => {
+    // There used to be a second system notification sent straight from
+    // this hook. It ignored the notification style and the "when"
+    // setting, and said "click to download" although clicking it did
+    // nothing. Now the hook raises exactly one prompt -- the in-app toast
+    // with its Download button -- tagged `clipboard_link`, and the
+    // backend's one notification rule decides about the system copy.
     beforeEach(() => {
       getSettingsMock.mockReturnValue({
         clipboard_monitoring: true,
         desktop_notifications: true,
       });
-      // The notification branch only runs when the window is unfocused.
       vi.spyOn(document, 'hasFocus').mockReturnValue(false);
-    });
-
-    it('does NOT send a notification when permission is "default" (undecided, not granted)', async () => {
-      readClipboardMock.mockResolvedValue(ALBUM_URL);
-      isPermissionGrantedMock.mockResolvedValue(false);
-      requestPermissionMock.mockResolvedValue('default');
-
-      const { unmount } = renderHook(() => useClipboardMonitor(true));
-      await poll();
-
-      expect(sendNotificationMock).not.toHaveBeenCalled();
-
-      unmount();
-    });
-
-    it('does NOT send a notification when permission is explicitly "denied"', async () => {
-      readClipboardMock.mockResolvedValue(ALBUM_URL);
-      isPermissionGrantedMock.mockResolvedValue(false);
-      requestPermissionMock.mockResolvedValue('denied');
-
-      const { unmount } = renderHook(() => useClipboardMonitor(true));
-      await poll();
-
-      expect(sendNotificationMock).not.toHaveBeenCalled();
-
-      unmount();
-    });
-
-    it('sends a notification once permission is actually granted already', async () => {
-      readClipboardMock.mockResolvedValue(ALBUM_URL);
       isPermissionGrantedMock.mockResolvedValue(true);
+      requestPermissionMock.mockResolvedValue('granted');
+    });
 
+    it('raises exactly one prompt and never sends a system notification itself', async () => {
+      readClipboardMock.mockResolvedValue(ALBUM_URL);
       const { unmount } = renderHook(() => useClipboardMonitor(true));
       await poll();
 
-      expect(sendNotificationMock).toHaveBeenCalledTimes(1);
+      const prompts = addToastMock.mock.calls.filter((c) => c[3] === CLIPBOARD_TOAST_KEY);
+      expect(prompts).toHaveLength(1);
+      expect(sendNotificationMock).not.toHaveBeenCalled();
+      expect(isPermissionGrantedMock).not.toHaveBeenCalled();
+      expect(requestPermissionMock).not.toHaveBeenCalled();
 
       unmount();
     });
 
-    it('sends a notification when the user grants permission just now, when asked', async () => {
+    it('tags the prompt as a copied link and gives the system copy honest wording', async () => {
       readClipboardMock.mockResolvedValue(ALBUM_URL);
-      isPermissionGrantedMock.mockResolvedValue(false);
-      requestPermissionMock.mockResolvedValue('granted');
-
       const { unmount } = renderHook(() => useClipboardMonitor(true));
       await poll();
 
-      expect(requestPermissionMock).toHaveBeenCalledTimes(1);
-      expect(sendNotificationMock).toHaveBeenCalledTimes(1);
+      const call = addToastMock.mock.calls.find((c) => c[3] === CLIPBOARD_TOAST_KEY);
+      const options = call?.[6] as { kind?: string; systemBody?: string } | undefined;
+      expect(options?.kind).toBe('clipboard_link');
+      expect(options?.systemBody).not.toMatch(/click/i);
+      expect(options?.systemBody).toMatch(/Open MeedyaDL/);
 
       unmount();
     });

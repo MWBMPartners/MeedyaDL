@@ -33,7 +33,7 @@
  * @see https://lucide.dev/guide/packages/lucide-react
  */
 import { CheckCircle, AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
-import { useId, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { DEFAULT_TOP, KEEP_CLEAR_ATTRIBUTE, toastStackTop } from '@/lib/toastPlacement';
 import { ErrorDetails } from './ErrorDetails';
 
@@ -43,7 +43,7 @@ import { ErrorDetails } from './ErrorDetails';
 import { useTranslation } from 'react-i18next';
 
 /** Global UI store hook -- provides the `toasts` array and `removeToast` action */
-import { useUiStore } from '@/stores/uiStore';
+import { useUiStore, setToastDismissalPaused } from '@/stores/uiStore';
 
 /** TypeScript types for a single toast message and the union of toast types */
 import type { Toast, ToastType } from '@/types';
@@ -292,16 +292,54 @@ export function ToastContainer() {
     return () => observer?.disconnect();
   }, [toasts, top]);
 
+  /*
+   * Auto-dismiss waits while the pointer is over a toast or a toast has
+   * keyboard focus (#1431), so a message does not vanish while somebody
+   * is reading it or reaching for its button.
+   */
+  const [hovered, setHovered] = useState(false);
+  const [focusInside, setFocusInside] = useState(false);
+  const paused = (hovered || focusInside) && toasts.length > 0;
+  useEffect(() => {
+    setToastDismissalPaused(paused);
+  }, [paused]);
+  useEffect(() => () => setToastDismissalPaused(false), []);
+  useEffect(() => {
+    // A toast dismissed from under the pointer sends no "pointer left".
+    if (toasts.length === 0) {
+      setHovered(false);
+      setFocusInside(false);
+    }
+  }, [toasts.length]);
+
+  /*
+   * Screen readers (#1431): an error is announced at once (`role="alert"`),
+   * anything else politely (`role="status"`). Two hidden announcers carry
+   * the newest message of each sort, so the visible stack can stay in the
+   * order the messages arrived. (The stack itself used to be one polite
+   * status region, so errors were never announced urgently.) Both are
+   * always in the page, empty until there is something to say, because a
+   * screen reader only notices changes to a region it already knows.
+   */
+  const newestError = [...toasts].reverse().find((t) => t.type === 'error');
+  const newestOther = [...toasts].reverse().find((t) => t.type !== 'error');
+
   return (
-    /*
+    <>
+    <div className="sr-only" role="alert" data-testid="toast-announcer-alert">
+      {newestError?.message ?? ''}
+    </div>
+    <div className="sr-only" role="status" aria-live="polite" data-testid="toast-announcer-status">
+      {newestOther?.message ?? ''}
+    </div>
+    {/*
      * Fixed container -- top-right corner of the viewport.
      * flex-col gap-2 stacks multiple toasts vertically with 8px spacing.
      * pointer-events-none allows clicks to pass through to the content below.
      *
-     * The container is always rendered (never null) so the aria-live region
-     * is in the DOM before content arrives. Screen readers must see a live
-     * region before it changes to announce updates.
-     */
+     * Announcements are made by the two hidden regions above; the stack
+     * itself is a labelled region so it can be found and read.
+     */}
     <div
       // Fix 14 (a11y audit): `top-4` (16px from the window's top edge)
       // put toasts directly over most pages' PageHeader action-button
@@ -322,9 +360,14 @@ export function ToastContainer() {
       style={{ top, maxHeight: `calc(100vh - ${top}px - 16px)` }}
       className={`fixed right-4 z-[100] flex flex-col gap-2 max-w-sm w-full overflow-y-auto ${scrolls ? 'pointer-events-auto' : 'pointer-events-none'}`}
       data-testid="toast-stack"
-      role="status"
-      aria-live="polite"
+      role="region"
       aria-label={t('toast.ariaLabel')}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocusInside(true)}
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusInside(false);
+      }}
     >
       {toasts.map((toast) => (
         /*
@@ -338,5 +381,6 @@ export function ToastContainer() {
         </div>
       ))}
     </div>
+    </>
   );
 }

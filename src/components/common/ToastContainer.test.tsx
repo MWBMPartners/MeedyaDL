@@ -12,7 +12,7 @@
  * the real thing at three window sizes.
  */
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastContainer } from './ToastContainer';
 import { useUiStore } from '@/stores/uiStore';
@@ -43,7 +43,9 @@ describe('ToastContainer', () => {
     pretendTextIsCut(true);
     act(() => useUiStore.setState({ toasts: [{ id: 't1', message: LONG, type: 'error', duration: 0 }] }));
     render(<ToastContainer />);
-    const message = screen.getByText(LONG.trim(), { exact: false });
+    // Scoped to the visible stack: the hidden screen-reader announcers
+    // (#1431) carry the same text.
+    const message = within(screen.getByTestId('toast-stack')).getByText(LONG.trim(), { exact: false });
     expect(message.className).toContain('line-clamp-3');
     const more = screen.getByRole('button', { name: 'Show more' });
     expect(more).toHaveAttribute('aria-expanded', 'false');
@@ -72,5 +74,44 @@ describe('ToastContainer', () => {
 
   it('starts at 80px when nothing on the page is marked', () => {
     expect(toastStackTop()).toBe(80);
+  });
+
+  // ── #1431: screen readers and pausing ──────────────────────────────
+
+  it('announces an error urgently and anything else politely', () => {
+    act(() =>
+      useUiStore.setState({
+        toasts: [
+          { id: 'a', message: 'Saved', type: 'success', duration: 0, expiresAt: null },
+          { id: 'b', message: 'It broke', type: 'error', duration: 0, expiresAt: null },
+        ],
+      })
+    );
+    render(<ToastContainer />);
+    expect(screen.getByRole('alert')).toHaveTextContent('It broke');
+    expect(screen.getByRole('status')).toHaveTextContent('Saved');
+    // The stack itself is no longer one polite region holding errors too.
+    expect(screen.getByTestId('toast-stack')).not.toHaveAttribute('role', 'status');
+  });
+
+  it('keeps a toast open while the pointer is over the stack', () => {
+    vi.useFakeTimers();
+    try {
+      act(() => useUiStore.getState().addToast('Hover me', 'info', 1000));
+      render(<ToastContainer />);
+      const stack = screen.getByTestId('toast-stack');
+      fireEvent.mouseEnter(stack);
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+      expect(useUiStore.getState().toasts).toHaveLength(1);
+      fireEvent.mouseLeave(stack);
+      act(() => {
+        vi.advanceTimersByTime(1500);
+      });
+      expect(useUiStore.getState().toasts).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

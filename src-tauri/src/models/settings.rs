@@ -1052,28 +1052,72 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub abort_queue_confirm: bool,
 
-    /// Whether to send native OS desktop notifications for download events
-    /// (completion and terminal failure). Notifications are only sent when
-    /// the main application window is not focused, so they do not interrupt
-    /// users who are actively watching the queue. Default: `true`.
+    /// The master switch for SYSTEM notifications (the ones the operating
+    /// system shows outside the app). Default: `true`.
     ///
-    /// Controlled in Settings > General > Preferences.
+    /// It controls system notifications only: messages inside the app are
+    /// always shown. When and for which messages a system notification is
+    /// sent is decided by `native_notification_when`,
+    /// `native_notification_scope` and the four `notify_*` switches, all
+    /// in one place, `services::notification_service::decide` (#1431).
+    ///
+    /// Controlled in Settings > General > Notifications.
     #[serde(default = "default_true")]
     pub desktop_notifications: bool,
 
     /// Notification delivery style controlling how notifications are shown.
     /// "in_app_only" = in-app toasts only.
     /// "native_and_in_app" = both native OS notifications and in-app toasts (default).
-    /// "native_only" = native OS notifications only (no in-app toasts).
+    /// "native_only" = system notifications in place of in-app messages --
+    /// but only for plain information/success messages that WERE sent to
+    /// the system. A message with a button, details, a key, or an error or
+    /// warning, and any message not sent to the system, still shows in the
+    /// app (#1431).
     #[serde(default = "default_notification_style")]
     pub notification_style: String,
 
-    /// Auto-dismiss duration for transient notifications (seconds).
+    /// Auto-dismiss duration for transient in-app messages (seconds).
     /// Range: 3-60 seconds. Default: 5 seconds.
-    /// Affects both in-app toasts and native OS notifications.
+    /// Applies to in-app messages only; the operating system decides how
+    /// long its own notifications stay.
     /// Persistent notifications (errors, warnings) are not affected.
     #[serde(default = "default_notification_dismiss")]
     pub notification_auto_dismiss_seconds: u32,
+
+    /// When a system notification is shown (#1431). Default:
+    /// `background_or_other_screen` -- only when MeedyaDL's window is not
+    /// in front, is minimised or hidden, or the mouse pointer is on a
+    /// different screen from the window. Decided in one place,
+    /// `notification_service::decide`.
+    #[serde(default)]
+    pub native_notification_when: NativeNotificationWhen,
+
+    /// Which messages may become system notifications (#1431). Default:
+    /// `important` -- downloads finishing or failing, the queue finishing,
+    /// a copied link, a computer shut-down warning and an app update ready
+    /// to install. Every message is still shown inside the app.
+    #[serde(default)]
+    pub native_notification_scope: NativeNotificationScope,
+
+    /// Send a system notification when a download finishes (#1431).
+    /// Gates the system notification only; the in-app message still shows.
+    #[serde(default = "default_true")]
+    pub notify_download_complete: bool,
+
+    /// Send a system notification when a download fails or finishes with
+    /// warnings (#1431). Gates the system notification only.
+    #[serde(default = "default_true")]
+    pub notify_download_failed: bool,
+
+    /// Send a system notification when the whole queue finishes (#1431).
+    /// Gates the system notification only.
+    #[serde(default = "default_true")]
+    pub notify_queue_finished: bool,
+
+    /// Send a system notification when a copied Apple Music link is found
+    /// (#1431). Gates the system notification only.
+    #[serde(default = "default_true")]
+    pub notify_clipboard_link: bool,
 
     /// Smart re-download detection using Apple Music API `lastModifiedDate`.
     /// When enabled and a user queues a URL that was previously downloaded,
@@ -2122,6 +2166,39 @@ pub enum AfterQueueAction {
     ShutdownComputer,
 }
 
+/// When MeedyaDL shows a system notification (#1431).
+///
+/// In every case the message is also shown inside the app (unless the
+/// notification style is "System only" and the system notification was
+/// actually sent). Only the system copy is decided here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeNotificationWhen {
+    /// When MeedyaDL's window is not in front, is minimised or hidden, or
+    /// the mouse pointer is on a different screen from the window.
+    #[default]
+    BackgroundOrOtherScreen,
+    /// Only when the mouse pointer is on a different screen from
+    /// MeedyaDL's window. With one screen this never happens.
+    OtherScreenOnly,
+    /// Every time, even while MeedyaDL is in front.
+    Always,
+}
+
+/// Which messages may become system notifications (#1431).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeNotificationScope {
+    /// Downloads finishing or failing, the queue finishing, a copied link,
+    /// a computer shut-down warning and an app update ready to install.
+    #[default]
+    Important,
+    /// The important ones, plus every error message.
+    ImportantAndErrors,
+    /// Every message the app shows.
+    Everything,
+}
+
 /// Serde default helper: returns `true` for `auto_start_queue`.
 /// Used by `#[serde(default = "default_auto_start_queue")]` because
 /// `bool::default()` returns `false`, but we need `true` for backward
@@ -2182,7 +2259,7 @@ fn default_wrapper_decrypt_ip() -> String {
 
 /// Current settings schema version.
 /// Increment this when making backwards-incompatible changes to AppSettings.
-pub const CURRENT_SETTINGS_VERSION: u32 = 11;
+pub const CURRENT_SETTINGS_VERSION: u32 = 12;
 
 impl Default for AppSettings {
     /// Creates default settings that match the project brief requirements.
@@ -2255,11 +2332,17 @@ impl Default for AppSettings {
             // manually triggers processing from the Queue page.
             auto_start_queue: true,
             abort_queue_confirm: true,
-            // Desktop notifications enabled by default — OS-native alerts
-            // for download completion and failure when the window is not focused.
+            // System notifications on by default; when and for what is
+            // decided by the #1431 fields just below.
             desktop_notifications: true,
             notification_style: "native_and_in_app".to_string(),
             notification_auto_dismiss_seconds: 5,
+            native_notification_when: NativeNotificationWhen::BackgroundOrOtherScreen,
+            native_notification_scope: NativeNotificationScope::Important,
+            notify_download_complete: true,
+            notify_download_failed: true,
+            notify_queue_finished: true,
+            notify_clipboard_link: true,
             smart_redownload_detection: true,
             clipboard_monitoring: true,
 

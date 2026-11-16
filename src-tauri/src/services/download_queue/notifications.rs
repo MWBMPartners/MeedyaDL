@@ -1,7 +1,8 @@
 // Copyright (c) 2024-2026 MeedyaSuite
 // Licensed under the MIT License. See LICENSE file in the project root.
 //
-// Desktop notifications, notification throttling, and after-queue actions.
+// Download notifications (handed to `services::notification_service`,
+// which holds the one rule, #1431) and after-queue actions.
 //
 // Extracted verbatim from the former single-file `download_queue.rs`
 // during the behaviour-preserving module split. `use super::*;` pulls in
@@ -22,165 +23,59 @@ pub(crate) fn redact_url_query(url: &str) -> String {
     crate::services::crash_report_service::redact_single_url(url)
 }
 
-/// Notification throttling state: tracks last notification time per category
-/// and batched count to prevent notification spam during rapid queue processing.
-pub(crate) static NOTIFICATION_THROTTLE: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, u32)>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
-
-/// Minimum interval between notifications of the same category (seconds).
-pub(crate) const NOTIFICATION_THROTTLE_SECS: u64 = 10;
-
-/// Sends a native OS desktop notification if the setting is enabled and the
-/// main application window is not focused.
-///
-/// This avoids interrupting users who are actively watching the queue. When the
-/// window is minimized, in the background, or the user has switched to another
-/// app, a notification alerts them that a download has completed or failed.
-///
-/// Silently does nothing if:
-/// - The `desktop_notifications` setting is `false`.
-/// - The main window is currently focused (visible and in foreground).
-/// - The notification fails to build or send (non-critical).
-pub(crate) fn send_desktop_notification(app: &AppHandle, title: &str, body: &str) {
-    use tauri::Manager;
-    use tauri_plugin_notification::NotificationExt;
-
-    // Check if desktop notifications are enabled in user settings
-    let settings = load_settings_for_queue(app);
-    if !settings.desktop_notifications {
-        return;
-    }
-
-    // Respect the user's notification style preference (#658).
-    // The backend used to fire native notifications regardless of style, which
-    // contradicted the `in_app_only` choice and gave the impression that the
-    // setting did nothing. Skip the OS notification when the user picked
-    // `in_app_only` — the in-app toast path is unaffected.
-    if settings.notification_style == "in_app_only" {
-        return;
-    }
-
-    // Only send notifications when the window is NOT focused.
-    if let Some(window) = app.get_webview_window("main") {
-        if window.is_focused().unwrap_or(false) {
-            return;
-        }
-    }
-
-    // Throttle: batch rapid notifications of the same title category.
-    // If the same title was sent within the last 10 seconds, update the
-    // count and modify the body to show "N downloads completed" etc.
-    let throttle_key = title.to_string();
-    let display_body = {
-        let mut throttle = NOTIFICATION_THROTTLE.lock().unwrap_or_else(|e| e.into_inner());
-        let now = std::time::Instant::now();
-        let entry = throttle.entry(throttle_key).or_insert((now, 0));
-        let elapsed = now.duration_since(entry.0);
-
-        if elapsed < std::time::Duration::from_secs(NOTIFICATION_THROTTLE_SECS) {
-            entry.1 += 1;
-            if entry.1 > 1 {
-                // Batch: update the body with count
-                format!("{} ({} items)", body, entry.1)
-            } else {
-                body.to_string()
-            }
-        } else {
-            // Reset: enough time has passed
-            *entry = (now, 1);
-            body.to_string()
-        }
-    };
-
-    // Send the OS-native notification.
-    //
-    // Instrumentation (#834): the previous `.ok()` swallowed every
-    // failure silently, which made it impossible to tell whether
-    // notifications were being dropped at the plugin layer, the
-    // OS permission layer, or somewhere else. Now log both arms
-    // through tracing so the on-disk log (#541) captures the truth
-    // for any future bug report. The user's in-app activity log is
-    // *not* spammed — these are OS-pipeline events, not download
-    // events.
-    match app
-        .notification()
-        .builder()
-        .title(title)
-        .body(&display_body)
-        .show()
-    {
-        Ok(()) => {
-            log::debug!(
-                "desktop notification sent: title={:?} body={:?}",
-                title,
-                display_body
-            );
-        }
-        Err(e) => {
-            log::warn!(
-                "desktop notification FAILED: title={:?} error={:?} \
-                 (likely OS-level: permission revoked, Focus mode, or sandbox block)",
-                title,
-                e
-            );
-        }
-    }
+/// Works out the "Artist — Album — Track" label for a queue item, for the
+/// notification about it. "A download" when the item is no longer in the
+/// queue.
+pub(crate) async fn item_label(queue: &QueueHandle, download_id: &str) -> String {
+    let q = queue.lock().await;
+    q.get_status()
+        .iter()
+        .find(|s| s.id == download_id)
+        .map(format_content_label)
+        .unwrap_or_else(|| "A download".to_string())
 }
 
-/// Sends a one-off test notification through the **real** backend
-/// pipeline so the user can self-diagnose why OS notifications are
-/// or aren't appearing.
+/// A download finished: tells the person, by the one notification rule in
+/// `services::notification_service` (#1431).
+pub(crate) async fn notify_item_complete(app: &AppHandle, queue: &QueueHandle, download_id: &str) {
+    let label = item_label(queue, download_id).await;
+    crate::services::notification_service::notify_download_complete(app, &label);
+}
+
+/// A download failed. Only the error CATEGORY is passed on: the person is
+/// given a short plain reason, never the raw error text (#1431).
+pub(crate) async fn notify_item_failed(
+    app: &AppHandle,
+    queue: &QueueHandle,
+    download_id: &str,
+    error_category: &str,
+) {
+    let label = item_label(queue, download_id).await;
+    crate::services::notification_service::notify_download_failed(app, &label, error_category);
+}
+
+/// A download finished, but some files may need downloading again.
+pub(crate) async fn notify_item_warnings(app: &AppHandle, queue: &QueueHandle, download_id: &str) {
+    let label = item_label(queue, download_id).await;
+    crate::services::notification_service::notify_download_warnings(app, &label);
+}
+
+/// Sends the Settings screen's test notification (#834, reworked #1431).
 ///
-/// Differs from `send_desktop_notification` in two ways:
-/// - Bypasses the focus check. The user is clicking "Send Test
-///   Notification" while the app is focused (by definition — they're
-///   on a Settings page); we don't want to silently no-op on them.
-/// - Bypasses the throttle. They might click the button repeatedly.
-///
-/// Otherwise hits the exact same plugin entrypoint, so a successful
-/// test means the production path will also work; a failure surfaces
-/// the actual reason via the returned `Err`.
-///
-/// Closes #834 (instrumentation half).
+/// Uses the values currently ON SCREEN, so the person can try a setting
+/// before saving it, and ignores whether they are looking at MeedyaDL --
+/// they are, they just pressed the button. See
+/// `notification_service::send_test_notification`.
 pub fn test_desktop_notification(
     app: &AppHandle,
+    desktop_notifications: bool,
+    notification_style: &str,
 ) -> Result<(), String> {
-    use tauri_plugin_notification::NotificationExt;
-
-    let settings = load_settings_for_queue(app);
-    if !settings.desktop_notifications {
-        return Err(
-            "Desktop Notifications toggle is off. \
-             Turn it on in Settings → General → Notifications first."
-                .to_string(),
-        );
-    }
-    if settings.notification_style == "in_app_only" {
-        return Err(
-            "Notification Style is set to 'In-app only'. \
-             Switch to 'Native + in-app' or 'Native only' to test the OS pipeline."
-                .to_string(),
-        );
-    }
-
-    app.notification()
-        .builder()
-        .title("MeedyaDL — Backend Test")
-        .body(
-            "If you can read this, the native notification pipeline is working \
-             from the Rust side. If you don't see this notification, check macOS \
-             System Settings → Notifications → MeedyaDL.",
-        )
-        .show()
-        .map_err(|e| {
-            format!(
-                "OS-level send failed: {e}. \
-                 Likely causes: macOS notification permission revoked, \
-                 Focus / Do Not Disturb mode enabled, or the app bundle \
-                 missing from System Settings → Notifications."
-            )
-        })
+    crate::services::notification_service::send_test_notification(
+        app,
+        desktop_notifications,
+        notification_style,
+    )
 }
 
 /// Executes the configured after-queue action when the queue becomes idle.
@@ -317,9 +212,13 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
             emit_app_log(app, &format!("After-queue action: opened output folder ({path})"));
         }
         AfterQueueAction::PlaySound => {
-            send_desktop_notification(app, "Queue Complete", "All downloads finished.");
-            log::info!("After-queue: played notification sound");
-            emit_app_log(app, "After-queue action: notification sound");
+            // A real alert sound, whatever the notification settings or
+            // window focus: the person chose "play a sound" for exactly
+            // this moment. (This used to send a notification with no
+            // sound, and nothing at all while the window was in front.)
+            crate::services::notification_service::play_alert_sound();
+            log::info!("After-queue: played the alert sound");
+            emit_app_log(app, "After-queue action: played the alert sound");
         }
         AfterQueueAction::CloseMeedyadl => {
             log::info!("After-queue: closing MeedyaDL");
@@ -334,7 +233,10 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
         AfterQueueAction::RestartComputer => {
             log::info!("After-queue: restarting computer");
             emit_app_log(app, "After-queue action: restarting computer in 30 seconds...");
-            send_desktop_notification(app, "MeedyaDL", "Computer will restart in 30 seconds...");
+            crate::services::notification_service::notify_power_action(
+                app,
+                "Downloads finished. Your computer will restart in 30 seconds.",
+            );
             #[cfg(target_os = "macos")]
             {
                 let _ = std::process::Command::new("osascript")
@@ -357,6 +259,10 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
         AfterQueueAction::HibernateComputer => {
             log::info!("After-queue: hibernating computer");
             emit_app_log(app, "After-queue action: hibernating computer...");
+            crate::services::notification_service::notify_power_action(
+                app,
+                "Downloads finished. Your computer is going to sleep now.",
+            );
             #[cfg(target_os = "macos")]
             {
                 // macOS uses sleep (pmset sleepnow) — true hibernate requires
@@ -380,7 +286,10 @@ pub(crate) fn execute_after_queue_action(app: &AppHandle) {
         AfterQueueAction::ShutdownComputer => {
             log::info!("After-queue: shutting down computer");
             emit_app_log(app, "After-queue action: shutting down computer in 30 seconds...");
-            send_desktop_notification(app, "MeedyaDL", "Computer will shut down in 30 seconds...");
+            crate::services::notification_service::notify_power_action(
+                app,
+                "Downloads finished. Your computer will shut down in 30 seconds.",
+            );
             #[cfg(target_os = "macos")]
             {
                 let _ = std::process::Command::new("osascript")

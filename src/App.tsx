@@ -268,6 +268,7 @@ import { initI18n, changeUiLanguage, systemLanguageOrEnglish } from './lib/i18n'
  */
 import type { GamdlProgress, ActivityLogEntry, ComponentUpdate } from './types';
 import { showBackendError, showError } from '@/lib/errorMessages';
+import { showAppNotification, type AppNotificationEvent } from '@/lib/appNotifications';
 
 /**
  * The root component that serves as the entry point for the application UI.
@@ -771,34 +772,13 @@ function App() {
       }
 
       /*
-       * Notification permission preflight (#658).
-       *
-       * On macOS, `requestPermission()` only triggers the system prompt the
-       * first time it is called for a bundle ID. If the user dismissed (not
-       * granted, not denied) the prompt during a prior session, every later
-       * call resolves silently with `'default'` and `sendNotification()` is
-       * a no-op — which is why users on Native + In-app saw no notifications.
-       *
-       * Requesting permission once at startup forces a predictable, visible
-       * prompt and also lets us log the resolved status to the WebView
-       * console for debugging. Skipped when the user picked `in_app_only`.
+       * There used to be a notification "permission preflight" here
+       * (#658). It is gone (#1431): on desktop systems the notification
+       * plugin always answers "granted" without asking anyone, so it never
+       * did anything. Whether notifications are allowed is the operating
+       * system's own setting; Settings > General > Notifications has a
+       * test button and says where to look.
        */
-      const notifStyle =
-        useSettingsStore.getState().settings.notification_style ?? 'native_and_in_app';
-      if (notifStyle !== 'in_app_only') {
-        try {
-          const { isPermissionGranted, requestPermission } = await import(
-            '@tauri-apps/plugin-notification'
-          );
-          const granted = await isPermissionGranted();
-          if (!granted) {
-            const result = await requestPermission();
-            console.info(`[notification] startup permission request resolved: ${result}`);
-          }
-        } catch (err) {
-          console.warn('[notification] startup permission preflight failed:', err);
-        }
-      }
     };
 
     initialize().catch((err) => {
@@ -1153,6 +1133,7 @@ function App() {
     let unlistenPreflight: (() => void) | undefined;
     let unlistenPreflightCleared: (() => void) | undefined;
     let unlistenConnectivityRestored: (() => void) | undefined;
+    let unlistenAppNotification: (() => void) | undefined;
 
     const setupListeners = async () => {
       try {
@@ -1179,6 +1160,23 @@ function App() {
               refreshQueue();
             } catch (err) {
               console.error('Error in download-error handler:', err);
+            }
+          }
+        );
+
+        /* 2b. A message the backend owns (#1431): a download finished or
+         * failed, the queue finished, the computer is about to shut down.
+         * The backend has already decided, by the one notification rule,
+         * whether to send a system notification; `show_in_app` says
+         * whether to show it here too. `system: false` because the
+         * backend has already done that half. */
+        unlistenAppNotification = await listen<AppNotificationEvent>(
+          'app-notification',
+          (event) => {
+            try {
+              showAppNotification(event.payload);
+            } catch (err) {
+              console.error('Error in app-notification handler:', err);
             }
           }
         );
@@ -1308,6 +1306,7 @@ function App() {
       unlistenPreflight?.();
       unlistenPreflightCleared?.();
       unlistenConnectivityRestored?.();
+      unlistenAppNotification?.();
     };
   }, [refreshQueue, handleDownloadComplete, handleDownloadError, handleDownloadCancelled]);
 

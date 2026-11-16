@@ -94,8 +94,14 @@ const DEFAULT_SETTINGS: AppSettings = {
   gamdl_idle_timeout_minutes: 5, // Kill hung GAMDL after 5 min of silent output (#505)
   auto_start_queue: true, // Start processing immediately when items are enqueued
   abort_queue_confirm: true, // Show confirmation modal before abort fires (#620)
-  desktop_notifications: true, // OS-native notifications for download events when window not focused
+  desktop_notifications: true, // Master switch for system notifications (#1431)
   notification_style: 'native_and_in_app' as const, // Both native + in-app by default
+  native_notification_when: 'background_or_other_screen' as const, // System notification only while MeedyaDL is not in front (#1431)
+  native_notification_scope: 'important' as const, // Only important messages become system notifications (#1431)
+  notify_download_complete: true, // System notification when a download finishes (#1431)
+  notify_download_failed: true, // ...when one fails or finishes with warnings (#1431)
+  notify_queue_finished: true, // ...when the queue finishes (#1431)
+  notify_clipboard_link: true, // ...when a copied link is found (#1431)
   smart_redownload_detection: true, // Detect changes via API lastModifiedDate before re-downloading
   clipboard_monitoring: true, // Monitor clipboard for supported URLs
   default_song_codec: 'alac', // Preferred audio codec: Apple Lossless

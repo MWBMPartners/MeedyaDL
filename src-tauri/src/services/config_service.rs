@@ -318,6 +318,24 @@ fn migrate_settings(settings: &mut AppSettings) {
         settings.settings_version = 11;
     }
 
+    // v11 -> v12: the notifications rework (#1431) adds
+    // `native_notification_when`, `native_notification_scope` and four
+    // per-event switches (`notify_download_complete`,
+    // `notify_download_failed`, `notify_queue_finished`,
+    // `notify_clipboard_link`).
+    //
+    // Nothing to convert. Every new field takes its default through
+    // `#[serde(default)]` when an older file is read, and those defaults
+    // are the maintainer's chosen starting point (system notifications
+    // only for important messages, only while MeedyaDL is not in front,
+    // every per-event switch on). The three existing notification fields
+    // (`desktop_notifications`, `notification_style`,
+    // `notification_auto_dismiss_seconds`) keep whatever the person had.
+    // This only stamps the version.
+    if settings.settings_version == 11 {
+        settings.settings_version = 12;
+    }
+
     if old_version != settings.settings_version {
         log::info!(
             "Migrated settings from v{old_version} to v{}",
@@ -2891,6 +2909,77 @@ mod tests {
         };
         migrate_settings(&mut s);
         assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v11 → v12 notifications rework (#1431)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migrate_v11_to_v12_stamps_version_and_keeps_old_notification_fields() {
+        use crate::models::settings::{NativeNotificationScope, NativeNotificationWhen};
+        let mut s = AppSettings {
+            settings_version: 11,
+            desktop_notifications: false,
+            notification_style: "native_only".to_string(),
+            notification_auto_dismiss_seconds: 30,
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        // The person's existing choices are untouched.
+        assert!(!s.desktop_notifications);
+        assert_eq!(s.notification_style, "native_only");
+        assert_eq!(s.notification_auto_dismiss_seconds, 30);
+        // The new fields hold their defaults.
+        assert_eq!(
+            s.native_notification_when,
+            NativeNotificationWhen::BackgroundOrOtherScreen
+        );
+        assert_eq!(
+            s.native_notification_scope,
+            NativeNotificationScope::Important
+        );
+        assert!(s.notify_download_complete);
+        assert!(s.notify_download_failed);
+        assert!(s.notify_queue_finished);
+        assert!(s.notify_clipboard_link);
+    }
+
+    #[test]
+    fn a_v11_settings_file_reads_the_new_notification_fields_as_their_defaults() {
+        // An upgrading person's file has none of the new keys: serde must
+        // fill them in, not fail the whole file.
+        use crate::models::settings::{NativeNotificationScope, NativeNotificationWhen};
+        let mut value = serde_json::to_value(default_settings()).unwrap();
+        let obj = value.as_object_mut().unwrap();
+        for key in [
+            "native_notification_when",
+            "native_notification_scope",
+            "notify_download_complete",
+            "notify_download_failed",
+            "notify_queue_finished",
+            "notify_clipboard_link",
+        ] {
+            assert!(
+                obj.remove(key).is_some(),
+                "{key} should be a settings field"
+            );
+        }
+        obj.insert("settings_version".into(), serde_json::json!(11));
+        let mut s: AppSettings = serde_json::from_value(value).unwrap();
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(
+            s.native_notification_when,
+            NativeNotificationWhen::BackgroundOrOtherScreen
+        );
+        assert_eq!(
+            s.native_notification_scope,
+            NativeNotificationScope::Important
+        );
+        assert!(s.notify_download_complete && s.notify_download_failed);
+        assert!(s.notify_queue_finished && s.notify_clipboard_link);
     }
 
     #[test]

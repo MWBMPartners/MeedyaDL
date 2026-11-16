@@ -74,6 +74,7 @@ import type {
   DownloadRequest,
   ExternalGamdlInfo,
   LanguageIdentity,
+  NotifyKind,
   PlatformInfo,
   PythonVenvHealthDto,
   QueueStatus,
@@ -2711,15 +2712,12 @@ export function saveSessionLog(entries: string[]): Promise<void> {
 }
 
 /**
- * Backend-half of the desktop-notification diagnostics readout (#834).
+ * Facts for the notification diagnostics readout in Settings > Advanced >
+ * Diagnostics (#834, reworked #1431).
  *
- * The Settings → Advanced → Diagnostics panel reads this snapshot to show
- * the user their current notification configuration — useful on macOS
- * where Tauri's `sendNotification()` can resolve successfully even when
- * the OS silently drops the notification.
- *
- * The frontend tops the result up with the JS-side
- * `isPermissionGranted()` value to give a complete picture.
+ * On desktop systems the notification plugin always reports permission as
+ * granted, so the readout no longer shows a permission row; it shows the
+ * facts that do explain a missing notification.
  *
  * IPC target: `get_notification_diagnostics` → `commands::system::get_notification_diagnostics`
  */
@@ -2727,6 +2725,10 @@ export interface NotificationDiagnostics {
   desktop_notifications_enabled: boolean;
   notification_style: string;
   platform: string;
+  /** A development build. On macOS its notifications appear as Terminal's. */
+  development_build: boolean;
+  /** The identity notifications are filed under (Windows groups them by it). */
+  app_identity: string;
 }
 
 export function getNotificationDiagnostics(): Promise<NotificationDiagnostics> {
@@ -2734,26 +2736,46 @@ export function getNotificationDiagnostics(): Promise<NotificationDiagnostics> {
 }
 
 /**
- * Sends a one-off test notification through the **backend** notification
- * pipeline (#834).
+ * Sends the Settings screen's test notification (#834, reworked #1431).
  *
- * The pre-#834 "Send Test Notification" button in Settings → General
- * called the JS plugin directly. That tested a different code path than
- * what production downloads use AND couldn't surface OS-level failures
- * because `sendNotification()` resolves successfully even when macOS
- * drops the notification.
- *
- * This wrapper routes the test through the same Rust path as
- * `send_desktop_notification`, but bypasses the focus check and the
- * throttle — the user is explicitly testing, so silently no-opping
- * would defeat the purpose. Returns the actual OS-level error string
- * when the plugin call fails, which the caller renders into a toast so
- * the user can act on it (e.g. open System Settings → Notifications).
+ * Takes the values currently ON SCREEN, so a choice can be tried before it
+ * is saved. Ignores whether the person is looking at MeedyaDL. Rejects
+ * with a plain sentence when nothing was sent (switch off, style "In-app
+ * only", or the system refused it).
  *
  * IPC target: `test_desktop_notification` → `commands::system::test_desktop_notification`
  */
-export function testDesktopNotification(): Promise<void> {
-  return invoke<void>('test_desktop_notification');
+export function testDesktopNotification(
+  desktopNotifications: boolean,
+  notificationStyle: string
+): Promise<void> {
+  return invoke<void>('test_desktop_notification', { desktopNotifications, notificationStyle });
+}
+
+/** The backend's answer to `notifySystem` (#1431). */
+export interface NotifySystemAnswer {
+  /** A system notification was sent (or the identical one moments ago). */
+  sent: boolean;
+  /** Whether the page should show its own copy (before the page's own
+   * reasons to keep one: a button, details, a key, an error or warning). */
+  in_app: boolean;
+}
+
+/**
+ * Asks the backend whether this page message should also become a system
+ * notification, and sends it if so (#1431). The backend applies the one
+ * rule (`services/notification_service.rs::decide`) to the SAVED settings
+ * and to whether the person is looking at MeedyaDL. Never rejects because
+ * the system refused a notification -- that is logged on the backend.
+ *
+ * IPC target: `notify_system` → `commands::system::notify_system`
+ */
+export function notifySystem(
+  kind: NotifyKind,
+  title: string,
+  body: string
+): Promise<NotifySystemAnswer> {
+  return invoke<NotifySystemAnswer>('notify_system', { kind, title, body });
 }
 
 /**

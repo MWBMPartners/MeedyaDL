@@ -113,7 +113,9 @@ The History page exposes the same Retry / Retry All Failed actions (as buttons i
 
 ### After the queue finishes
 
-MeedyaDL can do something by itself when the whole queue has finished: open the output folder, play a notification sound, close MeedyaDL, or restart, sleep/hibernate or shut down the computer.
+MeedyaDL can do something by itself when the whole queue has finished: open the output folder, play a sound, close MeedyaDL, or restart, sleep/hibernate or shut down the computer.
+
+**Play a sound** plays your computer's own alert sound, whatever your notification settings and whether or not MeedyaDL is in front. (On Linux it uses your desktop's sound player if one is installed; if none is, no sound plays.) Whatever you choose, MeedyaDL also tells you the queue has finished, with how many downloads worked and how many failed, and warns you before it restarts, puts to sleep or shuts down your computer.
 
 - **Every time** — choose it in **Settings > General > Preferences > After Queue Completes**, and save.
 - **Just this once** — right-click an empty part of the Download page and pick one of the **After Queue:** options. This is saved straight away (no need to press Save Changes). It is used the next time the queue finishes and then cleared, so it will not happen again unless you choose it again. While it is waiting, it takes the place of your usual setting.
@@ -303,11 +305,11 @@ Smart re-download detection relies on metadata changes exposed through the Apple
 
 ## Clipboard Monitoring
 
-MeedyaDL can watch your system clipboard for supported URLs while the app is open. When you copy an Apple Music URL from a browser, messaging app, or any other source, MeedyaDL detects it and shows a notification offering to download that content.
+MeedyaDL can watch your system clipboard for supported URLs while the app is open. When you copy an Apple Music URL from a browser, messaging app, or any other source, MeedyaDL detects it and shows a message inside the app offering to download that content.
 
-Click **Download** on the notification to add the URL directly to the download queue (using your current quality settings). If that link is already in the queue, nothing is added and a message tells you so. Dismiss the notification if you do not want to download.
+Click **Download** on that message to add the URL directly to the download queue (using your current quality settings). If that link is already in the queue, nothing is added and a message tells you so. Close the message if you do not want to download.
 
-MeedyaDL shows its usual message for a detected URL, which follows the **Notification Style** setting in **Settings > General > Preferences** (a three-way choice: in-app toasts only, native OS notifications only, or both). When the MeedyaDL window is not focused (e.g., minimised or in the background), it also sends a **native OS notification**, so you never miss a detected URL. That extra notification is only sent while **Desktop Notifications** is switched on — and, for a copied link, it is sent even when Notification Style is set to in-app toasts only. With Desktop Notifications off, MeedyaDL shows its messages inside the app window only.
+The message stays inside the app even with **System only** chosen, because it has the **Download** button. Your computer may also show a system notification about the copied link, following the settings in **Settings > General > Notifications** (by default only while MeedyaDL is not in front). A system notification has no button: to download, open MeedyaDL and click **Download** on the message there. To stop the system notification for copied links, turn off **A Copied Link Was Found**.
 
 ### Privacy
 

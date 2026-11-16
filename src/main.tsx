@@ -295,6 +295,14 @@ window.addEventListener('unhandledrejection', (event) => {
   // Surface the error to the user via toast (dynamic import to avoid circular deps)
   // Same message as the handler above ("Async error: ..." used to be the
   // whole message); the error's own text is under "Details".
+  //
+  // This cannot loop (#1431). The toast's request for a system
+  // notification never rejects (`askBackendForSystemNotification` in
+  // uiStore.ts catches everything), and a system notification that fails
+  // is logged by the backend, not turned into another message. Before,
+  // "System only" sent every error to the notification plugin from the
+  // page, so a failing send could raise another rejection, another error
+  // message, and so on.
   import('./lib/errorMessages')
     .then(({ showError }) => {
       showError(UNEXPECTED_ERROR_MESSAGE, errorMessage);

@@ -5,8 +5,9 @@
 //
 // When enabled in settings, this hook reads the clipboard every 2 seconds
 // and shows an actionable toast when a supported URL (Apple Music) is
-// detected. The user can click "Download" to navigate to the Download
-// page with the URL pre-filled, or dismiss the toast.
+// detected. The user can click "Download" to add it to the queue, or
+// dismiss the toast. Whether a system notification goes out too is the
+// backend's one notification rule's decision (#1431).
 //
 // Privacy-first:
 //   - Only checks clipboard text for URL patterns.
@@ -22,11 +23,6 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 import { readClipboard, startDownload } from '@/lib/tauri-commands';
 import { isAppleMusicUrl, parseAppleMusicUrl, getContentTypeLabel } from '@/lib/url-parser';
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from '@tauri-apps/plugin-notification';
 import { showBackendError } from '@/lib/errorMessages';
 
 /** Polling interval in milliseconds (2 seconds) */
@@ -141,45 +137,26 @@ export function useClipboardMonitor(isReady: boolean): void {
               });
           };
 
-          // Always show the in-app toast (visible when window is focused)
+          // ONE prompt, by ONE path (#1431). The in-app message carries the
+          // Download button; the backend's notification rule decides
+          // whether a system notification goes out as well (kind
+          // `clipboard_link`, governed by the "copied link found" switch
+          // and the "when" setting). There used to be a second, direct
+          // system notification here that ignored the notification style
+          // and said "click to download" -- clicking it did nothing.
           useUiStore.getState().addToast(
             toastMessage,
             'info',
             10000, // 10 seconds — longer than default to give the user time
             CLIPBOARD_TOAST_KEY,
-            { label: 'Download', onClick: downloadAction }
+            { label: 'Download', onClick: downloadAction },
+            undefined,
+            {
+              kind: 'clipboard_link',
+              systemTitle: 'Copied link found',
+              systemBody: `An Apple Music ${typeLabel} link was copied. Open MeedyaDL and choose Download to add it to the queue.`,
+            }
           );
-
-          // Also send a native OS notification when the window is NOT focused
-          // so the user sees the detection even when MeedyaDL is minimised.
-          const { desktop_notifications } = useSettingsStore.getState().settings;
-          if (desktop_notifications && !document.hasFocus()) {
-            isPermissionGranted()
-              .then((granted) => {
-                if (!granted) return requestPermission();
-                return 'granted';
-              })
-              .then((permission) => {
-                // This used to also send when permission was 'default',
-                // which reads as though it might mean "go ahead, that's
-                // the normal case" -- it means the opposite. 'default' is
-                // the OS's answer when the person has never been asked or
-                // never answered, i.e. permission has NOT been granted.
-                // Calling sendNotification() anyway didn't throw or show
-                // an error; the OS just silently drops a notification it
-                // was never given permission to show. So this looked
-                // fine in testing (nothing crashed) while quietly never
-                // notifying a single real user who hadn't already said
-                // yes. Only 'granted' actually means granted.
-                if (permission === 'granted') {
-                  sendNotification({
-                    title: 'MeedyaDL',
-                    body: `Apple Music ${typeLabel} URL detected — click to download`,
-                  });
-                }
-              })
-              .catch(() => { /* notification permission denied or unavailable */ });
-          }
         })
         .catch(() => {
           // Silently ignore clipboard read errors (e.g., no display server)

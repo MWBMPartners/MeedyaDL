@@ -612,14 +612,30 @@ export interface AppSettings {
    * aborts from the button / keyboard shortcut.
    */
   abort_queue_confirm: boolean;
-  /** Whether to send native OS desktop notifications for download events (completion/failure).
-   * Notifications are only sent when the app window is not focused. */
+  /** Master switch for SYSTEM notifications (shown by the operating
+   * system, outside the app). In-app messages always show. When and for
+   * what is decided by the backend's one rule
+   * (`services/notification_service.rs`, #1431) from the SAVED settings. */
   desktop_notifications: boolean;
   /** Notification style controlling how notifications are delivered.
    * 'in_app_only' = in-app toasts only
-   * 'native_and_in_app' = both native OS notifications and in-app toasts (default)
-   * 'native_only' = native OS notifications only (no in-app toasts) */
+   * 'native_and_in_app' = both system notifications and in-app toasts (default)
+   * 'native_only' = a plain information/success message that WAS sent to
+   *   the system is not repeated in the app; anything with a button,
+   *   details, a key, an error or warning, or not sent, still shows in the app. */
   notification_style: 'in_app_only' | 'native_and_in_app' | 'native_only';
+  /** When a system notification is shown (#1431). */
+  native_notification_when: NativeNotificationWhen;
+  /** Which messages may become system notifications (#1431). */
+  native_notification_scope: NativeNotificationScope;
+  /** System notification when a download finishes (#1431). */
+  notify_download_complete: boolean;
+  /** System notification when a download fails or finishes with warnings (#1431). */
+  notify_download_failed: boolean;
+  /** System notification when the whole queue finishes (#1431). */
+  notify_queue_finished: boolean;
+  /** System notification when a copied Apple Music link is found (#1431). */
+  notify_clipboard_link: boolean;
   /** Smart re-download detection via Apple Music API lastModifiedDate.
    * When enabled, compares stored manifest data against fresh API response
    * to detect if an album has changed since the user's last download. */
@@ -919,7 +935,7 @@ export interface AppSettings {
   high_contrast: boolean;
   /** Colour vision deficiency mode: '' (disabled), 'deuteranopia', 'protanopia', or 'tritanopia' */
   colour_blind_mode: string;
-  /** Auto-dismiss duration for transient notifications (seconds). Range: 3-60. Default: 5. */
+  /** Auto-dismiss duration for transient in-app messages (seconds). Range: 3-60. Default: 5. */
   notification_auto_dismiss_seconds?: number;
   /** Whether the user has accepted the Terms of Service. Shown on first launch. */
   terms_accepted?: boolean;
@@ -1940,6 +1956,52 @@ export type AppPage =
  * - `info`: blue, info icon
  */
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
+
+/**
+ * When a system notification is shown (#1431). Mirrors the Rust
+ * `NativeNotificationWhen` enum in `models/settings.rs`.
+ * - `background_or_other_screen` (default): when MeedyaDL's window is not
+ *   in front, is minimised or hidden, or the pointer is on another screen.
+ * - `other_screen_only`: only when the pointer is on another screen.
+ * - `always`: every time.
+ */
+export type NativeNotificationWhen = 'background_or_other_screen' | 'other_screen_only' | 'always';
+
+/**
+ * Which messages may become system notifications (#1431). Mirrors the Rust
+ * `NativeNotificationScope` enum.
+ */
+export type NativeNotificationScope = 'important' | 'important_and_errors' | 'everything';
+
+/**
+ * What a message is about, for the notification rule (#1431). Mirrors the
+ * Rust `NotifyKind` enum in `services/notification_service.rs`. Page
+ * messages without a kind are `error` (for error toasts) or `general`.
+ */
+export type NotifyKind =
+  | 'download_complete'
+  | 'download_failed'
+  | 'download_warnings'
+  | 'queue_finished'
+  | 'clipboard_link'
+  | 'power_action'
+  | 'update_ready'
+  | 'error'
+  | 'general';
+
+/** Extra, optional facts about a toast, for the notification rule (#1431). */
+export interface ToastOptions {
+  /** What the message is about. Default: `error` for error toasts, else `general`. */
+  kind?: NotifyKind;
+  /** Title for the system notification. Default: "MeedyaDL" (with a word for errors and warnings). */
+  systemTitle?: string;
+  /** Text for the system notification, when it should differ from the
+   * in-app message (for example because the in-app one has a button). */
+  systemBody?: string;
+  /** `false` = never ask for a system notification (used for messages the
+   * backend has already decided about). Default: ask. */
+  system?: boolean;
+}
 
 /**
  * Toast notification data structure.

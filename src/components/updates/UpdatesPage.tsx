@@ -205,7 +205,11 @@ export function UpdatesPage() {
   const handleDownloadAndInstall = async (tag: string) => {
     try {
       await downloadAndInstallAppUpdate(tag);
-      addToast('Update installed! Restart to apply.', 'success');
+      addToast('Update installed! Restart to apply.', 'success', undefined, undefined, undefined, undefined, {
+        // An important message (#1431): may also be a system notification.
+        kind: 'update_ready',
+        systemBody: 'A MeedyaDL update is installed. Restart MeedyaDL to use it.',
+      });
     } catch (e) {
       showError(UPDATE_FAILED, e);
     }

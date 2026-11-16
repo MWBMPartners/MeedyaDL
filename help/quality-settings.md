@@ -329,15 +329,19 @@ You can select **multiple content types** simultaneously using the checkbox grou
 
 ### Download Notifications
 
-MeedyaDL sends notifications when downloads complete or encounter errors. Configure how notifications are delivered in **Settings > General > Preferences**, under the notification settings:
+When a download finishes, fails, or finishes with warnings, MeedyaDL shows a message inside the app naming what it was, for example "Daft Punk — Discovery finished." A failed download says, in a few plain words, what probably went wrong. When the whole queue is done you see how it went, for example "Queue finished: 5 downloaded, 1 failed."
 
-| Mode | Behavior |
+By default your computer also shows these as system notifications, but only while MeedyaDL is not in front (behind another app, minimised, or hidden in the tray) or while your mouse pointer is on a different screen. If several downloads finish within a few seconds, your system shows one notification that sums them up ("3 downloads finished, 1 failed") instead of one each.
+
+Choose when and for which messages in **Settings > General > Notifications**:
+
+| Style | Behavior |
 |------|----------|
-| **In-App Only** | Toast banners inside MeedyaDL only |
-| **Native & In-App** (default) | Both OS-level notifications and in-app toasts |
-| **Native Only** | OS-level notifications only (no in-app toasts) |
+| **In-app only** | Messages inside MeedyaDL only |
+| **System and in-app** (default) | System notifications as well as messages inside MeedyaDL |
+| **System only** | A plain message your system has shown is not repeated inside MeedyaDL. Errors, warnings and anything the system was not asked to show still appear inside MeedyaDL |
 
-Native OS notifications are especially useful when MeedyaDL is minimised or running in the system tray — you'll see download completions and errors even while working in other applications.
+There you can also switch the system notification off for each kind of event (a download finished, a download failed, the queue finished, a copied link was found) — the message inside the app still appears. See [Settings](settings.md) for every option.
 
 ### Per-Download Quality Selection
 

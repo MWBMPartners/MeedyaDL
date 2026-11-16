@@ -359,7 +359,14 @@ pub fn process_queue(
                         &app,
                         "Queue drained by abort — skipping post-queue action",
                     );
+                    // The counts belong to a run that was stopped, not
+                    // finished; the next run starts from zero (#1431).
+                    crate::services::notification_service::reset_queue_run_counts();
                 } else {
+                    // "Queue finished: 5 downloaded, 1 failed" -- by the
+                    // one notification rule, before any after-queue action
+                    // (which may be a shut-down) runs (#1431).
+                    crate::services::notification_service::notify_queue_finished(&app);
                     execute_after_queue_action(&app);
                 }
             }
@@ -1562,12 +1569,11 @@ pub fn process_queue(
                                     }),
                                 );
 
-                                // Send a desktop notification for the terminal failure
-                                send_desktop_notification(
-                                    &app_clone,
-                                    "Download Failed",
-                                    &format!("Download failed: {error_msg}"),
-                                );
+                                // Tell the person (system notification and/or
+                                // in-app message, by the one rule, #1431). Only
+                                // the category goes on, never the raw error.
+                                notify_item_failed(&app_clone, &queue_clone, &dl_id, error_category)
+                                    .await;
 
                                 // Spawn companion downloads even on failure —
                                 // the companion codec may succeed where the primary
@@ -4436,6 +4442,10 @@ pub fn process_queue(
                             // completes -- most of the album is fine -- but
                             // a prominent warning + notification surfaces
                             // the gap instead of a silent "Complete".
+                            // Set when the warnings notification has been
+                            // sent, so the same item is not also announced as
+                            // simply "finished" a moment later (#1431).
+                            let mut finished_with_warnings = false;
                             if integrity_failure.is_none() {
                                 if let Some(report) = &integrity_report {
                                     if !report.suspect_files.is_empty() {
@@ -4448,14 +4458,13 @@ pub fn process_queue(
                                                 report.suspect_files.join(", "),
                                             ),
                                         );
-                                        send_desktop_notification(
+                                        notify_item_warnings(
                                             &completion_app,
-                                            "Completed With Warnings",
-                                            &format!(
-                                                "{} file(s) may need re-downloading",
-                                                report.suspect_files.len(),
-                                            ),
-                                        );
+                                            &completion_queue,
+                                            &completion_dl_id,
+                                        )
+                                        .await;
+                                        finished_with_warnings = true;
                                     }
                                 }
                             }
@@ -4495,11 +4504,13 @@ pub fn process_queue(
                                         "guidance": guidance,
                                     }),
                                 );
-                                send_desktop_notification(
+                                notify_item_failed(
                                     &completion_app,
-                                    "Download Failed",
-                                    &msg,
-                                );
+                                    &completion_queue,
+                                    &completion_dl_id,
+                                    "io",
+                                )
+                                .await;
                             } else {
                                 emit_download_log(
                                     &completion_app,
@@ -4508,12 +4519,17 @@ pub fn process_queue(
                                 );
                                 let _ = completion_app.emit("download-complete", &completion_dl_id);
 
-                                // Desktop notification fires AFTER all work finishes
-                                send_desktop_notification(
-                                    &completion_app,
-                                    "Download Complete",
-                                    "All downloads and processing complete",
-                                );
+                                // The notification comes AFTER all work finishes,
+                                // and names the item (#1431). Skipped when the
+                                // warnings notification already covered it.
+                                if !finished_with_warnings {
+                                    notify_item_complete(
+                                        &completion_app,
+                                        &completion_queue,
+                                        &completion_dl_id,
+                                    )
+                                    .await;
+                                }
                             }
 
                             // Cascade: process the next item in the queue (#455).
@@ -5124,12 +5140,10 @@ pub fn process_queue(
                             }),
                         );
 
-                        // Send a desktop notification for the terminal failure
-                        send_desktop_notification(
-                            &app_clone,
-                            "Download Failed",
-                            &format!("Download failed: {error_msg}"),
-                        );
+                        // Tell the person (system notification and/or in-app
+                        // message, by the one rule, #1431). Only the category
+                        // goes on, never the raw error.
+                        notify_item_failed(&app_clone, &queue_clone, &dl_id, error_category).await;
 
                         // Spawn companion downloads on failure — unless the error
                         // is network-related (network is down, so companions would

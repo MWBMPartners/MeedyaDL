@@ -1189,6 +1189,7 @@ pub fn run() {
             commands::system::save_session_log,
             // Notification diagnostics + backend-pipeline test button (#834).
             commands::system::test_desktop_notification,
+            commands::system::notify_system,
             commands::system::get_notification_diagnostics,
             // Output-directory integrity scan (#537 chunk B).
             commands::system::run_integrity_scan,
