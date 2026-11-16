@@ -2111,6 +2111,62 @@
         assert!(!queue.set_error("no-such-item", "x"));
     }
 
+    /// #1431, review round 3 item 1: on the per-format retry route the
+    /// attempt sets Error itself before trying the next format. When no
+    /// format is left, the final `set_error` changes nothing -- but the
+    /// failure must still be announced and counted, once.
+    #[test]
+    fn a_failure_after_the_last_format_is_still_announced_once() {
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        let _ = queue.next_pending();
+        // The retry route: Error, then (chain exhausted) no new options.
+        let failed_here = queue.set_error(&id, "format not available");
+        assert!(failed_here);
+        let changed_now = queue.set_error(&id, "no output files were produced");
+        assert!(!changed_now, "already Error: no change at the final failure");
+        assert!(
+            is_new_failure(failed_here, changed_now),
+            "but it is this attempt's failure, so it is announced"
+        );
+        // An item the watchdog had failed before this attempt touched it is
+        // not this attempt's failure.
+        assert!(!is_new_failure(false, false));
+    }
+
+    /// #1431, review round 3 item 2: a run that returns after the stall
+    /// watchdog failed the item, or after the person cancelled it, leaves
+    /// it as it is.
+    #[test]
+    fn an_item_ended_outside_the_attempt_is_recognised() {
+        assert_eq!(
+            ended_outside_this_attempt(&DownloadState::Error),
+            Some(EndedOutside::FailedByWatchdog)
+        );
+        assert_eq!(
+            ended_outside_this_attempt(&DownloadState::Cancelled),
+            Some(EndedOutside::Cancelled)
+        );
+        for running in [
+            DownloadState::Queued,
+            DownloadState::Downloading,
+            DownloadState::Processing,
+            DownloadState::Complete,
+        ] {
+            assert_eq!(ended_outside_this_attempt(&running), None, "{running:?}");
+        }
+
+        // The case that motivated it: watchdog fails a running item, the
+        // run then exits cleanly. Without the check, set_processing would
+        // move it back and set_complete would report a NEW completion.
+        let mut queue = DownloadQueue::new();
+        let id = enqueue_one(&mut queue);
+        let _ = queue.next_pending();
+        assert!(queue.set_error(&id, "stalled"));
+        let state = queue.get_status()[0].state.clone();
+        assert!(ended_outside_this_attempt(&state).is_some());
+    }
+
     /// Verifies that set_complete() refuses to overwrite a Cancelled state.
     /// Mirrors the Error guard — both are terminal and must not regress.
     #[test]

@@ -1001,6 +1001,39 @@ pub fn process_queue(
                     let (output_path_for_artwork, completed_codec, history_track_name, history_created_at) = {
                         let mut q = queue_clone.lock().await;
 
+                        // #1431: if the item was already failed by the stall
+                        // watchdog, or cancelled, while GAMDL was still
+                        // running, this late clean exit must not bring it back
+                        // (moving it to Processing and then announcing it
+                        // "finished" after it was announced "failed"). Leave
+                        // it as it is and move the queue on.
+                        if let Some(ended) = q
+                            .items
+                            .iter()
+                            .find(|i| i.status.id == dl_id)
+                            .and_then(|i| ended_outside_this_attempt(&i.status.state))
+                        {
+                            if ended == EndedOutside::Cancelled {
+                                // A cancel does not release the slot itself
+                                // (the cancelled run does); the watchdog did.
+                                q.on_task_finished();
+                            }
+                            drop(q);
+                            log::info!(
+                                "Download {dl_id} exited after it had already ended ({ended:?}) — leaving it as it is"
+                            );
+                            save_queue_to_disk(&app_clone, &queue_clone).await;
+                            process_queue(app_clone, queue_clone).await;
+                            return;
+                        }
+
+                        // #1431: whether this attempt has already moved the
+                        // item to Error itself (the per-format retry route
+                        // below), so a later "no output" failure is still
+                        // announced and counted although the state no longer
+                        // changes there.
+                        let mut failed_here = false;
+
                         // Check if GAMDL emitted a "Saved to:" line during the run.
                         // If not, no files were produced despite a clean exit.
                         let has_output = q
@@ -1147,7 +1180,7 @@ pub fn process_queue(
                                      attempting fallback: {error_msg}"
                                     );
                                     let settings = load_settings_for_queue(&app_clone);
-                                    q.set_error(&dl_id, &error_msg);
+                                    failed_here |= q.set_error(&dl_id, &error_msg);
                                     q.on_task_finished();
 
                                     if let Some((new_options, fb_idx, chain_len)) =
@@ -1466,10 +1499,18 @@ pub fn process_queue(
                                 // cannot miss it -- unless a retry without the
                                 // wrapper may still follow, in which case it is
                                 // counted below once that is ruled out.
-                                let newly_failed = q.set_error(&dl_id, &error_msg);
+                                //
+                                // `failed_here`: the per-format retry route above
+                                // may already have set Error in this attempt, in
+                                // which case this call changes nothing but the
+                                // failure is still this attempt's to announce.
+                                let changed_now = q.set_error(&dl_id, &error_msg);
+                                let newly_failed = is_new_failure(failed_here, changed_now);
+                                // Read once, and used both for counting and for
+                                // the retry decision below, so the two agree.
+                                let ar_settings = load_settings_for_queue(&app_clone);
                                 let may_retry_without_wrapper = wrapper_url_for_logging.is_some()
-                                    && load_settings_for_queue(&app_clone)
-                                        .auto_retry_without_wrapper;
+                                    && ar_settings.auto_retry_without_wrapper;
                                 let counted_in_lock = newly_failed && !may_retry_without_wrapper;
                                 if counted_in_lock {
                                     crate::services::notification_service::count_result(
@@ -1486,29 +1527,25 @@ pub fn process_queue(
 
                                 // Auto-retry without wrapper on success-path
                                 // terminal errors (same logic as the Err path).
-                                if wrapper_url_for_logging.is_some() {
-                                    let ar_settings = load_settings_for_queue(&app_clone);
-                                    if ar_settings.auto_retry_without_wrapper {
-                                        log::info!(
-                                            "Auto-retrying download {dl_id} without \
-                                         wrapper (success-path terminal error)"
-                                        );
-                                        emit_download_log(
-                                            &app_clone,
-                                            &dl_id,
-                                            "Wrapper failed — auto-retrying without wrapper",
-                                        );
-                                        let retried = {
-                                            let mut q = queue_clone.lock().await;
-                                            q.retry_without_wrapper(&dl_id, &ar_settings)
-                                        };
-                                        if retried {
-                                            save_queue_to_disk(&app_clone, &queue_clone).await;
-                                            let _ = app_clone.emit("download-queued", &dl_id);
-                                            process_queue(app_clone.clone(), queue_clone.clone())
-                                                .await;
-                                            return;
-                                        }
+                                if may_retry_without_wrapper {
+                                    log::info!(
+                                        "Auto-retrying download {dl_id} without \
+                                     wrapper (success-path terminal error)"
+                                    );
+                                    emit_download_log(
+                                        &app_clone,
+                                        &dl_id,
+                                        "Wrapper failed — auto-retrying without wrapper",
+                                    );
+                                    let retried = {
+                                        let mut q = queue_clone.lock().await;
+                                        q.retry_without_wrapper(&dl_id, &ar_settings)
+                                    };
+                                    if retried {
+                                        save_queue_to_disk(&app_clone, &queue_clone).await;
+                                        let _ = app_clone.emit("download-queued", &dl_id);
+                                        process_queue(app_clone.clone(), queue_clone.clone()).await;
+                                        return;
                                     }
                                 }
 
@@ -4557,7 +4594,10 @@ pub fn process_queue(
                                     )
                                     .await;
                                 }
-                            } else {
+                            } else if result_to_announce.is_some() {
+                                // Only when the item really finished just now
+                                // (#1431): not one the watchdog failed or the
+                                // person cancelled during post-processing.
                                 emit_download_log(
                                     &completion_app,
                                     &completion_dl_id,
@@ -4613,6 +4653,33 @@ pub fn process_queue(
                         // Cascade on cancel (#455)
                         process_queue(app_clone, queue_clone).await;
                         return;
+                    }
+
+                    // #1431: already failed by the stall watchdog while the
+                    // run was still going? Then it has been announced,
+                    // counted and its slot released already. Do not retry it
+                    // (network, format or wrapper retry) or announce it
+                    // again; just move the queue on.
+                    {
+                        let q = queue_clone.lock().await;
+                        let ended = q
+                            .items
+                            .iter()
+                            .find(|i| i.status.id == dl_id)
+                            .and_then(|i| ended_outside_this_attempt(&i.status.state));
+                        drop(q);
+                        if let Some(ended) = ended {
+                            log::info!(
+                                "Download {dl_id} errored after it had already ended ({ended:?}) — not retrying: {error_msg}"
+                            );
+                            if ended == EndedOutside::Cancelled {
+                                let mut q = queue_clone.lock().await;
+                                q.on_task_finished();
+                            }
+                            save_queue_to_disk(&app_clone, &queue_clone).await;
+                            process_queue(app_clone, queue_clone).await;
+                            return;
+                        }
                     }
 
                     // === Error path ===

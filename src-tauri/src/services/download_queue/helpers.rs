@@ -106,6 +106,38 @@ pub(crate) fn format_content_label(status: &QueueItemStatus) -> String {
         .unwrap_or_else(|| "unknown content".to_string())
 }
 
+/// How an item ended while its GAMDL run was still going (#1431).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EndedOutside {
+    /// The stall watchdog marked it failed (and has already announced,
+    /// counted it and released its slot).
+    FailedByWatchdog,
+    /// The person cancelled it (the run, not `cancel()`, releases the slot).
+    Cancelled,
+}
+
+/// Whether an item had already ended, from outside the current attempt,
+/// by the time its GAMDL run returned. Read in the first lock after the run,
+/// before this attempt has changed the state itself: during a run the state
+/// is Downloading or Processing, so Error can only have come from the stall
+/// watchdog and Cancelled only from the person. Such an item is left as it
+/// is -- not retried, not moved back to Processing, not announced again.
+pub(crate) fn ended_outside_this_attempt(state: &DownloadState) -> Option<EndedOutside> {
+    match state {
+        DownloadState::Error => Some(EndedOutside::FailedByWatchdog),
+        DownloadState::Cancelled => Some(EndedOutside::Cancelled),
+        _ => None,
+    }
+}
+
+/// Whether a "no output" failure is new for this attempt (#1431): either
+/// the state changed to Error just now, or this attempt had already set it
+/// earlier (the per-format retry route sets Error before trying the next
+/// format, and when none is left the later `set_error` changes nothing).
+pub(crate) fn is_new_failure(failed_earlier_in_this_attempt: bool, changed_now: bool) -> bool {
+    failed_earlier_in_this_attempt || changed_now
+}
+
 /// Turns a URL into the identity used to answer "is this already queued,
 /// or already downloaded?"
 ///
