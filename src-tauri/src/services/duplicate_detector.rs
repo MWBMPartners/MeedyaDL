@@ -1091,7 +1091,7 @@ fn preference_order(
 /// Construct an Apple Music single-track URL in the form
 /// `https://music.apple.com/{sf}/album/_/{album_id}?i={song_id}`.
 /// Returns `None` when either component is empty.
-fn build_track_url(storefront: &str, album_id: &str, song_id: &str) -> Option<String> {
+pub(crate) fn build_track_url(storefront: &str, album_id: &str, song_id: &str) -> Option<String> {
     if storefront.is_empty() || album_id.is_empty() || song_id.is_empty() {
         return None;
     }

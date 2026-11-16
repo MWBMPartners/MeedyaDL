@@ -40,3 +40,4 @@ The same refresh is what the word-level lyrics pass (16 Nov 2026) relies on, del
 2. Cover layout for a song, an album and a playlist; no duplicate from the companion run; a music video's `<name>.jpg`.
 3. The companion TTML refresh above.
 4. Optional: `ffprobe` and tag writing on a 4.0.2 file.
+5. Extra-format copies on a mixed-format album are requested as per-track song links (`album/_/{album_id}?i={song_id}`): check they land in the album folder with the expected file names (same template as the album run), on 3.x and 4.0.2.

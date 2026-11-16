@@ -741,10 +741,13 @@ pub(crate) struct CompanionGateState {
     /// format priority can mix them within an album). Companions skip
     /// these formats, or on a mixed album keep the primary's own tracks.
     pub primary_codecs: Vec<SongCodec>,
-    /// Each primary track's detected format, disc and track number, so a
-    /// companion on a mixed album can remove its new copies of tracks the
-    /// primary already has in that format.
+    /// Each of THIS download's primary tracks: detected format, disc and
+    /// track number. On a mixed album a companion requests only the tracks
+    /// not already in its format.
     pub primary_tracks: Vec<(SongCodec, u32, u32)>,
+    /// The album's tracks from Apple Music: disc, track, song ID — to build
+    /// per-track song links.
+    pub album_tracks: Vec<(u32, u32, String)>,
 }
 
 /// Enrichment's end of the gate. Dropping it — an early return, a panic,
@@ -774,11 +777,13 @@ impl CompanionGate {
         renames_done: bool,
         primary_codecs: Vec<SongCodec>,
         primary_tracks: Vec<(SongCodec, u32, u32)>,
+        album_tracks: Vec<(u32, u32, String)>,
     ) {
         self.0.send_modify(|s| {
             s.renames_done = renames_done;
             s.primary_codecs = primary_codecs;
             s.primary_tracks = primary_tracks;
+            s.album_tracks = album_tracks;
         });
         // `Drop` sets `released`.
     }
@@ -876,66 +881,58 @@ pub(crate) fn file_templates_allow_fixed_folder(options: &GamdlOptions) -> bool 
     .all(|t| !t.contains('/') && !t.contains('\\'))
 }
 
-/// Every file under `dir` (depth 10, filesystem clutter left out).
-pub(crate) fn all_files_in(dir: &Path) -> std::collections::BTreeSet<PathBuf> {
-    crate::utils::fs_walk::walk_dir_depth(dir, 10, |path| {
-        (path.is_file() && !crate::utils::fs_safe::is_filesystem_sidecar(path))
-            .then(|| path.to_path_buf())
-    })
-    .into_iter()
-    .collect()
+/// Whether a tagged file counts as one of THIS download's own primary
+/// files, for the companions' format checks: never a file whose album did
+/// not match the Apple Music album (another album sharing the folder);
+/// otherwise one written since the download started (judged at snapshot
+/// time), or named the way this primary run names its files (a re-download
+/// with overwrite off leaves the file unchanged). `album_matched` is
+/// `None` when there were no album details to compare with (a playlist).
+pub(crate) fn is_this_downloads_file(
+    fresh: bool,
+    name_matches_primary: bool,
+    album_matched: Option<bool>,
+) -> bool {
+    album_matched != Some(false) && (fresh || name_matches_primary)
 }
 
-/// After a companion attempt in `codec` on a mixed album: removes every
-/// NEW audio file (not in `before`) whose disc and track number (from its
-/// tags, else its name) belong to a primary track already in `codec`,
-/// together with the new files beside it that share its name (its lyrics
-/// and subtitles). Files that were there before are never touched.
-/// Returns the audio files removed.
-pub(crate) fn remove_new_copies_of_primary_tracks(
-    before: &std::collections::BTreeSet<PathBuf>,
-    dir: &Path,
+/// Song links for an extra-format copy on a mixed album: one per track of
+/// THIS download whose primary file is NOT already in `codec`, built from
+/// the album's song IDs (`album_tracks`: disc, track, song ID). Returns the
+/// links and the tracks that could not be matched to a song ID.
+pub(crate) fn other_track_links(
     codec: &SongCodec,
     primary_tracks: &[(SongCodec, u32, u32)],
-) -> Vec<PathBuf> {
-    let after = all_files_in(dir);
-    let new: Vec<&PathBuf> = after.difference(before).collect();
-    // Song copies are always saved as .m4a. Music videos (.m4v / .mp4)
-    // and animated artwork (.mp4) can land in the same folder while the
-    // copy runs (enrichment's later steps carry on after the gate opens)
-    // and may carry a matching track number, so only .m4a is ever
-    // considered here.
-    let is_audio = |p: &Path| {
-        p.extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e.eq_ignore_ascii_case("m4a"))
-    };
-    let mut removed = Vec::new();
-    for audio in new.iter().filter(|p| is_audio(p)) {
-        let numbers = read_audio_numbers(audio, false, None);
-        let (Some(disc), Some(track)) = (numbers.disc.or(Some(1)), numbers.track) else {
-            continue;
-        };
-        if !primary_tracks
-            .iter()
-            .any(|(c, d, t)| c == codec && *d == disc && *t == track)
-        {
-            continue;
+    album_tracks: &[(u32, u32, String)],
+    storefront: &str,
+    album_id: &str,
+) -> (Vec<String>, Vec<(u32, u32)>) {
+    let already: Vec<(u32, u32)> = primary_tracks
+        .iter()
+        .filter(|(c, _, _)| c == codec)
+        .map(|(_, d, t)| (*d, *t))
+        .collect();
+    let mut wanted: Vec<(u32, u32)> = Vec::new();
+    for (_, d, t) in primary_tracks {
+        if !already.contains(&(*d, *t)) && !wanted.contains(&(*d, *t)) {
+            wanted.push((*d, *t));
         }
-        let stem = audio.file_stem().map(std::ffi::OsStr::to_os_string);
-        let parent = audio.parent().map(Path::to_path_buf);
-        for file in &new {
-            if file.parent().map(Path::to_path_buf) == parent
-                && file.file_stem().map(std::ffi::OsStr::to_os_string) == stem
-            {
-                if let Err(e) = std::fs::remove_file(file) {
-                    log::warn!("Could not remove extra copy {}: {e}", file.display());
-                }
-            }
-        }
-        removed.push((*audio).clone());
     }
-    removed
+    let mut links = Vec::new();
+    let mut unmapped = Vec::new();
+    for (d, t) in wanted {
+        let link = album_tracks
+            .iter()
+            .find(|(ad, at, _)| *ad == d && *at == t)
+            .and_then(|(_, _, id)| {
+                crate::services::duplicate_detector::build_track_url(storefront, album_id, id)
+            });
+        match link {
+            Some(l) => links.push(l),
+            None => unmapped.push((d, t)),
+        }
+    }
+    (links, unmapped)
 }
 
 /// How the pass ended, for its summary line.
@@ -1403,43 +1400,37 @@ mod tests {
     }
 
     #[test]
-    fn a_mixed_album_loses_only_new_copies_of_tracks_already_in_that_format() {
-        use crate::services::metadata_tag_service::test_support::minimal_m4a;
-        // The primary: track 1 in Atmos, track 2 in ALAC rated explicit and
-        // already renamed `02 T [Explicit] [Lossless]`.
-        let dir = tempfile::tempdir().unwrap();
-        let d = dir.path();
-        minimal_m4a(&d.join("01 S [Dolby Atmos].m4a"), 1, 1, false);
-        minimal_m4a(&d.join("02 T [Explicit] [Lossless].m4a"), 2, 1, true);
-        std::fs::write(d.join("02 T [Explicit] [Lossless].lrc"), b"primary").unwrap();
-        let primary_tracks = vec![(SongCodec::Atmos, 1, 1), (SongCodec::Alac, 1, 2)];
-        let before = all_files_in(d);
+    fn a_mixed_album_requests_only_the_tracks_not_already_in_that_format() {
+        // Track 1 Atmos, track 2 ALAC, track 3 Atmos; track 3 has no song ID.
+        let primary = vec![
+            (SongCodec::Atmos, 1, 1),
+            (SongCodec::Alac, 1, 2),
+            (SongCodec::Atmos, 1, 3),
+        ];
+        let album = vec![(1, 1, "101".to_string()), (1, 2, "102".to_string())];
+        let (links, unmapped) = other_track_links(&SongCodec::Alac, &primary, &album, "gb", "999");
+        assert_eq!(
+            links,
+            vec!["https://music.apple.com/gb/album/_/999?i=101".to_string()]
+        );
+        assert_eq!(unmapped, vec![(1, 3)]);
+        // Track 2 (already ALAC) is never requested.
+        assert!(!links.iter().any(|l| l.ends_with("?i=102")));
+    }
 
-        // The ALAC companion (overwrite off) saves both tracks under its
-        // own names, beside the advisory-renamed primary.
-        minimal_m4a(&d.join("01 S [Lossless].m4a"), 1, 1, false);
-        std::fs::write(d.join("01 S [Lossless].lrc"), b"copy").unwrap();
-        minimal_m4a(&d.join("02 T [Lossless].m4a"), 2, 1, true);
-        std::fs::write(d.join("02 T [Lossless].lrc"), b"dup").unwrap();
-        // A music video for track 2 lands at the same time (enrichment's
-        // later steps run while the copy does). It carries the same disc
-        // and track number but must never be removed.
-        minimal_m4a(&d.join("02 T.m4v"), 2, 1, true);
-
-        let removed =
-            remove_new_copies_of_primary_tracks(&before, d, &SongCodec::Alac, &primary_tracks);
-        assert_eq!(removed, vec![d.join("02 T [Lossless].m4a")]);
-        // The duplicate and its sidecar are gone...
-        assert!(!d.join("02 T [Lossless].m4a").exists());
-        assert!(!d.join("02 T [Lossless].lrc").exists());
-        // ...the wanted copy of the Atmos track stays, and the primary's
-        // own files are untouched.
-        assert!(d.join("01 S [Lossless].m4a").exists());
-        assert!(d.join("01 S [Lossless].lrc").exists());
-        assert!(d.join("02 T [Explicit] [Lossless].m4a").exists());
-        assert!(d.join("02 T [Explicit] [Lossless].lrc").exists());
-        assert!(d.join("01 S [Dolby Atmos].m4a").exists());
-        assert!(d.join("02 T.m4v").exists());
+    #[test]
+    fn files_from_another_album_never_count_as_this_downloads() {
+        // Album did not match: never, however new.
+        assert!(!is_this_downloads_file(true, true, Some(false)));
+        // Matched, and written by this download or named like it.
+        assert!(is_this_downloads_file(true, false, Some(true)));
+        assert!(is_this_downloads_file(false, true, Some(true)));
+        // An older copy of this album in another format: neither new nor
+        // named like this run's files.
+        assert!(!is_this_downloads_file(false, false, Some(true)));
+        // No album details (a playlist): freshness and names decide.
+        assert!(is_this_downloads_file(true, false, None));
+        assert!(!is_this_downloads_file(false, false, None));
     }
 
     #[test]
@@ -1757,12 +1748,18 @@ mod tests {
                 async move { wait_for_companion_gate(&mut waiter, || async { false }).await },
             );
         tokio::task::yield_now().await;
-        gate.release(true, vec![SongCodec::Alac], vec![(SongCodec::Alac, 1, 1)]);
+        gate.release(
+            true,
+            vec![SongCodec::Alac],
+            vec![(SongCodec::Alac, 1, 1)],
+            vec![(1, 1, "100".to_string())],
+        );
         let state = waiting.await.unwrap().unwrap();
         assert!(state.released);
         assert!(state.renames_done);
         assert_eq!(state.primary_codecs, vec![SongCodec::Alac]);
         assert_eq!(state.primary_tracks, vec![(SongCodec::Alac, 1, 1)]);
+        assert_eq!(state.album_tracks, vec![(1, 1, "100".to_string())]);
         assert_eq!(
             state.album_dir.as_deref(),
             Some("/Music/A/Album [Explicit]")

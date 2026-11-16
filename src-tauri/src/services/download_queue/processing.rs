@@ -2416,7 +2416,7 @@ pub fn process_queue(
                             &enrich_dl_id,
                             "Enriching metadata (codec tags, source tags, channel detection, Apple Music API)...",
                         );
-                            let file_codecs = if let Some(ref codec) = codec {
+                            let (file_codecs, album_matched_files) = if let Some(ref codec) = codec {
                                 match super::metadata_tag_service::apply_enriched_metadata_tags(
                                     &enrich_app,
                                     &album_dir,
@@ -2450,7 +2450,7 @@ pub fn process_queue(
                                             &format!("Enriched {count} file(s) with metadata tags{api_note}"),
                                         );
                                         }
-                                        result.file_codecs
+                                        (result.file_codecs, result.album_matched_files)
                                     }
                                     Err(e) => {
                                         log::debug!(
@@ -2461,12 +2461,61 @@ pub fn process_queue(
                                             &enrich_dl_id,
                                             &format!("Metadata enrichment failed: {e}"),
                                         );
-                                        Vec::new()
+                                        (Vec::new(), Vec::new())
                                     }
                                 }
                             } else {
-                                Vec::new()
+                                (Vec::new(), Vec::new())
                             };
+
+                            // THIS download's own primary tracks: detected
+                            // format, disc and track. Read now, while every file
+                            // is still where the snapshot found it. Only files
+                            // whose album matched Apple Music's (never another
+                            // album sharing the folder) and that this run wrote
+                            // or names the way it names its files (never an
+                            // older copy in another format). The companions use
+                            // these to skip a format the main download already
+                            // has, or on a mixed album to ask only for the other
+                            // tracks.
+                            let this_downloads_files: Vec<&(std::path::PathBuf, SongCodec)> = file_codecs
+                                .iter()
+                                .filter(|(path, _)| {
+                                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                                    super::lyrics_pass::is_this_downloads_file(
+                                        fresh_files.contains(path),
+                                        super::lyrics_pass::stem_matches_primary_name(stem, primary_suffix),
+                                        album_metadata
+                                            .as_ref()
+                                            .map(|_| album_matched_files.contains(path)),
+                                    )
+                                })
+                                .collect();
+                            let mut this_downloads_codecs: Vec<SongCodec> = Vec::new();
+                            for (_, c) in &this_downloads_files {
+                                if !this_downloads_codecs.contains(c) {
+                                    this_downloads_codecs.push(c.clone());
+                                }
+                            }
+                            let primary_tracks_by_format: Vec<(SongCodec, u32, u32)> = this_downloads_files
+                                .iter()
+                                .filter_map(|(path, c)| {
+                                    let n = super::lyrics_pass::read_audio_numbers(path, false, None);
+                                    // An unknown disc is not guessed as disc 1.
+                                    Some((c.clone(), n.disc?, n.track?))
+                                })
+                                .collect();
+                            // The album's tracks (disc, track, song ID), for
+                            // per-track song links.
+                            let album_tracks: Vec<(u32, u32, String)> = album_metadata
+                                .as_ref()
+                                .map(|m| {
+                                    m.tracks
+                                        .iter()
+                                        .map(|t| (t.disc_number, t.track_number, t.song_id.clone()))
+                                        .collect()
+                                })
+                                .unwrap_or_default();
 
                             if album_metadata.is_some() {
                                 emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Metadata enrichment completed{}", album_context()));
@@ -3147,17 +3196,6 @@ pub fn process_queue(
                                     .iter()
                                     .filter(|p| p.is_file())
                                     .all(|p| file_codecs.iter().any(|(f, _)| f == p));
-                            // Each primary track's detected format, disc and
-                            // track (read before the renames move the files), so
-                            // a companion on a mixed album can clear away its
-                            // copies of tracks already in its format.
-                            let primary_tracks_by_format: Vec<(SongCodec, u32, u32)> = file_codecs
-                                .iter()
-                                .filter_map(|(path, c)| {
-                                    let n = super::lyrics_pass::read_audio_numbers(path, false, None);
-                                    Some((c.clone(), n.disc.unwrap_or(1), n.track?))
-                                })
-                                .collect();
                             let renamed_primary = super::metadata_tag_service::apply_deferred_file_renames(
                                 &primary_files,
                                 album_metadata.as_ref(),
@@ -3173,17 +3211,14 @@ pub fn process_queue(
                             // each), so companions skip a format the main
                             // download already has and steer clear of the
                             // suffixes enrichment just renamed its files with.
-                            let mut detected_codecs: Vec<SongCodec> = Vec::new();
-                            for (_, c) in &file_codecs {
-                                if !detected_codecs.contains(c) {
-                                    detected_codecs.push(c.clone());
-                                }
-                            }
+                            // Only from THIS download's own files (above).
+                            let detected_codecs = this_downloads_codecs;
                             companion_gate.release(
                                 every_file_has_its_format
                                     && super::metadata_tag_service::renames_complete(&renamed_primary),
                                 detected_codecs,
                                 primary_tracks_by_format,
+                                album_tracks,
                             );
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));

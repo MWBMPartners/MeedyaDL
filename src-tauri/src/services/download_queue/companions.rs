@@ -460,14 +460,71 @@ pub(crate) struct AttemptPlan {
     pub apply_suffix: bool,
     /// Some of the primary's own tracks are already in this very format
     /// (an album where native format priority mixed formats). The attempt
-    /// then runs with overwrite OFF, whatever the person's overwrite
-    /// setting says — a primary track whose name equals the copy's must
-    /// never be replaced by an unenriched copy — and any NEW copy of a
-    /// track the primary already has in this format is removed afterwards
-    /// (`lyrics_pass::remove_new_copies_of_primary_tracks`), because an
-    /// advisory-renamed primary (`02 T [Explicit] [Lossless]`) does not
-    /// stop GAMDL saving `02 T [Lossless]` beside it.
-    pub keep_existing: bool,
+    /// then asks only for the OTHER tracks, as per-track song links
+    /// ([`attempt_links`]), so a track already in this format is never
+    /// requested at all (an advisory-renamed primary such as
+    /// `02 T [Explicit] [Lossless]` would not stop GAMDL saving
+    /// `02 T [Lossless]` beside it). Nothing is ever deleted. Overwrite is
+    /// still forced off for that run, for safety.
+    pub only_other_tracks: bool,
+}
+
+/// Which links one companion attempt asks GAMDL for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AttemptLinks {
+    /// The item's own links, as for the primary run.
+    All,
+    /// Only these per-track song links; `unmapped` tracks could not be
+    /// matched to a song ID and get no copy.
+    Only { links: Vec<String>, unmapped: usize },
+    /// Not run, with the plain reason for the activity log.
+    Skip(String),
+}
+
+/// Works out the links for one attempt: the item's links, or — on a mixed
+/// album — per-track song links for the tracks not already in `codec`.
+/// Anything other than a single album link (a playlist, an artist, several
+/// links) cannot be split by track, so that format's copies are skipped
+/// with a plain reason.
+pub(crate) fn attempt_links(
+    codec: &SongCodec,
+    only_other_tracks: bool,
+    item_urls: &[String],
+    primary_tracks: &[(SongCodec, u32, u32)],
+    album_tracks: &[(u32, u32, String)],
+) -> AttemptLinks {
+    if !only_other_tracks {
+        return AttemptLinks::All;
+    }
+    let name = plain_codec_name(codec);
+    let parsed: Vec<_> = item_urls
+        .iter()
+        .filter_map(|u| apple_music_api::parse_apple_music_url(u))
+        .collect();
+    let album = match parsed.as_slice() {
+        [p] if p.content_type == "album" && p.song_id.is_none() && item_urls.len() == 1 => p,
+        _ => {
+            let what = if parsed.iter().any(|p| p.content_type == "playlist") {
+                "this playlist"
+            } else {
+                "this download"
+            };
+            return AttemptLinks::Skip(format!(
+                "Extra copies in {name} were not made for {what}, because some of its songs are already in that format."
+            ));
+        }
+    };
+    let (links, unmapped) = super::lyrics_pass::other_track_links(
+        codec,
+        primary_tracks,
+        album_tracks,
+        &album.storefront,
+        &album.album_id,
+    );
+    AttemptLinks::Only {
+        links,
+        unmapped: unmapped.len(),
+    }
 }
 
 /// How the primary run named its files, for the companions' guard.
@@ -529,7 +586,7 @@ fn templates_clash(attempt: &GamdlOptions, primary: &PrimaryNaming) -> bool {
 ///   a second copy is pointless, and on the native-priority path its
 ///   names are the primary's after enrichment renamed it by the detected
 ///   format. Some of them (an album where native priority mixed formats):
-///   goes ahead with `keep_existing`.
+///   goes ahead with `only_other_tracks`.
 ///
 /// A plain attempt beside a plain-named primary that enrichment did not
 /// rename is covered by [`force_suffixes_for_unrenamed_primary`].
@@ -551,9 +608,9 @@ pub(crate) fn companion_attempt_naming(
         }
         o
     };
-    let plan = |apply_suffix, keep_existing| AttemptPlan {
+    let plan = |apply_suffix, only_other_tracks| AttemptPlan {
         apply_suffix,
-        keep_existing,
+        only_other_tracks,
     };
     if !templates_clash(&built(apply_suffix), primary) {
         return Ok(plan(apply_suffix, mixed));
@@ -2827,7 +2884,7 @@ pub(crate) fn spawn_companion_downloads(
             // renamed them with) arrive with the gate.
             let mut primary_codecs: Vec<SongCodec> = Vec::new();
             let mut primary_tracks: Vec<(SongCodec, u32, u32)> = Vec::new();
-            let mut companion_album_dir: Option<std::path::PathBuf> = None;
+            let mut album_tracks: Vec<(u32, u32, String)> = Vec::new();
             if let Some(hold) = held_until {
                 let mut waiter = hold.waiter;
                 let state = super::lyrics_pass::wait_for_companion_gate(&mut waiter, || {
@@ -2844,7 +2901,7 @@ pub(crate) fn spawn_companion_downloads(
                 };
                 primary_codecs.clone_from(&state.primary_codecs);
                 primary_tracks.clone_from(&state.primary_tracks);
-                companion_album_dir = state.album_dir.as_deref().map(std::path::PathBuf::from);
+                album_tracks.clone_from(&state.album_tracks);
                 if !state.renames_done {
                     // The primary files may still have their plain names
                     // (enrichment ended early, or the format could not be
@@ -3027,20 +3084,6 @@ pub(crate) fn spawn_companion_downloads(
                         &primary,
                         &primary_codecs,
                     ) {
-                        // Keeping existing files needs the album folder, to
-                        // clear away new copies of tracks the main
-                        // download already has in this format.
-                        Ok(plan) if plan.keep_existing && companion_album_dir.is_none() => {
-                            emit_download_log(
-                                &comp_app,
-                                &comp_dl_id,
-                                &format!(
-                                    "An extra copy in {} was skipped because part of the main download is already in that format.",
-                                    plain_codec_name(codec)
-                                ),
-                            );
-                            continue;
-                        }
                         Ok(plan) => plan,
                         Err(why) => {
                             let reason = match why {
@@ -3066,23 +3109,49 @@ pub(crate) fn spawn_companion_downloads(
                     if plan.apply_suffix {
                         apply_codec_suffix(&mut opts);
                     }
-                    // A mixed album (see `AttemptPlan::keep_existing`):
-                    // this overrides the person's overwrite setting on
-                    // purpose, so the main download's own tracks in this
-                    // format are never replaced by an unenriched copy.
-                    if plan.keep_existing {
-                        opts.overwrite = Some(false);
-                    }
-                    let files_before_attempt = match (&companion_album_dir, plan.keep_existing) {
-                        (Some(dir), true) => Some(super::lyrics_pass::all_files_in(dir)),
-                        _ => None,
+                    // A mixed album (see `AttemptPlan::only_other_tracks`):
+                    // ask only for the tracks not already in this format.
+                    let attempt_urls: Vec<String> = match attempt_links(
+                        codec,
+                        plan.only_other_tracks,
+                        &comp_urls,
+                        &primary_tracks,
+                        &album_tracks,
+                    ) {
+                        AttemptLinks::All => comp_urls.clone(),
+                        AttemptLinks::Skip(reason) => {
+                            emit_download_log(&comp_app, &comp_dl_id, &reason);
+                            continue;
+                        }
+                        AttemptLinks::Only { links, unmapped } => {
+                            if unmapped > 0 {
+                                emit_download_log(
+                                    &comp_app,
+                                    &comp_dl_id,
+                                    &format!(
+                                        "{unmapped} song(s) were left without an extra copy in {} because their Apple Music details could not be matched.",
+                                        plain_codec_name(codec)
+                                    ),
+                                );
+                            }
+                            if links.is_empty() {
+                                continue;
+                            }
+                            // Overwrite stays off for safety, overriding the
+                            // person's setting: the tracks already in this
+                            // format are not requested, but nothing this run
+                            // saves should ever replace an existing file.
+                            opts.overwrite = Some(false);
+                            links
+                        }
                     };
+                    let requested_songs = (attempt_urls != comp_urls).then_some(attempt_urls.len());
                     // If not suffixed, the base options already
                     // have clean (unsuffixed) templates.
 
                     // Build the GAMDL CLI command for the companion
                     let mut cmd = match gamdl_service::build_gamdl_command_public(
-                        &comp_app, &comp_urls, &opts,
+                        &comp_app, &attempt_urls, &opts,
                     ) {
                         Ok(c) => c,
                         Err(e) => {
@@ -3208,32 +3277,6 @@ pub(crate) fn spawn_companion_downloads(
                     )
                     .await;
 
-                    // A mixed album: remove any new copy of a track the main
-                    // download already has in this format (it would sit
-                    // beside an advisory-renamed primary, then be renamed to
-                    // a numbered duplicate by the final advisory pass).
-                    if let (Some(before), Some(dir)) =
-                        (files_before_attempt.as_ref(), companion_album_dir.as_ref())
-                    {
-                        let removed = super::lyrics_pass::remove_new_copies_of_primary_tracks(
-                            before,
-                            dir,
-                            codec,
-                            &primary_tracks,
-                        );
-                        if !removed.is_empty() {
-                            emit_download_log(
-                                &comp_app,
-                                &comp_dl_id,
-                                &format!(
-                                    "Removed {} extra copy(ies) in {} of tracks the main download already has in that format.",
-                                    removed.len(),
-                                    plain_codec_name(codec)
-                                ),
-                            );
-                        }
-                    }
-
                     // Surface the post-processing transition to the queue UI so
                     // the per-item bar switches from `DOWNLOADING…` to
                     // `PROCESSING (remux / decrypt)…` instead of looking frozen
@@ -3273,10 +3316,16 @@ pub(crate) fn spawn_companion_downloads(
                                 emit_download_log(
                                     &comp_app,
                                     &comp_dl_id,
-                                    &format!(
-                                        "Companion (tier {}, codec: {}): no compatible format available — skipped (no files produced)",
-                                        tier_idx, stream_codec,
-                                    ),
+                                    &match requested_songs {
+                                        Some(n) => format!(
+                                            "Companion (tier {}, codec: {}): no compatible format available for the {n} song(s) requested — skipped (no files produced)",
+                                            tier_idx, stream_codec,
+                                        ),
+                                        None => format!(
+                                            "Companion (tier {}, codec: {}): no compatible format available — skipped (no files produced)",
+                                            tier_idx, stream_codec,
+                                        ),
+                                    },
                                 );
                                 // Do NOT mark this tier as succeeded; let the
                                 // next codec in the tier (if any) be tried.

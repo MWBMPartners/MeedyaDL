@@ -380,6 +380,7 @@ pub async fn apply_enriched_metadata_tags(
             metadata: pre_fetched_metadata.cloned(),
             renamed_folder: None,
             file_codecs: Vec::new(),
+            album_matched_files: Vec::new(),
         });
     }
 
@@ -457,6 +458,7 @@ pub async fn apply_enriched_metadata_tags(
     // correct suffix based on the ACTUAL codec, not the requested one.
     let mut tagged_count = 0;
     let mut file_codecs: Vec<(PathBuf, SongCodec)> = Vec::new();
+    let mut album_matched_files: Vec<PathBuf> = Vec::new();
     for file_path in &files_to_enrich {
         match enrich_single_file(
             file_path,
@@ -469,9 +471,12 @@ pub async fn apply_enriched_metadata_tags(
         )
         .await
         {
-            Ok(detected_codec) => {
+            Ok((detected_codec, album_matched)) => {
                 tagged_count += 1;
                 file_codecs.push((file_path.clone(), detected_codec));
+                if album_matched {
+                    album_matched_files.push(file_path.clone());
+                }
             }
             Err(e) => {
                 log::debug!("Failed to enrich {}: {}", file_path.display(), e);
@@ -507,6 +512,7 @@ pub async fn apply_enriched_metadata_tags(
         metadata: album_metadata,
         renamed_folder: renamed_output,
         file_codecs,
+        album_matched_files,
     })
 }
 
@@ -524,6 +530,10 @@ pub struct EnrichedTagsResult {
     /// that deferred the renames, to add the format suffix later
     /// ([`apply_deferred_file_renames`]).
     pub file_codecs: Vec<(PathBuf, SongCodec)>,
+    /// The tagged files whose album matched the Apple Music album's (so
+    /// they are this album's tracks, not another album's sharing the
+    /// folder). Empty when there were no album details.
+    pub album_matched_files: Vec<PathBuf>,
 }
 
 /// Renames the primary download's files once every lyrics step has run:
@@ -727,7 +737,7 @@ async fn enrich_single_file(
     mediainfo_path: Option<&PathBuf>,
     album_metadata: Option<&AlbumMetadata>,
     event_context: Option<(&tauri::AppHandle, &str)>,
-) -> Result<SongCodec, String> {
+) -> Result<(SongCodec, bool), String> {
     // Try MediaInfo first (more accurate for Atmos/AC3 detection), then ffprobe as fallback.
     let mediainfo_result = if let Some(mi_path) = mediainfo_path {
         super::mediainfo_service::detect_codec(mi_path, file_path).await
@@ -875,7 +885,10 @@ async fn enrich_single_file(
     // Offload all Tag I/O to a blocking thread. Tag::read_from_path and
     // Tag::write_to_path are synchronous file I/O that can block for
     // seconds on slow FUSE mounts (CloudMounter, NFS, etc.).
-    tokio::task::spawn_blocking(move || {
+    // Whether the file's album matched the Apple Music album (so the
+    // file is this album's track) — returned to the caller.
+    let album_matched = tokio::task::spawn_blocking(move || {
+        let mut album_matched = false;
         // Open the M4A file for reading/writing
         let mut tag = Tag::read_from_path(&tag_path).map_err(|e| {
             format!(
@@ -973,6 +986,7 @@ async fn enrich_single_file(
                 (_, None) => true,
             };
 
+            album_matched = album_matches;
             if !album_matches {
                 log::warn!(
                     "Skipping API metadata for {} — album mismatch: file='{}', API='{}'",
@@ -1081,12 +1095,12 @@ async fn enrich_single_file(
         })?;
 
         log::debug!("Enriched: {}", tag_path.display());
-        Ok::<(), String>(())
+        Ok::<bool, String>(album_matched)
     })
     .await
     .map_err(|e| format!("Metadata enrichment task panicked: {e}"))??;
 
-    Ok(return_codec)
+    Ok((return_codec, album_matched))
 }
 
 // ============================================================

@@ -2701,7 +2701,7 @@
         base.song_codec_priority = Some("aac".into());
         assert_eq!(
             companion_attempt_naming(&SongCodec::Aac, false, &base, &primary, &[]),
-            Ok(AttemptPlan { apply_suffix: false, keep_existing: false })
+            Ok(AttemptPlan { apply_suffix: false, only_other_tracks: false })
         );
         // Without the strip, the plain copy would have had the primary's
         // names — and would be skipped rather than overwrite it.
@@ -2768,9 +2768,65 @@
         );
     }
 
+    /// The extra-format copies never delete anything: on a mixed album the
+    /// tracks already in a format are simply not requested.
+    #[test]
+    fn the_companion_path_never_deletes_files() {
+        let src = include_str!("companions.rs");
+        for call in ["remove_file", "remove_dir"] {
+            assert!(!src.contains(call), "companions.rs calls {call}");
+        }
+    }
+
+    #[test]
+    fn a_mixed_album_attempt_asks_only_for_the_other_tracks() {
+        let album = vec!["https://music.apple.com/us/album/x/1440857781".to_string()];
+        let primary = vec![
+            (SongCodec::Atmos, 1, 1),
+            (SongCodec::Alac, 1, 2),
+            (SongCodec::Atmos, 1, 3),
+        ];
+        let tracks = vec![
+            (1, 1, "11".to_string()),
+            (1, 2, "12".to_string()),
+            // Track 3 has no song ID.
+        ];
+        // Not a mixed album: the item's own links.
+        assert_eq!(
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks),
+            AttemptLinks::All
+        );
+        // Mixed: only track 1 is requested (track 2 is already ALAC),
+        // track 3 is counted as unmatched. Nothing is ever deleted — the
+        // already-ALAC track is simply not asked for.
+        assert_eq!(
+            attempt_links(&SongCodec::Alac, true, &album, &primary, &tracks),
+            AttemptLinks::Only {
+                links: vec!["https://music.apple.com/us/album/_/1440857781?i=11".to_string()],
+                unmapped: 1,
+            }
+        );
+        // A playlist cannot be split by track: that format is skipped with
+        // a plain reason.
+        let playlist = vec!["https://music.apple.com/us/playlist/x/pl.u-GgA567VCXX".to_string()];
+        assert_eq!(
+            attempt_links(&SongCodec::Alac, true, &playlist, &primary, &tracks),
+            AttemptLinks::Skip(
+                "Extra copies in Lossless (ALAC) were not made for this playlist, because some of its songs are already in that format."
+                    .to_string()
+            )
+        );
+        // A single song link is not split either.
+        let song = vec!["https://music.apple.com/us/album/x/1440857781?i=11".to_string()];
+        assert!(matches!(
+            attempt_links(&SongCodec::Alac, true, &song, &primary, &tracks),
+            AttemptLinks::Skip(_)
+        ));
+    }
+
     #[test]
     fn a_companion_never_takes_the_primarys_names_or_format() {
-        let ok = |apply_suffix, keep_existing| Ok(AttemptPlan { apply_suffix, keep_existing });
+        let ok = |apply_suffix, only_other_tracks| Ok(AttemptPlan { apply_suffix, only_other_tracks });
         let attempt = |codec: &str, single: &str| GamdlOptions {
             song_codec_priority: Some(codec.into()),
             single_disc_file_template: Some(single.into()),
