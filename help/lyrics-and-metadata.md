@@ -173,7 +173,7 @@ Most players find files named like this by themselves.
 
 If you use **Companion Downloads** (see [Quality Settings](quality-settings.md#companion-downloads)), each extra version of a song gets its own lyric files, named to match, for example `01 Song Title [Lossless].lrc` next to `01 Song Title [Lossless].m4a`.
 
-Each extra version gets the same lyrics as the main one, including word-by-word timing where the main download has it, and the same lyric and subtitle files you chose in **Settings > Lyrics** (the Lyricsfile and the lyrics stored inside the file included). If an extra version already came with better lyrics of its own, those are kept.
+Each extra version gets the same lyrics as the main one, including word-by-word timing where the main download has it, and the same lyric and subtitle files you chose in **Settings > Lyrics** (the Lyricsfile and the lyrics stored inside the file included). If an extra version came with better lyrics than the main one, it keeps them, and the main version is given them too. Only lyric and subtitle files made during the same download are replaced this way; files that were already in your folder before are left alone.
 
 <details>
 <summary>More detail: will my edits to lyric files be overwritten?</summary>

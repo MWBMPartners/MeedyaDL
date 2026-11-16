@@ -3939,17 +3939,22 @@ pub(crate) fn spawn_companion_downloads(
                                 }
                                 let left_out =
                                     tier_files_outside(&before_tier, &after_tier, &within);
-                                if tagged == 0 && !left_out.is_empty() {
+                                if !left_out.is_empty() {
                                     log::debug!(
                                         "Extra copies not tagged for {comp_dl_id} (outside {:?}): {:?}",
                                         within,
                                         left_out
                                     );
-                                    emit_download_log(
-                                        &comp_app,
-                                        &comp_dl_id,
-                                        "The format details of the extra copies could not be added, because they were saved outside the album folder.",
-                                    );
+                                    // Say so whenever any new copy was left out,
+                                    // not only when every one was: with some
+                                    // tagged and some not, the person would
+                                    // otherwise never hear about the rest.
+                                    let line = if tagged == 0 {
+                                        "The format details of the extra copies could not be added, because they were saved outside the album folder."
+                                    } else {
+                                        "The format details of some of the extra copies could not be added, because they were saved outside the album folder."
+                                    };
+                                    emit_download_log(&comp_app, &comp_dl_id, line);
                                 }
 
                                 // #843: lyrics conversion was previously called

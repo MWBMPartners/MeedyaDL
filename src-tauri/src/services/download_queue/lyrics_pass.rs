@@ -1107,6 +1107,11 @@ pub(crate) struct AdvisoryScope {
     /// already there, by whether it is listed here, not by its file time:
     /// a network or cloud folder can keep a clock that lags this computer's.
     pub ttml_before_companions: std::collections::BTreeSet<PathBuf>,
+    /// When this download started. It lets the extra-copy step tell a lyric
+    /// file this download made from an older one (by file time, the same
+    /// rule [`fresh_at_snapshot`] uses). `None` (not known) means no file
+    /// counts as made by this download, so nothing is ever replaced.
+    pub download_started_at: Option<std::time::SystemTime>,
 }
 
 /// The files the final advisory pass handles: this download's files that
@@ -2145,6 +2150,7 @@ mod tests {
             this_download: vec![mine.clone()],
             before_companions: audio_files_in(dir.path()),
             ttml_before_companions: ttml_files_in(dir.path()),
+            download_started_at: None,
         };
         // A companion copy arrives afterwards.
         let copy = dir.path().join("01 A [Lossless].m4a");

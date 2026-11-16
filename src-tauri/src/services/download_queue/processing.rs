@@ -3461,6 +3461,14 @@ pub fn process_queue(
                                     ttml_before_companions: super::lyrics_pass::ttml_files_in(
                                         std::path::Path::new(&album_dir),
                                     ),
+                                    // When this download started, so the extra-
+                                    // copy step can tell the lyric files this
+                                    // download made from older ones.
+                                    download_started_at: chrono::DateTime::parse_from_rfc3339(
+                                        &enrich_started_at,
+                                    )
+                                    .ok()
+                                    .map(std::time::SystemTime::from),
                                 });
                             }
                             // The same artist and fallback title the Lyricsfile

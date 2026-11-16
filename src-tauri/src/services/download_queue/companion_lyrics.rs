@@ -29,10 +29,16 @@
 // main download (#1441); this module decides which copy gets which source
 // and drives the steps.
 //
+// The other way round works too (#1442): when an extra copy came with better
+// lyrics than the main download's file of the same song, the main file is
+// brought up to them first, so every other copy of that song gets them too.
+// This only ever touches files THIS download made (see [`upgrade_main`]).
+//
 // Nothing here deletes a file (a test checks the source for delete calls).
 // A `.ttml`, `.vtt`, `.ass` or `.lyrics` file that was already on disk is
-// never replaced. The `.lrc` and Rich `.srt` files are always written fresh,
-// exactly as the main download's Steps 2 and 2d do.
+// never replaced for a copy; for the main download's upgrade only one that
+// this download made may be. The `.lrc` and Rich `.srt` files are always
+// written fresh, exactly as the main download's Steps 2 and 2d do.
 
 use super::lyrics_pass::{
     audio_files_in, fresh_at_snapshot, place_track, read_audio_numbers, read_copy_evidence,
@@ -265,6 +271,9 @@ pub(crate) struct Summary {
     pub unchanged: usize,
     /// The run was stopped (cancel, quit or deadline) before it finished.
     pub stopped: bool,
+    /// Songs of the main download that were given better lyrics by one of
+    /// their extra copies.
+    pub main_upgraded: usize,
 }
 
 /// The plain-English activity-log line for a run, or `None` when nothing
@@ -280,8 +289,19 @@ pub(crate) fn summary_line(r: &Summary) -> Option<String> {
         });
     }
     let added = r.from_main + r.own;
+    let upgraded_line = (r.main_upgraded > 0).then(|| {
+        let noun = if r.main_upgraded == 1 {
+            "song"
+        } else {
+            "songs"
+        };
+        format!(
+            "{} {noun} in the main download got better lyrics from an extra copy.",
+            r.main_upgraded
+        )
+    });
     if added == 0 {
-        return None;
+        return upgraded_line;
     }
     let noun = if added == 1 { "copy" } else { "copies" };
     let word_by_word = if r.from_main > 0 && r.from_main_word_timed == r.from_main {
@@ -308,6 +328,10 @@ pub(crate) fn summary_line(r: &Summary) -> Option<String> {
     }
     if r.unchanged > 0 {
         line.push_str(&format!(" {} needed nothing added.", r.unchanged));
+    }
+    if let Some(extra) = upgraded_line {
+        line.push(' ');
+        line.push_str(&extra);
     }
     Some(line)
 }
@@ -359,11 +383,18 @@ enum CopyOutcome {
 /// stop actually skipped a step, the result is `CopyOutcome::Stopped`.
 /// `artist` and `default_title` are what the main download's Lyricsfile
 /// step uses (the album artist and the album's first song name).
+///
+/// `replace_existing` says whether an existing `.vtt`, `.ass` or `.lyrics`
+/// file may be replaced. Extra copies and the main download's own catch-up
+/// never replace one (`|_| false`); the main download's upgrade from a better
+/// copy allows it only for files this download made.
+#[allow(clippy::too_many_arguments)]
 fn process_copy(
     copy: &Path,
     primary_audio: Option<&Path>,
     s: &AppSettings,
     written_by_this_run: &dyn Fn(&Path) -> bool,
+    replace_existing: &dyn Fn(&Path) -> bool,
     artist: Option<&str>,
     default_title: Option<&str>,
     stop_requested: &dyn Fn() -> bool,
@@ -421,15 +452,15 @@ fn process_copy(
 
     // The steps themselves live in `lyrics_steps.rs`, shared with the main
     // download. Each is run only when its switch is on and no stop is asked
-    // for; a copy never replaces an existing `.vtt`, `.ass` or `.lyrics`.
-    let never_replace = |_: &Path| false;
+    // for; an existing `.vtt`, `.ass` or `.lyrics` is replaced only when the
+    // caller allows it for that file.
     let input = StepInput {
         audio: copy,
         stem: &stem,
         source: &texts,
         from_other: from_main,
         keep,
-        replace_existing: &never_replace,
+        replace_existing,
     };
 
     // Step 2: Enhanced LRC. The `.lrc` file only when separate files are
@@ -545,6 +576,15 @@ fn any_conversion_switched_on(settings: &AppSettings) -> bool {
         || settings.embed_subtitles
 }
 
+/// Whether the extra copies have anything to do at all: a conversion is
+/// switched on, or separate lyrics files are kept. With only the second, the
+/// one thing to do is copy a better `.ttml` across from the main download
+/// (or up from a better copy to the main download). With neither, the folder
+/// is not even looked at.
+fn copy_work_switched_on(settings: &AppSettings) -> bool {
+    any_conversion_switched_on(settings) || settings.keep_lyrics_sidecar
+}
+
 // ---- Without a recorded scope (#1441) ----
 
 /// What was in the album folder at one moment: its music files and its
@@ -626,6 +666,9 @@ pub(crate) fn fallback_scope(
         this_download: Vec::new(),
         before_companions: audio,
         ttml_before_companions: ttml,
+        // Nothing from the main download is known here, so there is nothing
+        // it could be upgraded from a copy either.
+        download_started_at: None,
     }
 }
 
@@ -695,6 +738,7 @@ pub(crate) fn run_main_files_own(
             None,
             settings,
             &|_| false,
+            &|_| false,
             lyrics_artist,
             default_title,
             stop,
@@ -715,9 +759,16 @@ pub(crate) fn run_main_files_own(
 /// finished. The files are put back even when the catch-up was stopped by
 /// cancel or quit: the completion task's catch-up checks those itself, so
 /// a leftover list is harmless.
+///
+/// One exception: if the drop happens while the thread is panicking, the file
+/// that was being worked on is NOT put back. A file that makes the lyrics
+/// code panic would otherwise be handed to the completion task's catch-up,
+/// which would panic on it too.
 pub(crate) struct PendingRestore {
     pending: Option<Arc<StdMutex<Option<Vec<PathBuf>>>>>,
     remaining: Vec<PathBuf>,
+    /// The file whose steps are running right now, if any.
+    current: Option<PathBuf>,
 }
 
 impl PendingRestore {
@@ -725,17 +776,33 @@ impl PendingRestore {
         Self {
             pending,
             remaining: files.to_vec(),
+            current: None,
         }
+    }
+
+    /// Notes that `file`'s steps are about to run.
+    fn begin(&mut self, file: &Path) {
+        self.current = Some(file.to_path_buf());
     }
 
     /// Notes that `file` is completely finished (or is not a file any more).
     fn done(&mut self, file: &Path) {
         self.remaining.retain(|p| p != file);
+        if self.current.as_deref() == Some(file) {
+            self.current = None;
+        }
     }
 }
 
 impl Drop for PendingRestore {
     fn drop(&mut self) {
+        // A panic while a file was being worked on: that file is given up on,
+        // so it is not retried (and crashed on again) by the catch-up.
+        if std::thread::panicking() {
+            if let Some(file) = self.current.take() {
+                self.remaining.retain(|p| p != &file);
+            }
+        }
         if self.remaining.is_empty() {
             return;
         }
@@ -791,10 +858,14 @@ pub(crate) async fn run_main_files_own_locked(
             return summary;
         }
         let _guard = locks.lock(file).await;
+        // From here until it is marked finished, a panic must not put this
+        // file back on the list (see `PendingRestore`).
+        restore.begin(file);
         let outcome = process_copy(
             file,
             None,
             settings,
+            &|_| false,
             &|_| false,
             lyrics_artist,
             default_title,
@@ -892,6 +963,60 @@ pub(crate) struct CopyPlan {
     primaries: Vec<Evidence>,
     /// Whether the album is a single-disc one.
     single_disc: bool,
+    /// Main-download files that an extra copy has better lyrics for.
+    upgrades: Vec<PlannedUpgrade>,
+}
+
+/// One main-download file that should be given the lyrics of an extra copy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PlannedUpgrade {
+    /// The main download's file, at its final name.
+    main: PathBuf,
+    /// The extra copy whose lyrics are better.
+    from_copy: PathBuf,
+    /// How good the copy's lyrics are.
+    quality: LyricsQuality,
+}
+
+/// Picks, for each main-download file, the one extra copy to upgrade it from.
+/// Each candidate is `(main file, copy, copy's lyrics quality, main file's
+/// lyrics quality)`. A copy that is not strictly better than the main file is
+/// no candidate. When several copies of one song qualify, the best wins and a
+/// tie goes to the first copy by path, so the answer never changes between
+/// runs. The result is sorted by main file.
+pub(crate) fn pick_upgrades(
+    candidates: Vec<(PathBuf, PathBuf, LyricsQuality, LyricsQuality)>,
+) -> Vec<PlannedUpgrade> {
+    let mut better: Vec<PlannedUpgrade> = candidates
+        .into_iter()
+        .filter(|(_, _, copy_q, main_q)| copy_q > main_q)
+        .map(|(main, from_copy, quality, _)| PlannedUpgrade {
+            main,
+            from_copy,
+            quality,
+        })
+        .collect();
+    better.sort_by(|a, b| {
+        a.main
+            .cmp(&b.main)
+            .then(b.quality.cmp(&a.quality))
+            .then(a.from_copy.cmp(&b.from_copy))
+    });
+    better.dedup_by(|later, first| later.main == first.main);
+    better
+}
+
+/// Finds the main download's file for one extra copy, by song ID, else by
+/// folder plus disc and track (see [`match_primary`]).
+fn match_copy(
+    copy: &Path,
+    primaries: &[Evidence],
+    single_disc: bool,
+    scope: &AdvisoryScope,
+) -> Option<PathBuf> {
+    let evidence = read_evidence(copy);
+    let outside = !copy.starts_with(&scope.dir);
+    match_primary(&evidence, primaries, single_disc, outside).map(|i| primaries[i].path.clone())
 }
 
 /// Works out which files are this download's new copies. Writes nothing.
@@ -904,11 +1029,12 @@ pub(crate) fn plan_copies(
     since: SystemTime,
     album_tracks: &[(u32, u32, String)],
 ) -> CopyPlan {
-    if !any_conversion_switched_on(settings) {
+    if !copy_work_switched_on(settings) {
         return CopyPlan {
             copies: Vec::new(),
             primaries: Vec::new(),
             single_disc: false,
+            upgrades: Vec::new(),
         };
     }
     let copies = this_downloads_copies(scope, extra_dir, since);
@@ -917,6 +1043,7 @@ pub(crate) fn plan_copies(
             copies,
             primaries: Vec::new(),
             single_disc: false,
+            upgrades: Vec::new(),
         };
     }
     let primaries: Vec<Evidence> = scope
@@ -926,11 +1053,86 @@ pub(crate) fn plan_copies(
         .map(|p| read_evidence(p))
         .collect();
     let single_disc = single_disc_album(album_tracks, &primaries);
+    // Which main files an extra copy has better lyrics for.
+    let candidates: Vec<(PathBuf, PathBuf, LyricsQuality, LyricsQuality)> = copies
+        .iter()
+        .filter_map(|copy| {
+            let main = match_copy(copy, &primaries, single_disc, scope)?;
+            let copy_quality = quality_of_texts(&read_lyric_texts(copy));
+            let main_quality = quality_of_texts(&read_lyric_texts(&main));
+            Some((main, copy.clone(), copy_quality, main_quality))
+        })
+        .collect();
     CopyPlan {
         copies,
         primaries,
         single_disc,
+        upgrades: pick_upgrades(candidates),
     }
+}
+
+/// Whether `path` was made by this download (its file time is not older than
+/// the download's start, with two seconds of slack). `false` when the start is
+/// not known, so nothing is ever mistaken for this download's.
+fn made_by_this_download(scope: &AdvisoryScope, path: &Path) -> bool {
+    fresh_at_snapshot(&[path.to_path_buf()], scope.download_started_at).contains(path)
+}
+
+/// Gives ONE main-download file the lyrics of the extra copy that has better
+/// ones. Takes no lock itself: the caller holds the app-wide write lock for
+/// the main file (the steps below rewrite its tags), or is a test.
+///
+/// It is the same work as for a copy with the roles swapped (the copy is the
+/// source, the main file is the target), under one extra safety rule: only
+/// files THIS download made are ever changed.
+///
+/// - If the main file already has a `.ttml`, `.lrc` or `.srt` that this
+///   download did not make (an older file with the same name), nothing at all
+///   is done for it: its lyrics are not ours to replace.
+/// - A `.vtt`, `.ass` or `.lyrics` file is rebuilt only when this download
+///   made it. An older one stays exactly as it is.
+/// - Nothing is replaced when the download's start time is unknown.
+fn upgrade_main(
+    up: &PlannedUpgrade,
+    settings: &AppSettings,
+    scope: &AdvisoryScope,
+    lyrics_artist: Option<&str>,
+    default_title: Option<&str>,
+    stop: &dyn Fn() -> bool,
+) -> CopyOutcome {
+    let made_here = |p: &Path| made_by_this_download(scope, p);
+    let all_sources_ours = ["ttml", "lrc", "srt"]
+        .iter()
+        .map(|ext| up.main.with_extension(ext))
+        .filter(|p| p.exists())
+        .all(|p| made_here(&p));
+    if !all_sources_ours {
+        return CopyOutcome::Unchanged;
+    }
+    process_copy(
+        &up.main,
+        Some(&up.from_copy),
+        settings,
+        &made_here,
+        &made_here,
+        lyrics_artist,
+        default_title,
+        stop,
+    )
+}
+
+/// Folds the result of one main-file upgrade into the summary. Returns `true`
+/// when the run must end (a stop cut it short).
+fn tally_upgrade(summary: &mut Summary, outcome: CopyOutcome) -> bool {
+    match outcome {
+        CopyOutcome::FromMain { .. } => summary.main_upgraded += 1,
+        CopyOutcome::Stopped => {
+            summary.stopped = true;
+            return true;
+        }
+        CopyOutcome::Own | CopyOutcome::Unchanged | CopyOutcome::Nothing => {}
+    }
+    false
 }
 
 /// Gives ONE planned copy its lyrics. Takes no lock itself: the caller
@@ -947,10 +1149,7 @@ fn process_planned(
     default_title: Option<&str>,
     stop: &dyn Fn() -> bool,
 ) -> CopyOutcome {
-    let evidence = read_evidence(copy);
-    let outside = !copy.starts_with(&scope.dir);
-    let primary = match_primary(&evidence, &plan.primaries, plan.single_disc, outside)
-        .map(|i| plan.primaries[i].path.clone());
+    let primary = match_copy(copy, &plan.primaries, plan.single_disc, scope);
     // Inside the album folder a `.ttml` is this run's if it was not in
     // the snapshot taken before the extra copies started. Outside it
     // there is no snapshot, so file times decide.
@@ -966,6 +1165,7 @@ fn process_planned(
         primary.as_deref(),
         settings,
         &written_by_this_run,
+        &|_| false,
         lyrics_artist,
         default_title,
         stop,
@@ -1019,6 +1219,18 @@ pub(crate) fn run_copies(
         total: plan.copies.len(),
         ..Summary::default()
     };
+    // Main files first, so every copy of the same song then gets the better
+    // lyrics from the main file.
+    for up in &plan.upgrades {
+        if stop() {
+            summary.stopped = true;
+            return summary;
+        }
+        let outcome = upgrade_main(up, settings, scope, lyrics_artist, default_title, stop);
+        if tally_upgrade(&mut summary, outcome) {
+            return summary;
+        }
+    }
     for copy in &plan.copies {
         if stop() {
             summary.stopped = true;
@@ -1061,6 +1273,20 @@ pub(crate) async fn run_copies_locked(
         total: plan.copies.len(),
         ..Summary::default()
     };
+    // Main files first (each under its own lock, released before the next),
+    // so every copy of the same song then gets the better lyrics from the
+    // main file.
+    for up in &plan.upgrades {
+        if stop() {
+            summary.stopped = true;
+            return summary;
+        }
+        let _guard = locks.lock(&up.main).await;
+        let outcome = upgrade_main(up, settings, scope, lyrics_artist, default_title, stop);
+        if tally_upgrade(&mut summary, outcome) {
+            return summary;
+        }
+    }
     for copy in &plan.copies {
         if stop() {
             summary.stopped = true;
@@ -1178,6 +1404,7 @@ mod tests {
             this_download: vec![main.clone()],
             before_companions: audio_files_in(dir.path()),
             ttml_before_companions: ttml_files_in(dir.path()),
+            download_started_at: None,
         };
         (dir, scope, main)
     }
@@ -1363,6 +1590,7 @@ mod tests {
             none: 0,
             unchanged: 0,
             stopped: false,
+            main_upgraded: 0,
         };
         assert_eq!(
             summary_line(&word).unwrap(),
@@ -1849,6 +2077,7 @@ mod tests {
             generate_ass: false,
             generate_lyricsfile: false,
             embed_subtitles: false,
+            keep_lyrics_sidecar: false,
             ..AppSettings::default()
         };
         assert_eq!(
@@ -2192,5 +2421,499 @@ mod tests {
         assert_eq!(summary.from_main, 1);
         assert!(copy.with_extension("lrc").is_file());
         drop(dir);
+    }
+
+    // ---- 17. every conversion off, separate files kept (#1442 b) ----
+
+    /// Every conversion off; only "keep separate lyrics files" is on.
+    fn only_keep_on() -> AppSettings {
+        AppSettings {
+            enhanced_lrc: false,
+            generate_webvtt: false,
+            generate_rich_srt: false,
+            generate_ass: false,
+            generate_lyricsfile: false,
+            embed_subtitles: false,
+            keep_lyrics_sidecar: true,
+            ..AppSettings::default()
+        }
+    }
+
+    #[test]
+    fn copy_work_needs_a_conversion_or_kept_files() {
+        assert!(copy_work_switched_on(&all_on()));
+        assert!(copy_work_switched_on(&only_keep_on()));
+        let nothing = AppSettings {
+            keep_lyrics_sidecar: false,
+            ..only_keep_on()
+        };
+        assert!(!copy_work_switched_on(&nothing));
+        let conversion_only = AppSettings {
+            enhanced_lrc: true,
+            keep_lyrics_sidecar: false,
+            ..nothing
+        };
+        assert!(copy_work_switched_on(&conversion_only));
+    }
+
+    #[test]
+    fn with_every_conversion_off_a_better_ttml_still_reaches_the_copy() {
+        let (dir, scope, main) = album();
+        std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
+        let scope = AdvisoryScope {
+            ttml_before_companions: ttml_files_in(dir.path()),
+            ..scope
+        };
+        let copy = add_copy(dir.path());
+        std::fs::write(copy.with_extension("ttml"), LINE_TTML).unwrap();
+
+        let s = run_copies(
+            &only_keep_on(),
+            &scope,
+            None,
+            past(),
+            &[],
+            None,
+            None,
+            &|| false,
+        );
+        assert_eq!(s.from_main, 1);
+        let ttml = std::fs::read_to_string(copy.with_extension("ttml")).unwrap();
+        assert!(ttml.contains("<span"), "the better ttml was copied across");
+        for ext in ["lrc", "vtt", "srt", "ass", "lyrics"] {
+            assert!(
+                !copy.with_extension(ext).exists(),
+                ".{ext} must not be created: every conversion is off"
+            );
+        }
+    }
+
+    #[test]
+    fn with_every_conversion_and_keeping_off_nothing_is_touched() {
+        let (dir, scope, main) = album();
+        std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
+        let scope = AdvisoryScope {
+            ttml_before_companions: ttml_files_in(dir.path()),
+            ..scope
+        };
+        let copy = add_copy(dir.path());
+        std::fs::write(copy.with_extension("ttml"), LINE_TTML).unwrap();
+        let before = folder_bytes(dir.path());
+        let settings = AppSettings {
+            keep_lyrics_sidecar: false,
+            ..only_keep_on()
+        };
+        let s = run_copies(&settings, &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s, Summary::default());
+        assert_eq!(folder_bytes(dir.path()), before);
+    }
+
+    #[test]
+    fn with_every_conversion_off_a_missing_ttml_is_created_for_the_copy() {
+        let (dir, scope, main) = album();
+        std::fs::write(main.with_extension("ttml"), WORD_TTML).unwrap();
+        let scope = AdvisoryScope {
+            ttml_before_companions: ttml_files_in(dir.path()),
+            ..scope
+        };
+        let copy = add_copy(dir.path());
+        let s = run_copies(
+            &only_keep_on(),
+            &scope,
+            None,
+            past(),
+            &[],
+            None,
+            None,
+            &|| false,
+        );
+        assert_eq!(s.from_main, 1);
+        assert!(copy.with_extension("ttml").is_file());
+        assert!(!copy.with_extension("lrc").exists());
+    }
+
+    // ---- 18. the main download is upgraded from a better copy (#1442 c) ----
+
+    /// A moment before this download's files were made (ten minutes ago).
+    fn started() -> SystemTime {
+        SystemTime::now() - Duration::from_secs(600)
+    }
+
+    /// An album whose main file has line-level lyrics and every conversion
+    /// done by this download. The scope knows when the download started.
+    fn album_with_finished_main() -> (tempfile::TempDir, AdvisoryScope, PathBuf) {
+        let (dir, scope, main) = album();
+        std::fs::write(main.with_extension("ttml"), LINE_TTML).unwrap();
+        run_main_files_own(
+            &all_on(),
+            std::slice::from_ref(&main),
+            Some("A"),
+            Some("T"),
+            &|| false,
+        );
+        for ext in ["ttml", "lrc", "vtt", "srt", "ass", "lyrics"] {
+            assert!(main.with_extension(ext).is_file(), "setup: no .{ext}");
+        }
+        let scope = AdvisoryScope {
+            ttml_before_companions: ttml_files_in(dir.path()),
+            download_started_at: Some(started()),
+            ..scope
+        };
+        (dir, scope, main)
+    }
+
+    /// Gives the copy word-by-word lyrics of its own (written by this run).
+    fn give_word_lyrics(copy: &Path) {
+        std::fs::write(copy.with_extension("ttml"), WORD_TTML).unwrap();
+    }
+
+    fn read(path: &Path) -> String {
+        std::fs::read_to_string(path).unwrap()
+    }
+
+    #[test]
+    fn pick_upgrades_keeps_one_copy_per_main_file_and_only_better_ones() {
+        use LyricsQuality::*;
+        let m1 = PathBuf::from("/a/01.m4a");
+        let m2 = PathBuf::from("/a/02.m4a");
+        let picked = pick_upgrades(vec![
+            // Two copies of song 1: the word-timed one wins.
+            (m1.clone(), PathBuf::from("/a/01 z.m4a"), LineTtml, None),
+            (
+                m1.clone(),
+                PathBuf::from("/a/01 b.m4a"),
+                WordTimedTtml,
+                None,
+            ),
+            // Equal: not better. Lower: not better.
+            (m2.clone(), PathBuf::from("/a/02 a.m4a"), LineTtml, LineTtml),
+            (
+                PathBuf::from("/a/03.m4a"),
+                PathBuf::from("/a/03 a.m4a"),
+                None,
+                LineTtml,
+            ),
+        ]);
+        assert_eq!(
+            picked,
+            vec![PlannedUpgrade {
+                main: m1,
+                from_copy: PathBuf::from("/a/01 b.m4a"),
+                quality: WordTimedTtml,
+            }]
+        );
+    }
+
+    #[test]
+    fn pick_upgrades_breaks_a_tie_by_the_first_path() {
+        use LyricsQuality::*;
+        let m = PathBuf::from("/a/01.m4a");
+        for order in [[0, 1], [1, 0]] {
+            let names = ["/a/01 a.m4a", "/a/01 b.m4a"];
+            let picked = pick_upgrades(
+                order
+                    .iter()
+                    .map(|i| (m.clone(), PathBuf::from(names[*i]), WordTimedTtml, LineTtml))
+                    .collect(),
+            );
+            assert_eq!(picked.len(), 1);
+            assert_eq!(picked[0].from_copy, PathBuf::from("/a/01 a.m4a"));
+        }
+    }
+
+    #[test]
+    fn a_better_copy_upgrades_the_main_download() {
+        let (dir, scope, main) = album_with_finished_main();
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+        let vtt_before = read(&main.with_extension("vtt"));
+        let lyricsfile_before = read(&main.with_extension("lyrics"));
+
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 1);
+        assert!(!s.stopped);
+        assert!(read(&main.with_extension("ttml")).contains("<span"));
+        assert!(read(&main.with_extension("lrc")).contains("<00:"));
+        assert_ne!(read(&main.with_extension("vtt")), vtt_before);
+        // The ASS file has no word timing, so it comes out the same; what
+        // matters is that it was rebuilt under the main file's own name.
+        let ass = read(&main.with_extension("ass"));
+        // The ASS title is the MAIN file's own name, not the copy's.
+        assert!(ass.contains("01 T [Dolby Atmos]"), "{ass}");
+        assert!(!ass.contains("01 T [Lossless]"));
+        assert_ne!(read(&main.with_extension("lyrics")), lyricsfile_before);
+        // The lyrics inside the main file were upgraded too.
+        let tag = mp4ameta::Tag::read_from_path(&main).unwrap();
+        assert!(tag.lyrics().is_some_and(|l| l.contains("<00:")));
+        let line = summary_line(&s).unwrap();
+        assert!(
+            line.contains("1 song in the main download got better lyrics from an extra copy."),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn another_copy_of_the_same_song_gets_the_upgraded_lyrics() {
+        let (dir, scope, main) = album_with_finished_main();
+        let better = add_copy(dir.path());
+        give_word_lyrics(&better);
+        let other = dir.path().join("01 T [AAC].m4a");
+        minimal_m4a(&other, 1, 1, false);
+        std::fs::write(other.with_extension("ttml"), LINE_TTML).unwrap();
+
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 1);
+        assert_eq!(s.total, 2);
+        // The line-level copy was given the main file's (now word-by-word)
+        // lyrics, not left with its own.
+        assert!(read(&other.with_extension("ttml")).contains("<span"));
+        assert!(read(&other.with_extension("lrc")).contains("<00:"));
+        assert!(read(&main.with_extension("ttml")).contains("<span"));
+    }
+
+    #[test]
+    fn the_upgrade_replaces_only_files_this_download_made() {
+        let (dir, scope, main) = album_with_finished_main();
+        // Older files with the main file's names: the person's own.
+        for ext in ["vtt", "ass", "lyrics"] {
+            let p = main.with_extension(ext);
+            std::fs::write(&p, "older").unwrap();
+            make_old(&p);
+        }
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 1);
+        // What this download made is rebuilt ...
+        assert!(read(&main.with_extension("ttml")).contains("<span"));
+        assert!(read(&main.with_extension("lrc")).contains("<00:"));
+        // ... what was there before is exactly as it was.
+        for ext in ["vtt", "ass", "lyrics"] {
+            assert_eq!(read(&main.with_extension(ext)), "older", ".{ext}");
+        }
+    }
+
+    #[test]
+    fn an_older_main_ttml_means_the_main_file_is_not_touched_at_all() {
+        let (dir, scope, main) = album_with_finished_main();
+        make_old(&main.with_extension("ttml"));
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+        let before: Vec<_> = folder_bytes(dir.path())
+            .into_iter()
+            .filter(|(name, _)| name.starts_with("01 T [Dolby Atmos]"))
+            .collect();
+
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 0);
+        let after: Vec<_> = folder_bytes(dir.path())
+            .into_iter()
+            .filter(|(name, _)| name.starts_with("01 T [Dolby Atmos]"))
+            .collect();
+        assert_eq!(after, before, "no file of the main download may change");
+    }
+
+    #[test]
+    fn an_older_lrc_beside_a_main_file_without_a_ttml_is_left_alone() {
+        let (dir, scope, main) = album();
+        let lrc = main.with_extension("lrc");
+        std::fs::write(&lrc, "[00:01.00]older").unwrap();
+        make_old(&lrc);
+        let scope = AdvisoryScope {
+            ttml_before_companions: ttml_files_in(dir.path()),
+            download_started_at: Some(started()),
+            ..scope
+        };
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+        let main_audio = std::fs::read(&main).unwrap();
+
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 0);
+        assert_eq!(read(&lrc), "[00:01.00]older");
+        assert!(!main.with_extension("ttml").exists());
+        assert_eq!(std::fs::read(&main).unwrap(), main_audio);
+    }
+
+    #[test]
+    fn nothing_is_replaced_when_the_download_start_is_unknown() {
+        let (dir, scope, main) = album_with_finished_main();
+        let scope = AdvisoryScope {
+            download_started_at: None,
+            ..scope
+        };
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+        let before: Vec<_> = folder_bytes(dir.path())
+            .into_iter()
+            .filter(|(name, _)| name.starts_with("01 T [Dolby Atmos]"))
+            .collect();
+
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 0);
+        let after: Vec<_> = folder_bytes(dir.path())
+            .into_iter()
+            .filter(|(name, _)| name.starts_with("01 T [Dolby Atmos]"))
+            .collect();
+        assert_eq!(after, before);
+        assert!(read(&main.with_extension("ttml")).contains("Hello"));
+    }
+
+    #[test]
+    fn older_songs_in_the_folder_are_never_touched_by_an_upgrade() {
+        let (dir, _scope, main) = album();
+        std::fs::write(main.with_extension("ttml"), LINE_TTML).unwrap();
+        // An older song with its own lyrics files.
+        let old = dir.path().join("02 Old.m4a");
+        minimal_m4a(&old, 1, 2, false);
+        for ext in ["ttml", "lrc", "vtt"] {
+            let p = old.with_extension(ext);
+            std::fs::write(&p, "older song").unwrap();
+            make_old(&p);
+        }
+        make_old(&old);
+        let scope = AdvisoryScope {
+            dir: dir.path().to_path_buf(),
+            this_download: vec![main.clone()],
+            before_companions: audio_files_in(dir.path()),
+            ttml_before_companions: ttml_files_in(dir.path()),
+            download_started_at: Some(started()),
+        };
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+        let before: Vec<_> = folder_bytes(dir.path())
+            .into_iter()
+            .filter(|(name, _)| name.starts_with("02 Old"))
+            .collect();
+
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 1);
+        let after: Vec<_> = folder_bytes(dir.path())
+            .into_iter()
+            .filter(|(name, _)| name.starts_with("02 Old"))
+            .collect();
+        assert_eq!(after, before, "the older song's files must not change");
+    }
+
+    #[test]
+    fn with_separate_files_off_the_upgrade_creates_no_file_but_embeds() {
+        let (dir, scope, main) = album();
+        let scope = AdvisoryScope {
+            download_started_at: Some(started()),
+            ..scope
+        };
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+        let settings = AppSettings {
+            keep_lyrics_sidecar: false,
+            ..all_on()
+        };
+
+        let s = run_copies(&settings, &scope, None, past(), &[], None, None, &|| false);
+        assert_eq!(s.main_upgraded, 1);
+        for ext in ["ttml", "lrc", "vtt", "srt", "ass", "lyrics"] {
+            assert!(
+                !main.with_extension(ext).exists(),
+                ".{ext} must not be created for the main file"
+            );
+        }
+        let tag = mp4ameta::Tag::read_from_path(&main).unwrap();
+        assert!(tag.lyrics().is_some_and(|l| l.contains("<00:")));
+    }
+
+    #[test]
+    fn a_stop_before_an_upgrade_changes_nothing_and_is_reported() {
+        let (dir, scope, main) = album_with_finished_main();
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+        let ttml_before = read(&main.with_extension("ttml"));
+        let s = run_copies(&all_on(), &scope, None, past(), &[], None, None, &|| true);
+        assert!(s.stopped);
+        assert_eq!(s.main_upgraded, 0);
+        assert_eq!(read(&main.with_extension("ttml")), ttml_before);
+    }
+
+    #[test]
+    fn summary_line_mentions_main_upgrades() {
+        let only_main = Summary {
+            total: 1,
+            unchanged: 1,
+            main_upgraded: 2,
+            ..Summary::default()
+        };
+        assert_eq!(
+            summary_line(&only_main).unwrap(),
+            "2 songs in the main download got better lyrics from an extra copy."
+        );
+        let both = Summary {
+            total: 1,
+            from_main: 1,
+            main_upgraded: 1,
+            ..Summary::default()
+        };
+        let line = summary_line(&both).unwrap();
+        assert!(line.starts_with("Lyrics added to 1 extra copy:"), "{line}");
+        assert!(line.ends_with("1 song in the main download got better lyrics from an extra copy."));
+    }
+
+    #[tokio::test]
+    async fn an_upgrade_waits_for_the_main_files_lock() {
+        let (dir, scope, main) = album_with_finished_main();
+        let copy = add_copy(dir.path());
+        give_word_lyrics(&copy);
+        let held = crate::utils::file_locks::global().lock(&main).await;
+        let settings = all_on();
+        let fut = run_copies_locked(
+            crate::utils::file_locks::global(),
+            &settings,
+            &scope,
+            None,
+            past(),
+            &[],
+            None,
+            None,
+            &|| false,
+        );
+        tokio::pin!(fut);
+        let waited = tokio::time::timeout(Duration::from_millis(100), &mut fut).await;
+        assert!(waited.is_err(), "must wait while the main file is locked");
+        assert!(read(&main.with_extension("ttml")).contains("Hello"));
+        drop(held);
+        let summary = tokio::time::timeout(Duration::from_secs(20), fut)
+            .await
+            .expect("the upgrade must finish once the lock is free");
+        assert_eq!(summary.main_upgraded, 1);
+        assert!(read(&main.with_extension("ttml")).contains("<span"));
+    }
+
+    // ---- 19. a panic is not retried (#1442 hardening) ----
+
+    #[test]
+    fn a_file_that_panics_is_not_put_back_but_the_others_are() {
+        let pending = Arc::new(StdMutex::new(None));
+        let a = PathBuf::from("/x/a.m4a");
+        let b = PathBuf::from("/x/b.m4a");
+        let files = vec![a.clone(), b.clone()];
+        let mut restore = PendingRestore::new(Some(pending.clone()), &files);
+        restore.begin(&a);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _held = restore;
+            panic!("test panic while a file is being worked on");
+        }));
+        assert!(result.is_err());
+        assert_eq!(*pending.lock().unwrap(), Some(vec![b]));
+    }
+
+    #[test]
+    fn without_a_panic_the_unfinished_file_is_put_back() {
+        let pending = Arc::new(StdMutex::new(None));
+        let a = PathBuf::from("/x/a.m4a");
+        let b = PathBuf::from("/x/b.m4a");
+        let files = vec![a.clone(), b.clone()];
+        let mut restore = PendingRestore::new(Some(pending.clone()), &files);
+        restore.begin(&a);
+        drop(restore);
+        assert_eq!(*pending.lock().unwrap(), Some(vec![a, b]));
     }
 }
