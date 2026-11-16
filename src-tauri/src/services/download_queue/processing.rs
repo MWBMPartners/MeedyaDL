@@ -1120,21 +1120,41 @@ pub fn process_queue(
                                                 );
                                                 log::info!("Download {dl_id} gap-fill succeeded");
                                             }
-                                            Err(e) if e.contains("cancelled") => {
-                                                // Release the slot, save and move
-                                                // the queue on, as a cancel on the
-                                                // main run does. (This used to just
-                                                // return: the slot was never given
-                                                // back, so a one-at-a-time queue
-                                                // stopped until MeedyaDL restarted.)
+                                            Err(e) if e == "Download cancelled by user" => {
+                                                // The person cancelled during the
+                                                // gap-fill pass. Matched on the exact
+                                                // sentinel the run returns for a cancel,
+                                                // never on the word "cancelled", which
+                                                // GAMDL's own error text can contain.
+                                                // The shared check releases the slot
+                                                // once and moves the queue on. (This
+                                                // used to just return: the slot was
+                                                // never given back, so a one-at-a-time
+                                                // queue stopped until MeedyaDL
+                                                // restarted.)
                                                 log::info!("Download {dl_id} gap-fill cancelled");
+                                                emit_download_log(
+                                                    &app_clone,
+                                                    &dl_id,
+                                                    "Download cancelled by user",
+                                                );
+                                                let mut q = queue_clone.lock().await;
+                                                if let Some(ended) =
+                                                    stop_if_ended_outside(&mut q, &dl_id, false)
                                                 {
-                                                    let mut q = queue_clone.lock().await;
-                                                    q.on_task_finished();
+                                                    drop(q);
+                                                    finish_ended_outside(
+                                                        &app_clone,
+                                                        &queue_clone,
+                                                        &dl_id,
+                                                        ended,
+                                                    )
+                                                    .await;
+                                                    return;
                                                 }
-                                                save_queue_to_disk(&app_clone, &queue_clone).await;
-                                                process_queue(app_clone, queue_clone).await;
-                                                return;
+                                                // Not actually cancelled: carry on as
+                                                // a failed gap-fill pass below.
+                                                drop(q);
                                             }
                                             Err(e) => {
                                                 log::warn!("Download {dl_id} gap-fill failed: {e}");
