@@ -15,6 +15,7 @@
 
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
+/** Props for `NavListItem`: any button attribute except `children`, which is redefined here. */
 interface NavListItemProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   /** The icon, already sized (18px in the sidebar, 16px elsewhere). */
   icon: ReactNode;
@@ -33,6 +34,12 @@ interface NavListItemProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>,
   highlight?: boolean;
 }
 
+/**
+ * One button in a vertical list of places. When `active` it carries
+ * `aria-current="page"`, which tells a screen reader this is where the
+ * person is now. With no `children` only the icon shows, centred.
+ * See: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Attributes/aria-current
+ */
 export function NavListItem({
   icon,
   children,
@@ -44,6 +51,9 @@ export function NavListItem({
   type = 'button',
   ...rest
 }: NavListItemProps) {
+  // Picks the colour classes. A small footer entry has its own look; the
+  // rest depend on whether the list sits in the sidebar or in the content area.
+  // Full class names are written out so Tailwind's build can find them.
   const colours =
     size === 'sm'
       ? highlight

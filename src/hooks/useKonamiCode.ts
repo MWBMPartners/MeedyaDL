@@ -45,6 +45,7 @@ export function useKonamiCode(onActivate: () => void): void {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    // Collects key presses and compares the latest ones with the secret sequence.
     const handleKeyDown = (e: KeyboardEvent) => {
       // Reset the inactivity timer on every key press.
       if (timerRef.current) {

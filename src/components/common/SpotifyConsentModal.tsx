@@ -58,6 +58,9 @@ import { withErrorToast } from '@/lib/withErrorToast';
 export default function SpotifyConsentModal() {
   const show = useUiStore((s) => s.showSpotifyConsent);
   const callback = useUiStore((s) => s.pendingSpotifyConsentCallback);
+  // These three are read once with `getState()` instead of a hook: they are
+  // functions that never change, so this component does not need to re-render for them.
+  // See: https://zustand.docs.pmnd.rs/apis/create
   const setShow = useUiStore.getState().setShowSpotifyConsent;
   const setCallback = useUiStore.getState().setPendingSpotifyConsentCallback;
   const addToast = useUiStore.getState().addToast;
@@ -82,6 +85,12 @@ export default function SpotifyConsentModal() {
     return undefined;
   }, [show]);
 
+  /**
+   * The "I understand" button. Records the consent through the backend,
+   * then closes the dialog and re-runs the download that was waiting.
+   * Nothing is closed or resumed if saving the answer fails (the person
+   * sees an error toast and can try again).
+   */
   const handleAccept = useCallback(async () => {
     // Single source of truth — the IPC writes the flag and persists
     // settings.json atomically. Frontend does not double-write.
@@ -107,6 +116,10 @@ export default function SpotifyConsentModal() {
     }
   }, [callback, setShow, setCallback]);
 
+  /**
+   * "Cancel" (also Escape and a click outside). Closes the dialog and drops
+   * the waiting download, so nothing is queued, and says so in a toast.
+   */
   const handleDismiss = useCallback(() => {
     setShow(false);
     setPendingCallback(setCallback, null);

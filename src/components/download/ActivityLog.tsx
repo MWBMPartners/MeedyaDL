@@ -420,6 +420,8 @@ export function ActivityLog() {
     firstStoreId: number;
   }>({ predicateKey: '', filtered: [], lastSeenId: -1, firstStoreId: -1 });
 
+  // The lines to draw: the search text and the System / Download / Verbose switches
+  // applied to every entry.
   const filteredEntries = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 

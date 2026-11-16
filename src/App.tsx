@@ -330,9 +330,12 @@ function App() {
    */
   const [showDevPrompt, setShowDevPrompt] = useState(false);
   const [devPassphrase, setDevPassphrase] = useState('');
+  // Opening the developer-access passphrase prompt when the key sequence is entered.
   const handleKonami = useCallback(() => setShowDevPrompt(true), []);
   useKonamiCode(handleKonami);
 
+  // Sends the typed passphrase for checking, closes the prompt and, on success,
+  // reloads settings so the page sees `dev_access_enabled`.
   const handleDevSubmit = useCallback(async () => {
     // Do not even ask when nothing has been typed (#1162). The backend refuses
     // an empty passphrase too, but sending one would burn one of the five
@@ -540,6 +543,7 @@ function App() {
     /* Gate: don't initialize until platform theme is loaded */
     if (!isReady) return;
 
+    // Start-up sequence: translations, settings, then everything that needs them.
     const initialize = async () => {
       /* Step 0: Finish starting the translation system. English was set up
        * in main.tsx before the first render; this fetches the system's
@@ -936,6 +940,8 @@ function App() {
      * in a closure variable for cleanup.
      */
     let unlistenTray: (() => void) | undefined;
+    // Listens for the tray menu's "check for updates" choice. Tauri events:
+    // https://v2.tauri.app/develop/calling-frontend/#event-system
     const setupTrayListener = async () => {
       try {
         unlistenTray = await listen('tray-check-updates', () => {
@@ -969,6 +975,7 @@ function App() {
     if (!isReady) return;
 
     let unlistenOnce: (() => void) | undefined;
+    // Subscribes to the backend's "one-off after-queue action was used up" event.
     const setup = async () => {
       try {
         unlistenOnce = await listen('after-queue-once-used', () => {
@@ -997,6 +1004,7 @@ function App() {
     if (!isReady) return;
 
     let unlistenAbout: (() => void) | undefined;
+    // Subscribes to the tray/menu request to open the Help "About" page.
     const setup = async () => {
       try {
         unlistenAbout = await listen('navigate-help-about', () => {
@@ -1076,6 +1084,7 @@ function App() {
     /** Stores the unlisten function returned by `listen()` for cleanup */
     let unlisten: (() => void) | undefined;
 
+    // Subscribes to download progress events from the backend.
     const setupListener = async () => {
       try {
         /* Subscribe to gamdl-output events with typed payload */
@@ -1141,6 +1150,8 @@ function App() {
     let unlistenConnectivityRestored: (() => void) | undefined;
     let unlistenAppNotification: (() => void) | undefined;
 
+    // Subscribes to the download lifecycle events (complete, error, cancel and so on)
+    // and the notification events that go with them.
     const setupListeners = async () => {
       try {
         /* 1. Download completed successfully.
@@ -1339,6 +1350,7 @@ function App() {
     if (!isReady) return;
 
     let unlistenDeepLink: (() => void) | undefined;
+    // Subscribes to links opened through the `meedyadl://` address scheme.
     const setup = async () => {
       try {
         unlistenDeepLink = await listen<{ url: string; codec: string | null }>(
@@ -1398,6 +1410,7 @@ function App() {
     let buffer: ActivityLogEntry[] = [];
     let rafId: number | null = null;
 
+    // Hands the buffered log lines to the store in one update, once per animation frame.
     const flush = () => {
       rafId = null;
       if (buffer.length > 0) {
@@ -1407,6 +1420,7 @@ function App() {
       }
     };
 
+    // Subscribes to `activity-log` events; lines are buffered, then flushed by `flush`.
     const setup = async () => {
       try {
         unlisten = await listen<ActivityLogEntry>('activity-log', (event) => {

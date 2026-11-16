@@ -100,6 +100,7 @@ export function ContextMenu({ items, x, y, onClose, label, id }: ContextMenuProp
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Adjusted position after viewport overflow check
+  // Starts at the requested spot; the measuring effect below may move it.
   const [pos, setPos] = useState({ x, y });
 
   // Filter out items with no meaningful action -- computed up front so
@@ -110,9 +111,10 @@ export function ContextMenu({ items, x, y, onClose, label, id }: ContextMenuProp
    * One button ref per rendered item, indexed the same way as
    * `visibleItems`. Rebuilt every render (menus are small and rebuild
    * cheaply) so a menu whose item list changes while open — e.g. a
-   * "disabled" flag flips — never nav igates against stale refs.
+   * "disabled" flag flips — never navigates against stale refs.
    */
   const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  // Drop refs left over from items that no longer exist.
   itemRefs.current = itemRefs.current.slice(0, visibleItems.length);
 
   /**
@@ -123,6 +125,8 @@ export function ContextMenu({ items, x, y, onClose, label, id }: ContextMenuProp
    */
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
+    // Remember who had focus now (before the focus effect below moves it
+    // into the menu), and give it back when this component unmounts.
     previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
     return () => {
       previouslyFocusedRef.current?.focus?.();
@@ -146,6 +150,8 @@ export function ContextMenu({ items, x, y, onClose, label, id }: ContextMenuProp
     const el = menuRef.current;
     if (!el) return;
 
+    // The real size is only known after the first paint, so measure it here.
+    // See: https://developer.mozilla.org/en-US/docs/Web/API/Element/getBoundingClientRect
     const rect = el.getBoundingClientRect();
     let adjustedX = x;
     let adjustedY = y;
@@ -168,13 +174,16 @@ export function ContextMenu({ items, x, y, onClose, label, id }: ContextMenuProp
   // Close on Escape key, outside click, and window scroll. Also handles
   // the arrow-key / Home / End navigation between items.
   useEffect(() => {
+    // Positions (in `itemRefs`) of the items that can be used. Disabled ones are skipped by the arrow keys.
     const enabledIndexes = () =>
       itemRefs.current.map((el, i) => (el && !el.disabled ? i : -1)).filter((i) => i !== -1);
 
+    // Moves keyboard focus to one menu item by position.
     const focusAt = (index: number) => {
       itemRefs.current[index]?.focus();
     };
 
+    // One listener on `document` so the keys work wherever focus happens to be.
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -192,11 +201,13 @@ export function ContextMenu({ items, x, y, onClose, label, id }: ContextMenuProp
       const enabled = enabledIndexes();
       if (enabled.length === 0) return;
 
+      // Where focus is now, within the whole list and within the usable items only.
       const activeIndex = itemRefs.current.findIndex((el) => el === document.activeElement);
       const posInEnabled = enabled.indexOf(activeIndex);
 
       if (e.key === 'ArrowDown') {
         e.preventDefault();
+        // If focus is not on an item (index -1) this picks the first one; otherwise `%` wraps past the last item back to the first.
         const next = enabled[(posInEnabled + 1 + enabled.length) % enabled.length];
         focusAt(next);
       } else if (e.key === 'ArrowUp') {
@@ -211,11 +222,14 @@ export function ContextMenu({ items, x, y, onClose, label, id }: ContextMenuProp
         focusAt(enabled[enabled.length - 1]);
       }
     };
+    // `mousedown` (not `click`) so the menu closes before the page reacts to the press.
     const handleClick = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
+    // Any scroll closes the menu, since it would drift away from where it was opened.
+    // The listener below is added with `true` (capture), so a scroll inside any element is seen, not just the window.
     const handleScroll = () => onClose();
 
     document.addEventListener('keydown', handleKeyDown);
@@ -229,8 +243,12 @@ export function ContextMenu({ items, x, y, onClose, label, id }: ContextMenuProp
     };
   }, [onClose]);
 
+  // Nothing to show: render nothing rather than an empty box.
   if (visibleItems.length === 0) return null;
 
+  // A portal draws the menu as a child of <body>, so no parent's `overflow`
+  // or stacking can clip it, while it stays part of this React tree.
+  // See: https://react.dev/reference/react-dom/createPortal
   return createPortal(
     <div
       ref={menuRef}

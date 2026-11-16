@@ -105,6 +105,11 @@ function NotCheckableNotice({ items }: { items: ComponentUpdate[] }) {
   );
 }
 
+/**
+ * The Updates page: shows the app update (with progress and install), GAMDL
+ * and tool updates, and anything that could not be checked, using the update
+ * store's last check result.
+ */
 export function UpdatesPage() {
   const lastResult = useUpdateStore((s) => s.lastResult);
   const dismissed = useUpdateStore((s) => s.dismissed);
@@ -125,6 +130,7 @@ export function UpdatesPage() {
   // affecting the others or the bulk "Update All" button.
   const [upgradingComponent, setUpgradingComponent] = useState<string | null>(null);
 
+  // Components with a compatible update that the person has not dismissed.
   const activeUpdates = useMemo(() => {
     if (!lastResult) return [];
     return lastResult.components.filter(
@@ -156,6 +162,8 @@ export function UpdatesPage() {
     () => activeUpdates.filter((c) => CORE_COMPONENTS.includes(c.name)),
     [activeUpdates]
   );
+  // Engine and tool updates: everything except the app, GAMDL and Python, which
+  // have their own rows.
   const engineUpdates = useMemo(
     () =>
       activeUpdates.filter(
@@ -172,6 +180,7 @@ export function UpdatesPage() {
     return app?.current_version ?? null;
   }, [lastResult]);
 
+  // Upgrades GAMDL, then shows a success or error message.
   const handleUpgradeGamdl = async (target?: string | null) => {
     try {
       // Pass the explicit target only for above-ceiling "Untested"
@@ -207,6 +216,7 @@ export function UpdatesPage() {
     }
   };
 
+  // Downloads and installs the app update with the given release tag.
   const handleDownloadAndInstall = async (tag: string) => {
     try {
       await downloadAndInstallAppUpdate(tag);
@@ -228,6 +238,7 @@ export function UpdatesPage() {
     }
   };
 
+  // Restarts the app so an installed update takes effect.
   const handleRestart = async () => {
     try {
       await relaunch();
@@ -236,10 +247,12 @@ export function UpdatesPage() {
     }
   };
 
+  // Runs a fresh update check; errors are handled by the store.
   const handleCheck = () => {
     checkForUpdates().catch(() => {});
   };
 
+  // Opens a release page in the system browser.
   const handleViewRelease = (url: string) => {
     import('@tauri-apps/plugin-shell').then(({ open }) => open(url)).catch(() => {});
   };

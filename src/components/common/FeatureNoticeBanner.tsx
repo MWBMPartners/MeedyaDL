@@ -121,8 +121,11 @@ function clampMessage(message: string): string {
 
 /** A single resolved, display-ready notice — one per banner row. */
 interface ResolvedNotice {
+  /** The flag's key; also used as the React list key. */
   key: string;
+  /** Picks the colours and the icon. */
   token: StatusToken;
+  /** Ready to print as plain text (a server message is already clamped; the fallback text is the app's own). */
   message: string;
 }
 
@@ -147,6 +150,7 @@ function resolveNotice(
   verdict: FlagVerdict,
   fallbackText: (feature: string) => string
 ): ResolvedNotice | null {
+  // `?.` because many verdicts have no notice at all; `trim()` so a blank or spaces-only message counts as none.
   const rawMessage = verdict.notice?.message.trim();
 
   if (rawMessage) {
@@ -187,9 +191,14 @@ export function FeatureNoticeBanner() {
   // `.meta` is never touched anywhere in this file.
   const snapshotData = useFeatureFlagStore((s) => s.data);
 
+  // Pick out only the flags that need a banner. `useMemo` redoes this only
+  // when the snapshot changes.
+  // See: https://react.dev/reference/react/useMemo
   const entries = useMemo(() => selectNoticeEntries(snapshotData), [snapshotData]);
 
+  // Turn each entry into display-ready text and colours, dropping the ones with nothing to say.
   const notices = useMemo(() => {
+    // Text for a disabled feature that came with no message of its own (translated, with the feature name filled in).
     const fallbackText = (feature: string) => t('featureFlags.fallbackMessage', { feature });
     return entries
       .map((entry) => resolveNotice(entry.key, entry.verdict, fallbackText))
@@ -210,6 +219,7 @@ export function FeatureNoticeBanner() {
   const hiddenCount = notices.length - shownNotices.length;
 
   return (
+    // `data-testid` values are hooks for the component tests, not for styling.
     <div className="flex flex-col gap-2 mx-4 mt-3 mb-1" data-testid="feature-notice-banner-list">
       {shownNotices.map((notice) => {
         const classes = TOKEN_CLASSES[notice.token];
@@ -241,4 +251,5 @@ export function FeatureNoticeBanner() {
   );
 }
 
+// The named export above is what the app and tests use; the default export is a convenience for default imports.
 export default FeatureNoticeBanner;

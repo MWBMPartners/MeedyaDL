@@ -107,6 +107,7 @@ export function useClipboardMonitor(isReady: boolean): void {
           // The system notification (when one goes out) points the person
           // at THIS message by its own words, so the two must agree.
           const toastMessage = `Copied Apple Music ${typeLabel} link found`;
+          // What the notice's Download button does.
           const downloadAction = () => {
             // Directly queue the download — skip the input pre-fill step
             startDownload({ urls: [trimmed] })

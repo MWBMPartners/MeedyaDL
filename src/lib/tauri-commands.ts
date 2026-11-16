@@ -397,6 +397,7 @@ export interface StageStatus {
   label: string;
   key: string;
 }
+/** What `scanEnrichmentGaps` returns: one album folder, how many audio files it holds, and a per-stage verdict with running totals. */
 export interface EnrichmentGapReport {
   album_dir: string;
   audio_file_count: number;
@@ -405,6 +406,12 @@ export interface EnrichmentGapReport {
   complete_count: number;
   unknown_count: number;
 }
+/**
+ * Wrapper for the `scan_enrichment_gaps` command.
+ *
+ * @param albumDir Absolute path of the album folder to inspect.
+ * @returns The per-stage report for that folder (see {@link EnrichmentGapReport}).
+ */
 export function scanEnrichmentGaps(albumDir: string): Promise<EnrichmentGapReport> {
   return invoke<EnrichmentGapReport>('scan_enrichment_gaps', { albumDir });
 }
@@ -423,11 +430,18 @@ export interface DiagnosticBundleInput {
   component_versions: { name: string; version: string }[];
   user_summary?: string | null;
 }
+/** What `buildDiagnosticBundle` returns: the redacted Markdown body, a pre-filled GitHub issue address, and the body's size in bytes. */
 export interface DiagnosticBundle {
   markdown_body: string;
   github_issue_url: string;
   size_bytes: number;
 }
+/**
+ * Wrapper for the `build_diagnostic_bundle` command.
+ *
+ * @param input The activity-log lines, component versions and optional note to include.
+ * @returns The redacted bundle and the issue address (nothing is sent anywhere).
+ */
 export function buildDiagnosticBundle(input: DiagnosticBundleInput): Promise<DiagnosticBundle> {
   return invoke<DiagnosticBundle>('build_diagnostic_bundle', { input });
 }
@@ -441,14 +455,17 @@ export interface CodecCount {
   codec: string;
   count: number;
 }
+/** A name (artist or album) with how many downloads carry it. */
 export interface NameCount {
   name: string;
   count: number;
 }
+/** One calendar day (as text) with the number of downloads made on it. */
 export interface DayCount {
   date: string;
   count: number;
 }
+/** The roll-up numbers `getLifetimeStats` returns: totals, success rate, codec mix, top artist and album, and the last seven days. */
 export interface LifetimeStats {
   total: number;
   success: number;
@@ -461,6 +478,11 @@ export interface LifetimeStats {
   earliest: string | null;
   latest: string | null;
 }
+/**
+ * Wrapper for the `get_lifetime_stats` command.
+ *
+ * @returns Totals worked out from the saved download history ({@link LifetimeStats}).
+ */
 export function getLifetimeStats(): Promise<LifetimeStats> {
   return invoke<LifetimeStats>('get_lifetime_stats');
 }
@@ -481,26 +503,50 @@ export interface BackupSummary {
   files: string[];
   total_snapshots: number;
 }
+/** What `restoreFromBackup` returns: the snapshot used, the files put back, and the files left alone. */
 export interface RestoreSummary {
   snapshot_path: string;
   restored: string[];
   skipped: string[];
 }
+/** One saved snapshot as listed by `listBackups`: its path, name, size and number of files. */
 export interface BackupEntry {
   path: string;
   name: string;
   size_bytes: number;
   file_count: number;
 }
+/**
+ * Wrapper for the `create_backup` command.
+ *
+ * @returns A summary of the new snapshot ({@link BackupSummary}).
+ */
 export function createBackup(): Promise<BackupSummary> {
   return invoke<BackupSummary>('create_backup');
 }
+/**
+ * Wrapper for the `list_backups` command.
+ *
+ * @returns Every saved snapshot ({@link BackupEntry}).
+ */
 export function listBackups(): Promise<BackupEntry[]> {
   return invoke<BackupEntry[]>('list_backups');
 }
+/**
+ * Wrapper for the `restore_from_backup` command.
+ *
+ * @param snapshotPath Path of the snapshot to restore, as listed by `listBackups`.
+ * @returns Which files were restored and which were skipped.
+ */
 export function restoreFromBackup(snapshotPath: string): Promise<RestoreSummary> {
   return invoke<RestoreSummary>('restore_from_backup', { snapshotPath });
 }
+/**
+ * Wrapper for the `delete_backup` command.
+ *
+ * @param snapshotPath Path of the snapshot to delete.
+ * @returns Nothing; rejects if the snapshot cannot be removed.
+ */
 export function deleteBackup(snapshotPath: string): Promise<void> {
   return invoke<void>('delete_backup', { snapshotPath });
 }
@@ -519,6 +565,11 @@ export interface GamdlSupportWindow {
   maximum_tested: string;
   recommended: string;
 }
+/**
+ * Wrapper for the `get_gamdl_support_window` command.
+ *
+ * @returns The GAMDL versions this build supports ({@link GamdlSupportWindow}).
+ */
 export function getGamdlSupportWindow(): Promise<GamdlSupportWindow> {
   return invoke<GamdlSupportWindow>('get_gamdl_support_window');
 }
@@ -589,6 +640,11 @@ export interface GamdlCapabilities {
    * (4.0.2 and newer), so "Save Cover Art" works as it does with GAMDL 3. */
   gamdl_four_saves_album_cover: boolean;
 }
+/**
+ * Wrapper for the `get_gamdl_capabilities` command.
+ *
+ * @returns Which GAMDL features the installed version has ({@link GamdlCapabilities}).
+ */
 export function getGamdlCapabilities(): Promise<GamdlCapabilities> {
   return invoke<GamdlCapabilities>('get_gamdl_capabilities');
 }
@@ -779,6 +835,11 @@ export interface LaunchVersionInfo {
   isFirstLaunchAfterUpgrade: boolean;
 }
 
+/**
+ * Wrapper for the `get_launch_version_info` command.
+ *
+ * @returns The running and previous versions, and whether this is the first launch after an upgrade.
+ */
 export function getLaunchVersionInfo(): Promise<LaunchVersionInfo> {
   return invoke<LaunchVersionInfo>('get_launch_version_info');
 }
@@ -1179,6 +1240,7 @@ export interface BulkRetrySkipped {
   reason: string;
 }
 
+/** What a bulk retry did: how many items were asked for, how many were retried, and which were skipped and why. */
 export interface BulkRetryReport {
   requested: number;
   retried: number;
@@ -2746,6 +2808,11 @@ export interface NotificationDiagnostics {
   app_identity_in_use: boolean;
 }
 
+/**
+ * Wrapper for the `get_notification_diagnostics` command.
+ *
+ * @returns Facts about how this build sends system notifications ({@link NotificationDiagnostics}).
+ */
 export function getNotificationDiagnostics(): Promise<NotificationDiagnostics> {
   return invoke<NotificationDiagnostics>('get_notification_diagnostics');
 }
@@ -2809,6 +2876,7 @@ export type IntegrityIssue =
   | { kind: 'degenerate_name'; path: string; signature: string }
   | { kind: 'zero_byte_cover'; path: string };
 
+/** What the integrity scan returns: how many files it looked at, the problems found, and the folder it scanned. */
 export interface IntegrityScanReport {
   files_walked: number;
   issues: IntegrityIssue[];

@@ -119,8 +119,10 @@ export function useMetadataLanguageOptions(
   const identityKey = JSON.stringify(
     withSavedValues(METADATA_LANGUAGE_TAGS, [...remembered, currentValue])
   );
+  // The tags to ask the backend about, rebuilt from a string key so the list is stable between renders.
   const identityTags = useMemo(() => JSON.parse(identityKey) as string[], [identityKey]);
   const identities = useLanguageIdentities(identityTags);
+  // The standard spellings of the offered tags, used to see if the saved value is one of them.
   const offeredStandards = useMemo(
     () => new Set(METADATA_LANGUAGE_TAGS.map(identities.standardOf)),
     [identities]
@@ -165,6 +167,7 @@ export function useMetadataLanguageOptions(
   const extrasKey = JSON.stringify(
     withSavedValues(remembered, isUnoffered ? [currentValue] : [], identities.standardOf)
   );
+  // The offered tags plus any saved values that are not in the offered list.
   const tags = useMemo(
     () =>
       withSavedValues(
@@ -175,6 +178,7 @@ export function useMetadataLanguageOptions(
     [extrasKey, identities]
   );
 
+  // A local alphabetical order used until the backend's order arrives, or if it fails.
   const fallback = useMemo(() => collatorFallbackOrder(tags, uiLanguage), [tags, uiLanguage]);
 
   // What the backend ordering said, and for which list and language.
@@ -223,6 +227,7 @@ export function useMetadataLanguageOptions(
     identities,
   ]);
 
+  // The dropdown rows: the backend's order when it matches the current list and language, else the local one.
   const options = useMemo(() => {
     const useBackendOrder = ordered !== null && ordered.tags === tags && ordered.ui === uiLanguage;
     return toLanguageOptions(useBackendOrder ? ordered.order : fallback, uiLanguage);

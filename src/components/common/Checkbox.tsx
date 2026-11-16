@@ -15,6 +15,15 @@
 
 import type { InputHTMLAttributes, ReactNode } from 'react';
 
+/**
+ * Props for `Checkbox`: every normal `<input>` attribute except `type` and
+ * `onChange` (those two are replaced by the simpler versions below).
+ *
+ * The last line is a union so the compiler enforces the accessibility rule:
+ * either give a visible `label`, or give an `aria-label`. A box with neither
+ * would have no name for a screen reader.
+ * See: https://developer.mozilla.org/en-US/docs/Web/HTML/Element/input/checkbox
+ */
 type CheckboxProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'onChange'> & {
   checked: boolean;
   onChange: (checked: boolean) => void;
@@ -22,6 +31,15 @@ type CheckboxProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'onCha
   description?: ReactNode;
 } & ({ label: ReactNode; 'aria-label'?: string } | { label?: undefined; 'aria-label': string });
 
+/**
+ * A controlled checkbox. The parent owns `checked` and hears about changes
+ * through `onChange(newValue)`, so the caller never has to read the event.
+ *
+ * With a `label` it renders a `<label>` around the box, which makes the
+ * whole line clickable. Without one it renders just the box in a `<span>`.
+ * Any extra props (`id`, `aria-describedby`, ...) go straight to the input.
+ * See: https://react.dev/reference/react-dom/components/input#controlling-an-input-with-a-state-variable
+ */
 export function Checkbox({
   checked,
   onChange,
@@ -31,6 +49,7 @@ export function Checkbox({
   className = '',
   ...rest
 }: CheckboxProps) {
+  // The box is built once and placed either bare or inside the label below.
   const box = (
     <input
       type="checkbox"
@@ -41,6 +60,7 @@ export function Checkbox({
       {...rest}
     />
   );
+  // No label: no wrapper text, so the caller's `aria-label` is the box's only name.
   if (!label) return <span className={`inline-flex items-center ${className}`}>{box}</span>;
   return (
     <label

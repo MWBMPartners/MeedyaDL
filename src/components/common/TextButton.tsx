@@ -17,6 +17,7 @@
 
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
+/** Props for `TextButton`: any button attribute, with a required visible label. */
 interface TextButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode;
   /** 'danger' for actions that delete something. */
@@ -25,6 +26,10 @@ interface TextButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   size?: 'xs' | 'sm';
 }
 
+/**
+ * A button drawn like an underlined link, for actions inside a line of text.
+ * `type` defaults to "button" so it never submits a surrounding form.
+ */
 export function TextButton({
   children,
   tone = 'default',

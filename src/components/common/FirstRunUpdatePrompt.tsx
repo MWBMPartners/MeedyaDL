@@ -47,7 +47,15 @@ import { Modal } from './Modal';
 import { RESTART_FAILED, UPDATE_FAILED, showError } from '@/lib/errorMessages';
 import { InlineError } from './InlineError';
 
+/**
+ * The dialog shown on a first launch when an app update is waiting.
+ * Renders nothing unless the UI store says to show it and has the update's
+ * details. It offers "Update now" or "Continue setup on this version",
+ * and the second one is also what Escape and a click outside do.
+ */
 export default function FirstRunUpdatePrompt() {
+  // Each store value is read through its own selector, so this component only
+  // re-renders when one of the values it uses changes.
   const show = useUiStore((s) => s.showFirstRunUpdatePrompt);
   const info = useUiStore((s) => s.firstRunUpdatePromptInfo);
   const setShowFirstRunUpdatePrompt = useUiStore((s) => s.setShowFirstRunUpdatePrompt);
@@ -90,6 +98,11 @@ export default function FirstRunUpdatePrompt() {
     }
   }, [info, downloadAndInstallAppUpdate]);
 
+  /**
+   * Restarts the app after an update has been installed. If the restart
+   * itself fails, the person is told with a toast (the update is already
+   * on disk, so a manual restart finishes the job).
+   */
   const handleRestart = useCallback(async () => {
     try {
       await relaunch();
@@ -98,6 +111,7 @@ export default function FirstRunUpdatePrompt() {
     }
   }, [addToast]);
 
+  // Hooks above must always run; only after them is it safe to return early.
   if (!show || !info) return null;
 
   return (

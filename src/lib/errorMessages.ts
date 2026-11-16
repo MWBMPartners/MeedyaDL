@@ -48,6 +48,7 @@ export function isCancellation(err: unknown): boolean {
   return /\bcancel(l)?ed\b|\bcancel\b/i.test(rawError(err));
 }
 
+/** Optional settings for {@link showError}. */
 interface ShowErrorOptions {
   /** 'error' unless the problem is a warning (nothing was lost). */
   type?: Extract<ToastType, 'error' | 'warning'>;

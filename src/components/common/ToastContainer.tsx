@@ -91,7 +91,7 @@ const TOAST_CONFIG: Record<
 
 /**
  * Tailwind text-colour class for each toast type's icon.
- * Uses the project's semantic status colour tokens defined in tailwind.config.ts.
+ * Uses the project's semantic status colour tokens defined in tailwind.config.js.
  */
 const ICON_COLORS: Record<ToastType, string> = {
   success: 'text-status-success', // green icon
@@ -134,9 +134,16 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
    * there is more to show.
    */
   const messageRef = useRef<HTMLParagraphElement>(null);
+  // Links the "Show more" button to the paragraph it expands (`aria-controls`).
   const messageId = useId();
+  // `expanded`: the whole text is showing. `cut`: the text is currently longer than its 3-line box.
   const [expanded, setExpanded] = useState(false);
   const [cut, setCut] = useState(false);
+  // Runs after the text is drawn but before the screen updates. `scrollHeight`
+  // is the full height of the text; `clientHeight` is what the 3-line clamp
+  // lets show. The `+ 1` ignores a rounding difference of one pixel.
+  // See: https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollHeight
+  // See: https://react.dev/reference/react/useLayoutEffect
   useLayoutEffect(() => {
     const el = messageRef.current;
     if (!el || expanded) return;
@@ -258,9 +265,12 @@ export function ToastContainer() {
    */
   const [top, setTop] = useState(DEFAULT_TOP);
   useLayoutEffect(() => {
+    // ResizeObserver tells us when a keep-clear area changes size.
+    // See: https://developer.mozilla.org/en-US/docs/Web/API/ResizeObserver
     const update = () => setTop(toastStackTop());
     update();
     window.addEventListener('resize', update);
+    // The `true` (capture) catches scrolls inside any element, since scroll events do not bubble.
     document.addEventListener('scroll', update, true);
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
     document.querySelectorAll(`[${KEEP_CLEAR_ATTRIBUTE}]`).forEach((el) => observer?.observe(el));
@@ -282,6 +292,7 @@ export function ToastContainer() {
   useLayoutEffect(() => {
     const el = stackRef.current;
     if (!el) return;
+    // The stack scrolls only when its content is taller than its capped height.
     const measure = () => setScrolls(el.scrollHeight > el.clientHeight + 1);
     measure();
     // A toast opened with "Show more" grows without the list changing,
@@ -305,14 +316,17 @@ export function ToastContainer() {
    */
   const [hovered, setHovered] = useState(false);
   const [focusInside, setFocusInside] = useState(false);
+  // Looks at where focus really is, instead of trusting focus and blur events (see above).
   const recheckFocus = () => {
     const el = stackRef.current;
     setFocusInside(!!el && !!document.activeElement && el.contains(document.activeElement));
   };
+  // The store's auto-dismiss timers stand still while this is true.
   const paused = (hovered || focusInside) && toasts.length > 0;
   useEffect(() => {
     setToastDismissalPaused(paused);
   }, [paused]);
+  // On unmount, never leave auto-dismiss paused.
   useEffect(() => () => setToastDismissalPaused(false), []);
   useEffect(() => {
     recheckFocus();
@@ -363,10 +377,12 @@ export function ToastContainer() {
    * are always in the page, empty until there is something to say,
    * because a screen reader only notices changes to a region it knows.
    */
+  // Ids of toasts already announced, so only new arrivals are spoken.
   const seenIds = useRef<Set<string>>(new Set());
   const [alertToast, setAlertToast] = useState<{ id: string; message: string } | null>(null);
   const [statusToast, setStatusToast] = useState<{ id: string; message: string } | null>(null);
   useEffect(() => {
+    // Newest arrival wins if several land in one render; the `reverse()` makes `find` start from the newest.
     const present = new Set(toasts.map((t) => t.id));
     const arrived = toasts.filter((t) => !seenIds.current.has(t.id));
     seenIds.current = present;

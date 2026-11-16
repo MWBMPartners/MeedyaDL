@@ -613,6 +613,7 @@ export function CookiesTab() {
    * Detect installed browsers on mount for the auto-import dropdown.
    */
   useEffect(() => {
+    // `cancelled` stops a slow reply from updating state after unmount.
     let cancelled = false;
     async function detect() {
       try {

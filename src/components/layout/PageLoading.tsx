@@ -16,6 +16,13 @@
 import { LoadingSpinner } from '@/components/common/LoadingSpinner';
 import { PageHeader } from './PageHeader';
 
+/**
+ * Placeholder shown while a lazily loaded page's code downloads. `title` is
+ * the page's own heading, so the real header does not jump when it arrives.
+ * It is used as the fallback of a React `Suspense` boundary.
+ * See: https://react.dev/reference/react/lazy
+ * See: https://react.dev/reference/react/Suspense
+ */
 export function PageLoading({ title }: { title: string }) {
   return (
     <div className="flex flex-col h-full">

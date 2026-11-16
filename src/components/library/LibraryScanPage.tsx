@@ -100,6 +100,10 @@ const CODEC_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   'aac-he-downmix': 'HE Downmix',
 };
 
+/**
+ * Turns a codec id from the manifest into a readable name, or returns the id
+ * unchanged when it is not in `CODEC_DISPLAY_NAMES`.
+ */
 function displayCodecName(id: string): string {
   return CODEC_DISPLAY_NAMES[id] ?? id;
 }
@@ -246,6 +250,13 @@ function EnrichmentBadge({ report }: { report: EnrichmentGapReport | undefined }
   );
 }
 
+/**
+ * The Library page: pick a folder, scan it for download records, then show
+ * one row per album with badges for missing tracks or codecs, newer Apple
+ * Music versions and enrichment gaps, plus a Re-download action.
+ *
+ * Badges fill in lazily after the scan so the table appears at once.
+ */
 export function LibraryScanPage() {
   const addToast = useUiStore((s) => s.addToast);
   const mvCompanionEnabled = useSettingsStore((s) => s.settings.music_video_companion);
@@ -379,6 +390,8 @@ export function LibraryScanPage() {
     setPendingGapFill(m);
   };
 
+  // Runs after the music-video question: starts the re-download for the chosen row
+  // with the answer as its music-video override, or explains why nothing is needed.
   const handleGapFillConfirm = async (override: boolean | null) => {
     const manifest = pendingGapFill;
     setPendingGapFill(null);
@@ -415,6 +428,7 @@ export function LibraryScanPage() {
     }
   };
 
+  // Picks a folder, scans it, then fills in the diff, freshness and gap badges row by row.
   const handleScan = async () => {
     setScanning(true);
     setDiffs({});

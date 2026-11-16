@@ -316,6 +316,7 @@ export function DownloadQueue() {
    */
   const [isPaused, setIsPaused] = useState<boolean>(false);
 
+  // Adds or removes one state from the set of states the list is filtered by.
   const toggleStatusFilter = useCallback((state: DownloadState) => {
     setStatusFilters((prev) => {
       const next = new Set(prev);
@@ -325,6 +326,7 @@ export function DownloadQueue() {
     });
   }, []);
 
+  // Ticks or unticks one row for bulk actions.
   const toggleSelected = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -334,8 +336,10 @@ export function DownloadQueue() {
     });
   }, []);
 
+  // Unticks every row.
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
+  // Aborts every non-finished download. Saves "don't ask again" first if it was ticked.
   const handleAbortAll = useCallback(async () => {
     setShowAbortConfirm(false);
     if (abortDontAskAgain) {
@@ -526,6 +530,7 @@ export function DownloadQueue() {
     [cancelDownload, addToast]
   );
 
+  // Re-queues one failed or cancelled item and shows the backend's reason if refused.
   const handleRetry = useCallback(
     async (id: string) => {
       try {
@@ -540,6 +545,7 @@ export function DownloadQueue() {
     [retryDownload, addToast]
   );
 
+  // Re-queues one item with the wrapper switched off for that attempt.
   const handleRetryWithoutWrapper = useCallback(
     async (id: string) => {
       try {
@@ -911,6 +917,7 @@ export function DownloadQueue() {
     [addToast]
   );
 
+  // Cancels every ticked row that is waiting or running, then reports how many worked.
   const handleBulkCancel = useCallback(async () => {
     const targets = useDownloadStore
       .getState()
@@ -939,6 +946,7 @@ export function DownloadQueue() {
     clearSelection();
   }, [cancelDownload, reportBulkResult, selectedVisibleIds, clearSelection]);
 
+  // Retries every ticked row that failed or was cancelled, then reports how many worked.
   const handleBulkRetry = useCallback(async () => {
     const targets = useDownloadStore
       .getState()
@@ -960,6 +968,7 @@ export function DownloadQueue() {
     clearSelection();
   }, [retryDownload, reportBulkResult, selectedVisibleIds, clearSelection]);
 
+  // Removes every ticked row that is not actively downloading, then reports how many worked.
   const handleBulkDelete = useCallback(async () => {
     // Bulk delete removes finished/queued/cancelled rows in one pass.
     // Active rows (downloading/processing) are protected — same rule

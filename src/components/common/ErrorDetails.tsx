@@ -10,6 +10,7 @@
  * history rows all fold it the same way.
  */
 
+/** Props for `ErrorDetails`. */
 interface ErrorDetailsProps {
   /** The technical text. Nothing is drawn when it is empty. */
   details: string | null | undefined;
@@ -19,6 +20,12 @@ interface ErrorDetailsProps {
   className?: string;
 }
 
+/**
+ * Draws a closed `<details>` fold holding technical error text, or nothing
+ * at all when there is no text. A native `<details>` is used so the fold
+ * works from the keyboard and for screen readers with no extra code.
+ * See: https://developer.mozilla.org/en-US/docs/Web/HTML/Element/details
+ */
 export function ErrorDetails({
   details,
   label = 'Details',
@@ -30,6 +37,7 @@ export function ErrorDetails({
       <summary className="cursor-pointer select-none font-medium text-content-tertiary hover:text-content-secondary">
         {label}
       </summary>
+      {/* `pre-wrap` keeps the line breaks of tracebacks; `select-text` lets people copy the text into a report. */}
       <p className="mt-1 max-h-32 overflow-y-auto whitespace-pre-wrap break-words font-mono text-content-tertiary select-text">
         {details}
       </p>

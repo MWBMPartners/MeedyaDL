@@ -45,6 +45,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { languageIdentities } from '@/lib/tauri-commands';
 import { primaryLanguageOf } from '@/lib/languageOptions';
 
+/** What the backend says about one language tag: its standard spelling and its primary-language group. */
 interface Identity {
   standard: string;
   primary: string;

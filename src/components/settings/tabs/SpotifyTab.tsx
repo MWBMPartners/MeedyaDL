@@ -80,6 +80,12 @@ const DEFAULT_SPOTIFY: SpotifyServiceSettings = {
   },
 };
 
+/**
+ * The Settings > Spotify tab (shown only with developer access on).
+ * Edits the Spotify block of `service_settings` (cookies file, session type,
+ * helper files and the anti-ban pacing options) and shows today's download
+ * count against the daily cap.
+ */
 export function SpotifyTab() {
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
@@ -115,6 +121,7 @@ export function SpotifyTab() {
   // count is fresh while the user is looking at the tab.
   const [capStatus, setCapStatus] = useState<DailyCapStatus | null>(null);
   useEffect(() => {
+    // `cancelled` stops a slow reply from updating state after the tab is closed.
     let cancelled = false;
     const load = async () => {
       const result = await withErrorToast(async () => getSpotifyDailyCapStatus(), {
@@ -126,6 +133,9 @@ export function SpotifyTab() {
       }
     };
     void load();
+    // Re-read the count whenever the window regains focus, so it stays fresh
+    // if downloads ran while the person was elsewhere.
+    // See: https://developer.mozilla.org/en-US/docs/Web/API/Window/focus_event
     const handleFocus = () => void load();
     window.addEventListener('focus', handleFocus);
     return () => {

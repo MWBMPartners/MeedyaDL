@@ -42,6 +42,7 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { Button, Modal } from '@/components/common';
 
+/** Settings for {@link useConfirmation}: the dialog text and what to do on confirm or cancel. */
 export interface UseConfirmationOptions {
   /** Modal title (rendered in the header bar). */
   title: string;
@@ -69,6 +70,7 @@ export interface UseConfirmationOptions {
   onCancel?: () => void;
 }
 
+/** What {@link useConfirmation} hands back: `open`, `close`, an `isOpen` flag, and the `modal` element to render. */
 export interface UseConfirmationReturn {
   /** Show the modal. Typically wired to a trigger button's onClick. */
   open: () => void;
@@ -92,14 +94,18 @@ export interface UseConfirmationReturn {
 export function useConfirmation(opts: UseConfirmationOptions): UseConfirmationReturn {
   const [isOpen, setIsOpen] = useState(false);
 
+  // Shows the dialog.
   const open = useCallback(() => setIsOpen(true), []);
+  // Hides the dialog without calling `onCancel`.
   const close = useCallback(() => setIsOpen(false), []);
 
+  // Cancel, backdrop click or Escape: tells the caller and hides the dialog.
   const handleCancel = useCallback(() => {
     opts.onCancel?.();
     setIsOpen(false);
   }, [opts]);
 
+  // Confirm: runs `onConfirm` and hides the dialog; if it throws, the dialog stays open.
   const handleConfirm = useCallback(async () => {
     try {
       await opts.onConfirm();

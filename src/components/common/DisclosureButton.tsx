@@ -20,6 +20,10 @@ import { ChevronRight } from 'lucide-react';
 /** The chevron itself: right when closed, rotated to point down when open. */
 export function ExpandChevron({ open, size = 14 }: { open: boolean; size?: number }) {
   return (
+    // The icon is decorative (`aria-hidden`): `aria-expanded` on the button
+    // already tells a screen reader whether the section is open. Turning the
+    // right-pointing chevron 90 degrees makes it point down.
+    // See: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Attributes/aria-expanded
     <ChevronRight
       size={size}
       aria-hidden="true"
@@ -28,6 +32,7 @@ export function ExpandChevron({ open, size = 14 }: { open: boolean; size?: numbe
   );
 }
 
+/** Props for `DisclosureButton`: any button attribute, plus `open` and a title. */
 interface DisclosureButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   /** Whether the part it controls is open. */
   open: boolean;
@@ -48,6 +53,9 @@ export function DisclosureButton({
   ...rest
 }: DisclosureButtonProps) {
   return (
+    // `type` defaults to "button" so the control never submits a surrounding form by accident.
+    // `aria-expanded` is what makes this a disclosure widget for assistive tech.
+    // See: https://www.w3.org/WAI/ARIA/apg/patterns/disclosure/
     <button
       type={type}
       aria-expanded={open}

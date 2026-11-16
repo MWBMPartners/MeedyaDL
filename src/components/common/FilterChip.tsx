@@ -18,6 +18,7 @@
 
 import type { ButtonHTMLAttributes, ReactNode } from 'react';
 
+/** The colour scheme a chip uses while it is switched on. */
 type FilterChipTone = 'accent' | 'info' | 'warning';
 
 /** Colours when the chip is on. */
@@ -27,6 +28,7 @@ const ON_CLASSES: Record<FilterChipTone, string> = {
   warning: 'bg-status-warning/15 text-status-warning-text border-status-warning/30',
 };
 
+/** Props for `FilterChip`: any button attribute except `onClick`, which is redefined here. */
 interface FilterChipProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'onClick'> {
   /** Whether the filter is on. */
   pressed: boolean;
@@ -38,6 +40,11 @@ interface FilterChipProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 
   tone?: FilterChipTone;
 }
 
+/**
+ * A pill-shaped toggle button for filtering a list. `aria-pressed` tells a
+ * screen reader it is an on/off toggle, and the colours change with `pressed`.
+ * See: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Attributes/aria-pressed
+ */
 export function FilterChip({
   pressed,
   onClick,

@@ -28,6 +28,7 @@ import { ChevronDown } from 'lucide-react';
 import { Button } from './Button';
 import { ContextMenu, type ContextMenuItem } from './ContextMenu';
 
+/** Props for `MenuButton`. */
 interface MenuButtonProps {
   /** Visible label, also the menu's name (for example "More"). */
   label: string;
@@ -43,6 +44,12 @@ interface MenuButtonProps {
   variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
 }
 
+/**
+ * A button that opens a menu of extra actions just below itself.
+ *
+ * It holds only one thing in state: where the menu is anchored on screen
+ * (`null` means closed). The menu itself is the shared `ContextMenu`.
+ */
 export function MenuButton({
   label,
   icon,
@@ -51,8 +58,12 @@ export function MenuButton({
   size = 'sm',
   variant = 'ghost',
 }: MenuButtonProps) {
+  // Screen position of the open menu, or null while it is closed.
   const [anchor, setAnchor] = useState<{ x: number; y: number } | null>(null);
+  // Needed to measure where the button is on screen when opening the menu.
   const buttonRef = useRef<HTMLButtonElement>(null);
+  // A unique id per button, so `aria-controls` points at the right menu even with several on a page.
+  // See: https://react.dev/reference/react/useId
   const menuId = useId();
 
   /** Open the menu just below the button, lined up with its left edge
@@ -63,8 +74,11 @@ export function MenuButton({
     setAnchor({ x: r.left, y: r.bottom + 4 });
   }, []);
 
+  // Closing just forgets the anchor; ContextMenu then unmounts and returns focus to this button.
   const close = useCallback(() => setAnchor(null), []);
 
+  // Arrow Down on the closed button opens the menu, as the WAI-ARIA menu button pattern recommends.
+  // See: https://www.w3.org/WAI/ARIA/apg/patterns/menu-button/
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.key === 'ArrowDown' && !anchor) {
       e.preventDefault();

@@ -47,6 +47,13 @@ const REFERENCE_LEVEL_OPTIONS = [
 ];
 import { useSettingsField } from '@/hooks/useSettingsField';
 
+/**
+ * The Settings > Metadata tab. Shows toggles for content-advisory filename
+ * suffixes, AcoustID fingerprinting, ReplayGain loudness analysis (with its
+ * reference level, clipping and album-gain options) and the song.link
+ * cross-service lookup. Each control
+ * is bound to one stored setting through `useSettingsField`.
+ */
 export function MetadataTab() {
   /** Fix 9 (a11y audit): ties the "Reference Level" <label> to its <select>. */
   const referenceLevelId = useId();

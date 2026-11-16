@@ -9,6 +9,7 @@
 import { HelpButton } from './HelpButton';
 import type { HelpTopicId } from '@/components/help';
 
+/** Props for `CheckboxGroup`. `T` is the union of allowed option values. */
 interface CheckboxGroupProps<T extends string> {
   /** Group label displayed above the checkboxes */
   label: string;
@@ -50,6 +51,9 @@ export function CheckboxGroup<T extends string>({
   helpTopic,
   columns = 2,
 }: CheckboxGroupProps<T>) {
+  // Adds the value to the selection if it is missing, removes it if present.
+  // A new array is always passed on: React state must not be changed in place.
+  // See: https://react.dev/learn/updating-arrays-in-state
   const handleToggle = (value: T) => {
     if (disabled) return;
     if (selected.includes(value)) {
@@ -59,6 +63,9 @@ export function CheckboxGroup<T extends string>({
     }
   };
 
+  // One column on a narrow window; the requested count from the `sm` breakpoint up.
+  // The full class names are written out so Tailwind can find them at build time.
+  // See: https://tailwindcss.com/docs/responsive-design
   const gridCols =
     columns === 1
       ? 'grid-cols-1'

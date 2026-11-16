@@ -332,6 +332,7 @@ function SpeedSparkline() {
 // Internal stat card sub-component
 // ---------------------------------------------------------------------------
 
+/** Props for {@link StatCard}. */
 interface StatCardProps {
   /** The numeric or text value displayed prominently. */
   value: string;

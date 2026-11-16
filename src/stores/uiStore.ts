@@ -86,6 +86,10 @@ export function setToastDismissalPaused(paused: boolean): void {
   }));
 }
 
+/**
+ * Starts the timer that removes toasts whose time is up. Does nothing if it
+ * is already running; the timer stops itself once no toast can expire.
+ */
 function ensureDismissalWorker(): void {
   if (dismissalWorkerHandle !== null) return;
   dismissalWorkerHandle = setInterval(() => {

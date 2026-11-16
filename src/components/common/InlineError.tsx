@@ -15,6 +15,7 @@
 
 import { ErrorDetails } from './ErrorDetails';
 
+/** Props for `InlineError`. */
 interface InlineErrorProps {
   /** What went wrong and what to do next. */
   message: string;
@@ -26,6 +27,12 @@ interface InlineErrorProps {
   className?: string;
 }
 
+/**
+ * Shows an error message on the page with its technical text folded away.
+ * `role="alert"` makes a screen reader announce the message as soon as it
+ * appears. The details are hidden when they would only repeat the message.
+ * See: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Roles/alert_role
+ */
 export function InlineError({ message, details, look = 'text', className = '' }: InlineErrorProps) {
   const box =
     look === 'box' ? 'p-3 rounded-platform border border-status-error bg-status-error-bg' : '';

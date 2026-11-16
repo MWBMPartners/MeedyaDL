@@ -46,8 +46,18 @@ export interface CrashScreenProps {
   onReload?: () => void;
 }
 
+/**
+ * The full-window "something went wrong" screen shown by the error boundary.
+ *
+ * It offers Reload, an optional Report button (only when a report was
+ * saved) and a closed "Technical details" fold. It is a plain `<main>` with
+ * no router and no store, so it can still draw when the rest of the app is broken.
+ * See: https://react.dev/reference/react/Component#catching-rendering-errors-with-an-error-boundary
+ */
 export function CrashScreen({ error, componentStack, reportId, onReload }: CrashScreenProps) {
+  // Whether the report-preview dialog is open.
   const [reporting, setReporting] = useState(false);
+  // Real reloads use the browser call; tests pass their own `onReload` so the page is not reloaded.
   const reload = onReload ?? (() => window.location.reload());
 
   return (

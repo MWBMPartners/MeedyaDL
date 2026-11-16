@@ -1397,13 +1397,6 @@ export function AdvancedTab() {
 }
 
 /**
- * DevToolsSection -- Internal developer tools panel.
- *
- * Only rendered when `dev_access_enabled` is true (activated via Konami code).
- * Shows token status, web player token management, and a deactivate button.
- */
-
-/**
  * Notification facts for Settings > Advanced > Diagnostics (#834, reworked #1431).
  *
  * Shows the SAVED notification switch and style (what the app acts on),
@@ -1617,6 +1610,15 @@ function IntegrityScanSection() {
   );
 }
 
+/**
+ * DevToolsSection -- Internal developer tools panel.
+ *
+ * Only rendered when `dev_access_enabled` is true (activated via Konami code).
+ * Shows token status, web player token management, and a deactivate button.
+ * Its controls change single fields in the page's copy of the settings
+ * through `useSettingsField`; like the rest of the Settings screen, they are
+ * written to disk only when the person saves.
+ */
 function DevToolsSection() {
   // Per-field bindings for the two MusicKit fields read by this
   // section. `loadSettings` retained because the deactivate flow
@@ -2002,6 +2004,12 @@ interface WrapperSignInModalProps {
   onSignedIn: () => void;
 }
 
+/**
+ * The sign-in dialog itself. Renders a `Modal` with either the Apple ID
+ * form or the two-factor code form, depending on `step`. Calls `onSignedIn`
+ * and then `onClose` after a successful sign-in; see the file-level comment
+ * above for how credentials are kept out of storage.
+ */
 function WrapperSignInModal({ open, onClose, onSignedIn }: WrapperSignInModalProps) {
   const addToast = useUiStore((s) => s.addToast);
 

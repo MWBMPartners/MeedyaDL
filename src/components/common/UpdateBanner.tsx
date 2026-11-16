@@ -21,7 +21,7 @@
  *   not rendered (returns null).
  *
  * **Usage across the application:**
- * Rendered once in App.tsx, immediately above the main content area.
+ * Rendered once in MainLayout.tsx, above the page content.
  *
  * @see https://lucide.dev/icons/arrow-up-circle -- ArrowUpCircle icon (banner icon)
  * @see https://lucide.dev/icons/x              -- X icon (dismiss button)
@@ -84,19 +84,8 @@ import {
   showError,
 } from '@/lib/errorMessages';
 
-/**
- * Renders an accent-themed banner showing available updates with
- * upgrade / dismiss / view-release actions.
- *
- * The component subscribes to four Zustand selectors from the update store
- * and one from the UI store (for toast notifications). All selectors use
- * the `(s) => s.property` shorthand for minimal re-renders.
- *
- * **Conditional rendering:**
- * Returns null when `activeUpdates` is empty, so the banner takes up zero
- * space in the layout when there is nothing to show.
- */
 // Core components shown with full detail; engine updates shown generically.
+// (These are the names the update check reports for the app itself, GAMDL and Python.)
 const CORE_COMPONENTS = [APP_COMPONENT_NAME, GAMDL_COMPONENT_NAME, PYTHON_COMPONENT_NAME];
 
 // The banner is a compact, always-visible notification, not a full
@@ -107,6 +96,20 @@ const CORE_COMPONENTS = [APP_COMPONENT_NAME, GAMDL_COMPONENT_NAME, PYTHON_COMPON
 // to the collapsed generic message pointing at the full Updates page.
 const MAX_BANNER_ENGINE_ROWS = 3;
 
+/**
+ * Renders an accent-themed banner showing available updates with
+ * upgrade / dismiss / view-release actions.
+ *
+ * The component reads its data from the update store with one Zustand
+ * selector per value, plus a few from the UI store (toasts and page
+ * navigation). Reading values one at a time means it only re-renders when
+ * a value it really uses changes.
+ *
+ * **Conditional rendering:**
+ * Returns null when there is no available, compatible, non-dismissed update
+ * at all (core or engine/tool), so the banner takes up zero space in the
+ * layout when there is nothing to show.
+ */
 export function UpdateBanner() {
   /*
    * Zustand store subscriptions.
@@ -174,6 +177,7 @@ export function UpdateBanner() {
       allUpdates.filter((c) => !CORE_COMPONENTS.includes(c.name) && (c.pip_package || c.tool_id)),
     [allUpdates]
   );
+  // `showEngineRows`: few enough engine updates to list one by one; otherwise only a "View Details" link is shown.
   const hasEngineUpdates = engineUpdates.length > 0;
   const showEngineRows = engineUpdates.length > 0 && engineUpdates.length <= MAX_BANNER_ENGINE_ROWS;
 
@@ -215,6 +219,7 @@ export function UpdateBanner() {
     try {
       await upgradeGenericComponent(c);
       addToast(`${c.name} updated successfully`, 'success');
+      // Refresh the list so the updated row disappears; a failed refresh is not worth an error.
       checkForUpdates().catch(() => {});
     } catch (e) {
       showError(componentUpdateFailed(c.name), e);
@@ -233,6 +238,7 @@ export function UpdateBanner() {
   const handleDownloadAndInstall = async (tag: string) => {
     try {
       await downloadAndInstallAppUpdate(tag);
+      // The four `undefined` values skip the optional duration, key, action and details arguments; the last argument says what kind of message this is.
       addToast(
         'Update installed! Restart to apply.',
         'success',
@@ -271,6 +277,8 @@ export function UpdateBanner() {
    * @param url - Full URL to the GitHub release page
    */
   const handleViewRelease = (url: string) => {
+    // Loaded only when clicked, and opened through the OS so it goes to the default browser.
+    // See: https://v2.tauri.app/plugin/shell/
     import('@tauri-apps/plugin-shell').then(({ open }) => open(url)).catch(() => {});
   };
 

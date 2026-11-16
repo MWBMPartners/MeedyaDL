@@ -354,6 +354,7 @@ export function CookiesStep() {
    */
   useEffect(() => {
     let cancelled = false;
+    // Looks for installed browsers; on failure falls back to the manual file option.
     async function detect() {
       try {
         const detected = await commands.detectBrowsers();
@@ -385,6 +386,7 @@ export function CookiesStep() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
 
+    // Subscribes to the event sent when the sign-in window has produced cookies.
     async function setup() {
       try {
         unlisten = await listen<CookieImportResult>('login-cookies-extracted', (event) => {
@@ -421,6 +423,7 @@ export function CookiesStep() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
 
+    // Subscribes to the event sent when the sign-in window is closed.
     async function setup() {
       try {
         unlisten = await listen('login-window-closed', () => {

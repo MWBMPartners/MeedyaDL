@@ -183,6 +183,9 @@ export function Tooltip({ content, children, position = 'top' }: TooltipProps) {
   // Wire aria-describedby onto the trigger when it is a single real
   // element -- the common case. Merges with any aria-describedby the
   // caller already put on that element rather than clobbering it.
+  // `cloneElement` copies the child with extra props added.
+  // See: https://react.dev/reference/react/cloneElement
+  // See: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Attributes/aria-describedby
   const trigger = isValidElement<{ 'aria-describedby'?: string }>(children)
     ? cloneElement(children, {
         'aria-describedby': [children.props['aria-describedby'], tooltipId]

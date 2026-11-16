@@ -303,6 +303,16 @@ export function systemLanguageOrEnglish(offered: readonly string[] = OFFERED_LOC
  */
 let latestLanguageRequest = 0;
 
+/**
+ * Switches the on-screen language. Loads the language file first and applies
+ * it only if no newer request arrived meanwhile; on a load failure it throws
+ * an error with a plain message for the caller to show, and the language
+ * stays as it was.
+ *
+ * @param lng A language tag such as `de` or `fr-CA`; its base language decides
+ *   which translation file is loaded.
+ * @see https://www.i18next.com/overview/api#changelanguage
+ */
 export async function changeUiLanguage(lng: string): Promise<void> {
   // Make sure i18next exists before asking it anything. main.tsx sets it up
   // before the first render, so this is normally a no-op -- but a language

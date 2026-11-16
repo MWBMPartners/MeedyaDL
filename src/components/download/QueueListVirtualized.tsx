@@ -153,6 +153,14 @@ interface QueueListVirtualizedProps {
   onToggleSelect?: (id: string) => void;
 }
 
+/**
+ * Scrolling list of queue rows. Only the rows near the visible area are
+ * drawn, so a very long queue stays fast.
+ *
+ * @param props See {@link QueueListVirtualizedProps}; the parent supplies the
+ * items and every row action.
+ * @see https://tanstack.com/virtual/latest
+ */
 export function QueueListVirtualized({
   queueItems,
   onCancel,

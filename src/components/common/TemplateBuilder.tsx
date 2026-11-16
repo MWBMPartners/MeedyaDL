@@ -61,6 +61,15 @@ interface TemplateBuilderProps {
 // Component
 // ============================================================
 
+/**
+ * Edits a GAMDL file or folder naming template as a row of removable chips.
+ *
+ * The template text is never kept here: every change is turned back into a
+ * string with `serializeTemplate()` and handed to `onChange`, and the next
+ * render re-reads it through `parseTemplate()`. Only UI state (raw mode,
+ * menu open, the custom text box) lives in this component.
+ * See: https://react.dev/learn/sharing-state-between-components
+ */
 export function TemplateBuilder({
   label,
   description,
@@ -70,16 +79,20 @@ export function TemplateBuilder({
 }: TemplateBuilderProps) {
   // Derive segments from the string prop (single source of truth)
   const segments = useMemo(() => parseTemplate(value), [value]);
+  // A sample filename built from the chips, so the person sees what the template will give.
   const preview = useMemo(() => renderPreview(segments), [segments]);
 
   // UI state
+  // `rawMode` swaps the chips for a plain text box; `menuOpen` shows the add menu.
   const [rawMode, setRawMode] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [customText, setCustomText] = useState('');
+  // The two refs let the outside-click check below tell "inside the menu or its button" from "elsewhere".
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   // Filter variables by allowed categories
+  // Only the variable kinds this template makes sense for (for example, playlist ones are hidden for album templates).
   const filteredVariables = useMemo(
     () => TEMPLATE_VARIABLES.filter((v) => variableCategories.includes(v.category)),
     [variableCategories]
@@ -103,6 +116,7 @@ export function TemplateBuilder({
   }, [menuOpen]);
 
   // Segment mutation handlers
+  // Appends a variable chip like `{artist}` to the end of the template.
   const addVariable = useCallback(
     (varValue: string) => {
       const newSegments = [...segments, { type: 'variable' as const, value: varValue }];
@@ -112,6 +126,7 @@ export function TemplateBuilder({
     [segments, onChange]
   );
 
+  // Appends fixed text (a separator such as `/`, or the person's own words). Empty text is ignored.
   const addLiteral = useCallback(
     (text: string) => {
       if (!text) return;
@@ -123,6 +138,7 @@ export function TemplateBuilder({
     [segments, onChange]
   );
 
+  // Drops the chip at `index`; the others keep their order.
   const removeSegment = useCallback(
     (index: number) => {
       const newSegments = segments.filter((_, i) => i !== index);
@@ -132,6 +148,7 @@ export function TemplateBuilder({
   );
 
   // Generate a deterministic id from the label for accessibility
+  // Turns the label into an id so the <label> can point at the raw-mode input.
   const builderId = `template-${label.toLowerCase().replace(/\s+/g, '-')}`;
 
   return (

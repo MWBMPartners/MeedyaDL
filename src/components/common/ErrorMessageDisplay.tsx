@@ -11,8 +11,9 @@
  *
  * - Truncates the visible text to the configured number of lines via
  *   Tailwind `line-clamp-N`.
- * - Wraps in a {@link Tooltip} that surfaces the FULL message on
- *   hover/focus. The truncated text is a `<p>`, which cannot normally
+ * - Wraps in a {@link Tooltip} that surfaces the plain summary text
+ *   (the whole of it, with no line cut-off) on hover/focus. The raw
+ *   technical text is folded under "Details" instead. The truncated text is a `<p>`, which cannot normally
  *   receive keyboard focus at all — `tabIndex={0}` is added below
  *   specifically so Tab can reach it and the tooltip's focus/blur
  *   handling actually fires. Without that, the "works on the keyboard
@@ -125,6 +126,7 @@ function buildGamdlIssueUrl(message: string, sourceUrl?: string): string {
     ? message.slice(GAMDL_BUG_MARKER.length)
     : message;
   // Take the first sentence (or first ~80 chars) for the title.
+  // The split happens after . ! or ? followed by a space (a lookbehind keeps the punctuation).
   const firstSentence = stripped.split(/(?<=[.!?])\s/)[0] ?? stripped;
   const title =
     firstSentence.length > 80 ? firstSentence.slice(0, 77).trimEnd() + '…' : firstSentence;
@@ -154,6 +156,8 @@ function buildGamdlIssueUrl(message: string, sourceUrl?: string): string {
   bodyLines.push('- Operating system: ');
   bodyLines.push('- Python version: <!-- `python --version` -->');
 
+  // `URLSearchParams` percent-encodes the title and body for us.
+  // See: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams
   const params = new URLSearchParams({
     title,
     body: bodyLines.join('\n'),
@@ -161,21 +165,34 @@ function buildGamdlIssueUrl(message: string, sourceUrl?: string): string {
   return `https://github.com/glomatico/gamdl/issues/new?${params.toString()}`;
 }
 
+/**
+ * Shows a failed item's error as a short plain summary, with the full
+ * technical text folded under "Details".
+ *
+ * Right-click (or the small "..." button, for keyboard users) opens a menu
+ * to copy the original message and, for a known GAMDL defect, report it
+ * upstream. Renders nothing when `message` is empty.
+ */
 export function ErrorMessageDisplay({
   message,
   sourceUrl,
   truncateLines = 2,
   className = 'text-xs text-status-error-text',
 }: ErrorMessageDisplayProps): ReactElement | null {
+  // Only the `addToast` function is picked, so this component does not re-render on other store changes.
   const addToast = useUiStore((s) => s.addToast);
+  // Where the menu is open on screen (null = closed).
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
 
+  // Right-click: stop the browser's own menu and open ours at the pointer.
   const handleContextMenu = useCallback((e: MouseEvent) => {
     e.preventDefault();
     setMenuPos({ x: e.clientX, y: e.clientY });
   }, []);
   const closeMenu = useCallback(() => setMenuPos(null), []);
 
+  // Copies the ORIGINAL message (not the shortened summary) so a bug report has everything.
+  // See: https://developer.mozilla.org/en-US/docs/Web/API/Clipboard/writeText
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(message);
@@ -188,6 +205,7 @@ export function ErrorMessageDisplay({
     }
   }, [addToast, message]);
 
+  // Cleans the text, builds the GitHub issue address and opens it in the system browser.
   const handleReportToGamdl = useCallback(async () => {
     // Clean the text BEFORE it is ever placed in a URL — the error
     // message can carry the person's own account name inside a file
@@ -221,6 +239,7 @@ export function ErrorMessageDisplay({
       );
       return;
     }
+    // Only now, with cleaned text in hand, is the address built.
     const url = buildGamdlIssueUrl(cleaned, cleanedSourceUrl);
     try {
       await openExternal(url);
@@ -240,6 +259,7 @@ export function ErrorMessageDisplay({
   // written after a conditional `return` would skip entirely on the
   // `!message` render, which is exactly the "Hooks must not be called
   // conditionally" rule this tripped when it lived below instead.
+  // Keyboard route to the same menu: open it under the button.
   const handleOverflowClick = useCallback((e: MouseEvent<HTMLButtonElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     setMenuPos({ x: rect.left, y: rect.bottom });
@@ -256,6 +276,7 @@ export function ErrorMessageDisplay({
   // still use the original text.
   const { summary, details } = summariseDownloadError(message);
 
+  // The "Copy" item is always there; the report item is added below only for known GAMDL bugs.
   const items: ContextMenuItem[] = [
     {
       label: 'Copy error message',
@@ -284,6 +305,7 @@ export function ErrorMessageDisplay({
     5: 'line-clamp-5',
     6: 'line-clamp-6',
   };
+  // An unknown line count falls back to 2 lines.
   const clampClass = truncateLines === null ? '' : (CLAMP_CLASSES[truncateLines] ?? 'line-clamp-2');
 
   return (

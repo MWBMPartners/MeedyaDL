@@ -41,6 +41,7 @@ import { Music, Video, Info } from 'lucide-react';
 
 import type { ScannedManifest } from '@/lib/tauri-commands';
 
+/** Props for {@link MvGapFillModal}. */
 interface MvGapFillModalProps {
   /** When true, the modal is rendered. */
   open: boolean;
@@ -71,6 +72,13 @@ interface MvGapFillModalProps {
   mode?: 'fill_gaps' | 'refresh';
 }
 
+/**
+ * Dialog shown before a Library re-download. It asks whether music videos
+ * should be included, and the wording depends on the current setting.
+ *
+ * Returns nothing when there is no album selected. It reports the choice
+ * through `onConfirm` (`null` = follow settings, `true`/`false` = override).
+ */
 export function MvGapFillModal({
   open,
   onClose,
@@ -84,11 +92,13 @@ export function MvGapFillModal({
 
   const titleSuffix = manifest.album ? ` — ${manifest.album}` : '';
 
+  // "Yes" answer: follow settings when music videos are already on, otherwise turn them on for this item.
   const handleYes = () => {
     // ENABLED + Yes → inherit settings (no override needed)
     // DISABLED + Yes → force-enable for this item
     onConfirm(mvCompanionEnabledInSettings ? null : true);
   };
+  // "No" answer: turn music videos off for this item when they are on, otherwise follow settings.
   const handleNo = () => {
     // ENABLED + No → force-disable for this item
     // DISABLED + No → inherit settings (already off)

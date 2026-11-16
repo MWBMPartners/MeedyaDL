@@ -921,6 +921,7 @@ export function DownloadForm() {
     setContextMenu({ x: rect.left, y: rect.bottom });
   }, []);
 
+  // Right-click on blank space opens the after-queue menu; form fields keep the system menu.
   const handleContextMenu = useCallback((e: MouseEvent) => {
     // Allow the native context menu (paste/cut/copy) on form elements —
     // only show the After-Queue menu on blank space.
@@ -933,6 +934,8 @@ export function DownloadForm() {
     setContextMenu({ x: e.clientX, y: e.clientY });
   }, []);
 
+  // Menu choice for the one-off after-queue action. A second choice made while the
+  // first is still being saved is turned away with a message.
   const setAfterQueueOnce = useCallback(async (action: AfterQueueAction) => {
     if (afterQueueChoiceBusy.value) {
       setContextMenu(null);
@@ -952,6 +955,7 @@ export function DownloadForm() {
     }
   }, []);
 
+  // Saves the one-off after-queue action and updates the page only if the save worked.
   const setAfterQueueOnceNow = useCallback(async (action: AfterQueueAction) => {
     const stored = action === 'do_nothing' ? null : action;
     const { syncAfterQueueOnce, settings } = useSettingsStore.getState();

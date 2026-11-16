@@ -12,6 +12,7 @@
 
 import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 
+/** Props for `IconButton`: any button attribute except the name and tooltip, which come from `label`. */
 interface IconButtonProps extends Omit<
   ButtonHTMLAttributes<HTMLButtonElement>,
   'aria-label' | 'title'
@@ -28,6 +29,12 @@ interface IconButtonProps extends Omit<
   ref?: Ref<HTMLButtonElement>;
 }
 
+/**
+ * A button that shows only an icon. `label` is used for both `aria-label`
+ * (the name a screen reader reads, since there is no text) and `title`
+ * (the tooltip a mouse user sees).
+ * See: https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Attributes/aria-label
+ */
 export function IconButton({
   icon,
   label,

@@ -38,6 +38,9 @@
  *  - `HelpCircle`   -> Help page        (@see https://lucide.dev/icons/help-circle)
  *  - `ChevronLeft`  -> Collapse sidebar (@see https://lucide.dev/icons/chevron-left)
  *  - `ChevronRight` -> Expand sidebar   (@see https://lucide.dev/icons/chevron-right)
+ *
+ * The others follow the same idea: `ScrollText` (Activity), `FolderSearch`
+ * (Library), `ArrowUpCircle` (Updates) and `RefreshCw` (the update check).
  */
 import {
   Download,
@@ -67,15 +70,15 @@ import { useDependencyStore } from '@/stores/dependencyStore';
 import { useSettingsStore } from '@/stores/settingsStore';
 import { useUpdateStore } from '@/stores/updateStore';
 
-/** Platform detection hook used to apply macOS-specific spacing. */
+/** Platform detection hook; used here to show the macOS or Ctrl shortcut symbol. */
 import { usePlatform } from '@/hooks/usePlatform';
 
 /** Tooltip component shown when sidebar is collapsed (icon-only mode). */
 import { IconButton, NavListItem, Tooltip } from '@/components/common';
 
 /**
- * `AppPage` union type: 'download' | 'queue' | 'settings' | 'help'.
- * Used to type-check page identifiers in navigation items.
+ * `AppPage` union type: the set of page identifiers ('download', 'queue',
+ * 'settings', 'help' and the others). Used to type-check page identifiers in navigation items.
  * @see AppPage in @/types/index.ts
  */
 import type { AppPage } from '@/types';
@@ -158,7 +161,9 @@ export function Sidebar() {
   // Store selectors (Zustand)
   // ---------------------------------------------------------------
   // Each selector subscribes to a single slice of state to minimize
-  // unnecessary re-renders. Zustand uses shallow equality by default.
+  // unnecessary re-renders. Zustand compares the selected value with `Object.is`
+  // (strict equality), so selecting a primitive or a stable reference is cheap;
+  // `useShallow` is for selectors that build a new object or array each time.
   // @see https://docs.pmnd.rs/zustand/guides/prevent-rerenders-with-use-shallow
 
   /** The currently active page identifier (e.g., 'download', 'queue'). */
@@ -299,9 +304,9 @@ export function Sidebar() {
       >
         {/*
          * Animated brand logo (SVG with vinyl/reel crossfade).
-         * Uses <object> for full SVG animation support; the SVG auto-detects
-         * dark mode via @media(prefers-color-scheme) and colour-blind modes
-         * via inherited CSS classes. Falls back to static PNG via <img>.
+         * Loaded through an <img> tag (see the note below); the SVG picks
+         * dark mode itself via @media(prefers-color-scheme), and the
+         * colour-blind mode comes in through the `?mode=` address part.
          * `no-drag` ensures the logo isn't treated as a drag handle.
          */}
         {/* SVG loaded as <img> prevents script execution (CSP defence-in-depth).
@@ -328,6 +333,7 @@ export function Sidebar() {
                 // Fallback to text if SVG fails to load
                 const target = e.currentTarget;
                 target.style.display = 'none';
+                // The hidden text block that follows the image: show it in place of the image.
                 const fallback = target.nextElementSibling as HTMLElement;
                 if (fallback) fallback.style.display = 'block';
               }}
@@ -358,6 +364,8 @@ export function Sidebar() {
        */}
       <nav className="flex-1 p-2 space-y-1" aria-label="Main navigation">
         {NAV_ITEMS.map((navItem) => {
+          // `Icon` starts with a capital letter so JSX treats it as a component, not an HTML tag.
+          // See: https://react.dev/learn/your-first-component
           const { page, icon: Icon } = navItem;
           const label = navLabel(navItem);
           /** Whether this nav item corresponds to the currently active page. */
@@ -425,16 +433,17 @@ export function Sidebar() {
          * Dependency readiness indicator.
          *
          * Shows a small colored dot:
-         *  - Green (`bg-status-success`) when `isReady()` returns true
-         *    (Python and GAMDL are both installed).
+         *  - Green (`bg-status-success`) when nothing required is missing
+         *    (Python, GAMDL and every required tool are installed).
          *  - Yellow (`bg-status-warning`) when setup is incomplete.
          *
-         * In expanded mode, the dot is followed by a text label
-         * ("Ready" or "Setup Required"). In collapsed mode, the dot
-         * is wrapped in a right-aligned Tooltip.
+         * In expanded mode, the dot is followed by `statusText` ("Ready",
+         * the name of the one missing tool, or "Setup Required"). In
+         * collapsed mode, the dot is wrapped in a right-aligned Tooltip.
          *
-         * `isReady` is a derived boolean computed from the `python` and
-         * `gamdl` status objects subscribed to above.
+         * `isReady` is a derived boolean computed from the `missing` list
+         * above, which is built from the `python`, `gamdl` and `tools`
+         * status values.
          * @see useDependencyStore in @/stores/dependencyStore.ts
          */}
         {!sidebarCollapsed ? (
@@ -462,17 +471,20 @@ export function Sidebar() {
          * Check for Updates button.
          *
          * Triggers `checkForUpdates()` from updateStore. When updates are
-         * available, navigates to Settings so the user can review and apply them.
+         * available, navigates to the Updates page so the user can review and apply them.
          *
          * Visual states:
          *  - Default: RefreshCw icon + "Check for Updates"
          *  - Checking: spinning icon + "Checking..."
-         *  - Updates found: accent-coloured badge + "N Update(s)"
+         *  - Updates found: accent-coloured dot on the icon + "N Update(s)"
          *
          * In collapsed mode, the button shows just the icon wrapped in a Tooltip.
          * When updates are available, a small accent dot overlays the icon.
          */}
         {(() => {
+          // This block is a function that is called on the spot, so local helpers can be
+          // declared here, inside the JSX, without becoming part of the component's body.
+          // If updates are waiting, go and read them; otherwise start a check (unless one is running).
           const handleUpdateClick = () => {
             if (hasUpdates) {
               setPage('updates');
