@@ -171,7 +171,7 @@ Most users should stick with **cookie-based authentication** (the default — wo
 
 1. **Obtain and run the wrapper service** — [wrapper-v1](https://github.com/WorldObservationLog/wrapper) is a separate native program. Which platforms it has builds for is a question for that project, not MeedyaDL — check its own releases page before assuming one exists for yours. Once running, it listens on `http://127.0.0.1:30020` by default
 2. **Enable in MeedyaDL** — go to **Settings > Advanced** and toggle **Use Wrapper** on
-3. **Configure the URLs** — update the **Wrapper Account URL** (default `http://127.0.0.1:30020`), **Wrapper m3u8 Address** (`127.0.0.1:20020`), and, only if your wrapper uses a different decryption address, **Wrapper Decryption Address** (blank by default, which means it is worked out from the wrapper's address) if the wrapper runs on a different host or port. If you've moved the wrapper to a different device entirely, see [Running the wrapper on a different device](#running-the-wrapper-on-a-different-device-on-your-network) below.
+3. **Configure the URLs** — if the wrapper runs on another host or port, update the **Wrapper Account URL** (default `http://127.0.0.1:30020`) and the **Wrapper m3u8 Address** (default `127.0.0.1:20020`). Leave the **Wrapper Decryption Address** blank: MeedyaDL then works it out from the Account URL. Type one only if your wrapper uses a different decryption address. If you've moved the wrapper to a different device entirely, see [Running the wrapper on a different device](#running-the-wrapper-on-a-different-device-on-your-network) below.
 
 ### Auto-Retry without Wrapper
 

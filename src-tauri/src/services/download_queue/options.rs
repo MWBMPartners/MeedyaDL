@@ -302,15 +302,13 @@ pub(crate) fn merge_options(
     if settings.use_wrapper {
         options.wrapper_url = Some(settings.wrapper_url.clone());
     }
-    // `wrapper_m3u8_ip` is a GAMDL v3.1+ CLI flag; only emit it when the
-    // detected GAMDL release supports it and the user has wrapper mode on.
-    // Older releases don't know the flag (would parse-error), and cookie-
-    // mode downloads never consult the wrapper m3u8 socket.
-    if settings.use_wrapper
-        && super::gamdl_capabilities::supports(
-            super::gamdl_capabilities::GamdlFeature::WrapperM3u8Ip,
-        )
-    {
+    // `wrapper_m3u8_ip` is a GAMDL v3.1 to 3.5 CLI flag. It is stored
+    // whenever wrapper mode is on, WITHOUT asking the GAMDL version now: at
+    // queue restore the version is still unknown, and an item restored then
+    // would lose the address. `GamdlOptions::to_cli_args` only sends it on
+    // releases that know the flag. Cookie-mode downloads never consult the
+    // wrapper m3u8 socket.
+    if settings.use_wrapper {
         options.wrapper_m3u8_ip = Some(settings.wrapper_m3u8_ip.clone());
     }
     // `wrapper_decrypt_ip` (#743) is the third leg of the wrapper triangle —

@@ -54,6 +54,17 @@ pub fn process_queue(
 
                 let settings = load_settings_for_queue(&app);
 
+                // Tell the user we're about to verify the prerequisites.
+                // The old wording ("Pre-flight checks passed") was flagged
+                // in #578 as jargon — even dev-literate users couldn't tell
+                // whether something had broken or succeeded. Emitting a
+                // user-facing "Checking..." line before the result gives
+                // the activity log a clear question-and-answer shape.
+                emit_app_log(
+                    &app,
+                    "Checking internet connection, output folder, and account...",
+                );
+
                 // The wrapper checks below pick the newer or older wrapper
                 // from the detected GAMDL version (and the decryption
                 // address follows it, #1433). On the first run of a session
@@ -65,16 +76,6 @@ pub fn process_queue(
                     let _ = gamdl_service::get_gamdl_version(&app).await;
                 }
 
-                // Tell the user we're about to verify the prerequisites.
-                // The old wording ("Pre-flight checks passed") was flagged
-                // in #578 as jargon — even dev-literate users couldn't tell
-                // whether something had broken or succeeded. Emitting a
-                // user-facing "Checking..." line before the result gives
-                // the activity log a clear question-and-answer shape.
-                emit_app_log(
-                    &app,
-                    "Checking internet connection, output folder, and account...",
-                );
 
                 // Build every preflight check as a future first, then await
                 // them one at a time further down ("Await the async checks").
@@ -569,7 +570,18 @@ pub fn process_queue(
         // slow probe with NO lock held at all, and take the lock again only
         // long enough to write the answer down.
         let already_known = { queue.lock().await.gamdl_version.clone() };
+        // The preflight above may already have asked GAMDL for its version
+        // (the answer is kept in the capability cache), so reuse that
+        // instead of running the slow probe a second time.
+        let already_known =
+            already_known.or_else(crate::services::gamdl_capabilities::detected_version);
         let gamdl_version = if let Some(ver) = already_known {
+            // Keep the queue's own copy in step (other code reads it).
+            let mut q = queue.lock().await;
+            if q.gamdl_version.is_none() {
+                q.gamdl_version = Some(ver.clone());
+            }
+            drop(q);
             Some(ver)
         } else {
             // First download in this queue session — detect version once.

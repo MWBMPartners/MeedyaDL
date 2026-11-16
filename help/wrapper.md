@@ -77,7 +77,7 @@ GAMDL and the newer wrapper must be on matching versions:
 
 If they do not match, MeedyaDL says *"GAMDL and the wrapper-v2 daemon must be upgraded together"*. Update whichever one is behind.
 
-On GAMDL 3.8.2 and newer, Settings also shows a **Wrapper Decryption Address**. Leave it blank and MeedyaDL works it out from the Wrapper URL: the same computer, with the standard port `10020` (for example, a Wrapper URL of `http://192.168.1.20` gives `192.168.1.20:10020`, and a local wrapper gives `127.0.0.1:10020`). The blank field shows the address it will use. Type your own only if your wrapper listens on a different address or port. To go back to the automatic value, press **Use the address from the Wrapper URL**.
+On GAMDL 3.8.2 and newer, Settings also shows a **Wrapper Decryption Address**. Leave it blank and MeedyaDL works it out from the Wrapper URL: the same computer, with the standard port `10020` (for example, a Wrapper URL of `http://192.168.1.20` gives `192.168.1.20:10020`, and a local wrapper gives `127.0.0.1:10020`). The blank field shows the address it will use. Type your own only if your wrapper listens on a different address or port. To go back to the automatic value, press **Use the address from the Wrapper URL**. If you reach the wrapper's decryption through a tunnel on your own computer, type `127.0.0.1:10020` yourself, because a blank field follows the Wrapper URL's address.
 
 </details>
 

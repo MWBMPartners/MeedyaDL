@@ -1172,6 +1172,8 @@ impl GamdlOptions {
                 args.push(url.clone());
             }
             if let Some(ip) = self.effective_decrypt_address(false) {
+                // Unverified: whether GAMDL 3.0 to 3.5 accepts a bracketed
+                // IPv6 host here (`[::1]:10020`); it is sent as stored/derived.
                 args.push("--wrapper-decrypt-ip".to_string());
                 args.push(ip);
             }
@@ -2192,7 +2194,7 @@ mod tests {
     }
 
     #[test]
-    fn blank_decrypt_address_is_worked_out_at_spawn_not_at_merge() {
+    fn blank_decrypt_address_follows_the_wrapper_url_when_the_command_is_built() {
         // Options merged while the GAMDL version was still unknown (queue
         // restore) hold only the typed value, so a remote wrapper's host is
         // still found once the version is known (#1433).
@@ -2209,6 +2211,71 @@ mod tests {
         set_detected_version(Some("3.8.2".to_string()));
         let args = options.to_cli_args();
         set_detected_version(None);
+        let at = args.iter().position(|a| a == "--wrapper-decrypt-host").unwrap();
+        assert_eq!(args[at + 1], "192.168.1.20");
+        assert_eq!(args[at + 3], "10020");
+    }
+
+    #[test]
+    fn merge_keeps_a_blank_decrypt_address_and_the_m3u8_address_while_the_version_is_unknown() {
+        // Items restored at startup are merged before the GAMDL version is
+        // known. Nothing derived may be stored then (#1433).
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(None);
+        let settings = crate::models::settings::AppSettings {
+            use_wrapper: true,
+            wrapper_url: "http://192.168.1.20:80".to_string(),
+            wrapper_account_url: "http://192.168.1.20:30020".to_string(),
+            wrapper_m3u8_ip: "192.168.1.20:20020".to_string(),
+            wrapper_decrypt_ip: String::new(),
+            ..Default::default()
+        };
+        let merged = crate::services::download_queue::merge_options(None, &settings, None);
+        assert_eq!(merged.wrapper_decrypt_ip.as_deref(), Some(""));
+        assert_eq!(merged.wrapper_m3u8_ip.as_deref(), Some("192.168.1.20:20020"));
+
+        set_detected_version(Some("3.8.2".to_string()));
+        let args = merged.to_cli_args();
+        assert!(!args.contains(&"--wrapper-m3u8-ip".to_string()));
+        set_detected_version(Some("3.1".to_string()));
+        let args = merged.to_cli_args();
+        set_detected_version(None);
+        let at = args.iter().position(|a| a == "--wrapper-m3u8-ip").unwrap();
+        assert_eq!(args[at + 1], "192.168.1.20:20020");
+        let at = args.iter().position(|a| a == "--wrapper-decrypt-ip").unwrap();
+        assert_eq!(args[at + 1], "192.168.1.20:10020");
+    }
+
+    #[test]
+    fn merge_then_build_on_3_8_2_names_the_wrapper_url_host() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(None);
+        let settings = crate::models::settings::AppSettings {
+            use_wrapper: true,
+            wrapper_url: "http://192.168.1.20:80".to_string(),
+            wrapper_decrypt_ip: String::new(),
+            ..Default::default()
+        };
+        let merged = crate::services::download_queue::merge_options(None, &settings, None);
+        assert_eq!(merged.wrapper_decrypt_ip.as_deref(), Some(""));
+        set_detected_version(Some("3.8.2".to_string()));
+        let args = merged.to_cli_args();
+        set_detected_version(None);
+        let at = args.iter().position(|a| a == "--wrapper-decrypt-host").unwrap();
+        assert_eq!(args[at + 1], "192.168.1.20");
+    }
+
+    #[test]
+    fn v4_blank_decrypt_address_names_the_wrapper_url_host() {
+        let options = GamdlOptions {
+            use_wrapper: Some(true),
+            wrapper_url: Some("http://192.168.1.20:80".to_string()),
+            wrapper_decrypt_ip: Some(String::new()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args_v4();
         let at = args.iter().position(|a| a == "--wrapper-decrypt-host").unwrap();
         assert_eq!(args[at + 1], "192.168.1.20");
         assert_eq!(args[at + 3], "10020");
