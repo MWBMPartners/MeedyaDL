@@ -1143,29 +1143,45 @@ pub(crate) fn tracks_with_existing_copy(
     evidence: impl Fn(&Path) -> Option<CopyEvidence>,
     album_tracks: &[(u32, u32, String)],
     album_name: Option<&str>,
-) -> Vec<(u32, u32)> {
+) -> ExistingCopies {
+    let mut found = ExistingCopies::default();
     if suffix.is_empty() {
-        return Vec::new();
+        return found;
     }
     let tail = format!(" {suffix}");
-    let mut found = Vec::new();
     for file in metadata_tag_service::collect_m4a_files(&dir.to_string_lossy()) {
-        let ends = file
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .is_some_and(|s| s.ends_with(&tail));
-        if !ends {
+        let Some(stem) = file.file_stem().and_then(|s| s.to_str()) else {
             continue;
-        }
+        };
+        let Some(before) = stem.strip_suffix(&tail) else {
+            continue;
+        };
         if let Some(e) = evidence(&file) {
-            if copy_belongs_to_album(&e, album_tracks, album_name)
-                && !found.contains(&(e.disc, e.track))
-            {
-                found.push((e.disc, e.track));
+            if copy_belongs_to_album(&e, album_tracks, album_name) {
+                // An advisory label just before the format suffix: a name
+                // GAMDL's own check would not recognise.
+                let lower = before.to_ascii_lowercase();
+                if lower.ends_with(" [explicit]") || lower.ends_with(" [clean]") {
+                    found.labelled = true;
+                }
+                if !found.tracks.contains(&(e.disc, e.track)) {
+                    found.tracks.push((e.disc, e.track));
+                }
             }
         }
     }
     found
+}
+
+/// The copies [`tracks_with_existing_copy`] found.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ExistingCopies {
+    /// The tracks (disc, track) with a copy.
+    pub tracks: Vec<(u32, u32)>,
+    /// At least one of them carries an advisory label
+    /// (`01 Song [Explicit] [Lossless]`), so its name is not the one GAMDL
+    /// would write and GAMDL's own check would not find it.
+    pub labelled: bool,
 }
 
 /// How the pass ended, for its summary line.
@@ -1731,12 +1747,22 @@ mod tests {
                 album: None,
             })
         };
-        assert_eq!(
-            tracks_with_existing_copy(d, "[Lossless]", mine, &tracks, None),
-            vec![(1, 1)]
+        let found = tracks_with_existing_copy(d, "[Lossless]", mine, &tracks, None);
+        assert_eq!(found.tracks, vec![(1, 1)]);
+        assert!(
+            found.labelled,
+            "`01 Song [Explicit] [Lossless]` is labelled"
         );
+        // An unlabelled copy is not.
+        std::fs::remove_file(d.join("01 Song [Explicit] [Lossless].m4a")).unwrap();
+        minimal_m4a(&d.join("01 Song [Lossless].m4a"), 1, 1, false);
+        let found = tracks_with_existing_copy(d, "[Lossless]", mine, &tracks, None);
+        assert_eq!(found.tracks, vec![(1, 1)]);
+        assert!(!found.labelled);
         // An empty suffix (standard AAC) is left to GAMDL's own name check.
-        assert!(tracks_with_existing_copy(d, "", mine, &tracks, None).is_empty());
+        assert!(tracks_with_existing_copy(d, "", mine, &tracks, None)
+            .tracks
+            .is_empty());
         // No song ID and no album name: not counted.
         let unknown = |p: &Path| {
             let n = read_audio_numbers(p, false, None);
@@ -1748,7 +1774,11 @@ mod tests {
                 album: None,
             })
         };
-        assert!(tracks_with_existing_copy(d, "[Lossless]", unknown, &tracks, Some("A")).is_empty());
+        assert!(
+            tracks_with_existing_copy(d, "[Lossless]", unknown, &tracks, Some("A"))
+                .tracks
+                .is_empty()
+        );
     }
 
     #[test]

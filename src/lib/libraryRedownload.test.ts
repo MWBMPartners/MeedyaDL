@@ -2,18 +2,56 @@
 // Licensed under the MIT License. See LICENSE file in the project root.
 
 import { describe, expect, it } from 'vitest';
-import { buildLibraryRedownloadRequest } from './libraryRedownload';
+import {
+  GAPS_ONLY_NOTE,
+  UPDATE_NEEDS_OVERWRITE,
+  buildLibraryRedownloadRequest,
+  decideLibraryRedownload,
+} from './libraryRedownload';
 
 describe('buildLibraryRedownloadRequest', () => {
-  it('never asks to replace files already there', () => {
+  it('never asks to replace files when filling gaps', () => {
     const request = buildLibraryRedownloadRequest('https://music.apple.com/us/album/x/1', null);
     expect(request.options?.overwrite).toBe(false);
     expect(request.urls).toEqual(['https://music.apple.com/us/album/x/1']);
     expect(request.mv_companion_override).toBeNull();
   });
 
+  it('leaves overwrite to the setting for an update', () => {
+    const request = buildLibraryRedownloadRequest('u', true, 'refresh');
+    expect(request.options).toBeUndefined();
+    expect(request.mv_companion_override).toBe(true);
+  });
+
   it('keeps the music-video choice', () => {
-    expect(buildLibraryRedownloadRequest('u', true).mv_companion_override).toBe(true);
     expect(buildLibraryRedownloadRequest('u', false).mv_companion_override).toBe(false);
+  });
+});
+
+describe('decideLibraryRedownload', () => {
+  it('fills gaps without overwriting, whatever the setting', () => {
+    expect(decideLibraryRedownload({ hasGaps: true, updated: false }, true)).toEqual({
+      kind: 'fill_gaps',
+    });
+    expect(decideLibraryRedownload({ hasGaps: true, updated: false }, false)).toEqual({
+      kind: 'fill_gaps',
+    });
+  });
+
+  it('says updated songs are not replaced when a row has gaps and an update', () => {
+    expect(decideLibraryRedownload({ hasGaps: true, updated: true }, true)).toEqual({
+      kind: 'fill_gaps',
+      note: GAPS_ONLY_NOTE,
+    });
+  });
+
+  it('follows the Overwrite setting for an update only', () => {
+    expect(decideLibraryRedownload({ hasGaps: false, updated: true }, true)).toEqual({
+      kind: 'refresh',
+    });
+    expect(decideLibraryRedownload({ hasGaps: false, updated: true }, false)).toEqual({
+      kind: 'explain',
+      message: UPDATE_NEEDS_OVERWRITE,
+    });
   });
 });

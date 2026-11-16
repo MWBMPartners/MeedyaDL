@@ -66,7 +66,11 @@ import { LegacyFolderMergeSection } from './LegacyFolderMergeSection';
 import { PageHeader } from '@/components/layout';
 import { Button } from '@/components/common';
 import { FOLDER_SCAN_FAILED, isCancellation, showBackendError, showError } from '@/lib/errorMessages';
-import { buildLibraryRedownloadRequest } from '@/lib/libraryRedownload';
+import {
+  buildLibraryRedownloadRequest,
+  decideLibraryRedownload,
+  type LibraryRedownloadDecision,
+} from '@/lib/libraryRedownload';
 
 /**
  * Human-readable label for a canonical codec-registry ID. Used by
@@ -243,6 +247,9 @@ export function LibraryScanPage() {
   const mvCompanionEnabled = useSettingsStore(
     (s) => s.settings.music_video_companion
   );
+  // The saved "Overwrite Existing Files" setting: what the download will
+  // actually use for an album that was only updated by Apple Music.
+  const overwriteSetting = useSettingsStore((s) => s.savedSettings.overwrite);
   const [scanning, setScanning] = useState(false);
   const [results, setResults] = useState<ScannedManifest[] | null>(null);
   /**
@@ -333,16 +340,47 @@ export function LibraryScanPage() {
    *
    * Toast on success/failure; clears the modal state regardless.
    */
+  const decisionFor = (m: ScannedManifest): LibraryRedownloadDecision => {
+    const diffKind = diffs[m.manifest_path]?.kind;
+    return decideLibraryRedownload(
+      {
+        hasGaps: diffKind === 'plan' || diffKind === 'partial_codecs',
+        updated: freshness[m.manifest_path]?.kind === 'updated',
+      },
+      overwriteSetting
+    );
+  };
+
+  /**
+   * The row's Re-download button. A row enabled only because Apple Music
+   * updated the album, with "Overwrite Existing Files" off, queues nothing
+   * — the download would fetch nothing — and says why instead.
+   */
+  const handleRedownloadClick = (m: ScannedManifest) => {
+    const decision = decisionFor(m);
+    if (decision.kind === 'explain') {
+      addToast(decision.message, 'info');
+      return;
+    }
+    setPendingGapFill(m);
+  };
+
   const handleGapFillConfirm = async (override: boolean | null) => {
     const manifest = pendingGapFill;
     setPendingGapFill(null);
     if (!manifest || manifest.urls.length === 0) {
       return;
     }
+    const decision = decisionFor(manifest);
+    if (decision.kind === 'explain') {
+      addToast(decision.message, 'info');
+      return;
+    }
     try {
-      // Fill the gaps only: never replace a file already there.
+      // Missing songs or copies: fill the gaps only, never replacing a
+      // file already there. Only an update: follow the Overwrite setting.
       const result = await startDownload(
-        buildLibraryRedownloadRequest(manifest.urls[0], override)
+        buildLibraryRedownloadRequest(manifest.urls[0], override, decision.kind)
       );
       if (!result.download_id) {
         // Nothing was queued (most often: it is already in the queue).
@@ -359,6 +397,9 @@ export function LibraryScanPage() {
         `Re-download queued for ${manifest.album ?? 'this album'}${mvNote}`,
         'success'
       );
+      if (decision.kind === 'fill_gaps' && decision.note) {
+        addToast(decision.note, 'info');
+      }
     } catch (err) {
       showBackendError('MeedyaDL could not add that album to the queue again. Try again in a moment.', err);
     }
@@ -456,8 +497,9 @@ export function LibraryScanPage() {
 
       <p className="mb-4 max-w-prose text-sm text-content-secondary">
         Point MeedyaDL at an existing music library to find downloads that are missing tracks, have a higher
-        quality available, or have been updated by Apple Music since you last fetched them. Re-download just the
-        gaps without losing anything you already have.
+        quality available, or have been updated by Apple Music since you last fetched them. Re-download fills in just
+        the gaps, without replacing anything you already have. An album Apple Music has updated is downloaded again
+        only when “Overwrite Existing Files” is on in Settings.
       </p>
 
       <div className="mb-6 flex items-center gap-3">
@@ -569,7 +611,7 @@ export function LibraryScanPage() {
                         variant="primary"
                         size="xs"
                         icon={<Download size={12} />}
-                        onClick={() => setPendingGapFill(m)}
+                        onClick={() => handleRedownloadClick(m)}
                         aria-label={`Re-download ${m.album ?? 'this album'}`}
                       >
                         Re-download

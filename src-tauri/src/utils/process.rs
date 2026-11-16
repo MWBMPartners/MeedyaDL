@@ -406,6 +406,24 @@ pub fn gamdl_v4_run_was_partial_success<'a>(lines: impl IntoIterator<Item = &'a 
         })
 }
 
+/// Whether a GAMDL output line says one song is not offered in the format
+/// asked for. GAMDL 3.x: `Skipping "<title>": Requested format is not
+/// available` ([`is_codec_skip_line`]). GAMDL 4.x (with `--no-progress`,
+/// printed once per song in the end-of-run error list):
+/// `  ✗ <title>: Requested codec or stream unavailable`, or one of the other
+/// "not offered" messages in `GAMDL_V4_FORMAT_UNAVAILABLE`.
+#[must_use]
+pub fn is_format_not_offered_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if let Some(rest) = trimmed.strip_prefix('✗') {
+        let core = gamdl_v4_error_core(rest.trim());
+        return GAMDL_V4_FORMAT_UNAVAILABLE
+            .iter()
+            .any(|fixed| core.starts_with(fixed));
+    }
+    is_codec_skip_line(trimmed)
+}
+
 /// Matches GAMDL "Saved to" completion lines.
 ///
 /// Capture groups:

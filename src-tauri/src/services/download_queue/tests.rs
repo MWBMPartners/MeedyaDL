@@ -2793,7 +2793,7 @@
         ];
         // Not a mixed album: the item's own links.
         assert_eq!(
-            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[]),
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[], false, &[]),
             AttemptLinks::All
         );
         // Mixed: only track 1 is requested (track 2 is already ALAC),
@@ -2809,7 +2809,7 @@
                 &primary,
                 &tracks,
                 &[SongCodec::Atmos, SongCodec::Alac],
-                &[]
+                &[], false, &[]
             ),
             AttemptLinks::Only {
                 links: vec!["https://music.apple.com/us/album/_/1440857781?i=11".to_string()],
@@ -2821,7 +2821,7 @@
         );
         // No album song details at all (no developer key).
         assert_eq!(
-            attempt_links(&SongCodec::Alac, true, &album, &primary, &[], &[], &[]),
+            attempt_links(&SongCodec::Alac, true, &album, &primary, &[], &[], &[], false, &[]),
             AttemptLinks::Only {
                 links: vec![],
                 unmapped: 2,
@@ -2834,7 +2834,7 @@
         // a plain reason.
         let playlist = vec!["https://music.apple.com/us/playlist/x/pl.u-GgA567VCXX".to_string()];
         assert_eq!(
-            attempt_links(&SongCodec::Alac, true, &playlist, &primary, &tracks, &[], &[]),
+            attempt_links(&SongCodec::Alac, true, &playlist, &primary, &tracks, &[], &[], false, &[]),
             AttemptLinks::Skip(
                 "Extra copies in Lossless (ALAC) were not made for this playlist, because some of its songs are already in that format."
                     .to_string()
@@ -2843,7 +2843,7 @@
         // A single song link is not split either.
         let song = vec!["https://music.apple.com/us/album/x/1440857781?i=11".to_string()];
         assert!(matches!(
-            attempt_links(&SongCodec::Alac, true, &song, &primary, &tracks, &[], &[]),
+            attempt_links(&SongCodec::Alac, true, &song, &primary, &tracks, &[], &[], false, &[]),
             AttemptLinks::Skip(_)
         ));
     }
@@ -2923,7 +2923,7 @@
                 &split.tracks,
                 &[],
                 &split.unplaceable,
-                &[]
+                &[], false, &[]
             ),
             AttemptLinks::All
         );
@@ -3007,7 +3007,7 @@
         let tracks = vec![(1, 1, "11".to_string()), (1, 2, "12".to_string())];
         // Track 1 already has its labelled ALAC copy: only track 2 is asked.
         assert_eq!(
-            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[(1, 1)]),
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[(1, 1)], false, &[]),
             AttemptLinks::Only {
                 links: vec!["https://music.apple.com/us/album/_/1440857781?i=12".to_string()],
                 unmapped: 0,
@@ -3019,7 +3019,7 @@
         // Every song has its copy: nothing requested, nothing to report as
         // missing (the tier counts as done).
         assert_eq!(
-            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[(1, 1), (1, 2)]),
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[(1, 1), (1, 2)], false, &[]),
             AttemptLinks::Only {
                 links: vec![],
                 unmapped: 0,
@@ -3030,41 +3030,85 @@
         );
         // Without song details the normal request runs (GAMDL's own check).
         assert_eq!(
-            attempt_links(&SongCodec::Alac, false, &album, &primary, &[], &[], &[(1, 1)]),
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &[], &[], &[(1, 1)], false, &[]),
             AttemptLinks::All
         );
         // A plain (AAC) attempt never looks for existing copies: the caller
         // passes none, and the normal request runs.
         assert_eq!(
-            attempt_links(&SongCodec::Aac, false, &album, &primary, &tracks, &[], &[]),
+            attempt_links(&SongCodec::Aac, false, &album, &primary, &tracks, &[], &[], false, &[]),
             AttemptLinks::All
         );
     }
 
     /// A run that produced nothing is "done" only when the copies already
-    /// there cover every song asked for.
+    /// there plus the songs not offered in this format cover every song
+    /// asked for.
     #[test]
-    fn a_tier_is_done_only_when_every_requested_copy_was_already_there() {
-        // Ten songs asked for; 8 already there, 2 not offered: not done, so
-        // the next format in the tier is tried.
+    fn a_tier_is_done_when_copies_there_and_songs_not_offered_cover_everything() {
         let primary: Vec<(SongCodec, u32, u32)> =
             (1..=10).map(|t| (SongCodec::Atmos, 1, t)).collect();
         let wanted = songs_wanted_in(&SongCodec::Alac, &primary, &[]);
         assert_eq!(wanted, 10);
-        assert!(!copies_all_there(8, wanted));
-        assert!(copies_all_there(10, wanted));
-        // Per-song run of 2 links: 1 there + 1 unavailable is not done.
-        assert!(!copies_all_there(1, 2));
-        assert!(copies_all_there(2, 2));
+        // A re-run: 8 copies already there, 2 never offered in ALAC — done,
+        // so the next format is NOT downloaded for every song.
+        assert!(tier_done_without_new_files(8, 2, wanted));
+        // 8 there, 2 unaccounted for: not done.
+        assert!(!tier_done_without_new_files(8, 0, wanted));
+        // Nothing there at all: the format simply is not offered — not done.
+        assert!(!tier_done_without_new_files(0, 10, wanted));
+        // Per-song run of 2 links: 1 there + 1 not offered is done.
+        assert!(tier_done_without_new_files(1, 1, 2));
+        assert!(!tier_done_without_new_files(1, 0, 2));
         // Unknown expectation never counts as done.
-        assert!(!copies_all_there(3, 0));
-        // Songs already in this format, or unreadable ones in it, are not
-        // asked for; unreadable ones in another format are.
+        assert!(!tier_done_without_new_files(3, 0, 0));
         let mixed = vec![(SongCodec::Atmos, 1, 1), (SongCodec::Alac, 1, 2)];
         assert_eq!(
             songs_wanted_in(&SongCodec::Alac, &mixed, &[SongCodec::Alac, SongCodec::Atmos]),
             2
         );
+    }
+
+    /// The next format in a tier asks only for the songs without a copy in
+    /// an earlier format of the tier.
+    #[test]
+    fn a_fallback_format_skips_songs_with_a_copy_in_an_earlier_format() {
+        let album = vec!["https://music.apple.com/us/album/x/1440857781".to_string()];
+        let primary = vec![(SongCodec::Atmos, 1, 1), (SongCodec::Atmos, 1, 2), (SongCodec::Atmos, 1, 3)];
+        let tracks = vec![
+            (1, 1, "11".to_string()),
+            (1, 2, "12".to_string()),
+            (1, 3, "13".to_string()),
+        ];
+        // Tracks 1 and 2 have an ALAC copy; ALAC was not offered for 3; now
+        // AAC Legacy asks only for track 3.
+        assert_eq!(
+            attempt_links(&SongCodec::AacLegacy, false, &album, &primary, &tracks, &[], &[], false, &[(1, 1), (1, 2)]),
+            AttemptLinks::Only {
+                links: vec!["https://music.apple.com/us/album/_/1440857781?i=13".to_string()],
+                unmapped: 0,
+                unreadable: 0,
+                already_there: 0,
+                details_available: true,
+            }
+        );
+        // Nothing covered earlier and nothing present: the whole album.
+        assert_eq!(
+            attempt_links(&SongCodec::AacLegacy, false, &album, &primary, &tracks, &[], &[], false, &[]),
+            AttemptLinks::All
+        );
+    }
+
+    #[test]
+    fn format_not_offered_lines_are_recognised_for_both_gamdl_generations() {
+        assert!(crate::utils::process::is_format_not_offered_line(
+            "[WARNING 10:00:00] [Track 2/4] Skipping \"Song\": Requested format is not available"
+        ));
+        assert!(crate::utils::process::is_format_not_offered_line(
+            "  ✗ Song: Requested codec or stream unavailable"
+        ));
+        assert!(!crate::utils::process::is_format_not_offered_line("  ✗ Song: Network request failed"));
+        assert!(!crate::utils::process::is_format_not_offered_line("✓ Song: downloaded → /m/a.m4a"));
     }
 
     /// Not a mixed album: when some songs cannot be asked for on their own
@@ -3077,7 +3121,7 @@
         // Track 3 has no song ID; track 1 already has its copy.
         let tracks = vec![(1, 1, "11".to_string()), (1, 2, "12".to_string())];
         assert_eq!(
-            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[(1, 1)]),
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[(1, 1)], false, &[]),
             AttemptLinks::All
         );
         // An unreadable song in another format does the same.
@@ -3087,8 +3131,22 @@
             (1, 3, "13".to_string()),
         ];
         assert_eq!(
-            attempt_links(&SongCodec::Alac, false, &album, &primary, &full, &[SongCodec::Atmos], &[(1, 1)]),
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &full, &[SongCodec::Atmos], &[(1, 1)], false, &[]),
             AttemptLinks::All
+        );
+        // But when the copy already there carries an advisory label
+        // (`01 Song [Explicit] [Lossless]`), GAMDL's own check would not find
+        // it and would download a duplicate: keep asking per song, and
+        // report the songs left out.
+        assert_eq!(
+            attempt_links(&SongCodec::Alac, false, &album, &primary, &tracks, &[], &[(1, 1)], true, &[]),
+            AttemptLinks::Only {
+                links: vec!["https://music.apple.com/us/album/_/1440857781?i=12".to_string()],
+                unmapped: 1,
+                unreadable: 0,
+                already_there: 1,
+                details_available: true,
+            }
         );
     }
 
@@ -3118,7 +3176,7 @@
                 &[(SongCodec::Atmos, 1, 1), (SongCodec::Alac, 1, 2)],
                 &[(1, 1, "11".to_string()), (1, 2, "12".to_string())],
                 &[],
-                &[]
+                &[], false, &[]
             ),
             AttemptLinks::Only { ref links, .. } if links.len() == 1
         ));
