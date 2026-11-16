@@ -2061,7 +2061,7 @@ fn rename_file_with_advisory(file_path: &Path, suffix: &str) -> PathBuf {
 /// suffix happens to be in use. Without this, suffixes outside a small
 /// hardcoded list (`[Binaural]`, `[Downmix]`, `[AAC Legacy]`, `[HE-AAC]`,
 /// etc.) would end up after the advisory instead of before it.
-fn registry_codec_suffixes() -> Vec<&'static str> {
+pub(crate) fn registry_codec_suffixes() -> Vec<&'static str> {
     use crate::models::codec_registry::CODEC_REGISTRY;
     CODEC_REGISTRY
         .audio

@@ -2465,6 +2465,36 @@ impl CompanionTaskProgress {
     }
 }
 
+/// Used when the primary files may still have their plain names: every
+/// tier gets a format suffix, and formats whose suffix is empty (standard
+/// AAC — its copy would have exactly the primary's plain name) are taken
+/// out. A tier left with no format stays in place (so tier numbers still
+/// match the plan) and is passed over. Returns the formats taken out.
+pub(crate) fn force_suffixes_for_unrenamed_primary(tiers: &mut [CompanionTier]) -> Vec<String> {
+    let mut skipped = Vec::new();
+    for tier in tiers.iter_mut() {
+        tier.apply_suffix = true;
+        tier.codecs_to_try.retain(|c| {
+            let keep = codec_suffix(c).is_some_and(|s| !s.is_empty());
+            if !keep {
+                skipped.push(c.to_cli_string().to_string());
+            }
+            keep
+        });
+    }
+    skipped
+}
+
+/// Holds a companion task back until enrichment says it may start
+/// (`lyrics_pass::CompanionGate`), and gives it the download folder the
+/// primary run used, to turn the real album folder into a template.
+pub(crate) struct CompanionHold {
+    /// The companion task's end of the gate.
+    pub waiter: super::lyrics_pass::CompanionGateWaiter,
+    /// The primary run's resolved download folder.
+    pub download_root: Option<String>,
+}
+
 // The argument list is long because this function is the seam between
 // the queue's per-download state (app, queue, dl_id, urls, shutdown),
 // the GAMDL invocation context (primary codec, base options,
@@ -2483,6 +2513,7 @@ pub(crate) fn spawn_companion_downloads(
     shutdown: &ShutdownSignal,
     force_all_suffixes: bool,
     available_audio_traits: &[String],
+    held_until: Option<CompanionHold>,
 ) -> Option<CompanionTaskHandle> {
     // M9-7 belt-and-braces: companion downloads use GAMDL's
     // codec-tier model (Atmos → ALAC → AAC fan-out) which has no
@@ -2542,12 +2573,15 @@ pub(crate) fn spawn_companion_downloads(
     }
 
     let codec_handle = if companion_tiers.is_empty() {
+        // Nothing to hold back; dropping the hold is harmless.
+        drop(held_until);
         None
     } else {
         let comp_app = app.clone();
         let comp_queue = queue.clone();
         let comp_urls = urls.to_vec();
-        let comp_base_opts = companion_base_options.clone();
+        let mut comp_base_opts = companion_base_options.clone();
+        let mut companion_tiers = companion_tiers;
         let comp_dl_id = dl_id.to_string();
         let comp_shutdown = shutdown.clone();
         // Per-task cooperative-cancel flag (#663). The completion task
@@ -2600,6 +2634,66 @@ pub(crate) fn spawn_companion_downloads(
         }
 
         let handle = tokio::spawn(async move {
+            // Held until enrichment has finished its lyrics steps and its
+            // renames (16 Nov 2026), so nothing lands beside the primary
+            // files while their names may still change. Cancel, app
+            // shutdown and the completion task's abort still end the wait.
+            if let Some(hold) = held_until {
+                let mut waiter = hold.waiter;
+                let state = super::lyrics_pass::wait_for_companion_gate(&mut waiter, || {
+                    let queue = comp_queue.clone();
+                    let id = comp_dl_id.clone();
+                    let stopping = comp_shutdown.is_triggered()
+                        || aborted_for_task.load(Ordering::Relaxed);
+                    async move { stopping || !queue.lock().await.should_keep_working_on(&id) }
+                })
+                .await;
+                let Some(state) = state else {
+                    log::info!("Companion downloads for {comp_dl_id} not started (stopped while waiting)");
+                    return;
+                };
+                if !state.renames_done {
+                    // The primary files may still have their plain names
+                    // (enrichment ended early, or the format could not be
+                    // told): give every extra copy a format suffix, and
+                    // leave out any format whose suffix is empty (standard
+                    // AAC), so none can land on a primary file's name.
+                    let skipped = force_suffixes_for_unrenamed_primary(&mut companion_tiers);
+                    if !skipped.is_empty() {
+                        emit_download_log(
+                            &comp_app,
+                            &comp_dl_id,
+                            &format!(
+                                "Extra format skipped so it cannot replace the main download's files: {}",
+                                skipped.join(", ")
+                            ),
+                        );
+                    }
+                }
+                // Write into the folder that really holds the primary
+                // files (#528), whatever GAMDL's template would call it.
+                // Only when the companion saves under the same download
+                // folder the primary run used.
+                if let (Some(dir), Some(root)) = (state.album_dir.as_deref(), hold.download_root.as_deref()) {
+                    let own_root = comp_base_opts
+                        .output_path
+                        .as_deref()
+                        .filter(|p| !p.trim().is_empty())
+                        .unwrap_or(root);
+                    if own_root == root {
+                        if let Some(template) = super::lyrics_pass::literal_folder_template(
+                            std::path::Path::new(dir),
+                            std::path::Path::new(root),
+                        ) {
+                            comp_base_opts.album_folder_template = Some(template.clone());
+                            comp_base_opts.compilation_folder_template = Some(template);
+                            comp_base_opts.output_path = Some(root.to_string());
+                        }
+                    }
+                }
+                emit_download_log(&comp_app, &comp_dl_id, "Starting the extra format downloads");
+            }
+
             // `any_tier_produced_files` is set the first time a tier actually
             // writes new audio files to disk (#843). After the tier loop we
             // run the companion lyrics conversion exactly once if the flag is
@@ -2661,6 +2755,10 @@ pub(crate) fn spawn_companion_downloads(
                     return;
                 }
 
+                // A tier emptied by `force_suffixes_for_unrenamed_primary`.
+                if tier.codecs_to_try.is_empty() {
+                    continue;
+                }
                 let mut tier_succeeded = false;
                 if let Ok(mut progress) = progress_for_task.lock() {
                     progress.current_tier = Some(tier_idx);

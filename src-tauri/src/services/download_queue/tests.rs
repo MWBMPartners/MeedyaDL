@@ -3371,6 +3371,32 @@
     }
 
     #[test]
+    fn unrenamed_primary_forces_suffixes_and_leaves_out_plain_named_formats() {
+        let mut tiers = vec![
+            CompanionTier {
+                codecs_to_try: vec![SongCodec::Alac],
+                apply_suffix: false,
+            },
+            CompanionTier {
+                codecs_to_try: vec![SongCodec::Aac, SongCodec::AacLegacy],
+                apply_suffix: false,
+            },
+            CompanionTier {
+                codecs_to_try: vec![SongCodec::Aac],
+                apply_suffix: false,
+            },
+        ];
+        let skipped = force_suffixes_for_unrenamed_primary(&mut tiers);
+        assert_eq!(skipped, vec!["aac".to_string(), "aac".to_string()]);
+        // Tier numbers still match the plan; every tier is suffixed.
+        assert_eq!(tiers.len(), 3);
+        assert!(tiers.iter().all(|t| t.apply_suffix));
+        assert_eq!(tiers[0].codecs_to_try, vec![SongCodec::Alac]);
+        assert_eq!(tiers[1].codecs_to_try, vec![SongCodec::AacLegacy]);
+        assert!(tiers[2].codecs_to_try.is_empty());
+    }
+
+    #[test]
     fn companion_progress_describes_current_and_pending_tiers() {
         let mut progress = CompanionTaskProgress {
             planned_tiers: vec![

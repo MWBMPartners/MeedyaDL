@@ -988,6 +988,14 @@ pub fn process_queue(
         let shutdown_clone = shutdown_signal;
 
         tokio::spawn(async move {
+            // The GAMDL version and the download folder this primary run
+            // uses, recorded as it starts. The word-level lyrics pass after
+            // it runs only on the same version and in the same folder, and
+            // the extra-format copies are pointed at that folder too.
+            let primary_gamdl_version = gamdl_capabilities::detected_version();
+            let primary_download_folder =
+                gamdl_service::resolved_download_folder(&app_clone, &download_options);
+
             // Snapshot the audio-file count in the configured output base
             // BEFORE spawning GAMDL (#831). This is the primary-path twin
             // of the Phase 3.5h companion-task snapshot. After a clean
@@ -1727,6 +1735,7 @@ pub fn process_queue(
                                     &shutdown_clone,
                                     uses_native_priority,
                                     &traits,
+                                    None,
                                 );
 
                                 // Continue processing remaining queued items
@@ -1856,6 +1865,12 @@ pub fn process_queue(
                     // This runs in a separate tokio task so it doesn't block the queue
                     // from processing the next download. Failures are logged but never
                     // propagate to the user or affect the download status.
+                    // The extra-format copies (companions) wait for this gate:
+                    // enrichment opens it once its lyrics steps and renames are
+                    // done, and dropping it (any early end of enrichment)
+                    // opens it too, so they are never stranded.
+                    let (companion_gate, companion_gate_waiter) =
+                        super::lyrics_pass::companion_gate();
                     let enrichment_handle = if let Some(output_dir) = output_path_for_artwork.clone() {
                         let enrich_app = app_clone.clone();
                         let enrich_urls = urls.clone();
@@ -1886,7 +1901,14 @@ pub fn process_queue(
                         // clean primary run (no gap-fill, nothing skipped).
                         let enrich_primary_options = download_options.clone();
                         let enrich_primary_clean = warnings.is_empty();
+                        let enrich_primary_version = primary_gamdl_version.clone();
+                        let enrich_download_folder = primary_download_folder.clone();
+                        let enrich_gate = companion_gate;
                         Some(tokio::spawn(async move {
+                            // Owned by this task from its first line, so any
+                            // return, panic or abort below drops it and lets
+                            // the companions start.
+                            let companion_gate = enrich_gate;
                             // Determine the album directory from the output path.
                             // For single tracks, output_path is a file -- use its parent.
                             // For albums, output_path is already the directory.
@@ -2142,34 +2164,52 @@ pub fn process_queue(
                             }
 
 
-                            // ── The order of the first steps (16 Nov 2026) ──
-                            // 1. The album's details from Apple Music, once.
-                            // 2. The album FOLDER's advisory suffix
-                            //    (`Album` → `Album [Explicit]`), at once: the
-                            //    extra-format copies (companions) already write
-                            //    into the suffixed folder (#528), and a rename
-                            //    left until later would find it taken and leave
-                            //    two folders.
+                            // ── The enrichment order (16 Nov 2026, revised) ──
+                            // 1. A snapshot of the primary download's files.
+                            // 2. The album's details from Apple Music, once.
                             // 3. Step 0 (iTunes details).
                             // 4. Step 1b: MeedyaDL's own word-level lyrics
                             //    lookup, on every GAMDL version.
                             // 5. GAMDL 4.0.2+ only, and only if Step 1b left
                             //    tracks it could not check: a GAMDL pass that
-                            //    asks for the word-by-word lyrics file. It
-                            //    relies on every audio file still having the
-                            //    name GAMDL gave it.
-                            // 6. Step 1 tagging, with NO file renames.
-                            // 7. Every lyrics conversion (Steps 2-2g), built
-                            //    from the best timing either lookup found.
-                            // 8. The per-file renames (advisory, then format
+                            //    asks for the word-by-word lyrics file. Files
+                            //    and folder are still exactly where GAMDL saved
+                            //    them, so it finds every track and skips it.
+                            // 6. Step 1 tagging, with NO renames.
+                            // 7. Every lyrics conversion (Steps 2-2g).
+                            // 8. The album FOLDER's advisory suffix, then the
+                            //    per-file renames (advisory, then format
                             //    suffix), each taking its lyrics files along.
+                            // 9. The companion gate opens: the extra-format
+                            //    copies start only now, so nothing lands
+                            //    beside a file whose name may still change.
                             //
-                            // The primary download's own files, taken now,
-                            // before the extra-format copies start landing
-                            // beside them. Steps 1b, 5, 6 and 8 work on these
-                            // only.
+                            // The primary download's own files, taken now.
+                            // Steps 1b, 5, 6 and 8 work on these only.
                             let mut primary_files: Vec<std::path::PathBuf> =
                                 super::metadata_tag_service::collect_m4a_files(&album_dir);
+                            // Which of them this download wrote, judged now —
+                            // Step 0 rewrites every file's tags, after which
+                            // they all look new — and the format suffix in the
+                            // primary's file template. Step 1b uses both to
+                            // choose between this download's file and an older
+                            // copy of the same track in the folder.
+                            let fresh_files = super::lyrics_pass::fresh_at_snapshot(
+                                &primary_files,
+                                chrono::DateTime::parse_from_rfc3339(&enrich_started_at)
+                                    .ok()
+                                    .map(std::time::SystemTime::from),
+                            );
+                            let primary_suffix =
+                                super::lyrics_pass::primary_name_suffix(&enrich_primary_options);
+                            // The folder that holds the primary files, for the
+                            // companions (album and song links only — other
+                            // links can span several folders).
+                            let single_album_link =
+                                super::lyrics_pass::links_allow_word_lyrics_pass(&enrich_urls);
+                            if single_album_link {
+                                companion_gate.set_album_dir(Some(album_dir.clone()));
+                            }
 
                             // The album's details from Apple Music, fetched once
                             // and shared by every step below (library links have
@@ -2189,56 +2229,17 @@ pub fn process_queue(
                             };
                             // Update artist_name from API metadata for progress bar display
                             if let Some(ref meta) = album_metadata {
-                                if let Ok(mut q) = enrich_queue.try_lock() {
-                                    if let Some(item) = q
-                                        .items
-                                        .iter_mut()
-                                        .find(|i| i.status.id == enrich_dl_id)
-                                    {
-                                        if item.status.artist_name.is_none() {
-                                            item.status.artist_name =
-                                                meta.artist_name.clone();
-                                        }
-                                        if item.status.album_name.is_none() {
-                                            item.status.album_name =
-                                                meta.album_name.clone();
-                                        }
+                                let mut q = enrich_queue.lock().await;
+                                if let Some(item) = q
+                                    .items
+                                    .iter_mut()
+                                    .find(|i| i.status.id == enrich_dl_id)
+                                {
+                                    if item.status.artist_name.is_none() {
+                                        item.status.artist_name = meta.artist_name.clone();
                                     }
-                                }
-                            }
-
-                            // The album folder's advisory suffix, first (see
-                            // the order above). Records the suffix only if the
-                            // folder really was renamed: the GAMDL lyrics pass
-                            // then looks in the suffixed folder.
-                            let mut renamed_folder_suffix: Option<&'static str> = None;
-                            if enrich_settings.content_advisory_in_filenames {
-                                if let Some(ref meta) = album_metadata {
-                                    let new_dir = super::metadata_tag_service::apply_advisory_folder_suffix(
-                                        &album_dir,
-                                        meta,
-                                    );
-                                    if new_dir != album_dir {
-                                        renamed_folder_suffix = meta
-                                            .content_rating
-                                            .as_deref()
-                                            .and_then(super::metadata_tag_service::advisory_suffix);
-                                        primary_files = super::lyrics_pass::remap_under_renamed_folder(
-                                            &primary_files,
-                                            std::path::Path::new(&album_dir),
-                                            std::path::Path::new(&new_dir),
-                                        );
-                                        album_dir = new_dir.clone();
-                                        // Update queue item's output_path so "Open Folder" works
-                                        if let Ok(mut q) = enrich_queue.try_lock() {
-                                            if let Some(item) = q
-                                                .items
-                                                .iter_mut()
-                                                .find(|i| i.status.id == enrich_dl_id)
-                                            {
-                                                item.status.output_path = Some(new_dir);
-                                            }
-                                        }
+                                    if item.status.album_name.is_none() {
+                                        item.status.album_name = meta.album_name.clone();
                                     }
                                 }
                             }
@@ -2303,9 +2304,8 @@ pub fn process_queue(
                                 &enrich_settings,
                                 album_metadata.as_ref(),
                                 &primary_files,
-                                chrono::DateTime::parse_from_rfc3339(&enrich_started_at)
-                                    .ok()
-                                    .map(std::time::SystemTime::from),
+                                &fresh_files,
+                                primary_suffix,
                                 &enrich_shutdown,
                                 &lyrics_label,
                             )
@@ -2336,13 +2336,21 @@ pub fn process_queue(
                                 stopping: enrich_shutdown.is_triggered()
                                     || enrich_queue.lock().await.is_cancelled(&enrich_dl_id),
                                 needed: super::lyrics_pass::needs_gamdl_fallback(&step_1b),
+                                same_gamdl_version: enrich_primary_version.is_some()
+                                    && gamdl_capabilities::detected_version() == enrich_primary_version,
+                                download_folder_known: enrich_download_folder.is_some(),
                             };
                             if super::lyrics_pass::should_run_word_lyrics_pass(&pass_conditions) {
-                                if super::lyrics_pass::primary_files_unmoved(&primary_files) {
+                                // Checked right before the run: GAMDL would
+                                // download again any track whose file moved.
+                                if let (true, Some(folder)) = (
+                                    super::lyrics_pass::primary_files_unmoved(&primary_files),
+                                    enrich_download_folder.as_deref(),
+                                ) {
                                     set_label("Adding word-level lyrics…", ProgressStage::WordLyrics.weight());
                                     let pass_options = super::lyrics_pass::plan_word_lyrics_pass(
                                         &enrich_primary_options,
-                                        renamed_folder_suffix,
+                                        folder,
                                     );
                                     super::lyrics_pass::run_word_lyrics_pass(
                                         &enrich_app,
@@ -3056,6 +3064,60 @@ pub fn process_queue(
                             // `.ttml`, `.lrc`, `.srt`, `.vtt`, `.ass` and `.lyrics`
                             // along. Extra-format copies that arrived meanwhile
                             // are left to the final pass after they finish.
+                            //
+                            // First the album FOLDER's advisory suffix
+                            // (`Album` → `Album [Explicit]`). It used to come
+                            // first of all, because the companions were already
+                            // writing into the suffixed folder by then; they are
+                            // now held until this is done, and are pointed at
+                            // whichever folder really holds the files.
+                            let mut file_codecs = file_codecs;
+                            if enrich_settings.content_advisory_in_filenames {
+                                if let Some(ref meta) = album_metadata {
+                                    let new_dir = super::metadata_tag_service::apply_advisory_folder_suffix(
+                                        &album_dir,
+                                        meta,
+                                    );
+                                    if new_dir != album_dir {
+                                        let (old, new) = (
+                                            std::path::PathBuf::from(&album_dir),
+                                            std::path::PathBuf::from(&new_dir),
+                                        );
+                                        primary_files = super::lyrics_pass::remap_under_renamed_folder(
+                                            &primary_files,
+                                            &old,
+                                            &new,
+                                        );
+                                        file_codecs = file_codecs
+                                            .into_iter()
+                                            .map(|(p, c)| (super::lyrics_pass::remap_path(&p, &old, &new), c))
+                                            .collect();
+                                        album_dir = new_dir.clone();
+                                        if single_album_link {
+                                            companion_gate.set_album_dir(Some(new_dir.clone()));
+                                        }
+                                        // Update queue item's output_path so "Open Folder" works
+                                        let mut q = enrich_queue.lock().await;
+                                        if let Some(item) = q
+                                            .items
+                                            .iter_mut()
+                                            .find(|i| i.status.id == enrich_dl_id)
+                                        {
+                                            item.status.output_path = Some(new_dir);
+                                        }
+                                    }
+                                }
+                            }
+                            // Whether every primary file was tagged with a known
+                            // format, so the format suffix could be added to
+                            // each. If not, the companions add a suffix to all
+                            // of their files instead, so none can take a
+                            // primary file's plain name.
+                            let every_file_has_its_format = codec.is_some()
+                                && primary_files
+                                    .iter()
+                                    .filter(|p| p.is_file())
+                                    .all(|p| file_codecs.iter().any(|(f, _)| f == p));
                             let renamed_primary = super::metadata_tag_service::apply_deferred_file_renames(
                                 &primary_files,
                                 album_metadata.as_ref(),
@@ -3066,6 +3128,8 @@ pub fn process_queue(
                                 "Per-file renames done for {enrich_dl_id}: {} file(s)",
                                 renamed_primary.len()
                             );
+                            // Every name is final: the companions may start.
+                            companion_gate.release(every_file_has_its_format);
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));
 
@@ -4072,6 +4136,8 @@ pub fn process_queue(
                             );
                         }))
                     } else {
+                        // No enrichment: let the companions start at once.
+                        drop(companion_gate);
                         None
                     };
 
@@ -4108,6 +4174,10 @@ pub fn process_queue(
                         &shutdown_clone,
                         uses_native_priority,
                         &companion_traits,
+                        Some(CompanionHold {
+                            waiter: companion_gate_waiter,
+                            download_root: primary_download_folder.clone(),
+                        }),
                     );
 
                     // Spawn a completion task that waits for ALL background work
@@ -5283,6 +5353,7 @@ pub fn process_queue(
                                 &shutdown_clone,
                                 uses_native_priority,
                                 &traits,
+                                None,
                             );
                         } else {
                             emit_download_log(

@@ -17,11 +17,15 @@
 //
 // The GAMDL run works only because the audio is still exactly where GAMDL
 // put it: GAMDL skips a track whose file already exists (overwrite off),
-// and then still refreshes its `.ttml`. So it must run before any per-file
-// rename, and refuses if a primary file has moved
-// (`primary_files_unmoved`). The album folder is the one exception: it is
-// renamed first (`[Explicit]` / `[Clean]`), and the pass is given the same
-// suffixed folder template the extra-format copies already use (#528).
+// and then still refreshes its `.ttml`. So it runs before ANY rename —
+// the album folder's advisory suffix included — with the primary run's
+// own templates, download folder and GAMDL version, and refuses if a
+// primary file has moved (`primary_files_unmoved`).
+//
+// The extra-format copies (companions) are held until the renames are
+// done (`CompanionGate`), so nothing lands beside the primary files while
+// their names may still change, and companions write into the folder that
+// really holds the files (#528).
 
 use super::*;
 use std::path::{Path, PathBuf};
@@ -74,7 +78,7 @@ pub(crate) enum Step1b {
 ///
 /// A document with no word timing is "Apple has none" — and is not
 /// written, so it cannot replace the line-by-line `.ttml` GAMDL saved.
-pub(crate) fn classify(fetch: &Result<Option<String>, String>, placed: bool) -> WordLyricsOutcome {
+pub(crate) fn classify<E>(fetch: &Result<Option<String>, E>, placed: bool) -> WordLyricsOutcome {
     match fetch {
         Ok(Some(ttml)) if enhanced_lyrics_service::ttml_has_word_timing(ttml) => {
             if placed {
@@ -165,10 +169,78 @@ pub(crate) struct AudioFileNumbers {
     pub disc: Option<u32>,
     /// `None` when the number could not be read.
     pub track: Option<u32>,
-    /// Written (or rewritten) since this download started. Only used to
-    /// choose between two files claiming the same track — the new one and
-    /// a copy left from an earlier download.
+    /// Written (or rewritten) since this download started, judged when
+    /// enrichment took its snapshot — before Step 0 rewrites every file's
+    /// tags and makes them all look new. Only used to choose between two
+    /// files claiming the same track (this download's and an older copy).
     pub fresh: bool,
+    /// The name carries the same format suffix as the primary run's file
+    /// template (or none, when the template has none). The second way to
+    /// choose between two files claiming the same track.
+    pub name_matches_primary: bool,
+}
+
+/// Which snapshot files were written since `since` (the download's start),
+/// with two seconds of slack for file systems that store times coarsely.
+/// Taken at snapshot time, before Step 0 rewrites tags. `None` (start
+/// unknown) marks nothing as fresh.
+pub(crate) fn fresh_at_snapshot(
+    files: &[PathBuf],
+    since: Option<std::time::SystemTime>,
+) -> std::collections::HashSet<PathBuf> {
+    let Some(since) = since else {
+        return std::collections::HashSet::new();
+    };
+    let since = since
+        .checked_sub(std::time::Duration::from_secs(2))
+        .unwrap_or(since);
+    files
+        .iter()
+        .filter(|p| {
+            std::fs::metadata(p)
+                .and_then(|m| m.modified())
+                .is_ok_and(|modified| modified >= since)
+        })
+        .cloned()
+        .collect()
+}
+
+/// The format suffix (`[Dolby Atmos]`, `[Lossless]`, …) written into the
+/// primary run's file templates, if any.
+pub(crate) fn primary_name_suffix(primary: &GamdlOptions) -> Option<&'static str> {
+    let suffixes = metadata_tag_service::registry_codec_suffixes();
+    [
+        primary.single_disc_file_template.as_deref(),
+        primary.multi_disc_file_template.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .find_map(|t| present_suffixes(t, &suffixes).into_iter().next())
+}
+
+/// The format suffixes in `text`, leaving out one found only inside a
+/// longer one.
+fn present_suffixes(text: &str, suffixes: &[&'static str]) -> Vec<&'static str> {
+    let found: Vec<&'static str> = suffixes
+        .iter()
+        .copied()
+        .filter(|s| text.contains(s))
+        .collect();
+    found
+        .iter()
+        .copied()
+        .filter(|s| !found.iter().any(|o| o != s && o.contains(s)))
+        .collect()
+}
+
+/// Whether a file name carries exactly the primary run's format suffix
+/// (or no format suffix, when the primary's template has none).
+pub(crate) fn stem_matches_primary_name(stem: &str, expected: Option<&str>) -> bool {
+    let present = present_suffixes(stem, &metadata_tag_service::registry_codec_suffixes());
+    match expected {
+        None => present.is_empty(),
+        Some(s) => present == [s],
+    }
 }
 
 /// Disc and track numbers from a file name, for a file whose tags cannot
@@ -198,22 +270,15 @@ pub(crate) fn numbers_from_file_name(stem: &str) -> (Option<u32>, Option<u32>) {
 /// Reads a file's disc and track numbers from its tags (GAMDL writes
 /// them), falling back to its name. A file with a track number and no
 /// disc number in its tags counts as disc 1, as elsewhere in enrichment.
-///
-/// `fresh_since` is when this download started (`None`: unknown, nothing
-/// counts as fresh). Two seconds of slack cover file systems that store
-/// times coarsely.
+/// `fresh` comes from [`fresh_at_snapshot`]; `primary_suffix` from
+/// [`primary_name_suffix`].
 pub(crate) fn read_audio_numbers(
     path: &Path,
-    fresh_since: Option<std::time::SystemTime>,
+    fresh: bool,
+    primary_suffix: Option<&str>,
 ) -> AudioFileNumbers {
-    let fresh = fresh_since.is_some_and(|since| {
-        let since = since
-            .checked_sub(std::time::Duration::from_secs(2))
-            .unwrap_or(since);
-        std::fs::metadata(path)
-            .and_then(|m| m.modified())
-            .is_ok_and(|modified| modified >= since)
-    });
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let name_matches_primary = stem_matches_primary_name(stem, primary_suffix);
     if let Ok(tag) = mp4ameta::Tag::read_from_path(path) {
         if let Some(track) = tag.track_number() {
             return AudioFileNumbers {
@@ -221,16 +286,17 @@ pub(crate) fn read_audio_numbers(
                 disc: Some(u32::from(tag.disc_number().unwrap_or(1))),
                 track: Some(u32::from(track)),
                 fresh,
+                name_matches_primary,
             };
         }
     }
-    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
     let (disc, track) = numbers_from_file_name(stem);
     AudioFileNumbers {
         path: path.to_path_buf(),
         disc,
         track,
         fresh,
+        name_matches_primary,
     }
 }
 
@@ -279,10 +345,14 @@ pub(crate) fn place_track(
         _ => {
             // Several files claim the track (a copy from an earlier
             // download in the same folder): the one this download wrote,
-            // if exactly one was.
+            // if exactly one was; else the one named like the primary run's
+            // template, if exactly one is.
             let fresh: Vec<_> = matches.iter().filter(|f| f.fresh).collect();
+            let named: Vec<_> = matches.iter().filter(|f| f.name_matches_primary).collect();
             if fresh.len() == 1 {
                 Placement::Found(fresh[0].path.clone())
+            } else if named.len() == 1 {
+                Placement::Found(named[0].path.clone())
             } else {
                 Placement::Unclear
             }
@@ -309,7 +379,8 @@ pub(crate) async fn run_step_1b(
     settings: &AppSettings,
     metadata: Option<&AlbumMetadata>,
     primary_files: &[PathBuf],
-    fresh_since: Option<std::time::SystemTime>,
+    fresh_files: &std::collections::HashSet<PathBuf>,
+    primary_suffix: Option<&str>,
     shutdown: &ShutdownSignal,
     set_label: &(dyn Fn(&str) + Sync),
 ) -> Step1b {
@@ -324,7 +395,7 @@ pub(crate) async fn run_step_1b(
     // album that is already fully word-timed never gets a sign-in message.
     let numbers: Vec<AudioFileNumbers> = primary_files
         .iter()
-        .map(|p| read_audio_numbers(p, fresh_since))
+        .map(|p| read_audio_numbers(p, fresh_files.contains(p), primary_suffix))
         .collect();
     let single_disc = metadata.tracks.iter().all(|t| t.disc_number <= 1);
 
@@ -420,7 +491,7 @@ pub(crate) async fn run_step_1b(
             let jwt = jwt.clone();
             let token = token.clone();
             async move {
-                apple_music_api::fetch_syllable_lyrics(
+                apple_music_api::fetch_syllable_lyrics_with_status(
                     &jwt,
                     &settings.storefront,
                     &song_id,
@@ -460,7 +531,7 @@ pub(crate) async fn ask_each_track<F, Fut>(
 ) -> (Vec<TrackLyricsResult>, bool)
 where
     F: FnMut(&str) -> Fut,
-    Fut: std::future::Future<Output = Result<Option<String>, String>>,
+    Fut: std::future::Future<Output = Result<Option<String>, apple_music_api::SyllableLyricsError>>,
 {
     let mut results = Vec::with_capacity(to_ask.len());
     let mut stopped_on_sign_in = false;
@@ -493,8 +564,10 @@ where
                 track.track_number,
                 track.song_id
             );
-            // A refused sign-in affects every track: stop asking.
-            if e.contains("401") || e.contains("403") {
+            // A refused sign-in affects every track: stop asking. Judged
+            // on the HTTP status, never the message (which contains the
+            // song ID — `1440140198` contains "401").
+            if e.is_refused_sign_in() {
                 stopped_on_sign_in = true;
             }
         }
@@ -515,23 +588,24 @@ where
 // ============================================================
 
 /// The options for the GAMDL pass: the primary run's own options (same
-/// sign-in, formats, folder and file names), with:
+/// sign-in, formats, folder and file templates), with:
 ///
+/// - `download_folder`: the folder the primary run really used, given
+///   explicitly so nothing is re-read from settings when the pass starts;
 /// - overwrite off, so every track whose file already exists is skipped
 ///   rather than downloaded again — GAMDL still refreshes its `.ttml`;
 /// - no saved cover, no playlist file, lyrics files on;
-/// - the word-by-word lyrics file asked for;
-/// - the album and compilation folder templates given `renamed_folder_suffix`
-///   (`[Explicit]` / `[Clean]`) when, and only when, the album folder
-///   really was renamed, so GAMDL looks where the files now are.
+/// - the word-by-word lyrics file asked for.
+///
+/// The templates are NOT changed: the pass runs before any rename, the
+/// album folder's included, so the primary's own templates point at the
+/// files exactly.
 ///
 /// Never sends `--overwrite`, `--save-cover`, `--file-cover-size`,
 /// `--save-playlist` or `--no-lyrics-file` (tested).
-pub(crate) fn plan_word_lyrics_pass(
-    primary: &GamdlOptions,
-    renamed_folder_suffix: Option<&str>,
-) -> GamdlOptions {
+pub(crate) fn plan_word_lyrics_pass(primary: &GamdlOptions, download_folder: &str) -> GamdlOptions {
     let mut options = primary.clone();
+    options.output_path = Some(download_folder.to_string());
     options.overwrite = Some(false);
     options.save_cover = Some(false);
     options.save_playlist = None;
@@ -539,19 +613,6 @@ pub(crate) fn plan_word_lyrics_pass(
     options.synced_lyrics_only = None;
     options.synced_lyrics_format = Some(LyricsFormat::Ttml);
     options.word_timed_lyrics_file = Some(true);
-    if let Some(suffix) = renamed_folder_suffix {
-        if let Some(t) =
-            inject_advisory_suffix_into_template(options.album_folder_template.as_deref(), suffix)
-        {
-            options.album_folder_template = Some(t);
-        }
-        if let Some(t) = inject_advisory_suffix_into_template(
-            options.compilation_folder_template.as_deref(),
-            suffix,
-        ) {
-            options.compilation_folder_template = Some(t);
-        }
-    }
     options
 }
 
@@ -588,6 +649,11 @@ pub(crate) struct WordLyricsPassConditions {
     pub stopping: bool,
     /// [`needs_gamdl_fallback`].
     pub needed: bool,
+    /// The GAMDL version installed now is the one the primary run used
+    /// (an upgrade in between could name or place files differently).
+    pub same_gamdl_version: bool,
+    /// The primary run's download folder is known.
+    pub download_folder_known: bool,
 }
 
 /// Whether the GAMDL pass runs.
@@ -600,6 +666,8 @@ pub(crate) fn should_run_word_lyrics_pass(c: &WordLyricsPassConditions) -> bool 
         && c.primary_clean
         && !c.stopping
         && c.needed
+        && c.same_gamdl_version
+        && c.download_folder_known
 }
 
 /// The safety net: every primary file is still where it was. If any has
@@ -609,8 +677,16 @@ pub(crate) fn primary_files_unmoved(files: &[PathBuf]) -> bool {
     !files.is_empty() && files.iter().all(|p| p.is_file())
 }
 
-/// Moves paths under `old_dir` to the same place under `new_dir` (after
-/// the album folder was renamed). Paths elsewhere are kept as they are.
+/// Moves a path under `old_dir` to the same place under `new_dir` (after
+/// the album folder was renamed). A path elsewhere is kept as it is.
+pub(crate) fn remap_path(path: &Path, old_dir: &Path, new_dir: &Path) -> PathBuf {
+    match path.strip_prefix(old_dir) {
+        Ok(rel) => new_dir.join(rel),
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+/// [`remap_path`] for a list.
 pub(crate) fn remap_under_renamed_folder(
     files: &[PathBuf],
     old_dir: &Path,
@@ -618,10 +694,7 @@ pub(crate) fn remap_under_renamed_folder(
 ) -> Vec<PathBuf> {
     files
         .iter()
-        .map(|p| match p.strip_prefix(old_dir) {
-            Ok(rel) => new_dir.join(rel),
-            Err(_) => p.clone(),
-        })
+        .map(|p| remap_path(p, old_dir, new_dir))
         .collect()
 }
 
@@ -643,6 +716,146 @@ pub(crate) fn count_word_timed_sidecars(files: &[PathBuf]) -> usize {
                 .is_ok_and(|c| enhanced_lyrics_service::ttml_has_word_timing(&c))
         })
         .count()
+}
+
+/// Every audio file under `dir` (same depth and file kinds as
+/// `count_audio_files_in_directory`).
+pub(crate) fn audio_files_in(dir: &Path) -> std::collections::BTreeSet<PathBuf> {
+    crate::utils::fs_walk::walk_dir_depth(dir, 10, |path| {
+        if !path.is_file() || crate::utils::fs_safe::is_filesystem_sidecar(path) {
+            return None;
+        }
+        let ext = path.extension().and_then(|e| e.to_str())?;
+        ["m4a", "m4v", "mp4"]
+            .iter()
+            .any(|x| ext.eq_ignore_ascii_case(x))
+            .then(|| path.to_path_buf())
+    })
+    .into_iter()
+    .collect()
+}
+
+/// How many paths in `after` were not in `before`.
+pub(crate) fn new_audio_files(
+    before: &std::collections::BTreeSet<PathBuf>,
+    after: &std::collections::BTreeSet<PathBuf>,
+) -> usize {
+    after.difference(before).count()
+}
+
+// ============================================================
+// Holding the extra-format copies (companions) back
+// ============================================================
+
+/// What enrichment tells the held companion task when it lets it start.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct CompanionGateState {
+    /// Enrichment has said "go" (or ended in any way at all).
+    pub released: bool,
+    /// The per-file renames ran, so every primary file has its final name
+    /// (format suffix included). When false — enrichment ended early, or
+    /// the format could not be told — the companions put a format suffix
+    /// on every file, so none can land on a primary file's name.
+    pub renames_done: bool,
+    /// The album folder that really holds the primary files (after the
+    /// advisory rename, or not), for album and song links. Companions
+    /// write there, whatever GAMDL's template would make of the name.
+    pub album_dir: Option<String>,
+}
+
+/// Enrichment's end of the gate. Dropping it — an early return, a panic,
+/// the enrichment deadline aborting the task — releases the companions
+/// too, so they are never left waiting and the item never stalls.
+pub(crate) struct CompanionGate(tokio::sync::watch::Sender<CompanionGateState>);
+
+/// The companion task's end of the gate.
+pub(crate) type CompanionGateWaiter = tokio::sync::watch::Receiver<CompanionGateState>;
+
+/// A new gate, closed.
+pub(crate) fn companion_gate() -> (CompanionGate, CompanionGateWaiter) {
+    let (tx, rx) = tokio::sync::watch::channel(CompanionGateState::default());
+    (CompanionGate(tx), rx)
+}
+
+impl CompanionGate {
+    /// Records the folder that holds the primary files now.
+    pub(crate) fn set_album_dir(&self, dir: Option<String>) {
+        self.0.send_modify(|s| s.album_dir = dir);
+    }
+
+    /// Lets the companions start, saying whether the per-file renames ran.
+    pub(crate) fn release(self, renames_done: bool) {
+        self.0.send_modify(|s| s.renames_done = renames_done);
+        // `Drop` sets `released`.
+    }
+}
+
+impl Drop for CompanionGate {
+    fn drop(&mut self) {
+        self.0.send_modify(|s| s.released = true);
+    }
+}
+
+/// Waits for the gate to open, checking every half second whether the
+/// wait should end anyway (`give_up`: cancelled, app closing, the task
+/// aborted). Returns the gate's state, or `None` when it gave up.
+pub(crate) async fn wait_for_companion_gate<F, Fut>(
+    waiter: &mut CompanionGateWaiter,
+    mut give_up: F,
+) -> Option<CompanionGateState>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    loop {
+        if waiter.borrow().released {
+            return Some(waiter.borrow().clone());
+        }
+        tokio::select! {
+            changed = waiter.changed() => {
+                if changed.is_err() {
+                    // The sender is gone without a final word: treat as
+                    // released with nothing promised.
+                    let mut state = waiter.borrow().clone();
+                    state.released = true;
+                    return Some(state);
+                }
+            }
+            () = tokio::time::sleep(std::time::Duration::from_millis(500)) => {
+                if give_up().await {
+                    return None;
+                }
+            }
+        }
+    }
+}
+
+/// The album and compilation folder template for a companion, so it writes
+/// into `album_dir` itself: the folder's path under `download_root`, as a
+/// fixed template (braces doubled so GAMDL reads them literally). `None`
+/// when `album_dir` is not inside `download_root` or is the root itself —
+/// the companion then keeps its usual template.
+///
+/// A fixed path, not `{album} [Explicit]`, because GAMDL cleans names: an
+/// album called "DAMN." is saved as `DAMN_`, which the suffix rule
+/// (`DAMN_ [Explicit]`) and a template (`DAMN. [Explicit]`) spell
+/// differently. GAMDL cleans each part of a fixed path the same way, and
+/// a name it has already cleaned stays as it is.
+pub(crate) fn literal_folder_template(album_dir: &Path, download_root: &Path) -> Option<String> {
+    let rel = album_dir.strip_prefix(download_root).ok()?;
+    let parts: Vec<String> = rel
+        .components()
+        .map(|c| match c {
+            std::path::Component::Normal(p) => {
+                p.to_str().map(|s| s.replace('{', "{{").replace('}', "}}"))
+            }
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    if parts.is_empty() {
+        return None;
+    }
+    Some(parts.join("/"))
 }
 
 /// How the pass ended, for its summary line.
@@ -682,7 +895,7 @@ pub(crate) async fn run_word_lyrics_pass(
     primary_files: &[PathBuf],
 ) {
     let before = count_word_timed_sidecars(primary_files);
-    let audio_before = count_audio_files_in_directory(Path::new(album_dir));
+    let audio_before = audio_files_in(Path::new(album_dir));
 
     let end = 'run: {
         let mut cmd = match gamdl_service::build_gamdl_command_public(app, urls, options) {
@@ -739,18 +952,19 @@ pub(crate) async fn run_word_lyrics_pass(
         }
     };
 
-    let audio_after = count_audio_files_in_directory(Path::new(album_dir));
-    if audio_after > audio_before {
+    // Only files that were not there before count — compared as a set of
+    // paths, not a count, so nothing else changing in the folder can be
+    // mistaken for (or hide) a re-download.
+    let added = new_audio_files(&audio_before, &audio_files_in(Path::new(album_dir)));
+    if added > 0 {
         log::warn!(
-            "Word-level lyrics pass for {dl_id} added {} audio file(s) (expected none)",
-            audio_after - audio_before
+            "Word-level lyrics pass for {dl_id} added {added} audio file(s) (expected none)"
         );
         emit_download_warn(
             app,
             dl_id,
             &format!(
-                "The word-level lyrics check also saved {} music file(s) that were not there before — please check the album folder",
-                audio_after - audio_before
+                "The word-level lyrics check also saved {added} music file(s) that were not there before — please check the album folder"
             ),
         );
     }
@@ -778,29 +992,28 @@ mod tests {
     #[test]
     fn classify_covers_every_answer() {
         assert_eq!(
-            classify(&Ok(Some(WORD_TTML.into())), true),
+            classify::<String>(&Ok(Some(WORD_TTML.into())), true),
             WordLyricsOutcome::WordTimed
         );
         assert_eq!(
-            classify(&Ok(Some(WORD_TTML.into())), false),
+            classify::<String>(&Ok(Some(WORD_TTML.into())), false),
             WordLyricsOutcome::NotPlaced
         );
         // Lyrics with no word timing count as "Apple has none".
         assert_eq!(
-            classify(&Ok(Some(LINE_TTML.into())), true),
+            classify::<String>(&Ok(Some(LINE_TTML.into())), true),
             WordLyricsOutcome::AppleHasNone
         );
         assert_eq!(
-            classify(&Ok(Some(LINE_TTML.into())), false),
+            classify::<String>(&Ok(Some(LINE_TTML.into())), false),
             WordLyricsOutcome::AppleHasNone
         );
-        assert_eq!(classify(&Ok(None), false), WordLyricsOutcome::AppleHasNone);
         assert_eq!(
-            classify(&Err("HTTP 500".into()), false),
-            WordLyricsOutcome::CouldNotAsk
+            classify::<String>(&Ok(None), false),
+            WordLyricsOutcome::AppleHasNone
         );
         assert_eq!(
-            classify(&Err("HTTP 401".into()), false),
+            classify::<String>(&Err("HTTP 500".into()), false),
             WordLyricsOutcome::CouldNotAsk
         );
     }
@@ -827,6 +1040,47 @@ mod tests {
             "genre_names": [],
         }))
         .unwrap()
+    }
+
+    fn refused() -> apple_music_api::SyllableLyricsError {
+        apple_music_api::SyllableLyricsError {
+            status: Some(401),
+            message: "Syllable-lyrics auth failed (HTTP 401)".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_song_id_containing_401_is_not_a_refused_sign_in() {
+        // The message names the song; "1440140198" contains "401". Only
+        // the HTTP status decides.
+        let tracks = [track("1440140198", 1, 1), track("2", 1, 2)];
+        let (results, stopped) = ask_each_track(
+            vec![(&tracks[0], None), (&tracks[1], None)],
+            |id| {
+                let answer = if id == "1440140198" {
+                    Err(apple_music_api::SyllableLyricsError {
+                        status: Some(500),
+                        message: "Syllable-lyrics API returned HTTP 500 for song 1440140198".into(),
+                    })
+                } else {
+                    Ok(None)
+                };
+                async move { answer }
+            },
+            || false,
+            std::time::Duration::ZERO,
+        )
+        .await;
+        assert!(!stopped);
+        assert_eq!(results[0].outcome, WordLyricsOutcome::CouldNotAsk);
+        // The second track was still asked.
+        assert_eq!(results[1].outcome, WordLyricsOutcome::AppleHasNone);
+        assert!(!apple_music_api::SyllableLyricsError {
+            status: None,
+            message: "request failed for song 1440140198".into()
+        }
+        .is_refused_sign_in());
+        assert!(refused().is_refused_sign_in());
     }
 
     #[tokio::test]
@@ -856,7 +1110,7 @@ mod tests {
                 let answer = match id {
                     "1" | "3" => Ok(Some(WORD_TTML.to_string())),
                     "2" => Ok(Some(LINE_TTML.to_string())),
-                    _ => Err("HTTP 401 Unauthorized".to_string()),
+                    _ => Err(refused()),
                 };
                 async move { answer }
             },
@@ -964,6 +1218,7 @@ mod tests {
             disc,
             track,
             fresh: false,
+            name_matches_primary: false,
         }
     }
 
@@ -1031,6 +1286,59 @@ mod tests {
     }
 
     #[test]
+    fn a_re_download_beside_an_older_copy_is_placed_by_its_name() {
+        // Re-download into a folder that still holds the earlier run's
+        // extra-format copy. Step 0 has rewritten both files' tags, so the
+        // snapshot's freshness is what counts — and with overwrite off the
+        // primary file may not be fresh either. The primary's template has
+        // no format suffix, so the plain-named file is the primary one.
+        let mut files = vec![
+            numbered("/a/01 A [Lossless].m4a", Some(1), Some(1)),
+            numbered("/a/01 A.m4a", Some(1), Some(1)),
+        ];
+        files[1].name_matches_primary = stem_matches_primary_name("01 A", None);
+        files[0].name_matches_primary = stem_matches_primary_name("01 A [Lossless]", None);
+        assert_eq!(
+            place_track(1, 1, &files, true),
+            Placement::Found("/a/01 A.m4a".into())
+        );
+    }
+
+    #[test]
+    fn the_primary_name_suffix_comes_from_its_file_template() {
+        let mut primary = GamdlOptions {
+            single_disc_file_template: Some("{track:02d} {title} [Dolby Atmos]".into()),
+            ..GamdlOptions::default()
+        };
+        assert_eq!(primary_name_suffix(&primary), Some("[Dolby Atmos]"));
+        assert!(stem_matches_primary_name(
+            "01 A [Dolby Atmos]",
+            Some("[Dolby Atmos]")
+        ));
+        assert!(!stem_matches_primary_name(
+            "01 A [Lossless]",
+            Some("[Dolby Atmos]")
+        ));
+        assert!(!stem_matches_primary_name("01 A", Some("[Dolby Atmos]")));
+        primary.single_disc_file_template = Some("{track:02d} {title}".into());
+        assert_eq!(primary_name_suffix(&primary), None);
+        assert!(stem_matches_primary_name("01 A [Explicit]", None));
+    }
+
+    #[test]
+    fn freshness_is_judged_from_the_snapshot_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("01 A.m4a");
+        std::fs::write(&path, b"a").unwrap();
+        let files = vec![path.clone()];
+        let started = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        assert!(fresh_at_snapshot(&files, Some(started)).contains(&path));
+        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        assert!(fresh_at_snapshot(&files, Some(later)).is_empty());
+        assert!(fresh_at_snapshot(&files, None).is_empty());
+    }
+
+    #[test]
     fn an_unreadable_file_makes_missing_tracks_unclear_not_absent() {
         let files = vec![
             numbered("/a/01 A.m4a", Some(1), Some(1)),
@@ -1056,8 +1364,8 @@ mod tests {
         minimal_m4a(&first, 1, 1, false);
         minimal_m4a(&second, 1, 2, false);
         let files = vec![
-            read_audio_numbers(&first, None),
-            read_audio_numbers(&second, None),
+            read_audio_numbers(&first, false, None),
+            read_audio_numbers(&second, false, None),
         ];
         assert_eq!(place_track(2, 1, &files, false), Placement::Found(second));
         assert_eq!(place_track(1, 1, &files, false), Placement::Found(first));
@@ -1068,15 +1376,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("2-05 Song.m4a");
         std::fs::write(&path, b"not an mp4").unwrap();
-        assert_eq!(
-            read_audio_numbers(&path, None),
-            numbered(path.to_str().unwrap(), Some(2), Some(5))
-        );
-        // Written just now: fresh for a download that started a minute ago.
-        let started = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
-        assert!(read_audio_numbers(&path, Some(started)).fresh);
-        let later = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
-        assert!(!read_audio_numbers(&path, Some(later)).fresh);
+        let mut expected = numbered(path.to_str().unwrap(), Some(2), Some(5));
+        expected.name_matches_primary = true;
+        assert_eq!(read_audio_numbers(&path, false, None), expected);
+        assert!(read_audio_numbers(&path, true, None).fresh);
     }
 
     // ---------------- the GAMDL pass: options ----------------
@@ -1100,7 +1403,9 @@ mod tests {
 
     #[test]
     fn the_pass_keeps_names_and_never_overwrites_or_saves_extras() {
-        let plan = plan_word_lyrics_pass(&primary(), None);
+        let plan = plan_word_lyrics_pass(&primary(), "/Resolved/Music");
+        // The primary run's resolved folder, given explicitly.
+        assert_eq!(plan.output_path.as_deref(), Some("/Resolved/Music"));
         assert_eq!(plan.overwrite, Some(false));
         assert_eq!(plan.save_cover, Some(false));
         assert_eq!(plan.save_playlist, None);
@@ -1150,20 +1455,17 @@ mod tests {
     }
 
     #[test]
-    fn the_folder_suffix_is_added_only_when_the_folder_was_renamed() {
-        let plan = plan_word_lyrics_pass(&primary(), Some("[Explicit]"));
-        assert_eq!(
-            plan.album_folder_template.as_deref(),
-            Some("{album_artist}/{album} [Explicit]")
-        );
-        assert_eq!(
-            plan.compilation_folder_template.as_deref(),
-            Some("Compilations/{album} [Explicit]")
-        );
-        let plan = plan_word_lyrics_pass(&primary(), None);
+    fn the_pass_keeps_the_primarys_own_folder_templates() {
+        // It runs before the album folder is renamed, so no suffix is
+        // added to any template.
+        let plan = plan_word_lyrics_pass(&primary(), "/Music");
         assert_eq!(
             plan.album_folder_template.as_deref(),
             Some("{album_artist}/{album}")
+        );
+        assert_eq!(
+            plan.compilation_folder_template.as_deref(),
+            Some("Compilations/{album}")
         );
     }
 
@@ -1179,13 +1481,15 @@ mod tests {
             primary_clean: true,
             stopping: false,
             needed: true,
+            same_gamdl_version: true,
+            download_folder_known: true,
         }
     }
 
     #[test]
     fn the_pass_runs_only_when_every_condition_holds() {
         assert!(should_run_word_lyrics_pass(&all_yes()));
-        let each_no: [fn(&mut WordLyricsPassConditions); 8] = [
+        let each_no: [fn(&mut WordLyricsPassConditions); 10] = [
             |c| c.gamdl_can = false,
             |c| c.enhanced_lrc = false,
             |c| c.lyrics_files_on = false,
@@ -1194,6 +1498,8 @@ mod tests {
             |c| c.primary_clean = false,
             |c| c.stopping = true,
             |c| c.needed = false,
+            |c| c.same_gamdl_version = false,
+            |c| c.download_folder_known = false,
         ];
         for (i, change) in each_no.iter().enumerate() {
             let mut c = all_yes();
@@ -1303,5 +1609,90 @@ mod tests {
                 .contains("could not be checked")
         );
         assert!(word_lyrics_pass_summary(0, PassEnd::Stopped).contains("could not be checked"));
+    }
+
+    // ---------------- new files, companion gate, companion folder ----------------
+
+    #[test]
+    fn only_files_that_were_not_there_before_count_as_new() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("01 A.m4a"), b"a").unwrap();
+        std::fs::write(dir.path().join("01 A.ttml"), b"t").unwrap();
+        let before = audio_files_in(dir.path());
+        assert_eq!(before.len(), 1);
+        // A rewritten file is not new; a new path is.
+        std::fs::write(dir.path().join("01 A.m4a"), b"aa").unwrap();
+        assert_eq!(new_audio_files(&before, &audio_files_in(dir.path())), 0);
+        std::fs::write(dir.path().join("02 B.m4a"), b"b").unwrap();
+        assert_eq!(new_audio_files(&before, &audio_files_in(dir.path())), 1);
+        // One file leaving while another arrives is still one new file
+        // (a count would have said nothing changed).
+        std::fs::remove_file(dir.path().join("01 A.m4a")).unwrap();
+        assert_eq!(new_audio_files(&before, &audio_files_in(dir.path())), 1);
+    }
+
+    #[tokio::test]
+    async fn the_gate_opens_on_release_with_what_enrichment_said() {
+        let (gate, mut waiter) = companion_gate();
+        gate.set_album_dir(Some("/Music/A/Album [Explicit]".into()));
+        let waiting =
+            tokio::spawn(
+                async move { wait_for_companion_gate(&mut waiter, || async { false }).await },
+            );
+        tokio::task::yield_now().await;
+        gate.release(true);
+        let state = waiting.await.unwrap().unwrap();
+        assert!(state.released);
+        assert!(state.renames_done);
+        assert_eq!(
+            state.album_dir.as_deref(),
+            Some("/Music/A/Album [Explicit]")
+        );
+    }
+
+    #[tokio::test]
+    async fn an_enrichment_that_ends_early_still_opens_the_gate_without_promising_renames() {
+        let (gate, mut waiter) = companion_gate();
+        gate.set_album_dir(Some("/Music/A/Album".into()));
+        // An early return, a panic or an abort all just drop it.
+        drop(gate);
+        let state = wait_for_companion_gate(&mut waiter, || async { false })
+            .await
+            .unwrap();
+        assert!(state.released);
+        assert!(!state.renames_done, "companions must suffix every file");
+        assert_eq!(state.album_dir.as_deref(), Some("/Music/A/Album"));
+    }
+
+    #[tokio::test]
+    async fn a_cancel_while_waiting_ends_the_wait() {
+        let (_gate, mut waiter) = companion_gate();
+        let state = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            wait_for_companion_gate(&mut waiter, || async { true }),
+        )
+        .await
+        .expect("gave up within the half-second check");
+        assert_eq!(state, None);
+    }
+
+    #[test]
+    fn companions_get_the_real_folder_as_a_fixed_template() {
+        let root = Path::new("/Music");
+        assert_eq!(
+            literal_folder_template(Path::new("/Music/Kendrick Lamar/DAMN_ [Explicit]"), root)
+                .as_deref(),
+            Some("Kendrick Lamar/DAMN_ [Explicit]")
+        );
+        // Braces are doubled so GAMDL reads them as text.
+        assert_eq!(
+            literal_folder_template(Path::new("/Music/A/{Live}"), root).as_deref(),
+            Some("A/{{Live}}")
+        );
+        assert_eq!(literal_folder_template(Path::new("/Music"), root), None);
+        assert_eq!(
+            literal_folder_template(Path::new("/Elsewhere/A"), root),
+            None
+        );
     }
 }

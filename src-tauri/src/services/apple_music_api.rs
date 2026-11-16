@@ -2954,6 +2954,58 @@ pub async fn fetch_syllable_lyrics(
     music_user_token: &str,
     locale: Option<&str>,
 ) -> Result<Option<String>, String> {
+    fetch_syllable_lyrics_with_status(jwt, storefront, song_id, music_user_token, locale)
+        .await
+        .map_err(|e| e.message)
+}
+
+/// A failed syllable-lyrics request: the readable message, and the HTTP
+/// status when the server answered at all (`None` for a network or parse
+/// failure).
+///
+/// The status is kept separate so a caller can tell a refused sign-in
+/// (401/403) from anything else without searching the message, which
+/// contains the song ID — an ID such as `1440140198` contains "401".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SyllableLyricsError {
+    /// HTTP status, when there was one.
+    pub status: Option<u16>,
+    /// The readable message (the same text [`fetch_syllable_lyrics`] returns).
+    pub message: String,
+}
+
+impl SyllableLyricsError {
+    /// Whether Apple Music refused the sign-in (HTTP 401 or 403), which
+    /// affects every track, not just this one.
+    #[must_use]
+    pub fn is_refused_sign_in(&self) -> bool {
+        matches!(self.status, Some(401 | 403))
+    }
+}
+
+impl std::fmt::Display for SyllableLyricsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+/// [`fetch_syllable_lyrics`], with the HTTP status kept in the error.
+///
+/// # Errors
+///
+/// Returns a [`SyllableLyricsError`] for a network failure, a status other
+/// than 200 or 404, or an unreadable response.
+pub async fn fetch_syllable_lyrics_with_status(
+    jwt: &str,
+    storefront: &str,
+    song_id: &str,
+    music_user_token: &str,
+    locale: Option<&str>,
+) -> Result<Option<String>, SyllableLyricsError> {
+    let plain = |message: String| SyllableLyricsError {
+        status: None,
+        message,
+    };
     // amp-api is the canonical syllable-lyrics endpoint (matches the ITAM
     // Enhancer userscript base URL). `?extend=ttmlLocalizations` is REQUIRED:
     // Apple ships some songs' word-timed TTML under
@@ -2969,7 +3021,7 @@ pub async fn fetch_syllable_lyrics(
 
     log::debug!("Fetching syllable-lyrics for song {song_id} (storefront: {storefront})");
 
-    let client = crate::utils::http_client::build_simple(15)?;
+    let client = crate::utils::http_client::build_simple(15).map_err(plain)?;
 
     let response = client
         .get(&url)
@@ -2982,28 +3034,33 @@ pub async fn fetch_syllable_lyrics(
         .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str())
         .send()
         .await
-        .map_err(|e| format!("Syllable-lyrics request failed for song {song_id}: {e}"))?;
+        .map_err(|e| plain(format!("Syllable-lyrics request failed for song {song_id}: {e}")))?;
 
-    match response.status().as_u16() {
+    let status = response.status().as_u16();
+    let with_status = |message: String| SyllableLyricsError {
+        status: Some(status),
+        message,
+    };
+    match status {
         200 => {}
         404 => {
             log::debug!("No syllable-lyrics available for song {song_id}");
             return Ok(None);
         }
         401 => {
-            return Err(
+            return Err(with_status(
                 "Syllable-lyrics auth failed (HTTP 401) — Music-User-Token may be expired. Re-import cookies from your browser.".to_string(),
-            );
+            ));
         }
         403 => {
-            return Err(
+            return Err(with_status(
                 "Syllable-lyrics forbidden (HTTP 403) — an active Apple Music subscription is required.".to_string(),
-            );
+            ));
         }
         status => {
-            return Err(format!(
+            return Err(with_status(format!(
                 "Syllable-lyrics API returned HTTP {status} for song {song_id}"
-            ));
+            )));
         }
     }
 
@@ -3012,7 +3069,7 @@ pub async fn fetch_syllable_lyrics(
     let json: serde_json::Value = response
         .json()
         .await
-        .map_err(|e| format!("Failed to parse syllable-lyrics response: {e}"))?;
+        .map_err(|e| plain(format!("Failed to parse syllable-lyrics response: {e}")))?;
 
     let ttml = extract_syllable_ttml_from_response(&json);
 

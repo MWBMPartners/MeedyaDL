@@ -697,6 +697,35 @@ pub fn build_gamdl_command_public(
     build_gamdl_command(app, urls, options)
 }
 
+/// The download folder a GAMDL run with `options` saves under, worked out
+/// the way the command builder does at the moment it starts: the run's own
+/// folder if it has one, else the saved setting, else the usual Music
+/// folder. `None` when none of those can be found, or the folder is one
+/// MeedyaDL refuses (a ".." step).
+///
+/// Recorded when the primary run starts, so later runs for the same item
+/// (the word-level lyrics pass, the extra-format copies) use exactly the
+/// folder it used, not whatever the settings say by then.
+pub(crate) fn resolved_download_folder(app: &AppHandle, options: &GamdlOptions) -> Option<String> {
+    let own = options
+        .output_path
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+        .map(str::to_string);
+    let folder = own
+        .or_else(|| {
+            crate::services::config_service::load_settings(app)
+                .ok()
+                .map(|s| s.output_path.trim().to_string())
+                .filter(|p| !p.is_empty())
+        })
+        .or_else(|| crate::services::config_service::get_default_output_path().ok())?;
+    if crate::services::config_service::download_folder_refusal(&folder).is_some() {
+        return None;
+    }
+    Some(folder)
+}
+
 /// Builds the complete GAMDL command with all arguments.
 ///
 /// Constructs a `tokio::process::Command` that runs:
