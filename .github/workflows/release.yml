@@ -87,10 +87,61 @@ on:
 
 jobs:
   # ============================================================
+  # Create the release once, before any build starts
+  # ============================================================
+  # Each build job below used to find-or-create the draft release itself.
+  # Looking up a draft means paging through every release (GitHub's
+  # look-up by tag does not return drafts), which takes several seconds,
+  # so two builds finishing close together could each create one. That
+  # split v1.9.4-beta.22 and v1.0.0-rc.28 into a published release missing
+  # some installers plus a stray draft holding the rest. Creating it here,
+  # once, means every build job finds exactly one release.
+  # (main and alpha already do this, with fuller notes; this is the
+  # self-contained version for this branch.)
+  ensure-release:
+    name: Ensure Release Exists
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Create the draft release once
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${INPUT_TAG:-$REF_NAME}"
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::Invalid release tag format: '$TAG'"
+            exit 1
+          fi
+          FLAG=""
+          if [[ "${TAG#v}" == *-* ]]; then FLAG="--prerelease"; fi
+          # Count every release (drafts included) that uses this tag.
+          COUNT=$(gh api "repos/$REPO/releases?per_page=100" --paginate \
+            --jq "[.[] | select(.tag_name == \"$TAG\")] | length" \
+            | awk '{ s += $1 } END { print s + 0 }')
+          if [ "$COUNT" -gt 1 ]; then
+            echo "::error::$COUNT releases already use tag $TAG. Remove the extra draft before building."
+            exit 1
+          fi
+          if [ "$COUNT" -eq 1 ]; then
+            echo "::notice::Release $TAG already exists; the builds will add to it."
+            exit 0
+          fi
+          printf '## MeedyaDL %s\n\nSee [CHANGELOG.md](https://github.com/%s/blob/main/CHANGELOG.md) for details.\n' "$TAG" "$REPO" > "$RUNNER_TEMP/notes.md"
+          gh release create "$TAG" --repo "$REPO" --verify-tag --draft $FLAG --title "$TAG" --notes-file "$RUNNER_TEMP/notes.md"
+          echo "::notice::Created draft release $TAG"
+
+  # ============================================================
   # Build and Publish Release Installers
   # ============================================================
   publish:
     name: Build (${{ matrix.settings.name }})
+    needs: ensure-release
 
     # permissions: contents: write is required for the tauri-action to:
     #   - Create the GitHub Release
@@ -1034,9 +1085,10 @@ jobs:
   #      appending.
   finalize-release:
     name: Finalize Release Notes
-    needs: publish
-    # Run even if some builds failed (ARM builds are allowed to fail)
-    if: always() && needs.publish.result != 'cancelled'
+    needs: [ensure-release, publish]
+    # Run even if some builds failed (ARM builds are allowed to fail), but
+    # only once the release itself was created.
+    if: always() && needs.ensure-release.result == 'success' && needs.publish.result != 'cancelled'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -1053,6 +1105,24 @@ jobs:
             echo "name=$INPUT_TAG" >> "$GITHUB_OUTPUT"
           else
             echo "name=$REF_NAME" >> "$GITHUB_OUTPUT"
+          fi
+
+      # A second release on the same tag means some installers went to a
+      # draft nobody will see. Fail loudly rather than publish half a release.
+      - name: Check there is exactly one release for this tag
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.name }}"
+          COUNT=$(gh api "repos/$REPO/releases?per_page=100" --paginate \
+            --jq "[.[] | select(.tag_name == \"$TAG\")] | length" \
+            | awk '{ s += $1 } END { print s + 0 }')
+          if [ "$COUNT" -ne 1 ]; then
+            echo "::error::Expected one release for $TAG, found $COUNT. Move the files from the extra draft onto the published release, then delete the draft by its ID."
+            exit 1
           fi
 
       # Rebuild latest.json from release assets to fix the race condition
