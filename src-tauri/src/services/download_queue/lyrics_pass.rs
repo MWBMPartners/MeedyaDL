@@ -61,6 +61,10 @@ pub(crate) struct TrackLyricsResult {
     /// start (as opposed to already word-timed, or marked as having no
     /// lyrics). Only these are counted in the summary line.
     pub looked_up: bool,
+    /// The word-by-word `.ttml` file written for this track, when one was.
+    /// The lyrics steps use it to be sure they also work on the music file
+    /// it sits beside (#1441).
+    pub wrote_ttml: Option<PathBuf>,
 }
 
 /// What [`run_step_1b`] did.
@@ -336,6 +340,43 @@ pub(crate) fn place_track(
     }
 }
 
+/// The music files Step 1b wrote a word-by-word `.ttml` beside: the files
+/// in `primary_files` whose `.ttml` is one of the files Step 1b wrote.
+/// Empty when Step 1b did not run.
+pub(crate) fn files_step_1b_wrote_beside(
+    result: &Step1b,
+    primary_files: &[PathBuf],
+) -> Vec<PathBuf> {
+    let Step1b::Ran(tracks) = result else {
+        return Vec::new();
+    };
+    let wrote: std::collections::HashSet<&PathBuf> = tracks
+        .iter()
+        .filter_map(|t| t.wrote_ttml.as_ref())
+        .collect();
+    primary_files
+        .iter()
+        .filter(|p| wrote.contains(&p.with_extension("ttml")))
+        .cloned()
+        .collect()
+}
+
+/// The music videos (`.m4v`, `.mp4`) directly in `dir` or one folder level
+/// below it. Shallow on purpose: when the album folder falls back to the
+/// whole download folder, a deep walk would read every file in the library.
+pub(crate) fn video_files_in_depth1(dir: &Path) -> Vec<PathBuf> {
+    crate::utils::fs_walk::walk_dir_depth(dir, 1, |path| {
+        if !path.is_file() || crate::utils::fs_safe::is_filesystem_sidecar(path) {
+            return None;
+        }
+        let ext = path.extension().and_then(|e| e.to_str())?;
+        ["m4v", "mp4"]
+            .iter()
+            .any(|x| ext.eq_ignore_ascii_case(x))
+            .then(|| path.to_path_buf())
+    })
+}
+
 // ============================================================
 // Step 1b: the lookup
 // ============================================================
@@ -389,6 +430,7 @@ pub(crate) async fn run_step_1b(
             results.push(TrackLyricsResult {
                 outcome: WordLyricsOutcome::AppleHasNone,
                 looked_up: false,
+                wrote_ttml: None,
             });
             continue;
         }
@@ -406,6 +448,7 @@ pub(crate) async fn run_step_1b(
             results.push(TrackLyricsResult {
                 outcome: WordLyricsOutcome::WordTimed,
                 looked_up: false,
+                wrote_ttml: None,
             });
         } else {
             to_ask.push((track, sidecar));
@@ -455,6 +498,7 @@ pub(crate) async fn run_step_1b(
         results.extend(to_ask.iter().map(|_| TrackLyricsResult {
             outcome: WordLyricsOutcome::CouldNotAsk,
             looked_up: false,
+            wrote_ttml: None,
         }));
         return Step1b::Ran(results);
     };
@@ -517,22 +561,24 @@ where
             results.push(TrackLyricsResult {
                 outcome: WordLyricsOutcome::CouldNotAsk,
                 looked_up: true,
+                wrote_ttml: None,
             });
             continue;
         }
         let answer = fetch(&track.song_id).await;
         let has_words =
             matches!(&answer, Ok(Some(t)) if enhanced_lyrics_service::ttml_has_word_timing(t));
-        let placed = match (&answer, &sidecar) {
+        let wrote_ttml: Option<PathBuf> = match (&answer, &sidecar) {
             (Ok(Some(ttml)), Some(path)) if has_words => match std::fs::write(path, ttml) {
-                Ok(()) => true,
+                Ok(()) => Some(path.clone()),
                 Err(e) => {
                     log::debug!("Failed to write TTML for track {}: {e}", track.song_id);
-                    false
+                    None
                 }
             },
-            _ => false,
+            _ => None,
         };
+        let placed = wrote_ttml.is_some();
         if let Err(e) = &answer {
             log::debug!(
                 "Syllable-lyrics fetch failed for disc {} track {} (song {}): {e}",
@@ -550,6 +596,7 @@ where
         results.push(TrackLyricsResult {
             outcome: classify(&answer, placed),
             looked_up: true,
+            wrote_ttml,
         });
         // A short pause between requests, so Apple Music is not flooded.
         if index + 1 < total && !stopped_on_sign_in && !pause.is_zero() {
@@ -1346,7 +1393,11 @@ mod tests {
     const LINE_TTML: &str = r#"<tt xmlns="http://www.w3.org/ns/ttml"><body><div><p begin="0s" end="2s">Hi</p></div></body></tt>"#;
 
     fn result(outcome: WordLyricsOutcome, looked_up: bool) -> TrackLyricsResult {
-        TrackLyricsResult { outcome, looked_up }
+        TrackLyricsResult {
+            outcome,
+            looked_up,
+            wrote_ttml: None,
+        }
     }
 
     // ---------------- classification ----------------
@@ -1409,6 +1460,66 @@ mod tests {
             status: Some(401),
             message: "Syllable-lyrics auth failed (HTTP 401)".into(),
         }
+    }
+
+    #[tokio::test]
+    async fn a_saved_word_timed_file_is_recorded_so_the_lyrics_steps_can_reach_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let song_a = dir.path().join("01 A.m4a");
+        let song_b = dir.path().join("02 B.m4a");
+        let tracks = [track("1", 1, 1), track("2", 1, 2)];
+        let (results, _) = ask_each_track(
+            vec![
+                (&tracks[0], Some(song_a.with_extension("ttml"))),
+                (&tracks[1], Some(song_b.with_extension("ttml"))),
+            ],
+            |id| {
+                // Only the first answer has word timing.
+                let answer = Ok(Some(
+                    if id == "1" { WORD_TTML } else { LINE_TTML }.to_string(),
+                ));
+                async move { answer }
+            },
+            || false,
+            std::time::Duration::ZERO,
+        )
+        .await;
+        assert_eq!(results[0].wrote_ttml, Some(song_a.with_extension("ttml")));
+        assert_eq!(results[1].wrote_ttml, None);
+        let ran = Step1b::Ran(results);
+        // The music file the file was written beside is found from the list.
+        assert_eq!(
+            files_step_1b_wrote_beside(&ran, &[song_a.clone(), song_b]),
+            vec![song_a]
+        );
+        assert!(files_step_1b_wrote_beside(&Step1b::NotRun, &[]).is_empty());
+    }
+
+    #[test]
+    fn videos_are_found_in_the_folder_and_its_disc_folders_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let sub = dir.path().join("Disc 1");
+        let deep = sub.join("deeper");
+        std::fs::create_dir_all(&deep).unwrap();
+        for p in [
+            dir.path().join("a.m4v"),
+            dir.path().join("b.MP4"),
+            dir.path().join("song.m4a"),
+            dir.path().join("._shadow.m4v"),
+            sub.join("c.m4v"),
+            deep.join("d.m4v"),
+        ] {
+            std::fs::write(p, b"x").unwrap();
+        }
+        let mut found = video_files_in_depth1(dir.path());
+        found.sort();
+        let mut expected = vec![
+            dir.path().join("a.m4v"),
+            dir.path().join("b.MP4"),
+            sub.join("c.m4v"),
+        ];
+        expected.sort();
+        assert_eq!(found, expected);
     }
 
     #[tokio::test]

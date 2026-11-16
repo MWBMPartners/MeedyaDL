@@ -1888,6 +1888,13 @@ pub fn process_queue(
                     // read by the final advisory pass after them.
                     let advisory_scope: Arc<StdMutex<Option<super::lyrics_pass::AdvisoryScope>>> =
                         Arc::new(StdMutex::new(None));
+                    // The main download's files whose lyrics steps (Steps 2 to
+                    // 2g) have started but not finished: set right before Step
+                    // 2, cleared after Step 2g. If enrichment ends early with
+                    // it still set, the extra-copy task finishes the job
+                    // (`companion_lyrics::run_main_files_own`, #1441).
+                    let pending_main_lyrics: Arc<StdMutex<Option<Vec<std::path::PathBuf>>>> =
+                        Arc::new(StdMutex::new(None));
                     let enrichment_handle = if let Some(output_dir) =
                         output_path_for_artwork.clone()
                     {
@@ -1925,6 +1932,7 @@ pub fn process_queue(
                         let enrich_download_folder = primary_download_folder.clone();
                         let enrich_gate = companion_gate;
                         let enrich_advisory_scope = advisory_scope.clone();
+                        let enrich_pending_main = pending_main_lyrics.clone();
                         Some(tokio::spawn(async move {
                             // Owned by this task from its first line, so any
                             // return, panic or abort below drops it and lets
@@ -2244,6 +2252,21 @@ pub fn process_queue(
                                     .ok()
                                     .map(std::time::SystemTime::from),
                             );
+                            // The same judgement for music VIDEOS, which are not
+                            // in `primary_files` (it holds `.m4a` only): the
+                            // lyrics steps need them too, and must not mistake an
+                            // older video in a shared folder for this download's.
+                            let fresh_videos: Vec<std::path::PathBuf> =
+                                super::lyrics_pass::fresh_at_snapshot(
+                                    &super::lyrics_pass::video_files_in_depth1(
+                                        std::path::Path::new(&album_dir),
+                                    ),
+                                    chrono::DateTime::parse_from_rfc3339(&enrich_started_at)
+                                        .ok()
+                                        .map(std::time::SystemTime::from),
+                                )
+                                .into_iter()
+                                .collect();
                             let primary_suffix = enrich_primary_suffix;
                             // The folder that holds the primary files, for the
                             // companions (album and song links only — other
@@ -2354,6 +2377,12 @@ pub fn process_queue(
                                 &lyrics_label,
                             )
                             .await;
+                            // Music files Step 1b wrote a word-by-word `.ttml`
+                            // beside: the lyrics steps below work on them too.
+                            let step_1b_wrote = super::lyrics_pass::files_step_1b_wrote_beside(
+                                &step_1b,
+                                &primary_files,
+                            );
 
                             tokio::task::yield_now().await;
                             if enrich_shutdown.is_triggered() {
@@ -2554,6 +2583,16 @@ pub fn process_queue(
                                 })
                                 .cloned()
                                 .collect();
+                            // The files the lyrics steps (2 to 2g) work on:
+                            // this download's music files, its fresh music
+                            // videos, and any file Step 1b wrote beside. Older
+                            // files in the same folder are never in it (#1441).
+                            let lyrics_targets: Vec<std::path::PathBuf> =
+                                super::lyrics_steps::main_lyrics_targets(
+                                    &this_download_paths,
+                                    &fresh_videos,
+                                    &step_1b_wrote,
+                                );
                             let split = super::lyrics_pass::split_this_downloads_formats(
                                 &this_download_paths,
                                 &file_codecs,
@@ -2827,6 +2866,12 @@ pub fn process_queue(
                                 return;
                             }
 
+                            // From here until Step 2g is done, these files are
+                            // "unfinished": if enrichment stops early, the
+                            // extra-copy task finishes their lyrics.
+                            if let Ok(mut pending) = enrich_pending_main.lock() {
+                                *pending = Some(lyrics_targets.clone());
+                            }
                             set_label(
                                 "Converting lyrics (Enhanced LRC)...",
                                 ProgressStage::LyricsConversion.weight(),
@@ -2855,38 +2900,44 @@ pub fn process_queue(
                                 // Offload Enhanced LRC processing to a blocking thread.
                                 // The function is pure sync I/O (std::fs + mp4ameta Tag)
                                 // that would starve tokio on slow FUSE mounts.
-                                let lrc_dir = album_dir.clone();
+                                let lrc_files = lyrics_targets.clone();
                                 match tokio::task::spawn_blocking(move || {
-                                    super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(&lrc_dir, enrich_settings.keep_lyrics_sidecar)
-                                }).await.unwrap_or_else(|e| Err(format!("LRC task panicked: {e}"))) {
-                                Ok(count) if count > 0 => {
-                                    log::info!(
+                                    super::lyrics_steps::enhanced_lrc_for_files(
+                                        &lrc_files,
+                                        enrich_settings.keep_lyrics_sidecar,
+                                    )
+                                })
+                                .await
+                                .unwrap_or_else(|e| Err(format!("LRC task panicked: {e}")))
+                                {
+                                    Ok(count) if count > 0 => {
+                                        log::info!(
                                         "Enhanced LRC generated for {count} file(s) for {enrich_dl_id}"
                                     );
-                                    emit_download_log(
-                                        &enrich_app,
-                                        &enrich_dl_id,
-                                        &format!("Enhanced LRC generated for {count} file(s)"),
-                                    );
-                                }
-                                Ok(_) => {
-                                    emit_download_log(
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("Enhanced LRC generated for {count} file(s)"),
+                                        );
+                                    }
+                                    Ok(_) => {
+                                        emit_download_log(
                                         &enrich_app,
                                         &enrich_dl_id,
                                         "No TTML lyrics files found for Enhanced LRC conversion",
                                     );
-                                }
-                                Err(e) => {
-                                    log::debug!(
+                                    }
+                                    Err(e) => {
+                                        log::debug!(
                                         "Enhanced LRC conversion skipped for {enrich_dl_id}: {e}"
                                     );
-                                    emit_download_log(
-                                        &enrich_app,
-                                        &enrich_dl_id,
-                                        &format!("Enhanced LRC conversion skipped: {e}"),
-                                    );
+                                        emit_download_log(
+                                            &enrich_app,
+                                            &enrich_dl_id,
+                                            &format!("Enhanced LRC conversion skipped: {e}"),
+                                        );
+                                    }
                                 }
-                            }
                             }
 
                             // --- Step 2b: Lyrics format fallback ---
@@ -2903,7 +2954,7 @@ pub fn process_queue(
                                 run_lyrics_fallback(
                                     &enrich_app,
                                     &enrich_dl_id,
-                                    &album_dir,
+                                    &lyrics_targets,
                                     &enrich_urls,
                                     &enrich_settings,
                                 )
@@ -2929,9 +2980,9 @@ pub fn process_queue(
                                     &enrich_dl_id,
                                     "Generating WebVTT subtitles...",
                                 );
-                                let vtt_dir = album_dir.clone();
+                                let vtt_files = lyrics_targets.clone();
                                 match tokio::task::spawn_blocking(move || {
-                                    super::webvtt_service::generate_webvtt_for_directory(&vtt_dir)
+                                    super::lyrics_steps::webvtt_for_files(&vtt_files)
                                 })
                                 .await
                                 .unwrap_or_else(|e| Err(format!("VTT task panicked: {e}")))
@@ -2985,11 +3036,9 @@ pub fn process_queue(
                                     &enrich_dl_id,
                                     "Generating rich SRT subtitles from TTML...",
                                 );
-                                let srt_dir = album_dir.clone();
+                                let srt_files = lyrics_targets.clone();
                                 match tokio::task::spawn_blocking(move || {
-                                    super::rich_srt_service::generate_rich_srt_for_directory(
-                                        &srt_dir,
-                                    )
+                                    super::lyrics_steps::rich_srt_for_files(&srt_files)
                                 })
                                 .await
                                 .unwrap_or_else(|e| Err(format!("Rich SRT task panicked: {e}")))
@@ -3038,11 +3087,9 @@ pub fn process_queue(
                                     &enrich_dl_id,
                                     "Embedding subtitles in media files...",
                                 );
-                                let embed_dir = album_dir.clone();
+                                let embed_files = lyrics_targets.clone();
                                 match tokio::task::spawn_blocking(move || {
-                                    super::rich_srt_service::embed_subtitles_for_directory(
-                                        &embed_dir,
-                                    )
+                                    super::lyrics_steps::embed_subtitles_for_files(&embed_files)
                                 })
                                 .await
                                 .unwrap_or_else(|e| {
@@ -3085,11 +3132,9 @@ pub fn process_queue(
                                     &enrich_dl_id,
                                     "Generating ASS subtitles...",
                                 );
-                                let ass_dir = album_dir.clone();
+                                let ass_files = lyrics_targets.clone();
                                 match tokio::task::spawn_blocking(move || {
-                                    super::ass_subtitle_service::generate_ass_for_directory(
-                                        &ass_dir,
-                                    )
+                                    super::lyrics_steps::ass_for_files(&ass_files)
                                 })
                                 .await
                                 .unwrap_or_else(|e| Err(format!("ASS task panicked: {e}")))
@@ -3147,7 +3192,7 @@ pub fn process_queue(
                                     &enrich_dl_id,
                                     "Generating Lyricsfile (.lyrics) sidecars...",
                                 );
-                                let lf_dir = album_dir.clone();
+                                let lf_files = lyrics_targets.clone();
                                 let lf_default_title = album_metadata
                                     .as_ref()
                                     .and_then(|m| m.tracks.first())
@@ -3158,8 +3203,8 @@ pub fn process_queue(
                                     .and_then(|m| m.artist_name.clone())
                                     .unwrap_or_else(|| "Unknown Artist".to_string());
                                 match tokio::task::spawn_blocking(move || {
-                                    super::lyricsfile_service::generate_lyricsfile_for_directory(
-                                        &lf_dir,
+                                    super::lyrics_steps::lyricsfile_for_files(
+                                        &lf_files,
                                         &lf_default_title,
                                         &lf_default_artist,
                                     )
@@ -3192,6 +3237,13 @@ pub fn process_queue(
                                         );
                                     }
                                 }
+                            }
+
+                            // Every lyrics step has run: nothing is left for the
+                            // extra-copy task to finish. Cleared BEFORE the
+                            // renames, so the paths it held are never stale.
+                            if let Ok(mut pending) = enrich_pending_main.lock() {
+                                *pending = None;
                             }
 
                             tokio::task::yield_now().await;
@@ -4393,6 +4445,7 @@ pub fn process_queue(
                             waiter: companion_gate_waiter,
                             download_root: primary_download_folder.clone(),
                             advisory_scope: advisory_scope.clone(),
+                            pending_main_lyrics: pending_main_lyrics.clone(),
                         }),
                         PrimaryNaming::of(&download_options, primary_appended_suffix),
                     );

@@ -25,6 +25,10 @@
 //    file name and a finished `.vtt` or `.lyrics` file in the main
 //    download's folder may be older or edited by the person.
 //
+// The per-file steps themselves are in `lyrics_steps.rs`, shared with the
+// main download (#1441); this module decides which copy gets which source
+// and drives the steps.
+//
 // Nothing here deletes a file (a test checks the source for delete calls).
 // A `.ttml`, `.vtt`, `.ass` or `.lyrics` file that was already on disk is
 // never replaced. The `.lrc` and Rich `.srt` files are always written fresh,
@@ -34,6 +38,13 @@ use super::lyrics_pass::{
     audio_files_in, fresh_at_snapshot, place_track, read_audio_numbers, read_copy_evidence,
     AdvisoryScope, AudioFileNumbers, Placement,
 };
+use super::lyrics_steps::{
+    quality_of_texts, read_lyric_texts, step_ass, step_embed_subtitles, step_enhanced_lrc,
+    step_lyricsfile, step_rich_srt, step_webvtt, write_file, StepInput,
+};
+// Re-exported so this module's own tests (and the code below) keep using the
+// short name; the type itself moved to `lyrics_steps.rs` with the steps.
+pub(crate) use super::lyrics_steps::LyricsQuality;
 use super::*;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -41,21 +52,6 @@ use std::time::{Duration, SystemTime};
 // ============================================================
 // Pure decisions
 // ============================================================
-
-/// How good the lyrics next to one audio file are, from what is on disk.
-/// Ordered from worst to best, so `>` means "better".
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum LyricsQuality {
-    /// No lyrics file of any kind.
-    None,
-    /// No `.ttml`, but a `.lrc` or `.srt` (for example from the lyrics
-    /// fallback, or a non-TTML format chosen in GAMDL).
-    OtherOnly,
-    /// A `.ttml` with line timing only.
-    LineTtml,
-    /// A `.ttml` with word-by-word timing.
-    WordTimedTtml,
-}
 
 /// Where a copy's lyrics come from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -319,48 +315,6 @@ pub(crate) fn summary_line(r: &Summary) -> Option<String> {
 // File work (synchronous; called directly inside the companion task)
 // ============================================================
 
-/// The lyrics files next to one audio file, read into memory.
-#[derive(Debug, Clone, Default)]
-struct LyricTexts {
-    /// The `.ttml` text.
-    ttml: Option<String>,
-    /// The `.lrc` text.
-    lrc: Option<String>,
-    /// The `.srt` text.
-    srt: Option<String>,
-}
-
-/// Reads a text file, `None` when it is missing or unreadable.
-fn read_text(path: &Path) -> Option<String> {
-    std::fs::read_to_string(path).ok()
-}
-
-/// Reads the `.ttml`, `.lrc` and `.srt` files that share an audio file's
-/// name.
-fn read_lyric_texts(audio: &Path) -> LyricTexts {
-    LyricTexts {
-        ttml: read_text(&audio.with_extension("ttml")),
-        lrc: read_text(&audio.with_extension("lrc")),
-        srt: read_text(&audio.with_extension("srt")),
-    }
-}
-
-/// How good a set of lyric texts is.
-fn quality_of_texts(t: &LyricTexts) -> LyricsQuality {
-    if let Some(ttml) = &t.ttml {
-        return if super::enhanced_lyrics_service::ttml_has_word_timing(ttml) {
-            LyricsQuality::WordTimedTtml
-        } else {
-            LyricsQuality::LineTtml
-        };
-    }
-    if t.lrc.is_some() || t.srt.is_some() {
-        LyricsQuality::OtherOnly
-    } else {
-        LyricsQuality::None
-    }
-}
-
 /// Whether a file was written at or after `since` (two seconds of slack
 /// for file systems that store times coarsely). Used only for copies saved
 /// OUTSIDE the album folder, where no snapshot of the folder was taken, so
@@ -388,17 +342,6 @@ enum CopyOutcome {
     /// A stop (cancel, quit or deadline) cut this copy's steps short. It is
     /// not counted as done, whatever files were written before the stop.
     Stopped,
-}
-
-/// Writes a file and says whether it worked (a failure is only logged).
-fn write_file(path: &Path, content: impl AsRef<[u8]>) -> bool {
-    match std::fs::write(path, content) {
-        Ok(()) => true,
-        Err(e) => {
-            log::debug!("Extra copy lyrics: could not write {}: {e}", path.display());
-            false
-        }
-    }
 }
 
 /// Gives one copy its lyrics and subtitle files. `primary_audio` is the
@@ -474,127 +417,50 @@ fn process_copy(
         .unwrap_or("")
         .to_string();
     let ttml: Option<&str> = texts.ttml.as_deref();
-    // The text of a sidecar for the later steps: what is on disk now, else
-    // what the source had in memory (when separate files are switched off
-    // nothing was written, but the source can still be converted).
-    let disk_or = |ext: &str, fallback: &Option<String>| -> Option<String> {
-        read_text(&copy.with_extension(ext)).or_else(|| fallback.clone())
+
+    // The steps themselves live in `lyrics_steps.rs`, shared with the main
+    // download. Each is run only when its switch is on and no stop is asked
+    // for; a copy never replaces an existing `.vtt`, `.ass` or `.lyrics`.
+    let never_replace = |_: &Path| false;
+    let input = StepInput {
+        audio: copy,
+        stem: &stem,
+        source: &texts,
+        from_other: from_main,
+        keep,
+        replace_existing: &never_replace,
     };
 
     // Step 2: Enhanced LRC. The `.lrc` file only when separate files are
     // kept; the lyrics always go inside the music file.
     if s.enhanced_lrc && !stop() {
-        if let Some(ttml) = ttml {
-            match super::enhanced_lyrics_service::ttml_to_enhanced_lrc(ttml) {
-                Ok(result) => {
-                    if keep {
-                        did_work |= write_file(&copy.with_extension("lrc"), &result.lrc_content);
-                    }
-                    match super::enhanced_lyrics_service::embed_enhanced_lrc_in_file(
-                        copy,
-                        &result.lrc_content,
-                    ) {
-                        Ok(_) => did_work = true,
-                        Err(e) => log::debug!(
-                            "Extra copy lyrics: could not embed in {}: {e}",
-                            copy.display()
-                        ),
-                    }
-                }
-                Err(e) => log::debug!("Extra copy lyrics: Enhanced LRC failed: {e}"),
-            }
-        }
+        did_work |= step_enhanced_lrc(&input).wrote;
     }
-
     // Step 2c: WebVTT (TTML, then SRT, then LRC), skipped if one exists.
     if s.generate_webvtt && keep && !stop() {
-        let vtt_path = copy.with_extension("vtt");
-        if !vtt_path.exists() {
-            let vtt = ttml
-                .and_then(|t| super::webvtt_service::ttml_to_webvtt(t).ok())
-                .or_else(|| {
-                    disk_or("srt", &texts.srt).map(|t| super::webvtt_service::srt_to_webvtt(&t))
-                })
-                .or_else(|| {
-                    disk_or("lrc", &texts.lrc).map(|t| super::webvtt_service::lrc_to_webvtt(&t))
-                });
-            if let Some(vtt) = vtt {
-                did_work |= write_file(&vtt_path, vtt);
-            }
-        }
+        did_work |= step_webvtt(&input).wrote;
     }
-
     // Step 2d: rich SRT (TTML, then WebVTT); replaces a plain SRT.
     if s.generate_rich_srt && keep && !stop() {
-        let srt = ttml
-            .and_then(|t| super::rich_srt_service::ttml_to_rich_srt(t).ok())
-            .or_else(|| {
-                read_text(&copy.with_extension("vtt"))
-                    .and_then(|v| super::rich_srt_service::webvtt_to_rich_srt(&v).ok())
-            });
-        if let Some(srt) = srt {
-            did_work |= write_file(&copy.with_extension("srt"), srt);
-        }
+        did_work |= step_rich_srt(&input).wrote;
     }
-
     // Step 2e: embed the subtitle files in the music file (not gated on
     // keeping separate files).
     if s.embed_subtitles && !stop() {
-        // With separate files switched off, a copy given the main download's
-        // `.srt` has no file of its own, so use the text read from the main
-        // download — as the main file itself gets it embedded.
-        let srt = read_text(&copy.with_extension("srt")).or_else(|| {
-            if from_main {
-                texts.srt.clone()
-            } else {
-                None
-            }
-        });
-        let vtt = read_text(&copy.with_extension("vtt"));
-        if srt.is_some() || vtt.is_some() {
-            match super::rich_srt_service::embed_subtitles_in_file(
-                copy,
-                srt.as_deref(),
-                vtt.as_deref(),
-            ) {
-                Ok(_) => did_work = true,
-                Err(e) => log::debug!("Extra copy lyrics: could not embed subtitles: {e}"),
-            }
-        }
+        did_work |= step_embed_subtitles(&input).wrote;
     }
-
     // Step 2f: ASS (TTML, then WebVTT), titled with the COPY's own name.
     if s.generate_ass && keep && !stop() {
-        let ass_path = copy.with_extension("ass");
-        if !ass_path.exists() {
-            let ass = ttml
-                .and_then(|t| super::ass_subtitle_service::ttml_to_ass(t, &stem).ok())
-                .or_else(|| {
-                    read_text(&copy.with_extension("vtt"))
-                        .and_then(|v| super::ass_subtitle_service::webvtt_to_ass(&v, &stem).ok())
-                });
-            if let Some(ass) = ass {
-                did_work |= write_file(&ass_path, ass);
-            }
-        }
+        did_work |= step_ass(&input).wrote;
     }
-
     // Step 2g: Lyricsfile, skipped if one exists.
     if s.generate_lyricsfile && keep && !stop() {
-        let path = copy.with_extension("lyrics");
-        if !path.exists() {
-            if let Some(ttml) = ttml {
-                match super::lyricsfile_service::lyricsfile_from_ttml(
-                    ttml,
-                    &stem,
-                    default_title.unwrap_or("Untitled"),
-                    artist.unwrap_or("Unknown Artist"),
-                ) {
-                    Ok(yaml) => did_work |= write_file(&path, yaml),
-                    Err(e) => log::debug!("Extra copy lyrics: Lyricsfile failed: {e}"),
-                }
-            }
-        }
+        did_work |= step_lyricsfile(
+            &input,
+            default_title.unwrap_or("Untitled"),
+            artist.unwrap_or("Unknown Artist"),
+        )
+        .wrote;
     }
 
     if cut_short.get() {
@@ -667,6 +533,161 @@ fn resolve_extra_dir(
     (!found.starts_with(scope_dir) && !scope_dir.starts_with(&found)).then_some(found)
 }
 
+/// Whether any lyric or subtitle conversion is switched on. With none,
+/// there is nothing to do and the folder is not even looked at.
+fn any_conversion_switched_on(settings: &AppSettings) -> bool {
+    settings.enhanced_lrc
+        || settings.generate_webvtt
+        || settings.generate_rich_srt
+        || settings.generate_ass
+        || settings.generate_lyricsfile
+        || settings.embed_subtitles
+}
+
+// ---- Without a recorded scope (#1441) ----
+
+/// What was in the album folder at one moment: its music files and its
+/// `.ttml` files. Taken just before the extra-format copies start, for the
+/// case where enrichment never recorded a scope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct FolderSnapshot {
+    /// The folder.
+    pub dir: PathBuf,
+    /// Every music file in it then.
+    pub audio: std::collections::BTreeSet<PathBuf>,
+    /// Every `.ttml` file in it then.
+    pub ttml: std::collections::BTreeSet<PathBuf>,
+}
+
+impl FolderSnapshot {
+    /// Notes what is in `dir` now.
+    pub(crate) fn take(dir: &Path) -> Self {
+        Self {
+            dir: dir.to_path_buf(),
+            audio: audio_files_in(dir),
+            ttml: super::lyrics_pass::ttml_files_in(dir),
+        }
+    }
+}
+
+/// Finds the album folder the extra copies went into: the folder enrichment
+/// recorded when it is known and still there, else the one the artist and
+/// album names point at. `None` when neither gives a folder.
+pub(crate) fn resolve_album_folder(
+    output_dir: &Path,
+    known: Option<&Path>,
+    artist_hint: Option<&str>,
+    album_hint: Option<&str>,
+) -> Option<PathBuf> {
+    if let Some(dir) = known.filter(|d| d.is_dir()) {
+        return Some(dir.to_path_buf());
+    }
+    if !output_dir.is_dir() {
+        return None;
+    }
+    // An empty name is the same as a missing one: it would otherwise be
+    // joined onto the download folder and point at the whole library (#839).
+    let artist = artist_hint.filter(|s| !s.is_empty());
+    let album = album_hint.filter(|s| !s.is_empty());
+    super::find_album_directory(output_dir, artist, album).map(PathBuf::from)
+}
+
+/// The scope the lyrics step uses when enrichment never recorded one (the
+/// gate was dropped, or the failure path). It holds no main-download files,
+/// so every new copy is given its own lyrics.
+///
+/// What counts as "already there before the extra copies started": the
+/// snapshot, when it was taken of the same folder; otherwise every file not
+/// written since `since` (two seconds of slack). Files the snapshot lists
+/// are never new, whatever their file time says.
+pub(crate) fn fallback_scope(
+    dir_after: &Path,
+    before: Option<&FolderSnapshot>,
+    since: SystemTime,
+) -> AdvisoryScope {
+    let (audio, ttml) = match before {
+        Some(snapshot) if snapshot.dir == dir_after => {
+            (snapshot.audio.clone(), snapshot.ttml.clone())
+        }
+        _ => (
+            audio_files_in(dir_after)
+                .into_iter()
+                .filter(|p| !written_since(p, since))
+                .collect(),
+            super::lyrics_pass::ttml_files_in(dir_after)
+                .into_iter()
+                .filter(|p| !written_since(p, since))
+                .collect(),
+        ),
+    };
+    AdvisoryScope {
+        dir: dir_after.to_path_buf(),
+        this_download: Vec::new(),
+        before_companions: audio,
+        ttml_before_companions: ttml,
+    }
+}
+
+/// Finishes the lyrics of the main download's own files when enrichment
+/// stopped before it was done with them. Each file gets its own lyrics
+/// files converted, in the same order and under the same switches as the
+/// extra copies; every step can safely be repeated (`.lrc` and `.srt` are
+/// rewritten, embeds are overwritten, `.vtt`, `.ass` and `.lyrics` files
+/// already there are kept). Older files in the folder are not in `files`.
+pub(crate) fn run_main_files_own(
+    settings: &AppSettings,
+    files: &[PathBuf],
+    lyrics_artist: Option<&str>,
+    default_title: Option<&str>,
+    stop: &dyn Fn() -> bool,
+) -> Summary {
+    if !any_conversion_switched_on(settings) {
+        return Summary::default();
+    }
+    let files: Vec<&PathBuf> = files.iter().filter(|p| p.is_file()).collect();
+    let mut summary = Summary {
+        total: files.len(),
+        ..Summary::default()
+    };
+    for file in files {
+        if stop() {
+            summary.stopped = true;
+            return summary;
+        }
+        match process_copy(
+            file,
+            None,
+            settings,
+            &|_| false,
+            lyrics_artist,
+            default_title,
+            stop,
+        ) {
+            CopyOutcome::Own => summary.own += 1,
+            CopyOutcome::Unchanged => summary.unchanged += 1,
+            CopyOutcome::Nothing => summary.none += 1,
+            CopyOutcome::FromMain { .. } => {}
+            CopyOutcome::Stopped => {
+                summary.stopped = true;
+                return summary;
+            }
+        }
+    }
+    summary
+}
+
+/// The activity-log line for [`run_main_files_own`], or `None` when it
+/// finished nothing.
+pub(crate) fn recovery_line(r: &Summary) -> Option<String> {
+    (r.own > 0).then(|| {
+        let noun = if r.own == 1 { "song" } else { "songs" };
+        format!(
+            "Lyrics finished for {} {noun} of the main download that were left unfinished.",
+            r.own
+        )
+    })
+}
+
 /// Gives every new copy of this download its lyrics, as described at the
 /// top of this file. `stop` is asked before each copy; when it says yes the
 /// run ends and the summary says so (files already done stay done).
@@ -685,13 +706,7 @@ pub(crate) fn run_copies(
     stop: &dyn Fn() -> bool,
 ) -> Summary {
     // Nothing switched on: do not even look at the folder.
-    if !(settings.enhanced_lrc
-        || settings.generate_webvtt
-        || settings.generate_rich_srt
-        || settings.generate_ass
-        || settings.generate_lyricsfile
-        || settings.embed_subtitles)
-    {
+    if !any_conversion_switched_on(settings) {
         return Summary::default();
     }
     let copies = this_downloads_copies(scope, extra_dir, since);
@@ -1526,6 +1541,164 @@ mod tests {
         assert_eq!(
             run_copies(&s, &scope, None, past(), &[], None, None, &|| false),
             Summary::default()
+        );
+    }
+
+    // ---- 15. no recorded scope (#1441) ----
+
+    /// Sets a file's modified time to an hour ago.
+    fn make_old(path: &Path) {
+        let f = std::fs::OpenOptions::new().write(true).open(path).unwrap();
+        f.set_modified(past()).unwrap();
+    }
+
+    #[test]
+    fn the_fallback_scope_trusts_the_snapshot_over_file_times() {
+        let dir = tempfile::tempdir().unwrap();
+        let older = dir.path().join("01 Older.m4a");
+        minimal_m4a(&older, 1, 1, false);
+        let snapshot = FolderSnapshot::take(dir.path());
+        let copy = add_copy(dir.path());
+        let since = SystemTime::now() - Duration::from_secs(3600);
+        // The older file has a brand-new file time (a tag rewrite) yet is in
+        // the snapshot, so it is not a new copy.
+        let scope = fallback_scope(dir.path(), Some(&snapshot), since);
+        assert!(scope.this_download.is_empty());
+        assert_eq!(this_downloads_copies(&scope, None, since), vec![copy]);
+    }
+
+    #[test]
+    fn the_fallback_scope_uses_file_times_without_a_matching_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        let older = dir.path().join("01 Older.m4a");
+        minimal_m4a(&older, 1, 1, false);
+        make_old(&older);
+        std::fs::write(dir.path().join("01 Older.ttml"), LINE_TTML).unwrap();
+        make_old(&dir.path().join("01 Older.ttml"));
+        let since = SystemTime::now() - Duration::from_secs(60);
+        let copy = add_copy(dir.path());
+        // No snapshot, then a snapshot of some other folder: same answer.
+        let elsewhere = tempfile::tempdir().unwrap();
+        let other = FolderSnapshot::take(elsewhere.path());
+        for before in [None, Some(&other)] {
+            let scope = fallback_scope(dir.path(), before, since);
+            assert_eq!(
+                this_downloads_copies(&scope, None, since),
+                vec![copy.clone()],
+                "only the file written since the start is new"
+            );
+            assert!(scope
+                .ttml_before_companions
+                .contains(&dir.path().join("01 Older.ttml")));
+        }
+    }
+
+    #[test]
+    fn without_a_scope_each_new_copy_gets_its_own_lyrics_and_older_files_are_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let older = dir.path().join("01 Older.m4a");
+        minimal_m4a(&older, 1, 1, false);
+        std::fs::write(dir.path().join("01 Older.ttml"), WORD_TTML).unwrap();
+        make_old(&older);
+        make_old(&dir.path().join("01 Older.ttml"));
+        let since = SystemTime::now() - Duration::from_secs(60);
+        let copy = dir.path().join("02 New.m4a");
+        minimal_m4a(&copy, 2, 1, false);
+        std::fs::write(dir.path().join("02 New.ttml"), WORD_TTML).unwrap();
+        let scope = fallback_scope(dir.path(), None, since);
+        let older_before = (
+            std::fs::read(&older).unwrap(),
+            std::fs::read(dir.path().join("01 Older.ttml")).unwrap(),
+        );
+        let summary = run_copies(&all_on(), &scope, None, since, &[], None, None, &|| false);
+        assert_eq!((summary.total, summary.own), (1, 1));
+        assert!(dir.path().join("02 New.lrc").exists());
+        assert!(dir.path().join("02 New.vtt").exists());
+        // The older song: nothing added, nothing changed.
+        for ext in ["lrc", "vtt", "srt", "ass", "lyrics"] {
+            assert!(
+                !dir.path().join(format!("01 Older.{ext}")).exists(),
+                "{ext}"
+            );
+        }
+        assert_eq!(std::fs::read(&older).unwrap(), older_before.0);
+        assert_eq!(
+            std::fs::read(dir.path().join("01 Older.ttml")).unwrap(),
+            older_before.1
+        );
+        let _ = copy;
+    }
+
+    #[test]
+    fn unfinished_main_files_are_finished_and_older_files_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("01 Main.m4a");
+        minimal_m4a(&main, 1, 1, false);
+        std::fs::write(dir.path().join("01 Main.ttml"), WORD_TTML).unwrap();
+        let older = dir.path().join("02 Older.m4a");
+        minimal_m4a(&older, 2, 1, false);
+        std::fs::write(dir.path().join("02 Older.ttml"), WORD_TTML).unwrap();
+        let older_bytes = std::fs::read(&older).unwrap();
+        let files = vec![main.clone()];
+        let first = run_main_files_own(&all_on(), &files, Some("A"), Some("T"), &|| false);
+        assert_eq!(first.own, 1);
+        assert!(dir.path().join("01 Main.lrc").exists());
+        assert!(dir.path().join("01 Main.ass").exists());
+        assert!(!dir.path().join("02 Older.lrc").exists());
+        assert_eq!(std::fs::read(&older).unwrap(), older_bytes);
+        // Running it again gives the same files, byte for byte.
+        let names = |d: &Path| {
+            let mut v: Vec<(String, Vec<u8>)> = std::fs::read_dir(d)
+                .unwrap()
+                .flatten()
+                .map(|e| {
+                    (
+                        e.file_name().to_string_lossy().to_string(),
+                        std::fs::read(e.path()).unwrap(),
+                    )
+                })
+                .collect();
+            v.sort();
+            v
+        };
+        let after_first = names(dir.path());
+        run_main_files_own(&all_on(), &files, Some("A"), Some("T"), &|| false);
+        assert_eq!(names(dir.path()), after_first);
+        assert_eq!(
+            recovery_line(&first).as_deref(),
+            Some("Lyrics finished for 1 song of the main download that were left unfinished.")
+        );
+        assert_eq!(recovery_line(&Summary::default()), None);
+    }
+
+    #[test]
+    fn a_stop_ends_the_recovery_of_unfinished_main_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let main = dir.path().join("01 Main.m4a");
+        minimal_m4a(&main, 1, 1, false);
+        std::fs::write(dir.path().join("01 Main.ttml"), WORD_TTML).unwrap();
+        let r = run_main_files_own(&all_on(), &[main], None, None, &|| true);
+        assert!(r.stopped);
+        assert!(!dir.path().join("01 Main.lrc").exists());
+    }
+
+    #[test]
+    fn the_album_folder_is_the_recorded_one_when_it_is_still_there() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("gone");
+        assert_eq!(
+            resolve_album_folder(dir.path(), Some(dir.path()), None, None),
+            Some(dir.path().to_path_buf())
+        );
+        // A recorded folder that is gone, an output folder with nothing in
+        // it, and no names: nothing is found.
+        assert_eq!(
+            resolve_album_folder(dir.path(), Some(&missing), Some(""), Some("")),
+            None
+        );
+        assert_eq!(
+            resolve_album_folder(&missing, None, Some("A"), Some("B")),
+            None
         );
     }
 

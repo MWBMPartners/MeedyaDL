@@ -2068,77 +2068,13 @@ pub(crate) async fn download_music_video_by_url(
 // Lyrics format fallback
 // ============================================================
 
-/// Count lyrics sidecar files in a directory.
-///
-/// Returns the number of files matching any supported lyrics extension
-/// (`.ttml`, `.lrc`, `.srt`). Each unique stem is counted only once
-/// (e.g., `01 Song.ttml` and `01 Song.lrc` count as 1 stem with lyrics).
-///
-/// Skips filesystem sidecars (#577) so a `._01 Song.ttml` AppleDouble
-/// shadow doesn't double-count toward coverage checks. Skips MeedyaDL's
-/// own temporary subtitle files too (`.meedyadl-partial-…`, possibly half
-/// written): counting one could make the lyrics fallback believe every
-/// track already has lyrics and stop early (round 8 follow-up, acting on
-/// Codex's review of rounds 6-7).
-pub(crate) fn count_lyrics_files(dir: &std::path::Path) -> usize {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return 0;
-    };
-    let mut stems_with_lyrics = std::collections::HashSet::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path)
-            || crate::utils::fs_safe::is_temporary_subtitle_file(&path)
-        {
-            continue;
-        }
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        if ext == "ttml" || ext == "lrc" || ext == "srt" {
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                stems_with_lyrics.insert(stem.to_string());
-            }
-        }
-    }
-    stems_with_lyrics.len()
-}
-
-/// Count media files (audio or video) in a directory.
-///
-/// Returns `(audio_count, video_count)` for `.m4a` and `.m4v`/`.mp4` files.
-pub(crate) fn count_media_files(dir: &std::path::Path) -> (usize, usize) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return (0, 0);
-    };
-    let mut audio = 0;
-    let mut video = 0;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-            continue;
-        }
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        match ext.as_str() {
-            "m4a" => audio += 1,
-            "m4v" | "mp4" => video += 1,
-            _ => {}
-        }
-    }
-    (audio, video)
-}
-
 /// Run lyrics format fallback when the primary format didn't produce
 /// lyrics for all tracks.
 ///
 /// After the primary download (typically with `--synced-lyrics-format ttml`),
-/// checks if every media file has a corresponding lyrics sidecar. If not,
+/// checks if every one of THIS download's media files (`targets`) has a
+/// corresponding lyrics sidecar; older files in the same folder are not
+/// counted either way (#1441). If not,
 /// retries with fallback formats in content-type-specific order:
 /// - **Audio** (`.m4a`): TTML → LRC → SRT
 /// - **Video** (`.m4v`/`.mp4`): TTML → SRT → LRC
@@ -2149,7 +2085,7 @@ pub(crate) fn count_media_files(dir: &std::path::Path) -> (usize, usize) {
 pub(crate) async fn run_lyrics_fallback(
     app: &tauri::AppHandle,
     dl_id: &str,
-    album_dir: &str,
+    targets: &[std::path::PathBuf],
     urls: &[String],
     settings: &crate::models::settings::AppSettings,
 ) {
@@ -2171,15 +2107,13 @@ pub(crate) async fn run_lyrics_fallback(
         return;
     }
 
-    let dir = std::path::Path::new(album_dir);
-    let (audio_count, video_count) = count_media_files(dir);
+    let (lyrics_count, audio_count, video_count) = super::lyrics_steps::lyrics_coverage(targets);
     let total_media = audio_count + video_count;
 
     if total_media == 0 {
         return; // No media files to match lyrics against
     }
 
-    let lyrics_count = count_lyrics_files(dir);
     if lyrics_count >= total_media {
         log::debug!("Lyrics fallback not needed for {dl_id}: {lyrics_count}/{total_media} tracks have lyrics");
         return; // All tracks already have lyrics
@@ -2353,7 +2287,7 @@ pub(crate) async fn run_lyrics_fallback(
         }
 
         // Re-check lyrics coverage after this fallback attempt
-        let new_lyrics_count = count_lyrics_files(dir);
+        let new_lyrics_count = super::lyrics_steps::lyrics_coverage(targets).0;
         if new_lyrics_count >= total_media {
             emit_download_log(
                 app,
@@ -2365,7 +2299,7 @@ pub(crate) async fn run_lyrics_fallback(
     }
 
     // All fallback formats exhausted
-    let final_count = count_lyrics_files(dir);
+    let final_count = super::lyrics_steps::lyrics_coverage(targets).0;
     emit_download_log(
         app,
         dl_id,
@@ -2933,6 +2867,11 @@ pub(crate) struct CompanionHold {
     /// find this download's new copies and give them their lyrics
     /// (`companion_lyrics.rs`).
     pub advisory_scope: Arc<StdMutex<Option<super::lyrics_pass::AdvisoryScope>>>,
+    /// The main download's files whose lyrics steps had started but not
+    /// finished when enrichment ended. `Some` only if enrichment stopped
+    /// early; the companion task then finishes their lyrics itself
+    /// (`companion_lyrics::run_main_files_own`).
+    pub pending_main_lyrics: Arc<StdMutex<Option<Vec<std::path::PathBuf>>>>,
 }
 
 /// Plans and starts the companion downloads for one finished primary
@@ -3055,7 +2994,7 @@ pub(crate) fn spawn_companion_downloads(
         let comp_shutdown = shutdown.clone();
         // Per-task cooperative-cancel flag (#663). The completion task
         // sets this to `true` before calling `handle.abort()` so the
-        // synchronous `run_companion_lyrics_conversion` and the tier
+        // synchronous extra-copy lyrics step and the tier
         // loop can bail out at their next loop boundary instead of
         // emitting activity-log events for many minutes after abort.
         let comp_aborted = Arc::new(AtomicBool::new(false));
@@ -3122,13 +3061,18 @@ pub(crate) fn spawn_companion_downloads(
             // Where enrichment recorded this download's files, and when the
             // gate opened (to tell a lyrics file written by this run from an
             // older one). Both stay `None` on the failure path, which has no
-            // gate; the old folder-wide lyrics conversion runs there.
+            // gate; the lyrics step then builds its own scope (below).
             let mut lyrics_scope_handle: Option<
                 Arc<StdMutex<Option<super::lyrics_pass::AdvisoryScope>>>,
             > = None;
+            // Main-download files whose lyrics steps enrichment began but did
+            // not finish (see `CompanionHold::pending_main_lyrics`).
+            let mut pending_main_handle: Option<Arc<StdMutex<Option<Vec<std::path::PathBuf>>>>> =
+                None;
             let mut gate_opened_at: Option<std::time::SystemTime> = None;
             if let Some(hold) = held_until {
                 lyrics_scope_handle = Some(hold.advisory_scope.clone());
+                pending_main_handle = Some(hold.pending_main_lyrics.clone());
                 let mut waiter = hold.waiter;
                 let state = super::lyrics_pass::wait_for_companion_gate(&mut waiter, || {
                     let queue = comp_queue.clone();
@@ -3205,6 +3149,38 @@ pub(crate) fn spawn_companion_downloads(
                     "Starting the extra format downloads",
                 );
             }
+
+            // When enrichment never recorded a scope (the gate was dropped, or
+            // the failure path), the lyrics step cannot know which files are
+            // new copies. So, before any extra copy is downloaded, note what
+            // is in the album folder now and when the downloads started; the
+            // lyrics step then treats only files that appear after this as
+            // this download's copies (#1441).
+            let tiers_started_at = std::time::SystemTime::now();
+            let scope_recorded = lyrics_scope_handle
+                .as_ref()
+                .is_some_and(|h| h.lock().is_ok_and(|g| g.is_some()));
+            let folder_before: Option<super::companion_lyrics::FolderSnapshot> = if scope_recorded {
+                None
+            } else if let Some(output_dir) = comp_base_opts.output_path.as_deref() {
+                let (artist_hint, album_hint) = {
+                    let q = comp_queue.lock().await;
+                    q.items
+                        .iter()
+                        .find(|i| i.status.id == comp_dl_id)
+                        .map(|i| (i.status.artist_name.clone(), i.status.album_name.clone()))
+                        .unwrap_or((None, None))
+                };
+                super::companion_lyrics::resolve_album_folder(
+                    std::path::Path::new(output_dir),
+                    companion_album_dir.as_deref(),
+                    artist_hint.as_deref(),
+                    album_hint.as_deref(),
+                )
+                .map(|dir| super::companion_lyrics::FolderSnapshot::take(&dir))
+            } else {
+                None
+            };
 
             // `any_tier_produced_files` is set the first time a tier actually
             // writes new audio files to disk (#843). After the tier loop we
@@ -3901,75 +3877,103 @@ pub(crate) fn spawn_companion_downloads(
                     ProgressStage::Finalising,
                     "Companion: converting lyrics formats…",
                 );
-                // #1440: with a recorded scope, only THIS download's new
-                // copies are given lyrics, matched to the main download's
-                // files (`companion_lyrics.rs`). Without one (the gate was
-                // dropped, or the failure path) the old folder-wide
-                // conversion runs, unchanged.
-                let scope = lyrics_scope_handle
+                // #1440/#1441: only THIS download's new copies are given
+                // lyrics, matched to the main download's files
+                // (`companion_lyrics.rs`). With a recorded scope that is
+                // exact. Without one (the gate was dropped, or the failure
+                // path) the scope is rebuilt from what appeared in the album
+                // folder after the extra copies started, and every such copy
+                // gets its own lyrics. There is no folder-wide pass any more.
+                let recorded_scope = lyrics_scope_handle
                     .as_ref()
                     .and_then(|h| h.lock().ok().and_then(|g| g.clone()));
-                if let (Some(scope), Some(since)) = (scope, gate_opened_at) {
-                    // A cancelled item gets no more lyrics work.
-                    if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
-                        log::info!("Extra copy lyrics skipped — {comp_dl_id} was cancelled");
-                        return;
-                    }
-                    set_stage_with_label(
-                        &comp_app,
-                        &comp_queue,
-                        &comp_dl_id,
-                        ProgressStage::Finalising,
-                        "Extra copies: adding lyrics…",
-                    );
-                    let settings = load_settings_for_queue(&comp_app);
-                    let output_dir = std::path::PathBuf::from(output_dir);
-                    let stop_aborted = aborted_for_task.clone();
-                    let stop_shutdown = comp_shutdown.clone();
-                    let stop_queue = comp_queue.clone();
-                    let stop_dl_id = comp_dl_id.clone();
-                    let tracks = album_tracks.clone();
-                    let artist = artist_hint.clone();
-                    let album = album_hint.clone();
-                    // Run right here, not in `spawn_blocking`: aborting the
-                    // task cannot stop a blocking closure that has already
-                    // started, which could keep writing files after the final
-                    // rename pass began. Done in this task, the completion
-                    // task's wait covers it (#663), and the stop check is
-                    // asked before every step.
-                    let summary = super::companion_lyrics::run(
-                        &settings,
-                        &scope,
-                        &output_dir,
-                        artist.as_deref(),
-                        album.as_deref(),
-                        since,
-                        &tracks,
-                        lyricsfile_artist.as_deref(),
-                        lyricsfile_default_title.as_deref(),
-                        // Also stops when the item is cancelled mid-run. A
-                        // queue that is busy right now is not waited for: the
-                        // next step asks again.
-                        &|| {
-                            stop_aborted.load(Ordering::Relaxed)
-                                || stop_shutdown.is_triggered()
-                                || stop_queue
-                                    .try_lock()
-                                    .is_ok_and(|q| !q.should_keep_working_on(&stop_dl_id))
-                        },
-                    );
-                    if let Some(line) = super::companion_lyrics::summary_line(&summary) {
-                        emit_download_log(&comp_app, &comp_dl_id, &line);
-                    }
+                // A cancelled item gets no more lyrics work.
+                if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
+                    log::info!("Extra copy lyrics skipped — {comp_dl_id} was cancelled");
+                    return;
+                }
+                let settings = load_settings_for_queue(&comp_app);
+                let output_dir = std::path::PathBuf::from(output_dir);
+                let stop_aborted = aborted_for_task.clone();
+                let stop_shutdown = comp_shutdown.clone();
+                let stop_queue = comp_queue.clone();
+                let stop_dl_id = comp_dl_id.clone();
+                // Also stops when the item is cancelled mid-run. A queue that
+                // is busy right now is not waited for: the next step asks
+                // again.
+                let stop = move || {
+                    stop_aborted.load(Ordering::Relaxed)
+                        || stop_shutdown.is_triggered()
+                        || stop_queue
+                            .try_lock()
+                            .is_ok_and(|q| !q.should_keep_working_on(&stop_dl_id))
+                };
+                let (scope, since) = if let Some(scope) = recorded_scope {
+                    (scope, gate_opened_at.unwrap_or(tiers_started_at))
                 } else {
-                    run_companion_lyrics_conversion(
-                        &comp_app,
-                        &comp_dl_id,
-                        output_dir,
+                    // Finish the main download's own lyrics first, if
+                    // enrichment stopped before it was done with them.
+                    let pending = pending_main_handle
+                        .as_ref()
+                        .and_then(|h| h.lock().ok().and_then(|g| g.clone()));
+                    if let Some(files) = pending {
+                        let recovered = super::companion_lyrics::run_main_files_own(
+                            &settings,
+                            &files,
+                            lyricsfile_artist.as_deref(),
+                            lyricsfile_default_title.as_deref(),
+                            &stop,
+                        );
+                        if let Some(line) = super::companion_lyrics::recovery_line(&recovered) {
+                            emit_download_log(&comp_app, &comp_dl_id, &line);
+                        }
+                    }
+                    let Some(dir_after) = super::companion_lyrics::resolve_album_folder(
+                        &output_dir,
+                        companion_album_dir.as_deref(),
                         artist_hint.as_deref(),
                         album_hint.as_deref(),
-                        &aborted_for_task,
-                    );
+                    ) else {
+                        log::debug!(
+                            "Extra copy lyrics: no album folder found for {comp_dl_id} — skipping"
+                        );
+                        return;
+                    };
+                    (
+                        super::companion_lyrics::fallback_scope(
+                            &dir_after,
+                            folder_before.as_ref(),
+                            tiers_started_at,
+                        ),
+                        tiers_started_at,
+                    )
+                };
+                set_stage_with_label(
+                    &comp_app,
+                    &comp_queue,
+                    &comp_dl_id,
+                    ProgressStage::Finalising,
+                    "Extra copies: adding lyrics…",
+                );
+                // Run right here, not in `spawn_blocking`: aborting the task
+                // cannot stop a blocking closure that has already started,
+                // which could keep writing files after the final rename pass
+                // began. Done in this task, the completion task's wait covers
+                // it (#663), and the stop check is asked before every step.
+                let summary = super::companion_lyrics::run(
+                    &settings,
+                    &scope,
+                    &output_dir,
+                    artist_hint.as_deref(),
+                    album_hint.as_deref(),
+                    since,
+                    &album_tracks,
+                    lyricsfile_artist.as_deref(),
+                    lyricsfile_default_title.as_deref(),
+                    &stop,
+                );
+                if let Some(line) = super::companion_lyrics::summary_line(&summary) {
+                    emit_download_log(&comp_app, &comp_dl_id, &line);
                 }
             }
         });
@@ -3994,236 +3998,6 @@ pub(crate) fn spawn_companion_downloads(
             heartbeat,
         })
     };
-
-    /// Runs lyrics format conversion on a companion download's output directory.
-    ///
-    /// Companions inherit TTML as the lyrics format (forced by Enhanced LRC),
-    /// but the enrichment pipeline only runs for the primary download. This
-    /// function runs the same conversion steps so companion sidecars get
-    /// Enhanced LRC, Rich SRT, WebVTT, and ASS conversions.
-    ///
-    /// The `output_dir` parameter is the top-level output path from GamdlOptions
-    /// (e.g., `~/Music/`), not the album-specific directory. GAMDL creates the
-    /// `Artist/Album/` structure within this path. The lyrics conversion services
-    /// expect the album directory (where .ttml and .m4a files live), so this
-    /// function resolves it by recursively finding directories with TTML files.
-    fn run_companion_lyrics_conversion(
-        app: &tauri::AppHandle,
-        dl_id: &str,
-        output_dir: &str,
-        artist_hint: Option<&str>,
-        album_hint: Option<&str>,
-        aborted: &Arc<AtomicBool>,
-    ) {
-        let settings = load_settings_for_queue(app);
-        let base = std::path::Path::new(output_dir);
-
-        if !base.is_dir() {
-            return;
-        }
-        // Cooperative-cancel checkpoint #1 (#663). Bail before the
-        // potentially-multi-minute recursive directory walk if the
-        // completion task already fired the deadline.
-        if aborted.load(Ordering::Relaxed) {
-            return;
-        }
-
-        // Resolve the album directory in three layered ways, falling
-        // through to the next only when the prior produces nothing:
-        //   (1) targeted `{output_dir}/{artist}/{album}/` when both hints
-        //       are non-empty strings,
-        //   (2) `find_album_directory` (case-insensitive match + deepest
-        //       recently-modified audio dir),
-        //   (3) skip — return an empty `album_dirs` and bail.
-        //
-        // **What we no longer do (#839).** Previously the catch-all arm
-        // walked `find_dirs_with_ttml(base)` over the *entire* output
-        // root whenever either hint was missing, producing the
-        // 484-album-dir / 25-minute symptom users reported on v1.8.x.
-        // The depth-10 cap inside `find_dirs_with_ttml` doesn't help
-        // because user libraries naturally fit within 3 levels
-        // (`~/Music/Artist/Album/`). The trigger wasn't only
-        // `(None, None)`: an Apple Music API response with an empty
-        // artist or album string (`Some("")`) joined as `base` itself,
-        // satisfied `.is_dir()`, and walked the whole library too. The
-        // empty-string filter below treats those as missing.
-        let artist_hint = artist_hint.filter(|s| !s.is_empty());
-        let album_hint = album_hint.filter(|s| !s.is_empty());
-
-        let resolved_album_dir: Option<std::path::PathBuf> = if let (Some(artist), Some(album)) =
-            (artist_hint, album_hint)
-        {
-            let scoped = base.join(artist).join(album);
-            if scoped.is_dir() {
-                log::debug!(
-                    "Companion lyrics: scoped to album dir {} for {dl_id}",
-                    scoped.display()
-                );
-                Some(scoped)
-            } else {
-                // Hinted path doesn't exist on disk (e.g. user's folder
-                // template differs from `{album_artist}/{album}`, or
-                // sanitisation rewrote special characters). Try the
-                // shared `find_album_directory` resolver which handles
-                // case-insensitive matches + a bounded deepest-audio-dir
-                // scan, same as the codec-tag pass uses at #816.
-                find_album_directory(base, Some(artist), Some(album)).map(std::path::PathBuf::from)
-            }
-        } else {
-            log::debug!(
-                "Companion lyrics: no artist/album hints for {dl_id} — \
-                 attempting find_album_directory recovery for {output_dir}"
-            );
-            find_album_directory(base, artist_hint, album_hint).map(std::path::PathBuf::from)
-        };
-
-        let album_dirs: Vec<std::path::PathBuf> = match resolved_album_dir {
-            Some(dir) => find_dirs_with_ttml(&dir),
-            None => {
-                log::debug!(
-                    "Companion lyrics: no specific album dir resolved for {dl_id} — \
-                     skipping conversion (item likely had no successful audio)"
-                );
-                Vec::new()
-            }
-        };
-        if album_dirs.is_empty() {
-            log::debug!(
-                "Companion lyrics: no TTML files found in {output_dir} — skipping conversion"
-            );
-            return;
-        }
-        emit_download_log(
-            app,
-            dl_id,
-            &format!(
-                "Companion lyrics conversion: processing {} album dir(s)...",
-                album_dirs.len()
-            ),
-        );
-
-        for album_dir in &album_dirs {
-            // Cooperative-cancel checkpoint #2 (#663). Without this,
-            // the loop would emit `Companion: converted N TTML…`
-            // entries for every album dir even after the completion
-            // task aborted us — the symptom from the captured logs.
-            if aborted.load(Ordering::Relaxed) {
-                log::info!(
-                    "Companion lyrics conversion aborted for {dl_id} — \
-                     processed {}/{} album dirs",
-                    album_dirs.iter().position(|p| p == album_dir).unwrap_or(0),
-                    album_dirs.len(),
-                );
-                return;
-            }
-            let dir_str = album_dir.to_string_lossy();
-
-            // Enhanced LRC: TTML → word-by-word LRC
-            if settings.enhanced_lrc {
-                match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
-                    &dir_str,
-                    settings.keep_lyrics_sidecar,
-                ) {
-                    Ok(count) if count > 0 => {
-                        emit_download_log(
-                            app,
-                            dl_id,
-                            &format!("Companion: converted {count} TTML file(s) to Enhanced LRC"),
-                        );
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::debug!("Companion Enhanced LRC conversion failed: {e}");
-                    }
-                }
-            }
-
-            // Rich SRT: TTML → styled SRT with bold/italic/colour
-            if settings.generate_rich_srt && settings.keep_lyrics_sidecar {
-                match super::rich_srt_service::generate_rich_srt_for_directory(&dir_str) {
-                    Ok(count) if count > 0 => {
-                        log::debug!("Companion: generated {count} Rich SRT file(s)");
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::debug!("Companion Rich SRT generation failed: {e}");
-                    }
-                }
-            }
-
-            // WebVTT: TTML/SRT/LRC → .vtt
-            if settings.generate_webvtt && settings.keep_lyrics_sidecar {
-                match super::webvtt_service::generate_webvtt_for_directory(&dir_str) {
-                    Ok(count) if count > 0 => {
-                        log::debug!("Companion: generated {count} WebVTT file(s)");
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::debug!("Companion WebVTT generation failed: {e}");
-                    }
-                }
-            }
-
-            // ASS: → styled .ass subtitles
-            if settings.generate_ass && settings.keep_lyrics_sidecar {
-                match super::ass_subtitle_service::generate_ass_for_directory(&dir_str) {
-                    Ok(count) if count > 0 => {
-                        log::debug!("Companion: generated {count} ASS subtitle file(s)");
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::debug!("Companion ASS generation failed: {e}");
-                    }
-                }
-            }
-        }
-    }
-
-    /// Recursively finds directories that contain `.ttml` files.
-    ///
-    /// GAMDL creates an `Artist/Album/` directory structure within the output
-    /// path. The lyrics conversion services expect the leaf album directory
-    /// where `.ttml` and `.m4a` files coexist. This helper walks the tree
-    /// and collects every directory that directly contains at least one
-    /// `.ttml` file.
-    ///
-    /// **Depth-limited** to 10 levels (matching the convention used by
-    /// `scan_folder_for_manifests`). Without a cap, pointing this at a
-    /// large user music library walks tens of thousands of directories
-    /// and stalls the companion task for tens of minutes — the symptom
-    /// the user reported as a 30-minute silent gap between
-    /// `Companion download complete` and `Companion: converted N TTML…`.
-    fn find_dirs_with_ttml(base: &std::path::Path) -> Vec<std::path::PathBuf> {
-        // Migrated to the shared `utils::fs_walk::walk_dir_depth` helper
-        // (#716/1, v1.0.4 prep). Strategy: walk every entry, return the
-        // PARENT path of each `.ttml` file the visitor sees, then dedup
-        // via HashSet — net behaviour identical to the previous "scan
-        // each dir, set a `has_ttml_here` flag, push if true" pattern,
-        // but the per-directory state is replaced by post-pass dedup
-        // which fits the visitor model cleanly.
-        //
-        // Depth limit of 10 preserved (the convention used by
-        // `scan_folder_for_manifests`); see #712 for why this matters
-        // — without it, pointing at a large library produces the
-        // 30-minute hang the user reproduced on 2026-05-08.
-        // How many folder levels down to look; see the note above.
-        const MAX_DEPTH: u32 = 10;
-        let parent_dirs: std::collections::HashSet<std::path::PathBuf> =
-            crate::utils::fs_walk::walk_dir_depth(base, MAX_DEPTH, |path| {
-                if path.is_file()
-                    && path
-                        .extension()
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
-                {
-                    path.parent().map(|p| p.to_path_buf())
-                } else {
-                    None
-                }
-            })
-            .into_iter()
-            .collect();
-        parent_dirs.into_iter().collect()
-    }
 
     // === Lyrics companion downloads (background, fire-and-forget) ===
     // When the user has selected additional lyrics formats beyond the

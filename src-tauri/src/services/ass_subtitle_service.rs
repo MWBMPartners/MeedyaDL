@@ -58,6 +58,11 @@ const DEFAULT_FONT: &str = "Arial";
 /// # Returns
 /// * `Ok(count)` — Number of ASS files generated.
 /// * `Err(msg)` — Directory read failure.
+///
+/// The download pipeline no longer calls this folder-wide function: it works
+/// on every file in a folder, including older ones. The pipeline uses
+/// `download_queue::lyrics_steps`, which works on a list of files. This one is
+/// kept as the reference the per-file code is checked against.
 pub fn generate_ass_for_directory(album_dir: &str) -> Result<usize, String> {
     let dir = Path::new(album_dir);
     if !dir.is_dir() {

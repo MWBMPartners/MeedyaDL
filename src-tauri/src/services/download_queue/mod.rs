@@ -191,6 +191,7 @@ mod companion_lyrics;
 mod companions;
 mod helpers;
 mod lyrics_pass;
+mod lyrics_steps;
 mod notifications;
 mod options;
 mod persistence;

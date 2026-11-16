@@ -66,6 +66,11 @@ use meedya_lyrics::Lyricsfile;
 /// # Returns
 /// * `Ok(count)` - Number of `.lyrics` sidecars written
 /// * `Err(message)` - Filesystem or shared-crate error
+///
+/// The download pipeline no longer calls this folder-wide function: it works
+/// on every file in a folder, including older ones. The pipeline uses
+/// `download_queue::lyrics_steps`, which works on a list of files. This one is
+/// kept as the reference the per-file code is checked against.
 pub fn generate_lyricsfile_for_directory(
     album_dir: &str,
     default_title: &str,

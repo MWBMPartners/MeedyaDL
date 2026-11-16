@@ -305,7 +305,7 @@ pub(crate) fn find_album_directory(
 
     // --- Fallback: generic deep scan (picks most recently modified leaf dir) ---
     // Depth-bounded to 10 levels (#844) — matches the convention used by
-    // `find_dirs_with_ttml` and `scan_folder_for_manifests`. Without the cap,
+    // `scan_folder_for_manifests`. Without the cap,
     // pointing this at a 484-album library walked tens of thousands of dirs
     // and added 30-60 s of pure I/O before any actual enrichment work began.
     let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
@@ -626,7 +626,7 @@ pub(crate) fn inject_advisory_suffix_into_template(
 /// `walk_dir_depth` makes the bound mandatory and enforces the same
 /// `read_dir → recurse → filter` shape as the other 4+ walkers in
 /// the codebase. Depth 10 matches the convention used by
-/// `scan_folder_for_manifests` and `find_dirs_with_ttml` (post-#712).
+/// `scan_folder_for_manifests` (post-#712).
 pub(crate) fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
     crate::utils::fs_walk::walk_dir_depth(dir, 10, |path| {
         if !path.is_file() || crate::utils::fs_safe::is_filesystem_sidecar(path) {

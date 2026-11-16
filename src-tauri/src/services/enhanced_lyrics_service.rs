@@ -159,6 +159,11 @@ struct TtmlMetadata {
 /// performs only synchronous file I/O (std::fs, mp4ameta). Callers in the
 /// enrichment pipeline wrap it in `tokio::task::spawn_blocking()` to prevent
 /// blocking the async runtime on slow filesystems (FUSE mounts, NFS, etc.).
+///
+/// The download pipeline no longer calls this folder-wide function: it works
+/// on every file in a folder, including older ones. The pipeline uses
+/// `download_queue::lyrics_steps`, which works on a list of files. This one is
+/// kept as the reference the per-file code is checked against.
 pub fn process_enhanced_lyrics_for_directory(
     album_dir: &str,
     save_sidecar_files: bool,

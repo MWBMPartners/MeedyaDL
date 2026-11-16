@@ -2846,6 +2846,30 @@ fn the_companion_path_never_deletes_files() {
     }
 }
 
+/// The main download's lyrics steps work on a list of this download's
+/// files. A folder-wide call coming back would again convert every older
+/// file in the folder (#1441), so neither source file may call one of the
+/// six folder-wide lyrics functions.
+#[test]
+fn the_download_pipeline_never_calls_a_folder_wide_lyrics_function() {
+    let folder_wide = [
+        "process_enhanced_lyrics_for_directory(",
+        "generate_webvtt_for_directory(",
+        "generate_rich_srt_for_directory(",
+        "embed_subtitles_for_directory(",
+        "generate_ass_for_directory(",
+        "generate_lyricsfile_for_directory(",
+    ];
+    for (name, src) in [
+        ("processing.rs", include_str!("processing.rs")),
+        ("companions.rs", include_str!("companions.rs")),
+    ] {
+        for call in folder_wide {
+            assert!(!src.contains(call), "{name} calls {call}");
+        }
+    }
+}
+
 #[test]
 fn a_mixed_album_attempt_asks_only_for_the_other_tracks() {
     let album = vec!["https://music.apple.com/us/album/x/1440857781".to_string()];
@@ -4689,6 +4713,10 @@ fn dedupe_persisted_queue_items_keeps_newest_matching_url() {
 #[test]
 fn a_temporary_subtitle_file_never_counts_as_a_tracks_lyrics() {
     let dir = tempfile::tempdir().unwrap();
+    let song = dir.path().join("01 Song.m4a");
+    let other = dir.path().join("02 Other.m4a");
+    std::fs::write(&song, b"music").unwrap();
+    std::fs::write(&other, b"music").unwrap();
     std::fs::write(dir.path().join("01 Song.ttml"), b"lyrics").unwrap();
     std::fs::write(
         dir.path()
@@ -4696,7 +4724,12 @@ fn a_temporary_subtitle_file_never_counts_as_a_tracks_lyrics() {
         b"half written",
     )
     .unwrap();
-    assert_eq!(count_lyrics_files(dir.path()), 1);
+    // Two songs, only the first has lyrics; the half-written file is not
+    // lyrics for either.
+    assert_eq!(
+        crate::services::download_queue::lyrics_steps::lyrics_coverage(&[song, other]),
+        (1, 2, 0)
+    );
 }
 
 #[test]
