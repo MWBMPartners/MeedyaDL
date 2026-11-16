@@ -30,8 +30,9 @@
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 import { HistoryPage } from '@/components/download/HistoryPage';
+import { useUiStore } from '@/stores/uiStore';
 import { makeFixture } from '@/testing/fixtures';
-import { clearHistory, listHistory } from '@/lib/tauri-commands';
+import { clearHistory, listHistory, startDownload } from '@/lib/tauri-commands';
 import type { HistoryEntry } from '@/types';
 
 /**
@@ -145,5 +146,23 @@ describe('HistoryPage -- row layout (polish pass M6)', () => {
     const date = await screen.findByTestId('history-date');
     expect(date.className).toContain('whitespace-nowrap');
     expect(date.className).toContain('flex-shrink-0');
+  });
+});
+
+describe('HistoryPage -- retry that queues nothing (#1235)', () => {
+  it('a single retry that adds nothing says so and keeps the row, instead of "Re-queued"', async () => {
+    vi.mocked(listHistory).mockResolvedValue([makeEntry({ id: 'f', status: 'failed' })]);
+    vi.mocked(startDownload).mockResolvedValueOnce({
+      download_id: '',
+      duplicate_warning: 'Already in the queue',
+    } as never);
+    render(<HistoryPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /^retry download$/i }));
+    await waitFor(() => expect(startDownload).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(useUiStore.getState().toasts.some((t) => t.message === 'Already in the queue')).toBe(true),
+    );
+    expect(useUiStore.getState().toasts.some((t) => /Re-queued/.test(t.message))).toBe(false);
+    expect(screen.getByRole('button', { name: /^retry download$/i })).toBeInTheDocument();
   });
 });

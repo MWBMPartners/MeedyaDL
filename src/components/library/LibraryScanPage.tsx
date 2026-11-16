@@ -339,10 +339,15 @@ export function LibraryScanPage() {
       return;
     }
     try {
-      await startDownload({
+      const result = await startDownload({
         urls: [manifest.urls[0]],
         mv_companion_override: override,
       });
+      if (!result.download_id) {
+        // Nothing was queued (most often: it is already in the queue).
+        addToast(result.duplicate_warning ?? 'Already in the queue — nothing added', 'info');
+        return;
+      }
       const mvNote =
         override === true
           ? ' (with music videos)'

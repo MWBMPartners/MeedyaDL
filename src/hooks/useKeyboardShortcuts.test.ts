@@ -58,7 +58,8 @@ const getSettingsMock = vi.fn();
 vi.mock('@/stores/settingsStore', () => ({
   useSettingsStore: {
     getState: () => ({
-      settings: getSettingsMock(),
+      settings: { abort_queue_confirm: true }, // the unsaved copy: must NOT be what is read
+      savedSettings: getSettingsMock(),
     }),
   },
 }));

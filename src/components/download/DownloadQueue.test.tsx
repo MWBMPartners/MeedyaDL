@@ -395,11 +395,33 @@ describe('DownloadQueue', () => {
           ...useSettingsStore.getState().settings,
           abort_queue_confirm: true,
         },
+        savedSettings: {
+          ...useSettingsStore.getState().savedSettings,
+          abort_queue_confirm: true,
+        },
       });
     });
     render(<DownloadQueue />);
     fireEvent.click(screen.getByRole('button', { name: /^abort$/i }));
     expect(screen.getByRole('dialog', { name: /abort queue/i })).toBeInTheDocument();
+  });
+
+  it('abort asks according to the SAVED setting, not an unsaved edit on the Settings screen (#1233)', () => {
+    const abortAll = vi.fn().mockResolvedValue(0);
+    act(() => {
+      useDownloadStore.setState({
+        queueItems: [makeItem({ id: 'a', state: 'downloading' })],
+        abortAll,
+      });
+      useSettingsStore.setState({
+        settings: { ...useSettingsStore.getState().settings, abort_queue_confirm: false },
+        savedSettings: { ...useSettingsStore.getState().savedSettings, abort_queue_confirm: true },
+      });
+    });
+    render(<DownloadQueue />);
+    fireEvent.click(screen.getByRole('button', { name: /^abort$/i }));
+    expect(screen.getByRole('dialog', { name: /abort queue/i })).toBeInTheDocument();
+    expect(abortAll).not.toHaveBeenCalled();
   });
 
   // ===========================================================================
@@ -427,6 +449,37 @@ describe('DownloadQueue', () => {
     expect(report?.details).toBe('already finished');
     expect(toasts.some((t) => t.message === 'Cancelled 2 items')).toBe(false);
     act(() => useDownloadStore.setState({ cancelDownload: realCancel }));
+  });
+
+  it('Remove selected asks first, removes nothing on Cancel, and keeps failed rows selected (#1232)', async () => {
+    const del = vi.fn((id: string) => (id === 'b' ? Promise.reject(new Error('busy')) : Promise.resolve()));
+    const realDelete = useDownloadStore.getState().deleteItem;
+    act(() => {
+      useDownloadStore.setState({
+        queueItems: [makeItem({ id: 'a', state: 'queued' }), makeItem({ id: 'b', state: 'queued' })],
+        deleteItem: del,
+      });
+    });
+    render(<DownloadQueue />);
+    fireEvent.click(screen.getByLabelText('Select a'));
+    fireEvent.click(screen.getByLabelText('Select b'));
+    fireEvent.click(screen.getByRole('button', { name: /remove selected/i }));
+    // Asked first; nothing removed yet.
+    expect(screen.getByRole('dialog', { name: /remove selected items/i })).toBeInTheDocument();
+    expect(del).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(del).not.toHaveBeenCalled();
+    // Confirm.
+    fireEvent.click(screen.getByRole('button', { name: /remove selected/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^remove$/i }));
+    });
+    expect(del).toHaveBeenCalledTimes(2);
+    const report = useUiStore.getState().toasts.find((t) => /Removed 1 of 2 items; 1 could not be removed/.test(t.message));
+    expect(report).toBeTruthy();
+    // Only the row that failed stays selected.
+    expect(screen.getByText('1 selected')).toBeInTheDocument();
+    act(() => useDownloadStore.setState({ deleteItem: realDelete }));
   });
 
   // ===========================================================================

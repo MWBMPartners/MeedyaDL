@@ -213,7 +213,13 @@ export function HistoryPage() {
   const handleRetryOne = useCallback(
     async (entry: HistoryEntry) => {
       try {
-        await startDownload({ urls: [entry.url] });
+        const result = await startDownload({ urls: [entry.url] });
+        if (!result.download_id) {
+          // Nothing was queued (most often: it is already in the queue).
+          // Say so, and leave the history row where it is.
+          addToast(result.duplicate_warning ?? 'Already in the queue — nothing added', 'info');
+          return;
+        }
         setEntries((current) => current.filter((item) => item.id !== entry.id));
         addToast(`Re-queued: ${getDisplayLabel(entry)}`, 'success');
       } catch (err) {
@@ -258,7 +264,12 @@ export function HistoryPage() {
       return;
     }
     try {
-      await startDownload({ urls: uniqueUrls });
+      const result = await startDownload({ urls: uniqueUrls });
+      if (!result.download_id) {
+        // Nothing was queued; keep the failed rows so they can be tried again.
+        addToast(result.duplicate_warning ?? 'Already in the queue — nothing added', 'info');
+        return;
+      }
       setEntries((current) => current.filter((entry) => !uniqueUrls.includes(entry.url)));
       addToast(
         `Re-queued ${uniqueUrls.length} download${uniqueUrls.length !== 1 ? 's' : ''}` +

@@ -45,7 +45,7 @@ import { QueueItem } from './QueueItem';
  *
  * Column alignment is preserved via shared structural rules: same
  * outer `flex items-center gap-3 px-4`, same `flex-shrink-0` discipline
- * on every non-flex-1 cell, same album-art spacer width (`w-12 h-12`)
+ * on every non-flex-1 cell, same album-art spacer width (`w-12`, no height)
  * even though the strip doesn't render an actual thumbnail. The
  * bulk-select checkbox column reserves a fixed spacer when
  * `hasSelection` is true so column alignment doesn't shift when
@@ -70,9 +70,11 @@ function QueueColumnHeader({ hasSelection }: { hasSelection: boolean }) {
       {hasSelection && <div className="w-4 flex-shrink-0" aria-hidden="true" />}
 
       {/* Album-art column spacer — no label (the thumbnail itself is
-       * the column's content; a label would be redundant). w-12 h-12
-       * matches AlbumArtThumbnail's footprint. */}
-      <div className="w-12 h-12 flex-shrink-0" aria-hidden="true" />
+       * the column's content; a label would be redundant). w-12
+       * matches AlbumArtThumbnail's WIDTH only: no height, because a
+       * 48px-tall spacer made the sticky header about 65px high, taller
+       * than the 44px scroll padding below (#1310). */}
+      <div className="w-12 flex-shrink-0" aria-hidden="true" />
 
       {/* Tier 2 — Platform label (hidden below md, matching the
        * row's `hidden md:flex` platform icon column). It used to read
@@ -264,9 +266,9 @@ export function QueueListVirtualized({
       // when Tab focus enters a row whose top edge is under the
       // sticky column header (44px = header's py-2 + its small-print
       // line-height + border-b — verified during the #911 sticky
-      // header build). Note from the October 2026 polish pass: the
-      // header now measures about 65px, because its album-art spacer
-      // is 48px tall; this padding was not changed here.
+      // header build). The album-art spacer in the header has a width
+      // but no height, so the header stays at that 44px (#1310); if the
+      // header's height ever changes, change this number with it.
       className="flex-1 overflow-y-auto [scroll-padding-top:44px]"
       role="list"
       aria-label="Download queue items"

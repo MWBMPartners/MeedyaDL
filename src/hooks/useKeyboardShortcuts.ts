@@ -242,7 +242,8 @@ export function useKeyboardShortcuts(): void {
         case '>': {
           if (!e.shiftKey) break;
           e.preventDefault();
-          const settings = useSettingsStore.getState().settings;
+          // Saved value, not the Settings screen's unsaved edit (#1233).
+          const settings = useSettingsStore.getState().savedSettings;
           if (settings.abort_queue_confirm) {
             const confirmed = window.confirm(
               'Abort every active and queued download? This cannot be undone.',

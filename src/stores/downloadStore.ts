@@ -305,12 +305,14 @@ interface DownloadState {
    * Import queue items from a `.meedyadl` file via a native file picker.
    * IPC call: `commands.importQueue()` -> Rust `import_queue`
    * Imported items are enqueued and processing starts automatically.
-   * @returns The count of items imported
+   * @returns The count of items imported, plus `refreshError` when the
+   *   import itself worked but re-reading the queue afterwards failed
+   *   (the import is NOT undone, so it must not be reported as failed).
    * @throws Re-throws the IPC error (e.g. "Import cancelled", a corrupt
    *   or wrong-version file) so callers can tell those apart, instead of
    *   the pre-fix behaviour of quietly returning 0 either way.
    */
-  importQueue: () => Promise<number>;
+  importQueue: () => Promise<{ count: number; refreshError?: unknown }>;
 
   /**
    * Manually triggers download queue processing.
@@ -890,9 +892,17 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     // Refresh the queue to include the newly imported items. Only
     // reached on success -- a failed import has nothing new to
     // reflect, and the line above already threw.
-    const status = await commands.getQueueStatus();
-    set({ queueItems: status.items });
-    return count;
+    //
+    // A failure HERE is not a failed import: the items are already in the
+    // queue on the backend. It is handed back separately so the caller
+    // can say the import is done and the list just could not be refreshed.
+    try {
+      const status = await commands.getQueueStatus();
+      set({ queueItems: status.items });
+      return { count };
+    } catch (refreshError) {
+      return { count, refreshError };
+    }
   },
 
   /**

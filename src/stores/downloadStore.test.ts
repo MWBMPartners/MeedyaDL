@@ -604,10 +604,21 @@ describe('downloadStore', () => {
         items: importedItems,
       });
 
-      const count = await useDownloadStore.getState().importQueue();
+      const { count, refreshError } = await useDownloadStore.getState().importQueue();
 
       expect(count).toBe(2);
+      expect(refreshError).toBeUndefined();
       expect(useDownloadStore.getState().queueItems).toEqual(importedItems);
+    });
+
+    it('reports a failed refresh separately instead of failing the import (#1235)', async () => {
+      vi.mocked(commands.importQueue).mockResolvedValueOnce(3);
+      vi.mocked(commands.getQueueStatus).mockRejectedValueOnce(new Error('ipc down'));
+
+      const result = await useDownloadStore.getState().importQueue();
+
+      expect(result.count).toBe(3);
+      expect(result.refreshError).toBeInstanceOf(Error);
     });
 
     it('propagates the backend rejection and never touches the queue', async () => {

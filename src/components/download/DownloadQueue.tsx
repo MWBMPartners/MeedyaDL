@@ -225,7 +225,6 @@ export function DownloadQueue() {
    */
   const [abortDontAskAgain, setAbortDontAskAgain] = useState(false);
 
-  const settings = useSettingsStore((s) => s.settings);
 
   /**
    * Queue-level status announcer (a11y audit Fix 3).
@@ -373,12 +372,13 @@ export function DownloadQueue() {
    * single-click aborts).
    */
   const triggerAbort = useCallback(() => {
-    if (settings.abort_queue_confirm) {
+    // The saved value, not the Settings screen's unsaved edit (#1233).
+    if (useSettingsStore.getState().savedSettings.abort_queue_confirm) {
       setShowAbortConfirm(true);
     } else {
       void abortAll();
     }
-  }, [abortAll, settings.abort_queue_confirm]);
+  }, [abortAll]);
 
   /**
    * Pause/Resume click handler (#889).
@@ -640,8 +640,16 @@ export function DownloadQueue() {
    */
   const handleImport = async () => {
     try {
-      const count = await importQueue();
+      const { count, refreshError } = await importQueue();
       addToast(`Imported ${count} item${count !== 1 ? 's' : ''}`, 'success');
+      if (refreshError !== undefined) {
+        // The import worked; only the list on screen is out of date.
+        showBackendError(
+          'The import finished, but MeedyaDL could not refresh the queue on screen. Choose Refresh in the More menu to see the new items.',
+          refreshError,
+          { type: 'warning' },
+        );
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === 'Import cancelled') return;
@@ -956,16 +964,21 @@ export function DownloadQueue() {
     // the rest), but they are counted: the message used to say "Removed N
     // items" whatever happened.
     const failures: unknown[] = [];
+    const failedIds = new Set<string>();
     for (const t of targets) {
       try {
         await deleteItem(t.id);
       } catch (e) {
         failures.push(e);
+        failedIds.add(t.id);
       }
     }
     reportBulkResult('Removed', targets.length, failures, 'could not be removed — items that are downloading cannot be removed');
-    clearSelection();
-  }, [deleteItem, reportBulkResult, selectedVisibleIds, clearSelection]);
+    // Keep the rows that were NOT removed selected, so the person can see
+    // which ones they are and try again; everything else leaves the
+    // selection (#1232).
+    setSelectedIds((prev) => new Set([...prev].filter((id) => failedIds.has(id))));
+  }, [deleteItem, reportBulkResult, selectedVisibleIds]);
 
   /**
    * Select all rows currently visible in `filteredItems`. Honours the
@@ -1079,6 +1092,22 @@ export function DownloadQueue() {
     ),
     confirmLabel: 'Retry All',
     onConfirm: handleRetryAllFailedConfirmed,
+  });
+
+  const bulkDeleteConfirm = useConfirmation({
+    title: 'Remove Selected Items',
+    description: (
+      <>
+        <p className="mb-4">
+          This will remove {selectedVisibleIds.length} selected item
+          {selectedVisibleIds.length === 1 ? '' : 's'} from the download
+          queue. Items that are downloading or processing are not removed.
+        </p>
+        <p>This action cannot be undone.</p>
+      </>
+    ),
+    confirmLabel: 'Remove',
+    onConfirm: handleBulkDelete,
   });
 
   const clearAllConfirm = useConfirmation({
@@ -1336,7 +1365,7 @@ export function DownloadQueue() {
           <Button variant="ghost" size="sm" icon={<RotateCcw size={14} />} onClick={handleBulkRetry}>
             Retry selected
           </Button>
-          <Button variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={handleBulkDelete}>
+          <Button variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={bulkDeleteConfirm.open}>
             Remove selected
           </Button>
         </div>
@@ -1391,6 +1420,7 @@ export function DownloadQueue() {
       */}
       {retryAllConfirm.modal}
       {clearAllConfirm.modal}
+      {bulkDeleteConfirm.modal}
 
       {/* Confirmation modal for per-item Delete (#685) */}
       <Modal
