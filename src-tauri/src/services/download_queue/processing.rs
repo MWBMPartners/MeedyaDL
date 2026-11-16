@@ -1899,6 +1899,10 @@ pub fn process_queue(
                     // opens it too, so they are never stranded.
                     let (companion_gate, companion_gate_waiter) =
                         super::lyrics_pass::companion_gate();
+                    // Filled by enrichment when it lets the companions go;
+                    // read by the final advisory pass after them.
+                    let advisory_scope: Arc<StdMutex<Option<super::lyrics_pass::AdvisoryScope>>> =
+                        Arc::new(StdMutex::new(None));
                     let enrichment_handle = if let Some(output_dir) = output_path_for_artwork.clone() {
                         let enrich_app = app_clone.clone();
                         let enrich_urls = urls.clone();
@@ -1933,6 +1937,7 @@ pub fn process_queue(
                         let enrich_primary_version = primary_gamdl_version.clone();
                         let enrich_download_folder = primary_download_folder.clone();
                         let enrich_gate = companion_gate;
+                        let enrich_advisory_scope = advisory_scope.clone();
                         Some(tokio::spawn(async move {
                             // Owned by this task from its first line, so any
                             // return, panic or abort below drops it and lets
@@ -2482,17 +2487,45 @@ pub fn process_queue(
                             // these get the per-file renames and decide which
                             // formats the main download is in; other files in the
                             // folder are left exactly as they are.
+                            // For a single-song link, the requested song's disc
+                            // and track: only that song (or a file this run
+                            // wrote) is this download's, never the album's other
+                            // tracks already in the folder.
+                            let requested_song: Option<(u32, u32)> = enrich_urls
+                                .iter()
+                                .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
+                                .and_then(|p| p.song_id)
+                                .and_then(|id| {
+                                    album_metadata
+                                        .as_ref()?
+                                        .tracks
+                                        .iter()
+                                        .find(|t| t.song_id == id)
+                                        .map(|t| (t.disc_number, t.track_number))
+                                });
+                            let is_song_link = enrich_urls.iter().any(|u| {
+                                super::apple_music_api::parse_apple_music_url(u)
+                                    .is_some_and(|p| p.song_id.is_some() || p.content_type == "song")
+                            });
                             let this_download_paths: Vec<std::path::PathBuf> = primary_files
                                 .iter()
                                 .filter(|path| {
                                     let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                                    super::lyrics_pass::is_this_downloads_file(
-                                        fresh_files.contains(*path),
-                                        super::lyrics_pass::stem_matches_primary_name(stem, primary_suffix),
-                                        album_metadata
+                                    let evidence = super::lyrics_pass::FileEvidence {
+                                        fresh: fresh_files.contains(*path),
+                                        name_matches_primary:
+                                            super::lyrics_pass::stem_matches_primary_name(stem, primary_suffix),
+                                        primary_has_suffix: primary_suffix.is_some(),
+                                        album_matched: album_metadata
                                             .as_ref()
                                             .map(|_| album_matched_files.contains(*path)),
-                                    )
+                                        is_requested_song: is_song_link.then(|| {
+                                            let n = super::lyrics_pass::read_audio_numbers(path, false, None);
+                                            requested_song.is_some()
+                                                && n.disc.zip(n.track) == requested_song
+                                        }),
+                                    };
+                                    super::lyrics_pass::is_this_downloads_file(&evidence)
                                 })
                                 .cloned()
                                 .collect();
@@ -3221,6 +3254,22 @@ pub fn process_queue(
                             // left out of the per-track list).
                             let detected_codecs =
                                 super::lyrics_pass::protection_codecs(&renamed_primary);
+                            // What the final advisory pass after the companions
+                            // may touch: this download's files at their final
+                            // names, plus whatever appears in the folder from
+                            // now on (taken BEFORE the companions are let go).
+                            if let Ok(mut scope) = enrich_advisory_scope.lock() {
+                                *scope = Some(super::lyrics_pass::AdvisoryScope {
+                                    dir: std::path::PathBuf::from(&album_dir),
+                                    this_download: renamed_primary
+                                        .iter()
+                                        .map(|r| r.final_path.clone())
+                                        .collect(),
+                                    before_companions: super::lyrics_pass::audio_files_in(
+                                        std::path::Path::new(&album_dir),
+                                    ),
+                                });
+                            }
                             companion_gate.release(
                                 every_file_has_its_format
                                     && super::metadata_tag_service::renames_complete(&renamed_primary),
@@ -3228,7 +3277,6 @@ pub fn process_queue(
                                 split.tracks,
                                 album_tracks,
                                 split.unplaceable,
-                                split.folder_only_codecs,
                             );
 
                             emit_download_log(&enrich_app, &enrich_dl_id, &format!("✓ Lyrics processing completed{}", album_context()));
@@ -4302,6 +4350,7 @@ pub fn process_queue(
                         // its own copy (`enrich_is_apple_music`, see #452 /
                         // Step 1 above) by move (#1021).
                         let completion_is_apple_music = is_apple_music;
+                        let completion_advisory_scope = advisory_scope.clone();
                         tokio::spawn(async move {
                             // Wait for enrichment to finish with a timeout (#461).
                             // If enrichment hangs (e.g., deadlock, unresponsive API),
@@ -4589,11 +4638,26 @@ pub fn process_queue(
                                         // starts.
                                         const ADVISORY_TIMEOUT: std::time::Duration =
                                             std::time::Duration::from_secs(300);
-                                        let dir_clone = dir_for_advisory.clone();
+                                        // Only this download's files and the copies
+                                        // made after its renames — never older files
+                                        // sharing the folder. When enrichment never
+                                        // got as far as letting the companions go,
+                                        // nothing is known to be this download's, so
+                                        // nothing is renamed.
+                                        let scope = completion_advisory_scope
+                                            .lock()
+                                            .ok()
+                                            .and_then(|s| s.clone());
+                                        log::debug!(
+                                            "Final advisory pass for {completion_dl_id} in {dir_for_advisory}: {}",
+                                            if scope.is_some() { "this download's files only" } else { "skipped (no scope)" }
+                                        );
                                         let blocking = tokio::task::spawn_blocking(move || {
-                                            super::metadata_tag_service::apply_advisory_suffixes_from_tags(
-                                                &dir_clone,
-                                            );
+                                            if let Some(scope) = scope {
+                                                super::metadata_tag_service::apply_advisory_suffixes_to_files(
+                                                    &super::lyrics_pass::advisory_pass_files(&scope),
+                                                );
+                                            }
                                         });
                                         match tokio::time::timeout(ADVISORY_TIMEOUT, blocking).await {
                                             Ok(Ok(())) => {

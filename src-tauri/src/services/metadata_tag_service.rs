@@ -1782,8 +1782,19 @@ pub fn apply_advisory_folder_suffix(
 /// downloader), this works without needing access to the original
 /// `AlbumMetadata` struct.
 pub fn apply_advisory_suffixes_from_tags(output_path: &str) {
-    let m4a_files = collect_m4a_files(output_path);
-    for file_path in &m4a_files {
+    apply_advisory_suffixes_to_files(&collect_m4a_files(output_path));
+}
+
+/// [`apply_advisory_suffixes_from_tags`] for exactly these files and no
+/// others. The download pipeline's final pass after the extra-format
+/// copies uses this with this download's own files and the copies made
+/// after its renames (`lyrics_pass::advisory_pass_files`), so older files
+/// in the same folder are never renamed by a later download.
+pub fn apply_advisory_suffixes_to_files(m4a_files: &[PathBuf]) {
+    for file_path in m4a_files {
+        if !is_m4a(file_path) {
+            continue;
+        }
         let Ok(tag) = mp4ameta::Tag::read_from_path(file_path) else {
             continue;
         };
@@ -3457,6 +3468,20 @@ mod tests {
         .unwrap();
         meta.tracks = vec![sample_tracks().remove(0)];
         meta
+    }
+
+    #[test]
+    fn the_scoped_advisory_pass_never_renames_an_older_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let older = dir.path().join("05 Old.m4a");
+        let mine = dir.path().join("01 T [Lossless].m4a");
+        minimal_m4a(&older, 5, 1, true);
+        minimal_m4a(&mine, 1, 1, true);
+        apply_advisory_suffixes_to_files(std::slice::from_ref(&mine));
+        assert!(dir.path().join("01 T [Explicit] [Lossless].m4a").is_file());
+        // Rated explicit too, but not one of the files given: unchanged.
+        assert!(older.is_file());
+        assert!(!dir.path().join("05 Old [Explicit].m4a").exists());
     }
 
     #[test]

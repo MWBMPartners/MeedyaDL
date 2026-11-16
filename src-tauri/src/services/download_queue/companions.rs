@@ -680,17 +680,30 @@ pub(crate) fn companion_attempt_naming(
     Err(CompanionSkip::SameNames)
 }
 
-/// Whether an ordinary (whole-link) attempt must run with overwrite off:
-/// its format is found only among OTHER files in the folder (an earlier
-/// download, an earlier copy, another album), never in this download, so
-/// a file it would name the same way belongs to somebody else's download
-/// and must not be replaced.
-pub(crate) fn keep_other_files(
-    codec: &SongCodec,
-    folder_only_codecs: &[SongCodec],
-    primary_codecs: &[SongCodec],
-) -> bool {
-    folder_only_codecs.contains(codec) && !primary_codecs.contains(codec)
+/// Whether a GAMDL output line says an item was skipped because a file
+/// of that name was already there (companions always run with overwrite
+/// off). GAMDL 4.x: `↷ Title: skipped → path` with no reason in brackets
+/// (a skip for another reason carries one). GAMDL 3.x: a "Skipping" line
+/// that says the file already exists (wording to be confirmed on a real
+/// machine).
+pub(crate) fn is_already_there_skip_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if let Some(rest) = trimmed.strip_prefix('↷') {
+        return rest.contains(": skipped →") && !rest.contains(": skipped (");
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    lower.contains("skipping") && lower.contains("already exist")
+}
+
+/// The plain line for copies not made because a file with the same name
+/// was already there, or `None` when there were none.
+pub(crate) fn already_there_line(codec: &SongCodec, count: usize) -> Option<String> {
+    (count > 0).then(|| {
+        format!(
+            "{count} extra copy(ies) in {} were not made because a file with the same name was already there.",
+            plain_codec_name(codec)
+        )
+    })
 }
 
 /// A format's name for the activity log, without the "(Experimental)"
@@ -2951,7 +2964,6 @@ pub(crate) fn spawn_companion_downloads(
             let mut primary_tracks: Vec<(SongCodec, u32, u32)> = Vec::new();
             let mut album_tracks: Vec<(u32, u32, String)> = Vec::new();
             let mut unplaceable: Vec<SongCodec> = Vec::new();
-            let mut folder_only_codecs: Vec<SongCodec> = Vec::new();
             if let Some(hold) = held_until {
                 let mut waiter = hold.waiter;
                 let state = super::lyrics_pass::wait_for_companion_gate(&mut waiter, || {
@@ -2970,7 +2982,6 @@ pub(crate) fn spawn_companion_downloads(
                 primary_tracks.clone_from(&state.primary_tracks);
                 album_tracks.clone_from(&state.album_tracks);
                 unplaceable.clone_from(&state.unplaceable);
-                folder_only_codecs.clone_from(&state.folder_only_codecs);
                 if !state.renames_done {
                     // The primary files may still have their plain names
                     // (enrichment ended early, or the format could not be
@@ -3188,16 +3199,7 @@ pub(crate) fn spawn_companion_downloads(
                         &album_tracks,
                         &unplaceable,
                     ) {
-                        AttemptLinks::All => {
-                            // The format exists only in OTHER files in the
-                            // folder (an earlier download, another album):
-                            // run the normal request, but never replace an
-                            // existing file, overriding the overwrite setting.
-                            if keep_other_files(codec, &folder_only_codecs, &primary_codecs) {
-                                opts.overwrite = Some(false);
-                            }
-                            comp_urls.clone()
-                        }
+                        AttemptLinks::All => comp_urls.clone(),
                         AttemptLinks::Skip(reason) => {
                             emit_download_log(&comp_app, &comp_dl_id, &reason);
                             continue;
@@ -3220,15 +3222,20 @@ pub(crate) fn spawn_companion_downloads(
                             if links.is_empty() {
                                 continue;
                             }
-                            // Overwrite stays off for safety, overriding the
-                            // person's setting: the tracks already in this
-                            // format are not requested, but nothing this run
-                            // saves should ever replace an existing file.
-                            opts.overwrite = Some(false);
                             links
                         }
                     };
                     let requested_songs = (attempt_urls != comp_urls).then_some(attempt_urls.len());
+                    // An extra-format copy only ever ADDS files: it never
+                    // replaces one, whatever the person's overwrite setting
+                    // says. A file of the same name may be the main
+                    // download's (enriched) file, another album's, or an
+                    // earlier download's — none of which a copy may destroy.
+                    // The trade-off: re-downloading does not refresh extra
+                    // copies already on disk. Each skip of that kind is
+                    // counted from GAMDL's output and reported in one line.
+                    opts.overwrite = Some(false);
+                    let already_there = Arc::new(std::sync::atomic::AtomicUsize::new(0));
                     // If not suffixed, the base options already
                     // have clean (unsuffixed) templates.
 
@@ -3305,8 +3312,12 @@ pub(crate) fn spawn_companion_downloads(
                     let queue_for_label = comp_queue.clone();
                     let app_for_label = comp_app.clone();
                     let dl_for_label = comp_dl_id.clone();
+                    let already_there_counter = already_there.clone();
                     let emitter: super::companion_supervisor::LineEmitter =
                         std::sync::Arc::new(move |app, dl, stream, line| {
+                            if is_already_there_skip_line(&line) {
+                                already_there_counter.fetch_add(1, Ordering::Relaxed);
+                            }
                             // Captured-by-value clones for the per-line update path.
                             let codec_name = tier_label_codec.clone();
                             let tier_n = tier_idx_for_label;
@@ -3359,6 +3370,11 @@ pub(crate) fn spawn_companion_downloads(
                         emitter,
                     )
                     .await;
+                    if let Some(line) =
+                        already_there_line(codec, already_there.load(Ordering::Relaxed))
+                    {
+                        emit_download_log(&comp_app, &comp_dl_id, &line);
+                    }
 
                     // Surface the post-processing transition to the queue UI so
                     // the per-item bar switches from `DOWNLOADING…` to

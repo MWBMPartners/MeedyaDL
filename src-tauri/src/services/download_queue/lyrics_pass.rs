@@ -752,10 +752,6 @@ pub(crate) struct CompanionGateState {
     /// track number could not be read: they cannot be requested on their
     /// own, and are counted in the "left without an extra copy" line.
     pub unplaceable: Vec<SongCodec>,
-    /// Formats found only among OTHER files in the folder, never in this
-    /// download: a companion in such a format runs normally but with
-    /// overwrite off, so it never replaces somebody else's file.
-    pub folder_only_codecs: Vec<SongCodec>,
 }
 
 /// Enrichment's end of the gate. Dropping it — an early return, a panic,
@@ -787,7 +783,6 @@ impl CompanionGate {
         primary_tracks: Vec<(SongCodec, u32, u32)>,
         album_tracks: Vec<(u32, u32, String)>,
         unplaceable: Vec<SongCodec>,
-        folder_only_codecs: Vec<SongCodec>,
     ) {
         self.0.send_modify(|s| {
             s.renames_done = renames_done;
@@ -795,7 +790,6 @@ impl CompanionGate {
             s.primary_tracks = primary_tracks;
             s.album_tracks = album_tracks;
             s.unplaceable = unplaceable;
-            s.folder_only_codecs = folder_only_codecs;
         });
         // `Drop` sets `released`.
     }
@@ -893,24 +887,84 @@ pub(crate) fn file_templates_allow_fixed_folder(options: &GamdlOptions) -> bool 
     .all(|t| !t.contains('/') && !t.contains('\\'))
 }
 
-/// Whether a tagged file counts as one of THIS download's own primary
-/// files, for the per-track list a mixed-album companion asks for. A file
-/// written since the download started (judged at snapshot time) always
-/// counts. Otherwise one named the way this primary run names its files
-/// (a re-download with overwrite off leaves it unchanged) counts unless
-/// its album did not match Apple Music's (another album sharing the
-/// folder). `album_matched` is `None` when there were no album details
-/// (a playlist).
+/// What is known about one file in the folder, to decide whether it is
+/// one of THIS download's own files ([`is_this_downloads_file`]).
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct FileEvidence {
+    /// Written since the download started (judged at snapshot time).
+    pub fresh: bool,
+    /// Its name ends the way this run names its files
+    /// ([`stem_matches_primary_name`]).
+    pub name_matches_primary: bool,
+    /// Whether MeedyaDL appended a format suffix to this run's templates.
+    /// Without one, "named like this run" only means "no format suffix",
+    /// which every plain AAC file and every unrenamed file also has.
+    pub primary_has_suffix: bool,
+    /// Whether its album matched Apple Music's (`None`: no album details,
+    /// a playlist).
+    pub album_matched: Option<bool>,
+    /// For a single-song link: whether the file is that song (its disc and
+    /// track). `None` for any other link.
+    pub is_requested_song: Option<bool>,
+}
+
+/// Whether a file in the folder counts as one of THIS download's own
+/// primary files — the ones renamed, and whose formats the extra-format
+/// copies are judged against.
 ///
-/// The companions' format PROTECTION list is not built from this: it
-/// comes from every file enrichment named by format
-/// (`DeferredRename::detected`), so it always matches what was renamed.
-pub(crate) fn is_this_downloads_file(
-    fresh: bool,
-    name_matches_primary: bool,
-    album_matched: Option<bool>,
-) -> bool {
-    fresh || (name_matches_primary && album_matched != Some(false))
+/// - Written by this run: always.
+/// - A single-song link: otherwise only the requested song itself (album
+///   not failing to match), never the album's other tracks in the folder.
+/// - Otherwise named the way this run names its files: when the run's
+///   templates carry a format suffix, unless its album failed to match;
+///   when they carry none, only if its album positively matched.
+pub(crate) fn is_this_downloads_file(e: &FileEvidence) -> bool {
+    if e.fresh {
+        return true;
+    }
+    if let Some(is_song) = e.is_requested_song {
+        return is_song && e.album_matched != Some(false);
+    }
+    if !e.name_matches_primary {
+        return false;
+    }
+    if e.primary_has_suffix {
+        e.album_matched != Some(false)
+    } else {
+        e.album_matched == Some(true)
+    }
+}
+
+/// What the final advisory pass after the extra-format copies may touch:
+/// this download's own files (their final names) and whatever audio files
+/// appeared in the folder after enrichment's renames (the companions'
+/// copies). Set by enrichment right before it lets the companions start.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct AdvisoryScope {
+    /// The album folder.
+    pub dir: PathBuf,
+    /// This download's files, at their final names.
+    pub this_download: Vec<PathBuf>,
+    /// Every audio file in `dir` just before the companions started.
+    pub before_companions: std::collections::BTreeSet<PathBuf>,
+}
+
+/// The files the final advisory pass handles: this download's files that
+/// still exist, plus audio files in the folder that were not there before
+/// the companions started. Older files in the folder are never included.
+pub(crate) fn advisory_pass_files(scope: &AdvisoryScope) -> Vec<PathBuf> {
+    let mut files: Vec<PathBuf> = scope
+        .this_download
+        .iter()
+        .filter(|p| p.is_file())
+        .cloned()
+        .collect();
+    for new in audio_files_in(&scope.dir).difference(&scope.before_companions) {
+        if !files.contains(new) {
+            files.push(new.clone());
+        }
+    }
+    files
 }
 
 /// This download's files sorted for the companions (see
@@ -923,36 +977,25 @@ pub(crate) struct ThisDownloadsFormats {
     /// The format of each of this download's tagged files whose disc or
     /// track number could not be read.
     pub unplaceable: Vec<SongCodec>,
-    /// Formats found only among OTHER files in the folder (earlier
-    /// downloads, earlier copies, other albums) — never in this download.
-    pub folder_only_codecs: Vec<SongCodec>,
 }
 
-/// Sorts the tagged files (`file_codecs`, every file in the folder) into
-/// this download's (`this_download`) and the rest. `numbers` reads a
-/// file's disc and track (`None` when either is unreadable).
+/// Picks this download's files (`this_download`) out of the tagged files
+/// (`file_codecs`, every file in the folder) and sorts them by whether
+/// their disc and track can be read (`numbers`). Formats recorded for
+/// OTHER files feed nothing: in single-format mode every tagged file is
+/// labelled with the requested format, so they would be wrong anyway.
 pub(crate) fn split_this_downloads_formats(
     this_download: &[PathBuf],
     file_codecs: &[(PathBuf, SongCodec)],
     numbers: impl Fn(&Path) -> Option<(u32, u32)>,
 ) -> ThisDownloadsFormats {
     let mut out = ThisDownloadsFormats::default();
-    let mut own_codecs: Vec<&SongCodec> = Vec::new();
     for (path, codec) in file_codecs {
         if this_download.contains(path) {
-            own_codecs.push(codec);
             match numbers(path) {
                 Some((d, t)) => out.tracks.push((codec.clone(), d, t)),
                 None => out.unplaceable.push(codec.clone()),
             }
-        }
-    }
-    for (path, codec) in file_codecs {
-        if !this_download.contains(path)
-            && !own_codecs.contains(&codec)
-            && !out.folder_only_codecs.contains(codec)
-        {
-            out.folder_only_codecs.push(codec.clone());
         }
     }
     out
@@ -1545,41 +1588,105 @@ mod tests {
         let files = vec![
             (a.clone(), SongCodec::Atmos),
             (b.clone(), SongCodec::Atmos),
-            (stale.clone(), SongCodec::Alac),
+            (stale, SongCodec::Alac),
         ];
-        let split = split_this_downloads_formats(&[a.clone(), b.clone()], &files, |p| {
+        let split = split_this_downloads_formats(&[a.clone(), b], &files, |p| {
             (p == a.as_path()).then_some((1, 1))
         });
+        // The stale file feeds nothing.
         assert_eq!(split.tracks, vec![(SongCodec::Atmos, 1, 1)]);
         assert_eq!(split.unplaceable, vec![SongCodec::Atmos]);
-        // ALAC is only in the stale file: not this download's format.
-        assert_eq!(split.folder_only_codecs, vec![SongCodec::Alac]);
-        // A format both have is this download's, never "folder only".
-        let both = split_this_downloads_formats(
-            std::slice::from_ref(&a),
-            &[(a.clone(), SongCodec::Alac), (stale, SongCodec::Alac)],
-            |_| Some((1, 1)),
-        );
-        assert!(both.folder_only_codecs.is_empty());
     }
 
     #[test]
     fn files_from_another_album_never_count_as_this_downloads() {
-        // Written by this download: always counts — even when the #452
-        // album guard failed (edition wording, a different artist tag).
-        assert!(is_this_downloads_file(true, false, Some(false)));
-        assert!(is_this_downloads_file(true, true, Some(false)));
-        // Not new, named like this run's files, album matched: counts
-        // (a re-download with overwrite off).
-        assert!(is_this_downloads_file(false, true, Some(true)));
-        // Not new, and its album did not match: another album's file.
-        assert!(!is_this_downloads_file(false, true, Some(false)));
-        // An older copy in another format: neither new nor named like it.
-        assert!(!is_this_downloads_file(false, false, Some(true)));
-        // No album details (a playlist): freshness and names decide.
-        assert!(is_this_downloads_file(true, false, None));
-        assert!(is_this_downloads_file(false, true, None));
-        assert!(!is_this_downloads_file(false, false, None));
+        let e = |fresh, name, suffix, album, song| FileEvidence {
+            fresh,
+            name_matches_primary: name,
+            primary_has_suffix: suffix,
+            album_matched: album,
+            is_requested_song: song,
+        };
+        // Written by this download: always, even if the album guard failed.
+        assert!(is_this_downloads_file(&e(
+            true,
+            false,
+            true,
+            Some(false),
+            None
+        )));
+        // Named like this run's suffixed files: unless the album failed.
+        assert!(is_this_downloads_file(&e(
+            false,
+            true,
+            true,
+            Some(true),
+            None
+        )));
+        assert!(is_this_downloads_file(&e(false, true, true, None, None)));
+        assert!(!is_this_downloads_file(&e(
+            false,
+            true,
+            true,
+            Some(false),
+            None
+        )));
+        // No suffix in this run's templates (native priority): a plain name
+        // proves nothing, so only a positive album match counts.
+        assert!(is_this_downloads_file(&e(
+            false,
+            true,
+            false,
+            Some(true),
+            None
+        )));
+        assert!(!is_this_downloads_file(&e(false, true, false, None, None)));
+        // An older copy in another format.
+        assert!(!is_this_downloads_file(&e(
+            false,
+            false,
+            true,
+            Some(true),
+            None
+        )));
+    }
+
+    #[test]
+    fn a_single_song_link_counts_only_that_song() {
+        let e = |fresh, song| FileEvidence {
+            fresh,
+            name_matches_primary: true,
+            primary_has_suffix: false,
+            album_matched: Some(true),
+            is_requested_song: Some(song),
+        };
+        // The album's other tracks already in the folder (perhaps in the
+        // companion's format) are not this download's — so no false
+        // "already in that format".
+        assert!(!is_this_downloads_file(&e(false, false)));
+        assert!(is_this_downloads_file(&e(false, true)));
+        assert!(is_this_downloads_file(&e(true, false)));
+    }
+
+    #[test]
+    fn the_final_advisory_pass_leaves_older_files_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let older = dir.path().join("05 Old.m4a");
+        let mine = dir.path().join("01 A [Explicit].m4a");
+        std::fs::write(&older, b"o").unwrap();
+        std::fs::write(&mine, b"a").unwrap();
+        let scope = AdvisoryScope {
+            dir: dir.path().to_path_buf(),
+            this_download: vec![mine.clone()],
+            before_companions: audio_files_in(dir.path()),
+        };
+        // A companion copy arrives afterwards.
+        let copy = dir.path().join("01 A [Lossless].m4a");
+        std::fs::write(&copy, b"c").unwrap();
+        let mut files = advisory_pass_files(&scope);
+        files.sort();
+        assert_eq!(files, vec![mine, copy]);
+        assert!(!advisory_pass_files(&scope).contains(&older));
     }
 
     #[test]
@@ -1903,7 +2010,6 @@ mod tests {
             vec![(SongCodec::Alac, 1, 1)],
             vec![(1, 1, "100".to_string())],
             vec![SongCodec::Aac],
-            vec![SongCodec::Ac3],
         );
         let state = waiting.await.unwrap().unwrap();
         assert!(state.released);
@@ -1912,7 +2018,6 @@ mod tests {
         assert_eq!(state.primary_tracks, vec![(SongCodec::Alac, 1, 1)]);
         assert_eq!(state.album_tracks, vec![(1, 1, "100".to_string())]);
         assert_eq!(state.unplaceable, vec![SongCodec::Aac]);
-        assert_eq!(state.folder_only_codecs, vec![SongCodec::Ac3]);
         assert_eq!(
             state.album_dir.as_deref(),
             Some("/Music/A/Album [Explicit]")

@@ -2923,9 +2923,36 @@
             ),
             AttemptLinks::All
         );
-        assert!(keep_other_files(&SongCodec::Alac, &split.folder_only_codecs, &primary_codecs));
-        // A format this download has is never "somebody else's".
-        assert!(!keep_other_files(&SongCodec::Atmos, &split.folder_only_codecs, &primary_codecs));
+        // Every companion attempt runs with overwrite off (see the
+        // companion task), so the stale file is never replaced.
+    }
+
+    #[test]
+    fn a_copy_skipped_because_its_name_was_taken_is_reported() {
+        // GAMDL 4: a skip with a path and no reason = the file was there.
+        assert!(is_already_there_skip_line("↷ Song: skipped → /m/A/01 Song [Lossless].m4a"));
+        // A skip for another reason carries one, and is not counted.
+        assert!(!is_already_there_skip_line("↷ Song: skipped (Media is not streamable)"));
+        assert!(!is_already_there_skip_line("✓ Song: downloaded → /m/A/01 Song.m4a"));
+        // GAMDL 3 wording.
+        assert!(is_already_there_skip_line(
+            "[WARNING 10:00:00] [Track 1/3] Skipping \"Song\": Media file already exists"
+        ));
+        assert!(!is_already_there_skip_line(
+            "[WARNING 10:00:00] [Track 1/3] Skipping \"Song\": Requested format is not available"
+        ));
+        assert_eq!(already_there_line(&SongCodec::Alac, 0), None);
+        assert_eq!(
+            already_there_line(&SongCodec::Alac, 2).as_deref(),
+            Some("2 extra copy(ies) in Lossless (ALAC) were not made because a file with the same name was already there.")
+        );
+    }
+
+    /// Every companion run forces overwrite off, on every path.
+    #[test]
+    fn companions_never_overwrite() {
+        let src = include_str!("companions.rs");
+        assert!(src.contains("opts.overwrite = Some(false);"));
     }
 
     /// This download's own mixed album still asks per track.
