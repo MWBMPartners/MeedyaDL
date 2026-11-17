@@ -2355,10 +2355,10 @@ pub fn process_queue(
                             // this happened inside Step 1, and only when the
                             // download's format was recognised, so an
                             // unrecognised format also switched Step 1b off.
-                            let album_metadata = if is_library {
-                                None
+                            let (album_metadata, album_token) = if is_library {
+                                (None, super::metadata_tag_service::TokenOutcome::NotTried)
                             } else {
-                                super::metadata_tag_service::try_fetch_metadata(
+                                super::metadata_tag_service::try_fetch_metadata_with_token(
                                     &enrich_app,
                                     &enrich_urls,
                                     Some((&enrich_app, &enrich_dl_id)),
@@ -2406,6 +2406,7 @@ pub fn process_queue(
                             let other_albums = super::metadata_tag_service::try_fetch_other_albums(
                                 &enrich_app,
                                 &other_album_refs,
+                                album_token,
                                 Some((&enrich_app, &enrich_dl_id)),
                                 &enrich_shutdown,
                             )
@@ -2616,14 +2617,10 @@ pub fn process_queue(
                                     &enrich_app,
                                     &album_dir,
                                     codec,
-                                    &enrich_urls,
                                     &download_albums,
                                     Some((&enrich_app, &enrich_dl_id)),
                                     enrich_native_priority,
                                     enrich_settings.content_advisory_in_filenames,
-                                    // The details were already asked for once,
-                                    // above: never ask again here.
-                                    is_library || album_metadata.is_none(),
                                     Some(&primary_files),
                                     Some(&enrich_in_flight),
                                     &date_stamp_files,

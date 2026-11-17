@@ -397,12 +397,10 @@ pub async fn apply_enriched_metadata_tags(
     app: &AppHandle,
     output_path: &str,
     codec: &SongCodec,
-    _urls: &[String],
     albums: &DownloadAlbums,
     event_context: Option<(&tauri::AppHandle, &str)>,
     uses_native_priority: bool,
     content_advisory_in_filenames: bool,
-    _is_library: bool,
     deferred_primary_files: Option<&[PathBuf]>,
     in_flight_writes: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
     date_stamp_files: &std::collections::HashSet<PathBuf>,
@@ -502,6 +500,7 @@ pub async fn apply_enriched_metadata_tags(
             ffprobe_path.as_ref(),
             mediainfo_path.as_ref(),
             Arc::clone(&albums.albums),
+            albums.has_primary,
             albums.single_album_download,
             event_context,
             in_flight_writes,
@@ -512,14 +511,13 @@ pub async fn apply_enriched_metadata_tags(
             Ok((detected_codec, album_index)) => {
                 tagged_count += 1;
                 file_codecs.push((file_path.clone(), detected_codec));
-                if let Some(index) = album_index {
-                    file_albums.push((file_path.clone(), index));
-                    // `album_matched_files` keeps its old meaning: the files
-                    // that belong to the PRIMARY album.
-                    if albums.has_primary && index == 0 {
-                        album_matched_files.push(file_path.clone());
-                    }
-                }
+                record_file_album(
+                    &mut file_albums,
+                    &mut album_matched_files,
+                    file_path,
+                    album_index,
+                    albums.has_primary,
+                );
             }
             Err(e) => {
                 log::debug!("Failed to enrich {}: {}", file_path.display(), e);
@@ -558,6 +556,27 @@ pub async fn apply_enriched_metadata_tags(
         album_matched_files,
         file_albums,
     })
+}
+
+/// Records which album a tagged file was matched to.
+///
+/// `file_albums` gets every matched file with its album's index.
+/// `album_matched_files` keeps its old meaning: only the files that belong
+/// to the PRIMARY album (index 0, and only when the primary album's details
+/// were found), so everything that reads it behaves as before.
+fn record_file_album(
+    file_albums: &mut Vec<(PathBuf, usize)>,
+    album_matched_files: &mut Vec<PathBuf>,
+    file_path: &Path,
+    album_index: Option<usize>,
+    has_primary: bool,
+) {
+    if let Some(index) = album_index {
+        file_albums.push((file_path.to_path_buf(), index));
+        if has_primary && index == 0 {
+            album_matched_files.push(file_path.to_path_buf());
+        }
+    }
 }
 
 /// What [`apply_enriched_metadata_tags`] did.
@@ -838,6 +857,7 @@ async fn enrich_single_file(
     ffprobe_path: Option<&PathBuf>,
     mediainfo_path: Option<&PathBuf>,
     albums: Arc<Vec<AlbumMetadata>>,
+    has_primary: bool,
     single_album_download: bool,
     event_context: Option<(&tauri::AppHandle, &str)>,
     in_flight_writes: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
@@ -1061,7 +1081,11 @@ async fn enrich_single_file(
                 AlbumPick::Chosen { index, .. } => album_index = Some(index),
                 AlbumPick::NoMatch => {
                     let file_album = tag.album().map(|s| s.to_string());
-                    let api_album = albums[0].album_name.as_deref();
+                    let api_album = if has_primary {
+                        albums[0].album_name.as_deref()
+                    } else {
+                        None
+                    };
                     log::warn!(
                         "Skipping API metadata for {} — album mismatch: file='{}', API='{}'",
                         tag_path.display(),
@@ -1080,21 +1104,29 @@ async fn enrich_single_file(
                     // download still succeeds, and nothing on screen says so.
                     // A line in the log file only is not good enough for that.
                     if let Some((app, download_id)) = log_context.as_ref() {
-                        crate::utils::activity_log::emit_download_log(
-                            app,
-                            download_id,
-                            &format!(
+                        let file_name = tag_path.file_name().map_or_else(
+                            || tag_path.display().to_string(),
+                            |n| n.to_string_lossy().to_string(),
+                        );
+                        let message = if let Some(name) = api_album.filter(|_| has_primary && albums.len() == 1) {
+                            format!(
                                 "Extra metadata skipped for \"{}\" — the album name on the file \
                                  (\"{}\") does not match the one Apple Music gave us (\"{}\"). \
                                  The file itself downloaded normally.",
-                                tag_path.file_name().map_or_else(
-                                    || tag_path.display().to_string(),
-                                    |n| n.to_string_lossy().to_string()
-                                ),
+                                file_name,
                                 file_album.as_deref().unwrap_or("none"),
-                                api_album.unwrap_or("none"),
-                            ),
-                        );
+                                name,
+                            )
+                        } else {
+                            format!(
+                                "Extra metadata skipped for \"{}\" — the album name on the file \
+                                 (\"{}\") does not match any album found for this download. \
+                                 The file itself downloaded normally.",
+                                file_name,
+                                file_album.as_deref().unwrap_or("none"),
+                            )
+                        };
+                        crate::utils::activity_log::emit_download_log(app, download_id, &message);
                     }
                 }
                 AlbumPick::Ambiguous => {
@@ -1315,12 +1347,16 @@ pub(crate) fn former_ids_from_json(v: &serde_json::Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Whether this track has the given song number, now or as an earlier one.
-fn track_has_song_id(track: &apple_music_api::TrackMetadata, song_id: &str) -> bool {
+/// Whether this track has the given song number as its CURRENT number.
+fn track_has_current_song_id(track: &apple_music_api::TrackMetadata, song_id: &str) -> bool {
     track.song_id == song_id
-        || former_ids_from_json(&track.raw_json)
-            .iter()
-            .any(|f| f == song_id)
+}
+
+/// Whether this track has the given song number as an EARLIER number.
+fn track_has_former_song_id(track: &apple_music_api::TrackMetadata, song_id: &str) -> bool {
+    former_ids_from_json(&track.raw_json)
+        .iter()
+        .any(|f| f == song_id)
 }
 
 /// Chooses which of a download's albums a file belongs to.
@@ -1343,12 +1379,20 @@ pub(crate) fn pick_album_for_file(
     file_artist: Option<&str>,
 ) -> AlbumPick {
     if let Some(id) = song_id {
-        let hits: Vec<usize> = albums
-            .iter()
-            .enumerate()
-            .filter(|(_, a)| a.tracks.iter().any(|t| track_has_song_id(t, id)))
-            .map(|(i, _)| i)
-            .collect();
+        // A current number outranks an earlier one: only when no album has
+        // the number as a current one are the earlier numbers looked at.
+        let albums_where = |has: fn(&apple_music_api::TrackMetadata, &str) -> bool| -> Vec<usize> {
+            albums
+                .iter()
+                .enumerate()
+                .filter(|(_, a)| a.tracks.iter().any(|t| has(t, id)))
+                .map(|(i, _)| i)
+                .collect()
+        };
+        let mut hits = albums_where(track_has_current_song_id);
+        if hits.is_empty() {
+            hits = albums_where(track_has_former_song_id);
+        }
         match hits.as_slice() {
             [] => {}
             [index] => {
@@ -1439,11 +1483,23 @@ impl AlbumStamp {
         }
     }
 
-    /// The song with this number (now or as an earlier number), if any.
-    fn track_with_song_id(&self, id: &str) -> Option<&StampTrack> {
+    /// The song with this number as its CURRENT number, if any.
+    fn track_with_current_song_id(&self, id: &str) -> Option<&StampTrack> {
+        self.tracks.iter().find(|t| t.song_id == id)
+    }
+
+    /// The song with this number as an EARLIER number, if any.
+    fn track_with_former_song_id(&self, id: &str) -> Option<&StampTrack> {
         self.tracks
             .iter()
-            .find(|t| t.song_id == id || t.former_song_ids.iter().any(|f| f == id))
+            .find(|t| t.former_song_ids.iter().any(|f| f == id))
+    }
+
+    /// The song with this number (now or as an earlier number), if any.
+    /// A current number wins over an earlier one within the album.
+    fn track_with_song_id(&self, id: &str) -> Option<&StampTrack> {
+        self.track_with_current_song_id(id)
+            .or_else(|| self.track_with_former_song_id(id))
     }
 }
 
@@ -1483,11 +1539,21 @@ impl DownloadStamps {
         track: Option<u16>,
     ) -> Option<(&AlbumStamp, Option<&StampTrack>)> {
         if let Some(id) = song_id {
-            let mut hits = self
+            // A current number outranks an earlier one across all albums.
+            let current: Vec<_> = self
                 .albums
                 .iter()
-                .filter_map(|a| a.track_with_song_id(id).map(|t| (a, t)));
-            if let (Some((album, found)), None) = (hits.next(), hits.next()) {
+                .filter_map(|a| a.track_with_current_song_id(id).map(|t| (a, t)))
+                .collect();
+            let hits = if current.is_empty() {
+                self.albums
+                    .iter()
+                    .filter_map(|a| a.track_with_former_song_id(id).map(|t| (a, t)))
+                    .collect()
+            } else {
+                current
+            };
+            if let [(album, found)] = hits.as_slice() {
                 return Some((album, Some(found)));
             }
         }
@@ -3224,6 +3290,30 @@ pub async fn try_fetch_metadata(
     urls: &[String],
     event_context: Option<(&tauri::AppHandle, &str)>,
 ) -> Option<AlbumMetadata> {
+    try_fetch_metadata_with_token(app, urls, event_context)
+        .await
+        .0
+}
+
+/// What happened to the developer token during a primary album fetch.
+pub(crate) enum TokenOutcome {
+    /// The fetch stopped before a token was asked for (the link is not an
+    /// album).
+    NotTried,
+    /// A token was found and can be used again.
+    Resolved(String),
+    /// A token was asked for and none could be had.
+    Unavailable,
+}
+
+/// Same as [`try_fetch_metadata`] (same log lines, same order), but also
+/// hands back what happened to the developer token, so a download that
+/// needs more album lookups does not resolve it a second time.
+pub(crate) async fn try_fetch_metadata_with_token(
+    app: &AppHandle,
+    urls: &[String],
+    event_context: Option<(&tauri::AppHandle, &str)>,
+) -> (Option<AlbumMetadata>, TokenOutcome) {
     // Helper to emit to Activity Log if context is available.
     // Uses the shared emit_download_log helper from utils::activity_log.
     let log_event = |msg: &str| {
@@ -3243,15 +3333,19 @@ pub async fn try_fetch_metadata(
         Some(p) => p,
         None => {
             log_event("Apple Music API: URL is not an album, skipping API metadata");
-            return None;
+            return (None, TokenOutcome::NotTried);
         }
     };
 
-    let jwt = resolve_enrichment_jwt(app, event_context).await?;
-    match fetch_one_album(&jwt, &parsed.storefront, &parsed.album_id, event_context).await {
-        AlbumFetch::Found(metadata) => Some(*metadata),
-        AlbumFetch::NotFound | AlbumFetch::Failed => None,
-    }
+    let Some(jwt) = resolve_enrichment_jwt(app, event_context).await else {
+        return (None, TokenOutcome::Unavailable);
+    };
+    let album =
+        match fetch_one_album(&jwt, &parsed.storefront, &parsed.album_id, event_context).await {
+            AlbumFetch::Found(metadata) => Some(*metadata),
+            AlbumFetch::NotFound | AlbumFetch::Failed => None,
+        };
+    (album, TokenOutcome::Resolved(jwt))
 }
 
 /// Finds the Apple Music developer token enrichment uses for catalogue
@@ -3390,22 +3484,32 @@ pub(crate) async fn fetch_one_album(
 /// [`crate::services::download_queue::lyrics_pass::other_albums_to_fetch`]),
 /// one at a time, so each file can be tagged from its own album (#1446).
 ///
-/// Resolves the developer token once. An album Apple Music does not have is
+/// Reuses the developer token the first album's fetch already found
+/// (`token`); only when that fetch never asked for one is it resolved here,
+/// and when it asked and found none, nothing is looked up. An album Apple Music does not have is
 /// skipped and the rest carry on; the first failed request ends the loop
 /// (an authentication or network problem would repeat for every album), as
 /// does the app shutting down. Returns the details that were found, in the
 /// order asked. An empty `refs` returns at once, without logging anything.
-pub async fn try_fetch_other_albums(
+pub(crate) async fn try_fetch_other_albums(
     app: &AppHandle,
     refs: &[(String, String)],
+    token: TokenOutcome,
     event_context: Option<(&tauri::AppHandle, &str)>,
     shutdown: &crate::services::download_queue::ShutdownSignal,
 ) -> Vec<AlbumMetadata> {
     if refs.is_empty() {
         return Vec::new();
     }
-    let Some(jwt) = resolve_enrichment_jwt(app, event_context).await else {
-        return Vec::new();
+    let jwt = match token {
+        TokenOutcome::Resolved(jwt) => jwt,
+        TokenOutcome::Unavailable => return Vec::new(),
+        TokenOutcome::NotTried => {
+            let Some(jwt) = resolve_enrichment_jwt(app, event_context).await else {
+                return Vec::new();
+            };
+            jwt
+        }
     };
     let mut found = Vec::new();
     for (storefront, album_id) in refs {
@@ -5019,6 +5123,115 @@ mod tests {
         assert_eq!(
             last_modified_of(&Tag::read_from_path(&stray).unwrap()),
             None
+        );
+    }
+
+    #[test]
+    fn a_current_song_number_outranks_an_earlier_one() {
+        // Album 1 has song 100 now; album 2's song 200 used to be 100.
+        let mut albums = twin_albums();
+        albums[1].tracks[0].raw_json = serde_json::json!({"meta": {"formerIds": [100]}});
+        // Not ambiguous: the current number wins, and the file keeps album
+        // 1's tags.
+        assert_eq!(
+            pick_album_for_file(&albums, Some("100"), Some("Same"), Some("Art")),
+            AlbumPick::Chosen {
+                index: 0,
+                by_song_id: true
+            }
+        );
+        let mut tag = fixture_tag(Some(100), "Same", "Art", 1, 1);
+        apply_album_layer(&mut tag, &albums, true, false);
+        assert_eq!(label_of(&tag).as_deref(), Some("LabelA"));
+        // The same rule for the copies' stamps.
+        let stamps = DownloadStamps::from_albums(&DownloadAlbums::new(None, albums, false));
+        let (album, track) = stamps.pick(Some("100"), 1, Some(1)).expect("one album");
+        assert_eq!(
+            album.last_modified_date.as_deref(),
+            Some("2024-01-01T00:00:00Z")
+        );
+        assert_eq!(track.map(|t| t.song_id.as_str()), Some("100"));
+        // Two albums that both only have it as an earlier number stay
+        // ambiguous.
+        let mut both = twin_albums();
+        both[0].tracks[0].song_id = "300".to_string();
+        both[0].tracks[0].raw_json = serde_json::json!({"meta": {"formerIds": [5]}});
+        both[1].tracks[0].raw_json = serde_json::json!({"meta": {"formerIds": [5]}});
+        assert_eq!(
+            pick_album_for_file(&both, Some("5"), Some("Same"), Some("Art")),
+            AlbumPick::Ambiguous
+        );
+    }
+
+    #[test]
+    fn only_primary_album_files_are_album_matched_files() {
+        let mut file_albums = Vec::new();
+        let mut matched = Vec::new();
+        let a = Path::new("a.m4a");
+        let b = Path::new("b.m4a");
+        let c = Path::new("c.m4a");
+        record_file_album(&mut file_albums, &mut matched, a, Some(0), true);
+        record_file_album(&mut file_albums, &mut matched, b, Some(1), true);
+        record_file_album(&mut file_albums, &mut matched, c, None, true);
+        assert_eq!(file_albums.len(), 2);
+        assert_eq!(matched, vec![a.to_path_buf()]);
+        // With no primary album, index 0 is another album and counts for
+        // nothing here.
+        let mut file_albums = Vec::new();
+        let mut matched = Vec::new();
+        record_file_album(&mut file_albums, &mut matched, a, Some(0), false);
+        assert_eq!(file_albums.len(), 1);
+        assert!(matched.is_empty());
+    }
+
+    #[tokio::test]
+    async fn step_one_tags_each_file_from_its_own_album_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.m4a");
+        let b = dir.path().join("b.m4a");
+        for (p, id) in [(&a, 100u32), (&b, 200)] {
+            test_support::minimal_m4a(p, 1, 1, false);
+            let mut tag = Tag::read_from_path(p).unwrap();
+            tag.set_album("Same");
+            tag.set_album_artist("Art");
+            tag.set_data(
+                mp4ameta::Fourcc(*b"cnID"),
+                Data::BeSigned(id.to_be_bytes().to_vec()),
+            );
+            tag.write_to_path(p).unwrap();
+        }
+        let albums = Arc::new(twin_albums());
+        let mut indexes = Vec::new();
+        for p in [&a, &b] {
+            let (_, index) = enrich_single_file(
+                p,
+                &SongCodec::Alac,
+                false,
+                None,
+                None,
+                Arc::clone(&albums),
+                true,
+                false,
+                None,
+                None,
+                true,
+            )
+            .await
+            .unwrap();
+            indexes.push(index);
+        }
+        assert_eq!(indexes, vec![Some(0), Some(1)]);
+        let tag_a = Tag::read_from_path(&a).unwrap();
+        let tag_b = Tag::read_from_path(&b).unwrap();
+        assert_eq!(label_of(&tag_a).as_deref(), Some("LabelA"));
+        assert_eq!(label_of(&tag_b).as_deref(), Some("LabelB"));
+        assert_eq!(
+            last_modified_of(&tag_a).as_deref(),
+            Some("2024-01-01T00:00:00Z")
+        );
+        assert_eq!(
+            last_modified_of(&tag_b).as_deref(),
+            Some("2025-02-02T00:00:00Z")
         );
     }
 
