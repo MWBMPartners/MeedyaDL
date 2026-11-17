@@ -202,6 +202,12 @@ def main(argv: list[str]) -> int:
     for path in files:
         report = json.loads(path.read_text(encoding="utf-8"))
         removed = filter_report(report, checkout)
+        # List every result that is uploaded (rule and main file), so a run
+        # shows exactly which alerts remain and where they point.
+        for run in report.get("runs") or []:
+            for r in run.get("results") or []:
+                main_paths = [_uri(loc) or "?" for loc in (r or {}).get("locations") or []]
+                print(f"  uploaded {r.get('ruleId')}: {', '.join(main_paths) or '(no location)'}")
         path.write_text(json.dumps(report), encoding="utf-8")
         print(f"{path.name}: removed {removed} result(s) inside {VENDOR_PREFIX}")
     return 0
