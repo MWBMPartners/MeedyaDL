@@ -58,7 +58,7 @@ MeedyaDL implements the following security measures:
 - **HTML sanitization** in markdown rendering (rehype-sanitize)
 - **Credential redaction** in all logging, exports, and crash reports — web addresses lose their query strings and any embedded sign-in details wherever they are written down, whatever option carried them; on macOS and Linux the cookies file and the settings file are readable only by you
 - **Atomic file writes** for settings and queue persistence
-- **Field-level validation** on imported settings/queue files — over-long values are cut at a whole character, and a dropped queue file adds at most 500 links at once
+- **Field-level validation** on imported settings/queue files — over-long values are cut at a whole character, and a dropped download-record (`.meedyadl`) file adds at most 500 links at once
 - **No shell interpolation** — all subprocess calls use parameterised arguments
 - **Content Security Policy** configured in Tauri for the webview
 - **Secrets stored in OS keychain** (not on disk)

@@ -158,7 +158,9 @@ folder, so a change you have not committed counts too. In an emergency,
 
   The pull-request workflow runs all of these self-tests in its blocking
   "Audit-check self-tests" step (every `test_*.py` here, plus
-  `check_user_agent.py --self-test`), so a failing one stops the pull request.
+  `check_user_agent.py --self-test`). A failing one marks the pull-request
+  check as failed: a red X a maintainer must look at. It is not a required
+  check, so it does not by itself block a merge.
   Run them by hand when you change a check.
 - **Default exit 0, `--strict` exit 1.** CI runs them advisory; local hooks
   can opt into blocking.

@@ -2164,7 +2164,7 @@ When a user re-downloads an album they have previously downloaded, MeedyaDL can 
 
 3. **Manifest storage**: When `write_manifest()` runs (`download_queue/helpers.rs`), the `lastModifiedDate` is persisted as `ManifestSource.last_modified_date` in the `.meedyadl` JSON manifest file. This allows future downloads to compare the stored date against a fresh API response.
 
-4. **Tag embedding**: The `lastModifiedDate` is also embedded as MP4 freeform atoms via `tags.toml`: `com.apple.iTunes:AlbumLastModified` and `MeedyaMeta:AppleLastModifiedDate`.
+4. **Not written into the music files**: The `lastModifiedDate` is recorded only in the album's manifest (step 3) and the download index. No tag is written for it into M4A files.
 
 ### Setting
 
@@ -2626,7 +2626,7 @@ Lyric/subtitle generators run on every enrichment pass (first download, companio
 | ASS generator              | `.ass`             | `lyrics_steps.rs` (`step_ass`) | **Skips** an existing `.ass` unless the caller allows replacing it |
 | Lyricsfile generator       | `.lyrics`          | `lyrics_steps.rs` (`step_lyricsfile`) | **Skips** an existing `.lyrics` unless the caller allows replacing it (keeps hand edits made in LRCGET) |
 
-The per-file steps in `lyrics_steps.rs` (#1441) are the one code path now. The older folder-wide service functions are kept only as a reference the parity tests check against (removal is #1443). Where a step may replace an existing `.vtt`, `.ass` or `.lyrics` is decided by the caller: the main download replaces only files it made itself, and extra copies never replace one.
+The per-file steps in `lyrics_steps.rs` (#1441) are the one code path now. The older folder-wide service functions are kept only as a reference the parity tests check against (removal is #1443). Where a step may replace an existing `.vtt`, `.ass` or `.lyrics` is decided by the caller: the main download's own steps never replace an existing `.vtt`, `.ass` or `.lyrics`; only the upgrade of a main file from a better extra copy may, and then only files this download made; extra copies and the catch-up never replace one.
 
 **Status: documented, not changed.** The audit in #550 considered four options (status quo with docs / content-hash skip / opt-in preservation / `.bak` backup) and settled on documented-status-quo. The overwriting generators are idempotent converters whose inputs (TTML from GAMDL, TTML from `/syllable-lyrics`) are themselves refreshed from upstream, so overwriting is the correct default for the 95% case — first-time generation and upstream content updates. The asymmetry between `.lrc`/`.srt` (overwrite) and `.vtt`/`.ass` (skip) is historical; it's called out in `help/lyrics-and-metadata.md` so users with hand-edited sidecars can work around it (rename to a non-generator extension, disable the generator, or copy the file before re-running enrichment).
 

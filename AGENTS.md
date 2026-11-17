@@ -65,7 +65,7 @@ through `.claude/`; both tools are meant to work by the same rules.
   is wrong is recorded with the reason, never "fixed" just to quiet the reviewer. Record the
   round count.
 - **After each finished piece of work, in this order:** verify it yourself (read the
-  checks' real exit codes; format only touched files; one security read of the diff);
+  checks' real exit codes; format only touched files (or the whole codebase: since the 16 Nov 2026 layout commit `cargo fmt` and `npm run format` are safe everywhere and CI enforces them, so "touched files only" no longer limits anything); one security read of the diff);
   commit and push to the working branch, saying in the commit message whether it has been
   independently reviewed yet; the review loop over that commit's range, fixing and
   re-committing until a round comes back clean; update `.claude/memory/` and its
