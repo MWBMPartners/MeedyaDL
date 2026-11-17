@@ -1,6 +1,6 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-11-16 (evening) — see ★★★★ LATEST below
+**Last updated:** 2026-11-17 — see ★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
 **Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.90** · `beta` **1.9.4-beta.23** · `release-candidate` **1.0.0-rc.50** — read from each branch's `package.json` on 16 Nov.
@@ -11,7 +11,23 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-11-16 (evening): quick fixes, GAMDL 4.0.2, word-by-word lyrics reordered, extra copies made safe
+## ★★★★ LATEST — 2026-11-17: CodeQL vendor alerts, chrono replacement, staging plan
+
+All on `work-in-progress` (PR #1420). Codex unavailable; reviews are fresh Claude Opus agents.
+
+| # | Task | Issue | Status | Notes |
+|---|---|---|---|---|
+| 1 | CodeQL: leave `src-tauri/vendor/` out of the uploaded report | — | **In progress** | `.github/scripts/filter_sarif_vendor.py` (+ self-test), run between analyze and `upload-sarif` in `codeql.yml`. Reviewed clean over two rounds (`fdc67ea5` … `a4531aa4`). **But the real runs removed 0 results and printed no vendor result**, so the 4 alerts do not point into `src-tauri/vendor/` as assumed. `e89d918b` logs every uploaded result ("uploaded <rule>: <file>"); read the Rust job log of the next CodeQL run to see where they are, then decide. Watched by PR check events plus a timed reminder. |
+| 2 | Windows test programs crash (Common Controls 6) | — | **Done — CI green** | `0f3b4c14`: `build.rs` embeds `windows-app-manifest.xml` for every linked program. |
+| 3 | Replace `chrono` | #1449, #1450 | **Being built** (Sonnet agent, working tree, not committed) | Plan `plan_1449_chrono.md` (session scratchpad; summary on #1449 once committed). Decisions: `time` now, `jiff` later (#1450); UTC when local offset unreadable; **cut Internet Explorer support from vendored rookie** so libesedb/libesedb-sys/patch-apply (the last chrono path, Windows build-time) leave the build, and drop the chrono advisory ignore + the two LGPL exceptions. Stored date text must stay byte-identical (golden tests). Needs Windows CI + one manual cookie import on Windows before release. |
+| 4 | Staging folder (download into `.MeedyaDL_temp.nosync`, move into library when finished) | #1448 | **Planned, all decisions taken** | Full decision list on #1448 (comment of 17 Nov). Next build step: phase 1, one source for the run folder (no visible change), then phase 2, the library check run alongside today's downloads. |
+| 5 | Per-album tags (#1446) and Apple Music ID tags (#1447) | #1446, #1447 | **Done — reviewed clean** | See the Previous section rows 13-16. |
+
+Open questions for the maintainer: none outstanding. Still wanted: a verbose-mode Apple Music data dump to confirm `meta.formerIds`; real-machine checks listed on #1435 and #1448.
+
+---
+
+## ★★★ Previous — 2026-11-16 (evening): quick fixes, GAMDL 4.0.2, word-by-word lyrics reordered, extra copies made safe
 
 All on `work-in-progress`, for PR #1420 to `alpha`. Codex unavailable; every review was a fresh Claude Opus agent.
 
