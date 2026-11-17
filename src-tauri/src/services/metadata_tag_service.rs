@@ -384,6 +384,10 @@ fn is_m4a(path: &Path) -> bool {
 ///   download spans several albums, a file also needs its song number to
 ///   match one album before it gets a date.
 ///
+/// `quiet_album_skips`: when true, a file that matches no album (or more
+/// than one) is not announced in the activity log one by one; the caller
+/// counts them from the result (`tagged_count` minus `file_albums`).
+///
 /// # Errors
 ///
 /// Returns `Err(String)` if the output path does not exist or cannot be read.
@@ -404,6 +408,7 @@ pub async fn apply_enriched_metadata_tags(
     deferred_primary_files: Option<&[PathBuf]>,
     in_flight_writes: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
     date_stamp_files: &std::collections::HashSet<PathBuf>,
+    quiet_album_skips: bool,
 ) -> Result<EnrichedTagsResult, String> {
     // Collect the M4A files to tag. When the renames are deferred, only the
     // primary download's own files are tagged: by the time this runs the
@@ -502,6 +507,7 @@ pub async fn apply_enriched_metadata_tags(
             Arc::clone(&albums.albums),
             albums.has_primary,
             albums.single_album_download,
+            quiet_album_skips,
             event_context,
             in_flight_writes,
             stamps_last_modified(file_path, date_stamp_files),
@@ -859,6 +865,7 @@ async fn enrich_single_file(
     albums: Arc<Vec<AlbumMetadata>>,
     has_primary: bool,
     single_album_download: bool,
+    quiet_album_skips: bool,
     event_context: Option<(&tauri::AppHandle, &str)>,
     in_flight_writes: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
     stamp_last_modified: bool,
@@ -1103,7 +1110,7 @@ async fn enrich_single_file(
                     // metadata MeedyaDL adds is skipped for that file, the
                     // download still succeeds, and nothing on screen says so.
                     // A line in the log file only is not good enough for that.
-                    if let Some((app, download_id)) = log_context.as_ref() {
+                    if let Some((app, download_id)) = log_context.as_ref().filter(|_| !quiet_album_skips) {
                         let file_name = tag_path.file_name().map_or_else(
                             || tag_path.display().to_string(),
                             |n| n.to_string_lossy().to_string(),
@@ -1134,7 +1141,7 @@ async fn enrich_single_file(
                         "Skipping API metadata for {} — it matches more than one album in this download",
                         tag_path.display(),
                     );
-                    if let Some((app, download_id)) = log_context.as_ref() {
+                    if let Some((app, download_id)) = log_context.as_ref().filter(|_| !quiet_album_skips) {
                         crate::utils::activity_log::emit_download_log(
                             app,
                             download_id,
@@ -1362,11 +1369,12 @@ fn track_has_former_song_id(track: &apple_music_api::TrackMetadata, song_id: &st
 /// Chooses which of a download's albums a file belongs to.
 ///
 /// 1. When the file has a song number: the albums having a track with that
-///    number (now or as an earlier number). Exactly one is the candidate; it
-///    is chosen only if the file's album and artist names also agree
-///    ([`file_matches_album`]), otherwise there is no match, and **no other
-///    album is tried**. More than one is ambiguous. None falls through to
-///    step 2.
+///    number as its CURRENT number; only when no album has it as a current
+///    number are the albums having it as an earlier (former) number used.
+///    Exactly one is the candidate; it is chosen only if the file's album
+///    and artist names also agree ([`file_matches_album`]), otherwise there
+///    is no match, and **no other album is tried**. More than one is
+///    ambiguous. None falls through to step 2.
 /// 2. Otherwise the names decide: the albums that pass
 ///    [`file_matches_album`]. One is chosen, none is no match, several is
 ///    ambiguous.
@@ -5219,6 +5227,7 @@ mod tests {
                 None,
                 Arc::clone(&albums),
                 true,
+                false,
                 false,
                 None,
                 None,

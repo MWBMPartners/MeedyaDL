@@ -294,8 +294,8 @@ pub(crate) struct QueueItem {
     /// restore, so a restored item has nothing added to strip.
     pub added_template_suffixes: Vec<&'static str>,
     /// Every file path the main download runs reported, in the order seen
-    /// (GAMDL 4.x `✓`/`↷ … → path` lines, GAMDL 3.x "Media file already
-    /// exists" lines), without repeats and capped at
+    /// (GAMDL 4.x `✓`/`↷ … → path` lines; GAMDL 3.x reports none), without
+    /// repeats and capped at
     /// [`MAX_REPORTED_PATHS`]. Enrichment reads it to find this download's
     /// files in other album folders (#1446). In memory only: a restored item
     /// starts empty. Cleared where a main download attempt starts
@@ -1238,16 +1238,6 @@ impl DownloadQueue {
                 // remaining tracks succeed and the item ends Complete.
                 process::GamdlOutputEvent::CodecSkip { .. } => {}
             }
-        }
-    }
-
-    /// Remembers a file path the main download reported without treating it
-    /// as the item's output path (used for GAMDL 3.x "Media file already
-    /// exists" lines, which must not change `output_path`). Empty paths,
-    /// repeats and anything past the cap are ignored.
-    pub fn record_reported_path(&mut self, download_id: &str, path: &str) {
-        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
-            push_reported_path(&mut item.reported_paths, path);
         }
     }
 

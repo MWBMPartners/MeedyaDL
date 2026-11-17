@@ -6239,8 +6239,8 @@ async fn a_tier_does_not_tag_new_files_outside_the_album_folder() {
     assert_eq!(std::fs::read(&theirs).unwrap(), theirs_bytes);
 }
 
-/// The one walk at the start of a download gives the same two answers as
-/// the two separate walks it replaced.
+/// The one walk at the start of a download gives the same answers as
+/// the separate walks it replaced, and the music files as well.
 #[test]
 fn one_walk_gives_the_audio_count_and_the_video_list() {
     use crate::services::metadata_tag_service::test_support::minimal_m4a;
@@ -6251,11 +6251,13 @@ fn one_walk_gives_the_audio_count_and_the_video_list() {
     std::fs::write(deep.join("clip.m4v"), b"v").unwrap();
     std::fs::write(deep.join("other.mp4"), b"v").unwrap();
     std::fs::write(deep.join("notes.txt"), b"t").unwrap();
-    let (count, videos) = super::lyrics_pass::audio_count_and_videos_before_run(dir.path());
+    let (count, videos, music) = super::lyrics_pass::files_before_run(dir.path());
     assert_eq!(count, count_audio_files_in_directory(dir.path()));
     assert_eq!(videos, super::lyrics_pass::videos_before_run(dir.path()));
     assert_eq!(count, 3);
     assert_eq!(videos.len(), 2);
+    // The `.m4a` files too, so a file can be told from this run's.
+    assert_eq!(music.len(), 1);
 }
 
 /// Every tag-writing place in the app takes the app-wide lock, at its
@@ -6625,63 +6627,21 @@ fn queue_keeps_every_reported_path() {
         ]
     );
     assert_eq!(item.status.output_path.as_deref(), Some(""));
-    // The "already exists" route adds a path without touching output_path.
-    queue.update_item_progress(
-        &id,
-        &GamdlOutputEvent::Complete {
-            path: "/m/A/Last.m4a".to_string(),
-        },
-    );
-    queue.record_reported_path(&id, "/m/B/Old.m4a");
-    queue.record_reported_path(&id, "  ");
-    assert_eq!(
-        queue.items[0].status.output_path.as_deref(),
-        Some("/m/A/Last.m4a")
-    );
-    assert!(queue.items[0]
-        .reported_paths
-        .contains(&std::path::PathBuf::from("/m/B/Old.m4a")));
-    assert_eq!(queue.items[0].reported_paths.len(), 5);
-}
-
-/// The GAMDL 3.x "already exists" warning gives its path; nothing else does.
-#[test]
-fn existing_media_path_reads_the_gamdl3_skip_line() {
-    use crate::utils::process::existing_media_path;
-    assert_eq!(
-        existing_media_path(
-            "[WARNING  12:00:00] Skipping \"X\": Media file already exists: /m/A/B/01 X.m4a"
-        )
-        .as_deref(),
-        Some("/m/A/B/01 X.m4a")
-    );
-    assert_eq!(
-        existing_media_path("Skipping \"X\": Media file already exists: /m/A/B/01 X.m4a")
-            .as_deref(),
-        Some("/m/A/B/01 X.m4a")
-    );
-    assert_eq!(
-        existing_media_path("Skipping \"X\": Requested format is not available"),
-        None
-    );
-    assert_eq!(
-        existing_media_path("Media file already exists: /m/x.m4a"),
-        None
-    );
-    assert_eq!(
-        existing_media_path("Skipping \"X\": Media file already exists: "),
-        None
-    );
-    assert_eq!(existing_media_path("unrelated line"), None);
 }
 
 /// `begin_run` clears the paths, and only the primary run calls it (the
-/// gap-fill run belongs to the same download).
+/// gap-fill run belongs to the same download). GAMDL 3.x's "already exists"
+/// warning is no longer read for paths: it could only ever name older files.
 #[test]
 fn begin_run_clears_reported_paths_and_gap_fill_does_not() {
     let mut queue = DownloadQueue::new();
     let id = enqueue_one(&mut queue);
-    queue.record_reported_path(&id, "/m/A/01.m4a");
+    queue.update_item_progress(
+        &id,
+        &GamdlOutputEvent::Complete {
+            path: "/m/A/01.m4a".to_string(),
+        },
+    );
     queue.begin_run(&id);
     assert!(queue.items[0].reported_paths.is_empty());
 
@@ -6699,17 +6659,40 @@ fn begin_run_clears_reported_paths_and_gap_fill_does_not() {
         "begin_run must come before the primary run"
     );
     assert!(
-        primary < gap_fill && begin < primary,
+        primary < gap_fill,
         "begin_run must not sit before the gap-fill run"
+    );
+    assert!(
+        !processing.contains("existing_media_path")
+            && !include_str!("mod.rs").contains("record_reported_path"),
+        "the GAMDL 3 already-exists capture must stay removed"
     );
 }
 
-/// Only this download's files in OTHER folders count: not the main folder,
-/// not outside the download folder, not other file kinds, and only songs
-/// whose own number belongs to the download.
+/// Makes a minimal music file with a song number, for the tests below.
+fn make_song(dir: &std::path::Path, name: &str, id: u32) -> std::path::PathBuf {
+    let p = dir.join(name);
+    crate::services::metadata_tag_service::test_support::minimal_m4a(&p, 1, 1, false);
+    put_song_id(&p, id);
+    p
+}
+
+/// Sets a file's modification time.
+fn set_mtime(p: &std::path::Path, t: std::time::SystemTime) {
+    std::fs::File::options()
+        .write(true)
+        .open(p)
+        .unwrap()
+        .set_modified(t)
+        .unwrap();
+}
+
+/// Only THIS run's files in OTHER folders count: not the main folder, not
+/// outside the download folder (also not by a `..` path), not other file
+/// kinds, only songs whose number belongs to the download, and never a file
+/// that was already there before the run (reported as skipped).
 #[test]
 fn other_album_files_needs_song_id_and_skips_the_main_folder() {
-    use crate::services::metadata_tag_service::test_support::minimal_m4a;
     let root = tempfile::tempdir().unwrap();
     let outside = tempfile::tempdir().unwrap();
     let main = root.path().join("Art").join("Main");
@@ -6718,27 +6701,41 @@ fn other_album_files_needs_song_id_and_skips_the_main_folder() {
     for d in [&main, &two, &three] {
         std::fs::create_dir_all(d).unwrap();
     }
-    let make = |dir: &std::path::Path, name: &str, id: u32| {
-        let p = dir.join(name);
-        minimal_m4a(&p, 1, 1, false);
-        put_song_id(&p, id);
-        p
-    };
-    let in_main = make(&main, "01.m4a", 1);
-    let two_a = make(&two, "01.m4a", 2);
-    let two_b = make(&two, "02.m4a", 3);
-    let three_a = make(&three, "01.m4a", 4);
-    let unknown = make(&three, "02.m4a", 99);
-    let foreign = make(outside.path(), "01.m4a", 2);
+    let in_main = make_song(&main, "01.m4a", 1);
+    let older = make_song(&two, "00 old.m4a", 2);
+    let two_a = make_song(&two, "01.m4a", 2);
+    let two_b = make_song(&two, "02.m4a", 3);
+    let three_a = make_song(&three, "01.m4a", 4);
+    let unknown = make_song(&three, "02.m4a", 99);
+    let foreign = make_song(outside.path(), "01.m4a", 2);
     let text = two.join("notes.txt");
     std::fs::write(&text, "x").unwrap();
     let gone = two.join("gone.m4a");
+    let started = std::time::SystemTime::now();
+    let hour = std::time::Duration::from_secs(3600);
+    // The older file was there before the run and was skipped by GAMDL.
+    set_mtime(&older, started - hour);
+    let before: std::collections::HashSet<std::path::PathBuf> =
+        [std::fs::canonicalize(&older).unwrap()]
+            .into_iter()
+            .collect();
     let ids: std::collections::HashSet<String> =
         ["1", "2", "3", "4"].iter().map(|s| s.to_string()).collect();
+    // A path that climbs out of the folder and back in, and one that climbs
+    // into the main folder from another.
+    let dotted_main = two.join("..").join("Main").join("01.m4a");
+    let dotted_out = root
+        .path()
+        .join("..")
+        .join(outside.path().file_name().unwrap())
+        .join("01.m4a");
     let reported = vec![
         in_main.clone(),
+        dotted_main,
+        older.clone(),
         two_a.clone(),
         foreign.clone(),
+        dotted_out,
         text.clone(),
         gone,
     ];
@@ -6748,34 +6745,82 @@ fn other_album_files_needs_song_id_and_skips_the_main_folder() {
         unknown.clone(),
         two_a.clone(),
     ];
-    let map = super::lyrics_pass::other_album_files(
+    let (map, left_out) = super::lyrics_pass::other_album_files(
         &main,
         root.path(),
         &reported,
         &walked,
+        Some(&before),
+        Some(started - std::time::Duration::from_secs(30)),
         &ids,
         crate::services::metadata_tag_service::song_id_of_path,
     );
+    let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap();
+    assert!(!left_out);
     assert_eq!(map.len(), 2);
-    assert_eq!(map[&two], vec![two_a.clone(), two_b.clone()]);
-    assert_eq!(map[&three], vec![three_a.clone()]);
+    assert_eq!(map[&canon(&two)], vec![canon(&two_a), canon(&two_b)]);
+    assert_eq!(map[&canon(&three)], vec![canon(&three_a)]);
+    // The older file, reported as already there, is not among them.
+    assert!(!map.values().flatten().any(|p| *p == canon(&older)));
 
-    // The cap: at most MAX_OTHER_FOLDER_FILES files in all.
+    // The cap: at most MAX_OTHER_FOLDER_FILES files in all, and the flag
+    // says some were left out.
     let many: Vec<std::path::PathBuf> = (0..super::lyrics_pass::MAX_OTHER_FOLDER_FILES + 5)
         .map(|i| two.join(format!("{i:05}.m4a")))
         .collect();
     for p in &many {
         std::fs::write(p, b"x").unwrap();
     }
-    let capped =
-        super::lyrics_pass::other_album_files(&main, root.path(), &many, &[], &ids, |_| {
-            Some("2".to_string())
-        });
+    let (capped, left_out) = super::lyrics_pass::other_album_files(
+        &main,
+        root.path(),
+        &many,
+        &[],
+        None,
+        Some(started - std::time::Duration::from_secs(30)),
+        &ids,
+        |_| Some("2".to_string()),
+    );
     let total: usize = capped.values().map(Vec::len).sum();
     assert_eq!(total, super::lyrics_pass::MAX_OTHER_FOLDER_FILES);
+    assert!(left_out);
 }
 
-/// The look-through finds only `.m4a` files written since the start.
+/// "Written by this run": not in the before-run list, or modified since the
+/// start; with neither list nor time, nothing counts.
+#[test]
+fn written_this_run_rules() {
+    let root = tempfile::tempdir().unwrap();
+    let old_listed = make_song(root.path(), "a.m4a", 1);
+    let new_unlisted = make_song(root.path(), "b.m4a", 2);
+    let rewritten = make_song(root.path(), "c.m4a", 3);
+    let started = std::time::SystemTime::now();
+    let hour = std::time::Duration::from_secs(3600);
+    set_mtime(&old_listed, started - hour);
+    set_mtime(&new_unlisted, started - hour); // a lagging clock
+    set_mtime(&rewritten, started + hour);
+    let before: std::collections::HashSet<std::path::PathBuf> = [&old_listed, &rewritten]
+        .iter()
+        .map(|p| std::fs::canonicalize(p).unwrap())
+        .collect();
+    let f = super::lyrics_pass::written_this_run;
+    assert!(!f(&old_listed, Some(&before), Some(started)));
+    assert!(
+        f(&new_unlisted, Some(&before), Some(started)),
+        "not in the list"
+    );
+    assert!(
+        f(&rewritten, Some(&before), Some(started)),
+        "modified since start"
+    );
+    // No list: time alone.
+    assert!(!f(&new_unlisted, None, Some(started)));
+    assert!(f(&rewritten, None, Some(started)));
+    assert!(!f(&rewritten, None, None));
+}
+
+/// The look-through finds only `.m4a` files written by this run, and stops
+/// at once when told to.
 #[test]
 fn fresh_m4a_under_finds_only_files_written_since_start() {
     use crate::services::metadata_tag_service::test_support::minimal_m4a;
@@ -6793,33 +6838,18 @@ fn fresh_m4a_under_finds_only_files_written_since_start() {
     }
     let started = std::time::SystemTime::now();
     let hour = std::time::Duration::from_secs(3600);
-    std::fs::File::options()
-        .write(true)
-        .open(&old)
-        .unwrap()
-        .set_modified(started - hour)
-        .unwrap();
-    std::fs::File::options()
-        .write(true)
-        .open(&video)
-        .unwrap()
-        .set_modified(started + hour)
-        .unwrap();
-    std::fs::File::options()
-        .write(true)
-        .open(&new_a)
-        .unwrap()
-        .set_modified(started + hour)
-        .unwrap();
-    std::fs::File::options()
-        .write(true)
-        .open(&new_b)
-        .unwrap()
-        .set_modified(started + hour)
-        .unwrap();
+    set_mtime(&old, started - hour);
+    for p in [&video, &new_a, &new_b] {
+        set_mtime(p, started + hour);
+    }
     assert_eq!(
-        super::lyrics_pass::fresh_m4a_under(root.path(), started),
-        vec![new_a, new_b]
+        super::lyrics_pass::fresh_m4a_under(root.path(), None, Some(started), &|| false),
+        Some(vec![new_a, new_b])
+    );
+    // Stopped: nothing comes back.
+    assert_eq!(
+        super::lyrics_pass::fresh_m4a_under(root.path(), None, Some(started), &|| true),
+        None
     );
 }
 
@@ -6903,7 +6933,8 @@ async fn copies_in_other_album_folders_get_their_albums_stamps() {
 }
 
 /// The other-folder pass tags and nothing more: it passes a file list (so
-/// no renames), and what it returns never feeds the main folder's lists.
+/// no renames), never feeds the main folder's lists, stays quiet per file,
+/// and stops on cancel.
 #[test]
 fn other_folder_files_never_reach_the_main_lists() {
     let processing = include_str!("processing.rs");
@@ -6918,6 +6949,16 @@ fn other_folder_files_never_reach_the_main_lists() {
     assert!(
         pass.contains("Some(&other_files),"),
         "must defer the renames"
+    );
+    assert!(
+        pass.contains("walk_fresh_m4a_stoppable"),
+        "the walk must be stoppable"
+    );
+    assert!(pass.contains("is_cancelled"), "must skip when cancelled");
+    let flat: String = pass.split_whitespace().collect();
+    assert!(
+        flat.contains("&other_fresh,true,)"),
+        "the pass must ask for no per-file skip lines"
     );
     for forbidden in [
         "this_download_paths",
@@ -6939,6 +6980,15 @@ fn other_folder_files_never_reach_the_main_lists() {
             "`{forbidden}` is used after the pass"
         );
     }
+    // The main Step 1 stays chatty about files that match no album.
+    let main_call = processing
+        .split("apply_enriched_metadata_tags(")
+        .nth(1)
+        .expect("the main call");
+    let flat: String = main_call[..main_call.find(".await").unwrap()]
+        .split_whitespace()
+        .collect();
+    assert!(flat.ends_with("&date_stamp_files,false,)"));
 }
 
 /// The look-through runs only for GAMDL 3.x (or an unknown version) on a
@@ -6954,19 +7004,39 @@ fn walk_runs_only_for_gamdl3_multi_album() {
     assert!(!f(None, false));
 }
 
-/// Every song number of a download: all albums' songs (now and earlier) and
-/// the song links' own.
+/// Only songs of albums actually looked up count (a link's `?i=` number for
+/// an album past the cap or whose lookup failed does not).
 #[test]
-fn download_song_ids_collects_every_number() {
-    let album: crate::services::apple_music_api::AlbumMetadata =
+fn download_song_ids_come_only_from_looked_up_albums() {
+    let mut album: crate::services::apple_music_api::AlbumMetadata =
         serde_json::from_value(serde_json::json!({
             "album_id": "1", "album_name": "A", "genre_names": [], "tracks": [],
         }))
         .unwrap();
-    let ids = super::lyrics_pass::download_song_ids(
-        &[album],
-        &["https://music.apple.com/us/album/x/555?i=777".to_string()],
-    );
-    assert!(ids.contains("777"));
+    assert!(super::lyrics_pass::download_song_ids(std::slice::from_ref(&album)).is_empty());
+    let track = crate::services::apple_music_api::TrackMetadata {
+        song_id: "555".to_string(),
+        isrc: None,
+        content_rating: None,
+        artist_id: None,
+        artist_name: None,
+        name: "T".to_string(),
+        track_number: 1,
+        disc_number: 1,
+        audio_traits: Vec::new(),
+        is_apple_digital_master: None,
+        release_date: None,
+        composer_name: None,
+        duration_in_millis: None,
+        has_lyrics: None,
+        play_params_id: None,
+        url: None,
+        preview_url: None,
+        genre_names: Vec::new(),
+        raw_json: serde_json::Value::Null,
+    };
+    album.tracks.push(track);
+    let ids = super::lyrics_pass::download_song_ids(&[album]);
     assert_eq!(ids.len(), 1);
+    assert!(ids.contains("555"));
 }

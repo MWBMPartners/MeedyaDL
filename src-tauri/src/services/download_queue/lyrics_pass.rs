@@ -395,6 +395,7 @@ fn comparable(path: &Path) -> PathBuf {
 /// appears afterwards can be told from one that was already there without
 /// relying on file times (a folder on a machine whose clock lags writes
 /// times in the past). Deep enough to reach `Artist/Album/` folders.
+#[cfg(test)]
 pub(crate) fn videos_before_run(download_folder: &Path) -> std::collections::HashSet<PathBuf> {
     video_files_to_depth(download_folder, 10)
         .iter()
@@ -402,13 +403,19 @@ pub(crate) fn videos_before_run(download_folder: &Path) -> std::collections::Has
         .collect()
 }
 
-/// Both answers the start of the primary run needs from ONE walk of the
+/// Everything the start of the primary run needs from ONE walk of the
 /// download folder: how many music or video files are in it (the same
-/// count as `count_audio_files_in_directory`), and the music videos in it
-/// (the same list as [`videos_before_run`]).
-pub(crate) fn audio_count_and_videos_before_run(
+/// count as `count_audio_files_in_directory`), the music videos in it (the
+/// same list as [`videos_before_run`]), and the `.m4a` music files in it
+/// (so a file can later be told from one this run wrote without relying on
+/// file times alone, #1446). The two lists hold [`comparable`] paths.
+pub(crate) fn files_before_run(
     download_folder: &Path,
-) -> (usize, std::collections::HashSet<PathBuf>) {
+) -> (
+    usize,
+    std::collections::HashSet<PathBuf>,
+    std::collections::HashSet<PathBuf>,
+) {
     let files = crate::utils::fs_walk::walk_dir_depth(download_folder, 10, |path| {
         if !path.is_file() || crate::utils::fs_safe::is_filesystem_sidecar(path) {
             return None;
@@ -419,16 +426,40 @@ pub(crate) fn audio_count_and_videos_before_run(
             .any(|x| ext.eq_ignore_ascii_case(x))
             .then(|| path.to_path_buf())
     });
+    let has_ext = |p: &Path, exts: &[&str]| {
+        p.extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| exts.iter().any(|x| e.eq_ignore_ascii_case(x)))
+    };
     let videos = files
         .iter()
-        .filter(|p| {
-            p.extension()
-                .and_then(|e| e.to_str())
-                .is_some_and(|e| e.eq_ignore_ascii_case("m4v") || e.eq_ignore_ascii_case("mp4"))
-        })
+        .filter(|p| has_ext(p, &["m4v", "mp4"]))
         .map(|p| comparable(p))
         .collect();
-    (files.len(), videos)
+    let music = files
+        .iter()
+        .filter(|p| has_ext(p, &["m4a"]))
+        .map(|p| comparable(p))
+        .collect();
+    (files.len(), videos, music)
+}
+
+/// Whether a music file was written by this run: it is not in the list of
+/// files taken before the run started (`before`), or it was modified after
+/// the start (`since`, with the same two seconds of slack as
+/// [`fresh_at_snapshot`]; a re-download over an older file). Without the
+/// list (it could not be taken) the file time decides alone, and with
+/// neither nothing counts. A file GAMDL skipped because it was already
+/// there is in the list and has an old time, so it is never this run's.
+pub(crate) fn written_this_run(
+    path: &Path,
+    before: Option<&std::collections::HashSet<PathBuf>>,
+    since: Option<std::time::SystemTime>,
+) -> bool {
+    if fresh_at_snapshot(&[path.to_path_buf()], since).contains(path) {
+        return true;
+    }
+    before.is_some_and(|set| !set.contains(&comparable(path)))
 }
 
 /// This download's music videos among `current` (the videos in the album
@@ -985,13 +1016,11 @@ pub(crate) fn links_share_one_album(urls: &[String]) -> bool {
 /// The most files tagged in a download's other album folders.
 pub(crate) const MAX_OTHER_FOLDER_FILES: usize = 2000;
 
-/// Every song number that belongs to this download: each song of every album
-/// whose details were fetched (its current number and any earlier ones), and
-/// every `?i=` song number named by a link.
-pub(crate) fn download_song_ids(
-    albums: &[AlbumMetadata],
-    urls: &[String],
-) -> std::collections::HashSet<String> {
+/// Every song number that belongs to this download: each song of every
+/// album whose details were actually looked up (its current number and any
+/// earlier ones). Albums past the lookup cap, or whose lookup failed, add
+/// nothing, so their files are left alone.
+pub(crate) fn download_song_ids(albums: &[AlbumMetadata]) -> std::collections::HashSet<String> {
     let mut ids = std::collections::HashSet::new();
     for album in albums {
         for track in &album.tracks {
@@ -999,14 +1028,6 @@ pub(crate) fn download_song_ids(
                 ids.insert(track.song_id.clone());
             }
             ids.extend(metadata_tag_service::former_ids_from_json(&track.raw_json));
-        }
-    }
-    for url in urls {
-        if let Some(id) = crate::services::apple_music_api::parse_apple_music_url(url)
-            .and_then(|p| p.song_id)
-            .filter(|id| !id.is_empty())
-        {
-            ids.insert(id);
         }
     }
     ids
@@ -1027,69 +1048,121 @@ pub(crate) fn needs_fresh_walk(gamdl_version: Option<&str>, multi_album: bool) -
 }
 
 /// Every `.m4a` file under `output_dir` (up to ten levels down, like
-/// [`audio_files_in`]) written since `started`, with the same two seconds of
-/// slack as [`fresh_at_snapshot`]. The one place the download folder is
-/// looked through for a GAMDL 3.x run's files in other album folders; the
-/// song-number check in [`other_album_files`] filters what it finds.
-pub(crate) fn fresh_m4a_under(output_dir: &Path, started: std::time::SystemTime) -> Vec<PathBuf> {
-    let all: Vec<PathBuf> = audio_files_in(output_dir)
-        .into_iter()
-        .filter(|p| {
-            p.extension()
-                .and_then(|e| e.to_str())
-                .is_some_and(|e| e.eq_ignore_ascii_case("m4a"))
-        })
-        .collect();
-    let mut fresh: Vec<PathBuf> = fresh_at_snapshot(&all, Some(started)).into_iter().collect();
-    fresh.sort();
-    fresh
+/// [`audio_files_in`]) that this run wrote ([`written_this_run`]). The one
+/// place the download folder is looked through for a GAMDL 3.x run's files
+/// in other album folders; the song-number check in [`other_album_files`]
+/// filters what it finds. `stop` is checked in every folder: when it says
+/// stop, the walk ends at once and returns `None`.
+pub(crate) fn fresh_m4a_under(
+    output_dir: &Path,
+    before: Option<&std::collections::HashSet<PathBuf>>,
+    since: Option<std::time::SystemTime>,
+    stop: &dyn Fn() -> bool,
+) -> Option<Vec<PathBuf>> {
+    fn walk(
+        dir: &Path,
+        depth: u32,
+        before: Option<&std::collections::HashSet<PathBuf>>,
+        since: Option<std::time::SystemTime>,
+        stop: &dyn Fn() -> bool,
+        found: &mut Vec<PathBuf>,
+    ) -> bool {
+        if depth > 10 {
+            return true;
+        }
+        if stop() {
+            return false;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return true;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if !walk(&path, depth + 1, before, since, stop, found) {
+                    return false;
+                }
+            } else if path.is_file()
+                && !crate::utils::fs_safe::is_filesystem_sidecar(&path)
+                && path
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .is_some_and(|e| e.eq_ignore_ascii_case("m4a"))
+                && written_this_run(&path, before, since)
+            {
+                found.push(path);
+            }
+        }
+        true
+    }
+    let mut found = Vec::new();
+    if !walk(output_dir, 0, before, since, stop, &mut found) {
+        return None;
+    }
+    found.sort();
+    Some(found)
 }
 
-/// This download's files in album folders other than the main one, grouped
-/// by folder (sorted).
+/// This run's files in album folders other than the main one, grouped by
+/// folder (sorted), and whether some were left out by the cap.
 ///
 /// Candidates are the paths the runs reported (`reported`) and the files
-/// found by the look-through (`walked_fresh`). A file counts only if it is an
-/// existing `.m4a` under `output_dir` and not under `album_dir` (Step 1
-/// already tags those), is not a filesystem leftover, and its own song number
-/// (read by `song_id_of`) is one of this download's (`download_song_ids`).
-/// The song-number check applies to reported files too, so a file whose album
-/// was not looked up is left alone. At most [`MAX_OTHER_FOLDER_FILES`] files
-/// are returned.
+/// found by the look-through (`walked`). Paths are made comparable first
+/// ([`comparable`]: resolved when the file exists), so a different spelling
+/// of the main folder, or a path with `..`, is judged by where it really is.
+/// A file counts only if it is an existing `.m4a` under `output_dir` and
+/// not under `album_dir` (Step 1 already tags those), is not a filesystem
+/// leftover, **was written by this run** ([`written_this_run`], using
+/// `before` and `since`; a file GAMDL skipped as already there never
+/// counts), and its own song number (read by `song_id_of`) is one of those
+/// looked up for this download (`download_song_ids`). At most
+/// [`MAX_OTHER_FOLDER_FILES`] files are returned; the flag is true when an
+/// eligible file was left out.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn other_album_files(
     album_dir: &Path,
     output_dir: &Path,
     reported: &[PathBuf],
-    walked_fresh: &[PathBuf],
+    walked: &[PathBuf],
+    before: Option<&std::collections::HashSet<PathBuf>>,
+    since: Option<std::time::SystemTime>,
     download_song_ids: &std::collections::HashSet<String>,
     song_id_of: impl Fn(&Path) -> Option<String>,
-) -> std::collections::BTreeMap<PathBuf, Vec<PathBuf>> {
-    let candidates: std::collections::BTreeSet<&PathBuf> =
-        reported.iter().chain(walked_fresh.iter()).collect();
+) -> (std::collections::BTreeMap<PathBuf, Vec<PathBuf>>, bool) {
+    let album_dir = comparable(album_dir);
+    let output_dir = comparable(output_dir);
+    let candidates: std::collections::BTreeSet<PathBuf> = reported
+        .iter()
+        .chain(walked.iter())
+        .map(|p| comparable(p))
+        .collect();
     let mut by_folder: std::collections::BTreeMap<PathBuf, Vec<PathBuf>> =
         std::collections::BTreeMap::new();
     let mut total = 0usize;
+    let mut left_out = false;
     for path in candidates {
-        if total >= MAX_OTHER_FOLDER_FILES {
-            break;
-        }
         let is_m4a = path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("m4a"));
         if !is_m4a
-            || !path.starts_with(output_dir)
-            || path.starts_with(album_dir)
+            || !path.starts_with(&output_dir)
+            || path.starts_with(&album_dir)
             || !path.is_file()
-            || crate::utils::fs_safe::is_filesystem_sidecar(path)
+            || crate::utils::fs_safe::is_filesystem_sidecar(&path)
+            || !written_this_run(&path, before, since)
         {
             continue;
         }
-        let Some(id) = song_id_of(path) else {
+        let Some(id) = song_id_of(&path) else {
             continue;
         };
         if !download_song_ids.contains(&id) {
             continue;
+        }
+        if total >= MAX_OTHER_FOLDER_FILES {
+            left_out = true;
+            break;
         }
         if let Some(folder) = path.parent() {
             by_folder
@@ -1099,7 +1172,45 @@ pub(crate) fn other_album_files(
             total += 1;
         }
     }
-    by_folder
+    (by_folder, left_out)
+}
+
+/// Looks through the download folder for this run's `.m4a` files
+/// ([`fresh_m4a_under`]) on a blocking thread, stopping early when the item
+/// is cancelled or the app is shutting down (checked every quarter second
+/// from here, and in every folder inside the walk). Returns `None` when it
+/// was stopped, never started because the item was already cancelled, or
+/// the walk failed.
+pub(crate) async fn walk_fresh_m4a_stoppable(
+    root: &Path,
+    before: Option<std::collections::HashSet<PathBuf>>,
+    since: Option<std::time::SystemTime>,
+    queue: &QueueHandle,
+    dl_id: &str,
+    shutdown: &ShutdownSignal,
+) -> Option<Vec<PathBuf>> {
+    if shutdown.is_triggered() || queue.lock().await.is_cancelled(dl_id) {
+        return None;
+    }
+    let stop = Arc::new(AtomicBool::new(false));
+    let walk_stop = Arc::clone(&stop);
+    let shutdown_flag = shutdown.flag();
+    let walk_root = root.to_path_buf();
+    let mut handle = tokio::task::spawn_blocking(move || {
+        fresh_m4a_under(&walk_root, before.as_ref(), since, &|| {
+            walk_stop.load(Ordering::Relaxed) || shutdown_flag.load(Ordering::Relaxed)
+        })
+    });
+    loop {
+        tokio::select! {
+            result = &mut handle => return result.ok().flatten(),
+            () = tokio::time::sleep(std::time::Duration::from_millis(250)) => {
+                if shutdown.is_triggered() || queue.lock().await.is_cancelled(dl_id) {
+                    stop.store(true, Ordering::Relaxed);
+                }
+            }
+        }
+    }
 }
 
 /// Enrichment's end of the gate. Dropping it — an early return, a panic,

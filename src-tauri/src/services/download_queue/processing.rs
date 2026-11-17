@@ -1039,21 +1039,24 @@ pub fn process_queue(
                 (Some(a), Some(b)) => std::path::Path::new(a) == std::path::Path::new(b),
                 _ => false,
             };
-            let (pre_run_audio_count, videos_before_run): (
+            // The music files already there are taken in the same walk, so
+            // enrichment can tell this run's files in other album folders
+            // from older ones without trusting file times alone (#1446).
+            type FileSet = Option<std::collections::HashSet<std::path::PathBuf>>;
+            let (pre_run_audio_count, videos_before_run, music_before_run): (
                 usize,
-                Option<std::collections::HashSet<std::path::PathBuf>>,
+                FileSet,
+                FileSet,
             ) = if same_folder {
                 let folder = primary_download_folder.clone().unwrap_or_default();
                 match tokio::task::spawn_blocking(move || {
-                    super::lyrics_pass::audio_count_and_videos_before_run(std::path::Path::new(
-                        &folder,
-                    ))
+                    super::lyrics_pass::files_before_run(std::path::Path::new(&folder))
                 })
                 .await
                 {
-                    Ok((count, videos)) => (count, Some(videos)),
+                    Ok((count, videos, music)) => (count, Some(videos), Some(music)),
                     // The walk itself failed: fall back to the plain count,
-                    // and no video list.
+                    // and no lists.
                     Err(_) => (
                         download_options
                             .output_path
@@ -1061,6 +1064,7 @@ pub fn process_queue(
                             .map(std::path::Path::new)
                             .map(count_audio_files_in_directory)
                             .unwrap_or(0),
+                        None,
                         None,
                     ),
                 }
@@ -1071,15 +1075,18 @@ pub fn process_queue(
                     .map(std::path::Path::new)
                     .map(count_audio_files_in_directory)
                     .unwrap_or(0);
-                let videos = match primary_download_folder.clone() {
+                let lists = match primary_download_folder.clone() {
                     Some(folder) => tokio::task::spawn_blocking(move || {
-                        super::lyrics_pass::videos_before_run(std::path::Path::new(&folder))
+                        super::lyrics_pass::files_before_run(std::path::Path::new(&folder))
                     })
                     .await
                     .ok(),
                     None => None,
                 };
-                (count, videos)
+                match lists {
+                    Some((_, videos, music)) => (count, Some(videos), Some(music)),
+                    None => (count, None, None),
+                }
             };
 
             // A new main download attempt: forget the paths an earlier
@@ -1997,6 +2004,7 @@ pub fn process_queue(
                         let enrich_pending_main = pending_main_lyrics.clone();
                         let enrich_in_flight = in_flight_writes.clone();
                         let enrich_videos_before = videos_before_run.clone();
+                        let enrich_music_before = music_before_run.clone();
                         Some(tokio::spawn(async move {
                             // Owned by this task from its first line, so any
                             // return, panic or abort below drops it and lets
@@ -2029,9 +2037,13 @@ pub fn process_queue(
                             // and picks up the album GAMDL just produced.
                             let dir = std::path::Path::new(&output_dir);
                             let (early_artist_hint, early_album_hint, enrich_reported_paths) = {
-                                let q = enrich_queue.lock().await;
+                                // Taking the reported paths here frees them
+                                // once enrichment has read them: nothing
+                                // else reads them, and `begin_run` starts the
+                                // next attempt from an empty list anyway.
+                                let mut q = enrich_queue.lock().await;
                                 q.items
-                                    .iter()
+                                    .iter_mut()
                                     .find(|i| i.status.id == enrich_dl_id)
                                     .map(|i| {
                                         (
@@ -2040,7 +2052,7 @@ pub fn process_queue(
                                             // Every file path the main runs
                                             // reported, for the download's other
                                             // album folders (#1446).
-                                            i.reported_paths.clone(),
+                                            std::mem::take(&mut i.reported_paths),
                                         )
                                     })
                                     .unwrap_or((None, None, Vec::new()))
@@ -2636,6 +2648,7 @@ pub fn process_queue(
                                     Some(&primary_files),
                                     Some(&enrich_in_flight),
                                     &date_stamp_files,
+                                    false,
                                 )
                                 .await
                                 {
@@ -2694,7 +2707,9 @@ pub fn process_queue(
                             let spans_several_albums = !is_library
                                 && (download_albums.albums.len() > 1
                                     || !other_album_refs.is_empty());
-                            if spans_several_albums && !enrich_shutdown.is_triggered() {
+                            let cancelled_now = enrich_shutdown.is_triggered()
+                                || enrich_queue.lock().await.is_cancelled(&enrich_dl_id);
+                            if spans_several_albums && !cancelled_now {
                                 if let (Some(codec), Some(root)) =
                                     (codec.as_ref(), enrich_download_folder.as_deref())
                                 {
@@ -2703,105 +2718,130 @@ pub fn process_queue(
                                         chrono::DateTime::parse_from_rfc3339(&enrich_started_at)
                                             .ok()
                                             .map(std::time::SystemTime::from);
-                                    let walked = match started {
-                                        Some(started)
-                                            if super::lyrics_pass::needs_fresh_walk(
-                                                enrich_primary_version.as_deref(),
-                                                true,
-                                            ) =>
-                                        {
-                                            let walk_root = root.clone();
+                                    // Only files THIS run wrote are ever touched
+                                    // here: not in the list taken before the run,
+                                    // or modified since it started. A file GAMDL
+                                    // skipped as already there is never one.
+                                    let walked = if super::lyrics_pass::needs_fresh_walk(
+                                        enrich_primary_version.as_deref(),
+                                        true,
+                                    ) {
+                                        super::lyrics_pass::walk_fresh_m4a_stoppable(
+                                            &root,
+                                            enrich_music_before.clone(),
+                                            started,
+                                            &enrich_queue,
+                                            &enrich_dl_id,
+                                            &enrich_shutdown,
+                                        )
+                                        .await
+                                    } else {
+                                        Some(Vec::new())
+                                    };
+                                    // `None`: the look-through was stopped.
+                                    if let Some(walked) = walked {
+                                        // Only albums actually looked up count.
+                                        let song_ids = super::lyrics_pass::download_song_ids(
+                                            &download_albums.albums,
+                                        );
+                                        let main_dir = std::path::PathBuf::from(&album_dir);
+                                        let reported = enrich_reported_paths.clone();
+                                        let find_root = root.clone();
+                                        let before = enrich_music_before.clone();
+                                        let (by_folder, left_out) =
                                             tokio::task::spawn_blocking(move || {
-                                                super::lyrics_pass::fresh_m4a_under(
-                                                    &walk_root, started,
+                                                super::lyrics_pass::other_album_files(
+                                                    &main_dir,
+                                                    &find_root,
+                                                    &reported,
+                                                    &walked,
+                                                    before.as_ref(),
+                                                    started,
+                                                    &song_ids,
+                                                    super::metadata_tag_service::song_id_of_path,
                                                 )
                                             })
                                             .await
-                                            .unwrap_or_default()
-                                        }
-                                        _ => Vec::new(),
-                                    };
-                                    let song_ids = super::lyrics_pass::download_song_ids(
-                                        &download_albums.albums,
-                                        &enrich_urls,
-                                    );
-                                    let main_dir = std::path::PathBuf::from(&album_dir);
-                                    let reported = enrich_reported_paths.clone();
-                                    let find_root = root.clone();
-                                    let by_folder = tokio::task::spawn_blocking(move || {
-                                        super::lyrics_pass::other_album_files(
-                                            &main_dir,
-                                            &find_root,
-                                            &reported,
-                                            &walked,
-                                            &song_ids,
-                                            super::metadata_tag_service::song_id_of_path,
-                                        )
-                                    })
-                                    .await
-                                    .unwrap_or_default();
-                                    let other_files: Vec<std::path::PathBuf> =
-                                        by_folder.values().flatten().cloned().collect();
-                                    if !other_files.is_empty() && !enrich_shutdown.is_triggered() {
-                                        // Judged before any write, as for the main folder.
-                                        let other_fresh = super::lyrics_pass::fresh_at_snapshot(
-                                            &other_files,
-                                            started,
-                                        );
-                                        // `Some(&other_files)`: only these files are
-                                        // tagged and nothing is renamed. The per-file
-                                        // lock and the in-flight hold are taken inside.
-                                        match super::metadata_tag_service::apply_enriched_metadata_tags(
-                                            &enrich_app,
-                                            &root.to_string_lossy(),
-                                            codec,
-                                            &download_albums,
-                                            Some((&enrich_app, &enrich_dl_id)),
-                                            enrich_native_priority,
-                                            enrich_settings.content_advisory_in_filenames,
-                                            Some(&other_files),
-                                            Some(&enrich_in_flight),
-                                            &other_fresh,
-                                        )
-                                        .await
+                                            .unwrap_or_default();
+                                        let other_files: Vec<std::path::PathBuf> =
+                                            by_folder.values().flatten().cloned().collect();
+                                        if !other_files.is_empty()
+                                            && !enrich_shutdown.is_triggered()
                                         {
-                                            Ok(result) => {
-                                                emit_download_log(
-                                                    &enrich_app,
-                                                    &enrich_dl_id,
-                                                    &format!(
-                                                        "Tagged {} song(s) in {} other album folder(s) of this download.",
-                                                        result.tagged_count,
-                                                        by_folder.len()
-                                                    ),
-                                                );
-                                                // Only what the pass above tagged is
-                                                // used from here: its file lists are
-                                                // dropped on purpose.
-                                                other_album_dirs =
-                                                    by_folder.keys().cloned().collect();
-                                            }
-                                            Err(e) => {
-                                                log::debug!(
-                                                    "Tagging other album folders failed for {enrich_dl_id}: {e}"
-                                                );
-                                            }
-                                        }
-                                        if other_files.len()
-                                            >= super::lyrics_pass::MAX_OTHER_FOLDER_FILES
-                                        {
-                                            emit_download_log(
+                                            // Every file here was written by this
+                                            // run, so each may get the date.
+                                            let other_fresh: std::collections::HashSet<
+                                                std::path::PathBuf,
+                                            > = other_files.iter().cloned().collect();
+                                            // `Some(&other_files)`: only these files
+                                            // are tagged and nothing is renamed. The
+                                            // per-file lock and the in-flight hold
+                                            // are taken inside. `true`: no line per
+                                            // unmatched file (one summary below).
+                                            match super::metadata_tag_service::apply_enriched_metadata_tags(
                                                 &enrich_app,
-                                                &enrich_dl_id,
-                                                &format!(
-                                                    "Only the first {} songs in other album folders were tagged.",
-                                                    super::lyrics_pass::MAX_OTHER_FOLDER_FILES
-                                                ),
-                                            );
+                                                &root.to_string_lossy(),
+                                                codec,
+                                                &download_albums,
+                                                Some((&enrich_app, &enrich_dl_id)),
+                                                enrich_native_priority,
+                                                enrich_settings.content_advisory_in_filenames,
+                                                Some(&other_files),
+                                                Some(&enrich_in_flight),
+                                                &other_fresh,
+                                                true,
+                                            )
+                                            .await
+                                            {
+                                                Ok(result) => {
+                                                    emit_download_log(
+                                                        &enrich_app,
+                                                        &enrich_dl_id,
+                                                        &format!(
+                                                            "Tagged {} song(s) in {} other album folder(s) of this download.",
+                                                            result.tagged_count,
+                                                            by_folder.len()
+                                                        ),
+                                                    );
+                                                    let unmatched = result
+                                                        .tagged_count
+                                                        .saturating_sub(result.file_albums.len());
+                                                    if unmatched > 0 {
+                                                        emit_download_log(
+                                                            &enrich_app,
+                                                            &enrich_dl_id,
+                                                            &format!(
+                                                                "{unmatched} song(s) in other album folders could not be matched to one album, so they got no album details."
+                                                            ),
+                                                        );
+                                                    }
+                                                    if left_out {
+                                                        emit_download_log(
+                                                            &enrich_app,
+                                                            &enrich_dl_id,
+                                                            &format!(
+                                                                "Only the first {} songs in other album folders were tagged; the rest were left as they are.",
+                                                                super::lyrics_pass::MAX_OTHER_FOLDER_FILES
+                                                            ),
+                                                        );
+                                                    }
+                                                    // Only the folders are used from
+                                                    // here: the pass's file lists are
+                                                    // dropped on purpose.
+                                                    other_album_dirs =
+                                                        by_folder.keys().cloned().collect();
+                                                }
+                                                Err(e) => {
+                                                    log::debug!(
+                                                        "Tagging other album folders failed for {enrich_dl_id}: {e}"
+                                                    );
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
+                            drop(enrich_reported_paths);
 
                             // THIS download's own files, out of everything the
                             // snapshot found in the folder (earlier downloads,
@@ -6976,12 +7016,6 @@ pub(crate) async fn run_download_with_events(
                     {
                         let mut q = queue.lock().await;
                         q.update_item_progress(&download_id, &event);
-                        // GAMDL 3.x names a saved path only in its "already
-                        // exists" warning; remember it without turning it
-                        // into a completion event (#1446).
-                        if let Some(path) = process::existing_media_path(&clean_line) {
-                            q.record_reported_path(&download_id, &path);
-                        }
                     }
 
                     // Collect errors for fallback decisions. CodecSkip events
@@ -7110,12 +7144,6 @@ pub(crate) async fn run_download_with_events(
                     {
                         let mut q = queue.lock().await;
                         q.update_item_progress(&download_id, &event);
-                        // GAMDL 3.x names a saved path only in its "already
-                        // exists" warning; remember it without turning it
-                        // into a completion event (#1446).
-                        if let Some(path) = process::existing_media_path(&clean_line) {
-                            q.record_reported_path(&download_id, &path);
-                        }
                     }
 
                     // Collect errors + codec-skips for fallback decisions
