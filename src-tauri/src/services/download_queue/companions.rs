@@ -1221,7 +1221,9 @@ pub(crate) async fn spawn_music_video_companion_inner(
 pub(crate) async fn update_companion_label_from_line(
     app: &tauri::AppHandle,
     queue: &QueueHandle,
-    dl_id: &str,
+    // The attempt the copies belong to (#1432 review): the caption and bar
+    // change only while it still owns the item.
+    attempt: &Attempt,
     tier_idx: usize,
     codec_name: &str,
     raw_line: &str,
@@ -1264,7 +1266,7 @@ pub(crate) async fn update_companion_label_from_line(
     // stage's weight — `Finalising` is 0.95, which pegged the bar
     // at 95% for the entire companion run regardless of actual
     // within-companion progress.
-    set_label_only(app, queue, dl_id, &caption);
+    set_label_only_for(app, queue, attempt, &caption);
 
     // #836: drive the per-item bar between 95% and ~99% so the
     // companion phase no longer appears frozen for 30+ minutes on
@@ -1294,7 +1296,7 @@ pub(crate) async fn update_companion_label_from_line(
             let fraction = (n as f32 / t as f32).clamp(0.0, 1.0);
             let bar_value = 0.95 + fraction * 0.04;
             let mut q = queue.lock().await;
-            q.set_processing_progress(dl_id, bar_value);
+            q.set_processing_progress_for(attempt, bar_value);
         }
     }
 }
@@ -3432,10 +3434,10 @@ pub(crate) fn spawn_companion_downloads(
                     // Companion downloads happen AFTER enrichment finishes,
                     // so the bar would otherwise still display "Finalising
                     // metadata…" while companion GAMDL is the actual work.
-                    set_stage_with_label(
+                    set_stage_with_label_for(
                         &comp_app,
                         &comp_queue,
-                        &comp_dl_id,
+                        &comp_attempt,
                         ProgressStage::Finalising,
                         &format!(
                             "Companion: downloading {} (tier {})…",
@@ -3702,7 +3704,7 @@ pub(crate) fn spawn_companion_downloads(
                     let tier_idx_for_label = tier_idx;
                     let queue_for_label = comp_queue.clone();
                     let app_for_label = comp_app.clone();
-                    let dl_for_label = comp_dl_id.clone();
+                    let attempt_for_label = comp_attempt.clone();
                     let already_there_counter = already_there.clone();
                     let not_offered_counter = not_offered.clone();
                     let emitter: super::companion_supervisor::LineEmitter =
@@ -3717,7 +3719,7 @@ pub(crate) fn spawn_companion_downloads(
                             let tier_n = tier_idx_for_label;
                             let queue_clone = queue_for_label.clone();
                             let app_clone_inner = app_for_label.clone();
-                            let dl_clone_inner = dl_for_label.clone();
+                            let attempt_inner = attempt_for_label.clone();
                             Box::pin(async move {
                                 let kind = if stream.contains("stderr") {
                                     "stderr"
@@ -3728,7 +3730,7 @@ pub(crate) fn spawn_companion_downloads(
                                 update_companion_label_from_line(
                                     &app_clone_inner,
                                     &queue_clone,
-                                    &dl_clone_inner,
+                                    &attempt_inner,
                                     tier_n,
                                     &codec_name,
                                     &line,
@@ -3784,8 +3786,8 @@ pub(crate) fn spawn_companion_downloads(
                     if let Ok(ref r) = run_result {
                         if r.reached_post_processing {
                             let mut q = comp_queue.lock().await;
-                            q.set_processing_label(
-                                &supervisor_dl,
+                            q.set_processing_label_for(
+                                &comp_attempt,
                                 &format!(
                                     "Post-processing companion ({}): remux / decrypt",
                                     stream_codec
@@ -3834,7 +3836,7 @@ pub(crate) fn spawn_companion_downloads(
                                 // "already there" line has been written).
                                 {
                                     let mut q = comp_queue.lock().await;
-                                    q.clear_processing_label(&supervisor_dl);
+                                    q.clear_processing_label_for(&comp_attempt);
                                 }
                                 tier_succeeded = true;
                                 if let Ok(mut progress) = progress_for_task.lock() {
@@ -3869,7 +3871,7 @@ pub(crate) fn spawn_companion_downloads(
                                 // nothing to post-process.
                                 {
                                     let mut q = comp_queue.lock().await;
-                                    q.clear_processing_label(&supervisor_dl);
+                                    q.clear_processing_label_for(&comp_attempt);
                                 }
                                 continue;
                             }
@@ -4013,7 +4015,7 @@ pub(crate) fn spawn_companion_downloads(
                             // Clear the post-processing label now that we're done.
                             {
                                 let mut q = comp_queue.lock().await;
-                                q.clear_processing_label(&supervisor_dl);
+                                q.clear_processing_label_for(&comp_attempt);
                             }
 
                             tier_succeeded = true;
@@ -4054,7 +4056,7 @@ pub(crate) fn spawn_companion_downloads(
                             // Reset post-processing label on failure too.
                             {
                                 let mut q = comp_queue.lock().await;
-                                q.clear_processing_label(&supervisor_dl);
+                                q.clear_processing_label_for(&comp_attempt);
                             }
                         }
                         Err(e) => {
@@ -4194,10 +4196,10 @@ pub(crate) fn spawn_companion_downloads(
                         .map(|i| (i.status.artist_name.clone(), i.status.album_name.clone()))
                         .unwrap_or((None, None))
                 };
-                set_stage_with_label(
+                set_stage_with_label_for(
                     &comp_app,
                     &comp_queue,
-                    &comp_dl_id,
+                    &comp_attempt,
                     ProgressStage::Finalising,
                     "Companion: converting lyrics formats…",
                 );
@@ -4240,10 +4242,10 @@ pub(crate) fn spawn_companion_downloads(
                         tiers_started_at,
                     )
                 };
-                set_stage_with_label(
+                set_stage_with_label_for(
                     &comp_app,
                     &comp_queue,
-                    &comp_dl_id,
+                    &comp_attempt,
                     ProgressStage::Finalising,
                     "Extra copies: adding lyrics…",
                 );

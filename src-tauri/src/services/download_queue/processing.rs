@@ -1160,13 +1160,23 @@ pub fn process_queue(
                         // The same check follows every place below that
                         // takes the lock again, or is about to change the
                         // state (`stop_if_ended_outside`).
-                        // GAMDL ended cleanly, so `finished` is true: if the
-                        // stall check had marked this attempt failed, the
-                        // item is queued again once (#1432).
+                        // GAMDL ended cleanly. It counts as "finished after
+                        // all" only if this run really saved files (#1432
+                        // review): a clean exit with nothing saved is not a
+                        // finish, and queueing it again could loop. If the
+                        // stall check had marked this attempt failed and it
+                        // did save files, the item is queued again once.
                         if let Some(ended) = stop_if_ended_outside(&mut q, &attempt) {
+                            let saved_files = q.stalled_run_saved_files(&attempt);
                             drop(q);
-                            finish_ended_outside(&app_clone, &queue_clone, &attempt, ended, true)
-                                .await;
+                            finish_ended_outside(
+                                &app_clone,
+                                &queue_clone,
+                                &attempt,
+                                ended,
+                                saved_files,
+                            )
+                            .await;
                             return;
                         }
 
@@ -1715,7 +1725,9 @@ pub fn process_queue(
                                     && q.retry_without_wrapper_auto(&attempt, &ar_settings);
                                 let counted_in_lock = newly_failed && !retried;
                                 if counted_in_lock {
-                                    crate::services::notification_service::count_result(
+                                    count_attempt_result(
+                                        &mut q,
+                                        &attempt,
                                         crate::services::notification_service::NotifyKind::DownloadFailed,
                                     );
                                 }
@@ -5014,6 +5026,13 @@ pub fn process_queue(
                                 track_count,
                                 mv_count_estimate,
                             );
+                            // Set when any part of the tidying-up was cut short
+                            // (a time limit, or the attempt being replaced), so
+                            // a run the stall check marked failed is not
+                            // treated as "finished after all" and queued again
+                            // (#1432 review): only a tidying-up that reached its
+                            // normal end counts.
+                            let mut tidy_up_cut_short = false;
                             if let Some(mut handle) = enrichment_handle {
                                 let waited = wait_while_attempt_runs(
                                     &completion_queue,
@@ -5022,6 +5041,9 @@ pub fn process_queue(
                                     &mut handle,
                                 )
                                 .await;
+                                if waited != AttemptWait::Done {
+                                    tidy_up_cut_short = true;
+                                }
                                 if waited == AttemptWait::Replaced {
                                     // Cancelled, retried or removed while the
                                     // tidying-up ran (#1432): stop it now
@@ -5103,6 +5125,7 @@ pub fn process_queue(
                                 if first_wait == AttemptWait::Replaced {
                                     // Cancelled, retried or removed while the
                                     // extra-format copies ran (#1432): stop them.
+                                    tidy_up_cut_short = true;
                                     handle.abort();
                                     let _ = (&mut handle.handle).await;
                                 } else if first_wait == AttemptWait::TimedOut {
@@ -5127,6 +5150,12 @@ pub fn process_queue(
                                         &mut handle.handle,
                                     )
                                     .await;
+                                    // The first time limit only means "still
+                                    // running"; the copies are cut short only if
+                                    // the second wait does not end normally.
+                                    if second_wait != AttemptWait::Done {
+                                        tidy_up_cut_short = true;
+                                    }
                                     if second_wait == AttemptWait::Replaced {
                                         handle.abort();
                                     } else if second_wait == AttemptWait::TimedOut {
@@ -5187,6 +5216,8 @@ pub fn process_queue(
                                     .await;
                                     match wait {
                                         super::lyrics_steps::CatchUpWait::TimedOut => {
+                                            // Lyrics left unfinished.
+                                            tidy_up_cut_short = true;
                                             log::debug!(
                                                 "Lyrics catch-up skipped for {completion_dl_id}: a writing job was still running"
                                             );
@@ -5286,10 +5317,12 @@ pub fn process_queue(
                                         // minutes; without a marker, users could
                                         // not tell whether MeedyaDL was hung or
                                         // working.
-                                        set_stage_with_label(
+                                        // Only while this attempt still owns
+                                        // the item (#1432 review).
+                                        set_stage_with_label_for(
                                             &completion_app,
                                             &completion_queue,
-                                            &completion_dl_id,
+                                            &completion_attempt,
                                             ProgressStage::Finalising,
                                             "Applying [Explicit]/[Clean] suffixes…",
                                         );
@@ -5362,6 +5395,7 @@ pub fn process_queue(
                                                 // finished in time.
                                             }
                                             Ok(Err(join_err)) => {
+                                                tidy_up_cut_short = true;
                                                 log::warn!(
                                                     "Advisory pass panicked for {completion_dl_id}: {join_err} — proceeding to set_complete anyway"
                                                 );
@@ -5372,6 +5406,7 @@ pub fn process_queue(
                                                 );
                                             }
                                             Err(_) => {
+                                                tidy_up_cut_short = true;
                                                 log::warn!(
                                                     "Advisory pass timed out after {ADVISORY_TIMEOUT:?} for {completion_dl_id} — proceeding to set_complete (orphaned blocking task continues in background)"
                                                 );
@@ -5481,12 +5516,19 @@ pub fn process_queue(
                                     if let Some(guard) = active_guard {
                                         guard.disarm();
                                     }
+                                    // "Finished after all" only when the
+                                    // tidying-up reached its normal end and the
+                                    // files passed the integrity check (#1432
+                                    // review); see `tidying_up_finished`.
                                     finish_ended_outside(
                                         &completion_app,
                                         &completion_queue,
                                         &completion_attempt,
                                         ended,
-                                        true,
+                                        tidying_up_finished(
+                                            tidy_up_cut_short,
+                                            integrity_failure.is_some(),
+                                        ),
                                     )
                                     .await;
                                     return;
@@ -5494,12 +5536,14 @@ pub fn process_queue(
                                 // #1431: announce and count only a REAL change,
                                 // and count it here, before the slot is
                                 // released, so the queue summary cannot miss it.
-                                use crate::services::notification_service::{
-                                    count_result, NotifyKind,
-                                };
+                                use crate::services::notification_service::NotifyKind;
                                 if let Some(ref msg) = integrity_failure {
                                     if q.set_error(&completion_attempt, msg) {
-                                        count_result(NotifyKind::DownloadFailed);
+                                        count_attempt_result(
+                                            &mut q,
+                                            &completion_attempt,
+                                            NotifyKind::DownloadFailed,
+                                        );
                                         result_to_announce = Some(NotifyKind::DownloadFailed);
                                     }
                                 } else if q.set_complete(&completion_attempt) {
@@ -5508,7 +5552,7 @@ pub fn process_queue(
                                     } else {
                                         NotifyKind::DownloadComplete
                                     };
-                                    count_result(kind);
+                                    count_attempt_result(&mut q, &completion_attempt, kind);
                                     result_to_announce = Some(kind);
                                 }
                                 // Only this attempt's slot (#1432).
@@ -6260,7 +6304,9 @@ pub fn process_queue(
                         // storefront or wrapper retry could still have taken
                         // the item back into the queue.
                         if newly_failed {
-                            crate::services::notification_service::count_result(
+                            count_attempt_result(
+                                &mut *queue_clone.lock().await,
+                                &attempt,
                                 crate::services::notification_service::NotifyKind::DownloadFailed,
                             );
                             notify_item_failed(&app_clone, &queue_clone, &dl_id, error_category)
@@ -6607,14 +6653,35 @@ pub(crate) async fn run_spotify_dispatch_arm(
         )
         .await;
 
+        // How many new audio files landed (only meaningful on a clean exit).
+        let new_files = if result.is_ok() {
+            let post_run_audio_count =
+                count_audio_files_in_directory(std::path::Path::new(&output_path));
+            post_run_audio_count.saturating_sub(pre_run_audio_count)
+        } else {
+            0
+        };
+
+        // The item may have ended from outside this attempt while votify
+        // ran (#1432 review): cancelled, retried, removed, or marked failed
+        // as stuck. Then leave it as it is -- no daily-cap count and no
+        // manifest from a run that is no longer the item's -- and, the same
+        // as a GAMDL run, if the stall check had marked this run failed and
+        // it finished cleanly with files saved, say so once and queue it
+        // again once (maintainer decision 3).
+        {
+            let mut q = queue_clone.lock().await;
+            if let Some(ended) = stop_if_ended_outside(&mut q, &attempt) {
+                drop(q);
+                guard.disarm();
+                let finished = result.is_ok() && new_files > 0;
+                finish_ended_outside(&app_clone, &queue_clone, &attempt, ended, finished).await;
+                return;
+            }
+        }
+
         match result {
             Ok(()) => {
-                // Re-scan the output tree. The delta = how many new
-                // audio files actually landed.
-                let post_run_audio_count =
-                    count_audio_files_in_directory(std::path::Path::new(&output_path));
-                let new_files = post_run_audio_count.saturating_sub(pre_run_audio_count);
-
                 if new_files == 0 {
                     // Zero new files despite a clean exit — partial-
                     // success critique-amendment case. Mark Error so
@@ -6631,7 +6698,9 @@ pub(crate) async fn run_spotify_dispatch_arm(
                     // the lock, before the slot is released further down.
                     let newly_failed = q.set_error(&attempt, &msg);
                     if newly_failed {
-                        crate::services::notification_service::count_result(
+                        count_attempt_result(
+                            &mut q,
+                            &attempt,
                             crate::services::notification_service::NotifyKind::DownloadFailed,
                         );
                     }
@@ -6706,7 +6775,9 @@ pub(crate) async fn run_spotify_dispatch_arm(
                     let mut q = queue_clone.lock().await;
                     let newly_complete = q.set_complete(&attempt);
                     if newly_complete {
-                        crate::services::notification_service::count_result(
+                        count_attempt_result(
+                            &mut q,
+                            &attempt,
                             crate::services::notification_service::NotifyKind::DownloadComplete,
                         );
                     }
@@ -6732,7 +6803,9 @@ pub(crate) async fn run_spotify_dispatch_arm(
                 // Cancelled) or an item already failed (#1431).
                 let newly_failed = q.set_error(&attempt, &msg);
                 if newly_failed {
-                    crate::services::notification_service::count_result(
+                    count_attempt_result(
+                        &mut q,
+                        &attempt,
                         crate::services::notification_service::NotifyKind::DownloadFailed,
                     );
                 }
@@ -6781,10 +6854,15 @@ pub(crate) async fn spotify_arm_terminate_error(
     let download_id = attempt.id.as_str();
     let newly_failed = {
         let mut q = queue.lock().await;
+        // This run ends here; if the stall check had marked it failed, it
+        // no longer holds back the queue's "finished" (#1432 review).
+        q.end_live_stalled_run(attempt.number);
         let newly_failed = q.set_error(attempt, msg);
         if newly_failed {
             // Counted before the slot is released (#1431).
-            crate::services::notification_service::count_result(
+            count_attempt_result(
+                &mut q,
+                attempt,
                 crate::services::notification_service::NotifyKind::DownloadFailed,
             );
         }
@@ -7252,7 +7330,12 @@ pub(crate) async fn run_download_with_events(
                         && !post_proc.swap(true, std::sync::atomic::Ordering::Relaxed)
                     {
                         let mut q = queue.lock().await;
-                        q.set_processing_label(&download_id, "Post-processing (remux / decrypt)");
+                        // Only while this run still owns the item (#1432
+                        // review).
+                        q.set_processing_label_for(
+                            &reader_attempt,
+                            "Post-processing (remux / decrypt)",
+                        );
                     }
 
                     // Emit parsed event to frontend

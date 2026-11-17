@@ -332,7 +332,12 @@ async fn escalate_to_error(
     }
     // Counted before anything can start the queue again, so the queue
     // summary that may follow at once includes it (#1431).
-    crate::services::notification_service::count_result(
+    // Through the queue's own counting, so the automatic retry of an item
+    // that already stalled once replaces its earlier failure rather than
+    // adding a second one (#1432 review).
+    crate::services::download_queue::count_attempt_result(
+        &mut q,
+        attempt,
         crate::services::notification_service::NotifyKind::DownloadFailed,
     );
     let entry = stalled_history_entry(&q, attempt);

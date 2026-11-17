@@ -241,7 +241,9 @@ pub(crate) use super::{
 // single file had one module-level `use super::progress_stages::{…}`;
 // re-exporting the items here lets every submodule reach them via
 // `use super::*` exactly as before.
-pub(crate) use progress_stages::{set_label_only, set_stage_with_label, ProgressStage};
+pub(crate) use progress_stages::{
+    set_label_only_for, set_stage_with_label, set_stage_with_label_for, ProgressStage,
+};
 
 // Preserve the exact public function surface: these were `pub fn` in the
 // former single file (and reachable as `download_queue::X`), so re-export
@@ -318,6 +320,41 @@ pub(crate) struct QueueItem {
     /// longer change the item; if it later finishes, the item is queued again
     /// once. Cleared whenever the item gets a new attempt number.
     pub stalled_attempt: Option<u64>,
+    /// Whether the run the stall check marked failed is known to have saved
+    /// at least one file (#1432 review): set from the item's output path at
+    /// the moment of the stall, and again if that run reports a saved file
+    /// afterwards. A late clean exit only counts as "finished after all"
+    /// when files were really saved; a run that ends without saving
+    /// anything is not queued again. Cleared with `stalled_attempt`.
+    pub stalled_run_saved_files: bool,
+    /// Set when MeedyaDL queued this item again by itself because a run the
+    /// stall check had marked failed finished after all (#1432 review).
+    /// While set, a second "stalled, then finished after all" only writes a
+    /// line and does not queue it again, so an album that hangs in the same
+    /// place every time cannot loop for ever. Cleared only by the person's
+    /// own Retry (a new item starts with it clear).
+    pub auto_retried_after_stall: bool,
+    /// Set together with `auto_retried_after_stall`: the stall check has
+    /// already counted this item as failed for the "Queue finished" summary.
+    /// When the automatic retry's own result is counted, that earlier
+    /// failure is taken back first, so one item is counted once (#1432
+    /// review). Cleared once used, and by the person's Retry.
+    pub stall_failure_to_withdraw: bool,
+}
+
+/// What happens when a run that the stall check marked failed comes to an
+/// end (#1432 review). Decided under the queue lock by
+/// [`DownloadQueue::on_late_finish`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LateFinish {
+    /// Nothing to say or do: the run did not end as "stalled", or it did not
+    /// genuinely finish (it timed out, was stopped, or saved nothing).
+    Nothing,
+    /// It finished after all and the item has been queued again once.
+    QueuedAgain,
+    /// It finished after all, but it was already the one automatic retry, so
+    /// it is not queued again; the person is told to use Retry.
+    NotQueuedAgain,
 }
 
 /// One run of one queue item: which item, and which time round (#1432).
@@ -382,6 +419,7 @@ fn take_attempt_number(next: &mut u64) -> u64 {
 fn retire_running_attempt(item: &mut QueueItem, next: &mut u64) {
     item.attempt = take_attempt_number(next);
     item.stalled_attempt = None;
+    item.stalled_run_saved_files = false;
 }
 
 /// Finds the item `attempt` may still change (#1432): the same item, still
@@ -661,6 +699,15 @@ pub struct DownloadQueue {
     /// `auto_start_queue` setting (which controls whether newly-added
     /// items kick off processing).
     paused: bool,
+    /// Attempt numbers whose run the stall check marked failed but which
+    /// have not ended yet (#1432 review). The stall check leaves such a run
+    /// going, and it may still queue its one retry when it ends, so while
+    /// any is here the queue is not "idle": the "Queue finished" message and
+    /// the after-queue action (which can shut the computer down) wait. A run
+    /// is taken off when it ends ([`DownloadQueue::on_late_finish`], or its
+    /// slot guard if its task ends some other way); the queue is then
+    /// started again, so the action fires once, properly.
+    live_stalled_runs: Vec<u64>,
 }
 
 /// Thread-safe handle to the download queue, stored as Tauri managed state.
@@ -748,8 +795,18 @@ impl Drop for ActiveSlotGuard {
         let attempt = self.attempt.clone();
         let app = self.app.take();
         runtime.spawn(async move {
-            let freed = queue.lock().await.release_slot(&attempt);
-            if freed {
+            let (freed, stalled_run_ended) = {
+                let mut q = queue.lock().await;
+                // A run the stall check marked failed whose task ends some
+                // way other than through `finish_ended_outside` (a panic, an
+                // early return) has ended all the same, so it no longer
+                // holds back the queue's "finished" (#1432 review).
+                (
+                    q.release_slot(&attempt),
+                    q.end_live_stalled_run(attempt.number),
+                )
+            };
+            if freed || stalled_run_ended {
                 log::debug!(
                     "Queue slot of download {} (attempt {}) given back by its guard",
                     attempt.id,
@@ -784,6 +841,7 @@ impl DownloadQueue {
             recently_aborted: false,
             ran_since_drain: false,
             paused: false,
+            live_stalled_runs: Vec::new(),
         }
     }
 
@@ -890,6 +948,9 @@ impl DownloadQueue {
             // A fresh attempt number for a new item (#1432).
             attempt: take_attempt_number(&mut self.next_attempt),
             stalled_attempt: None,
+            stalled_run_saved_files: false,
+            auto_retried_after_stall: false,
+            stall_failure_to_withdraw: false,
         };
 
         log::info!(
@@ -1359,6 +1420,19 @@ impl DownloadQueue {
         attempt: &Attempt,
         event: &process::GamdlOutputEvent,
     ) {
+        // A run the stall check marked failed may no longer change the item,
+        // but whether it saved a file is still worth knowing: only a run that
+        // saved files counts as "finished after all" (#1432 review).
+        if let process::GamdlOutputEvent::Complete { .. } = event {
+            if let Some(item) = self.items.iter_mut().find(|i| {
+                i.status.id == attempt.id
+                    && i.attempt == attempt.number
+                    && i.stalled_attempt == Some(attempt.number)
+            }) {
+                item.stalled_run_saved_files = true;
+                return;
+            }
+        }
         if let Some(item) = find_owned(&mut self.items, attempt) {
             let may_change_state = !matches!(
                 item.status.state,
@@ -1561,6 +1635,33 @@ impl DownloadQueue {
     pub fn clear_processing_label(&mut self, download_id: &str) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             item.status.processing_label = None;
+        }
+    }
+
+    /// [`Self::set_processing_label`] for one attempt only (#1432 review):
+    /// does nothing once the item belongs to a later attempt, was
+    /// cancelled, or was marked failed as stuck, so an old run's caption
+    /// never lands on the row of the run that replaced it. Used where the
+    /// attempt is in hand (the tidying-up and the extra-format copies).
+    pub(crate) fn set_processing_label_for(&mut self, attempt: &Attempt, label: &str) {
+        if self.ended_outside(attempt).is_none() {
+            self.set_processing_label(&attempt.id, label);
+        }
+    }
+
+    /// [`Self::set_processing_progress`] for one attempt only (#1432 review).
+    pub(crate) fn set_processing_progress_for(&mut self, attempt: &Attempt, progress: f32) {
+        if self.ended_outside(attempt).is_none() {
+            self.set_processing_progress(&attempt.id, progress);
+        }
+    }
+
+    /// [`Self::clear_processing_label`] for one attempt only (#1432
+    /// review), so an old run cannot wipe the caption of the run that
+    /// replaced it.
+    pub(crate) fn clear_processing_label_for(&mut self, attempt: &Attempt) {
+        if self.ended_outside(attempt).is_none() {
+            self.clear_processing_label(&attempt.id);
         }
     }
 
@@ -2302,9 +2403,108 @@ impl DownloadQueue {
         item.status.state = DownloadState::Error;
         item.status.error = Some(error.to_string());
         item.stalled_attempt = Some(attempt.number);
+        // Files saved before the stall count as "this run saved files"; the
+        // run's later reports of saved files are added as they come in.
+        item.stalled_run_saved_files = item.status.output_path.is_some();
         crate::utils::activity_log::evict_activity_counter(&attempt.id);
         self.release_slot(attempt);
+        // The run is left going; until it ends, the queue is not idle.
+        if !self.live_stalled_runs.contains(&attempt.number) {
+            self.live_stalled_runs.push(attempt.number);
+        }
         true
+    }
+
+    /// Has the run the stall check marked failed (this `attempt`) saved at
+    /// least one file (#1432 review)? `false` for any other attempt.
+    #[must_use]
+    pub(crate) fn stalled_run_saved_files(&self, attempt: &Attempt) -> bool {
+        self.items.iter().any(|i| {
+            i.status.id == attempt.id
+                && i.attempt == attempt.number
+                && i.stalled_attempt == Some(attempt.number)
+                && i.stalled_run_saved_files
+        })
+    }
+
+    /// Takes a stalled run off the "still running" list (#1432 review).
+    /// Returns whether it was there. Safe to call more than once.
+    pub(crate) fn end_live_stalled_run(&mut self, number: u64) -> bool {
+        if let Some(pos) = self.live_stalled_runs.iter().position(|n| *n == number) {
+            self.live_stalled_runs.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Is a run the stall check marked failed still going (#1432 review)?
+    /// Tests only; the queue reads the list through `is_idle`.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn has_live_stalled_runs(&self) -> bool {
+        !self.live_stalled_runs.is_empty()
+    }
+
+    /// What to do now that the run of `attempt` has ended, after the item had
+    /// already ended from outside it (`ended`) (#1432 review). One step under
+    /// the lock, so nothing can find the queue idle in between:
+    ///
+    /// * the run comes off the "stalled but still running" list, so the
+    ///   queue can count as finished again once nothing else is running;
+    /// * if the stall check had marked this very run failed and it
+    ///   `finished` -- genuinely: it ended cleanly, saved files, and its
+    ///   tidying-up was not cut short -- the item is queued again once
+    ///   ([`Self::retry_after_late_finish`]); if it was already that one
+    ///   automatic retry, it is not queued again.
+    ///
+    /// A run that timed out, was stopped, or saved nothing gives `Nothing`:
+    /// no line, no retry, so an album that hangs cannot loop.
+    pub(crate) fn on_late_finish(
+        &mut self,
+        attempt: &Attempt,
+        ended: EndedOutside,
+        finished: bool,
+        settings: &AppSettings,
+    ) -> LateFinish {
+        self.end_live_stalled_run(attempt.number);
+        if ended != EndedOutside::StoppedAsStuck || !finished {
+            return LateFinish::Nothing;
+        }
+        if self.retry_after_late_finish(attempt, settings) {
+            return LateFinish::QueuedAgain;
+        }
+        // Not queued: either the person has since retried or removed it
+        // (then nothing to say), or it was already the automatic retry.
+        let already_retried = self.items.iter().any(|i| {
+            i.status.id == attempt.id
+                && i.attempt == attempt.number
+                && i.stalled_attempt == Some(attempt.number)
+                && i.auto_retried_after_stall
+        });
+        if already_retried {
+            LateFinish::NotQueuedAgain
+        } else {
+            LateFinish::Nothing
+        }
+    }
+
+    /// Takes back, once, the failure the stall check counted for this item,
+    /// when its automatic retry's own result is about to be counted (#1432
+    /// review), so "Queue finished: N downloaded, M failed" counts the item
+    /// once. Returns whether there was one to take back.
+    pub(crate) fn take_stall_failure_to_withdraw(&mut self, attempt: &Attempt) -> bool {
+        match self
+            .items
+            .iter_mut()
+            .find(|i| i.status.id == attempt.id && i.attempt == attempt.number)
+        {
+            Some(item) if item.stall_failure_to_withdraw => {
+                item.stall_failure_to_withdraw = false;
+                true
+            }
+            _ => false,
+        }
     }
 
     /// The items being downloaded or tidied up right now, each with the
@@ -2346,10 +2546,17 @@ impl DownloadQueue {
                 && i.attempt == attempt.number
                 && i.stalled_attempt == Some(attempt.number)
                 && i.status.state == DownloadState::Error
+                // At most once per run the person started (#1432 review):
+                // the automatic retry itself is never retried automatically.
+                && !i.auto_retried_after_stall
         }) else {
             return false;
         };
         reset_for_fresh_run(item, settings, max, &mut self.next_attempt);
+        // Remember that this one was queued by MeedyaDL, not the person, and
+        // that the stall's failure was already counted.
+        item.auto_retried_after_stall = true;
+        item.stall_failure_to_withdraw = true;
         log::info!(
             "Download {} queued again after its stalled run finished",
             attempt.id
@@ -2361,7 +2568,10 @@ impl DownloadQueue {
     /// Used to trigger after-queue actions.
     #[must_use]
     pub fn is_idle(&self) -> bool {
+        // A run the stall check marked failed but left going still counts
+        // as work (#1432 review): it may queue its one retry when it ends.
         self.active.is_empty()
+            && self.live_stalled_runs.is_empty()
             && !self
                 .items
                 .iter()
@@ -2494,6 +2704,12 @@ impl DownloadQueue {
                     self.max_network_retries,
                     &mut self.next_attempt,
                 );
+                // The person's own Retry starts a new run of their own: it may
+                // again be retried once automatically after a stall, and any
+                // earlier stall failure is no longer this run's to take back
+                // (#1432 review).
+                item.auto_retried_after_stall = false;
+                item.stall_failure_to_withdraw = false;
 
                 // Apply the smart-retry plan if one was produced. The plan
                 // narrows the URL set to per-track entries that GAMDL can
@@ -2796,6 +3012,9 @@ impl DownloadQueue {
                 // A fresh attempt number for a restored item (#1432).
                 attempt: take_attempt_number(&mut self.next_attempt),
                 stalled_attempt: None,
+                stalled_run_saved_files: false,
+                auto_retried_after_stall: false,
+                stall_failure_to_withdraw: false,
             };
             self.items.push_back(item);
         }

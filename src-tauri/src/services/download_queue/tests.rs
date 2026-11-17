@@ -2580,9 +2580,210 @@ fn late_finish_line_is_plain_and_written_once_queued() {
         .find("pub(crate) async fn finish_ended_outside")
         .unwrap();
     let body = &helpers[at..at + 2500];
-    let queued = body.find("retry_after_late_finish").unwrap();
+    let queued = body.find("on_late_finish").unwrap();
     let line = body.find("LATE_FINISH_LINE").unwrap();
     assert!(queued < line, "the line follows a successful re-queue");
+    // Written only for the "queued again" outcome.
+    let arm = body.find("LateFinish::QueuedAgain").unwrap();
+    assert!(arm < line);
+}
+
+// ---- #1432 review fixes ----------------------------------------------
+
+/// Finding 1: a stalled run whose tidying-up timed out (or that saved
+/// nothing) is not "finished after all": no retry and no late-finish line
+/// (`on_late_finish` gives `Nothing`), and the item stays failed.
+#[test]
+fn stalled_run_that_timed_out_is_not_queued_again() {
+    let settings = AppSettings::default();
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    // The tidying-up was cut short by a time limit.
+    let finished = tidying_up_finished(true, false);
+    assert!(!finished);
+    assert_eq!(
+        q.on_late_finish(&a, EndedOutside::StoppedAsStuck, finished, &settings),
+        LateFinish::Nothing
+    );
+    assert_eq!(q.get_status()[0].state, DownloadState::Error);
+    // An integrity failure is not a finish either; a clean end is.
+    assert!(!tidying_up_finished(false, true));
+    assert!(tidying_up_finished(false, false));
+}
+
+/// Finding 1: a clean GAMDL exit counts as a finish only if the stalled
+/// run saved files -- before the stall, or reported afterwards.
+#[test]
+fn stalled_run_counts_saved_files_reported_after_the_stall() {
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert!(!q.stalled_run_saved_files(&a), "nothing saved yet");
+    q.update_item_progress(
+        &a,
+        &process::GamdlOutputEvent::Complete {
+            path: "/music/A/B/01 Song.m4a".to_string(),
+        },
+    );
+    assert!(q.stalled_run_saved_files(&a));
+    // The report does not change the failed item itself.
+    let status = &q.get_status()[0];
+    assert_eq!(status.state, DownloadState::Error);
+    assert!(status.output_path.is_none());
+}
+
+/// Finding 1: the automatic retry is made at most once per run the person
+/// started. If the retry stalls too and finishes after all, the line is
+/// written (`NotQueuedAgain`) but nothing is queued; the person's Retry
+/// allows one automatic retry again.
+#[test]
+fn second_stall_of_the_automatic_retry_is_not_retried_again() {
+    let settings = AppSettings::default();
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let a1 = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a1, "stalled"));
+    assert_eq!(
+        q.on_late_finish(&a1, EndedOutside::StoppedAsStuck, true, &settings),
+        LateFinish::QueuedAgain
+    );
+    // The automatic retry runs and gets stuck as well, then finishes.
+    let a2 = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a2, "stalled"));
+    assert_eq!(
+        q.on_late_finish(&a2, EndedOutside::StoppedAsStuck, true, &settings),
+        LateFinish::NotQueuedAgain
+    );
+    assert_eq!(q.get_status()[0].state, DownloadState::Error);
+    assert!(q.next_pending().is_none(), "nothing queued again");
+
+    // The person's own Retry starts a new run that may be retried once.
+    assert!(q.retry(&id, &settings));
+    let a3 = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a3, "stalled"));
+    assert_eq!(
+        q.on_late_finish(&a3, EndedOutside::StoppedAsStuck, true, &settings),
+        LateFinish::QueuedAgain
+    );
+}
+
+/// Finding 2: while a run the stall check marked failed is still going,
+/// the queue is not idle, so "Queue finished" and the after-queue action
+/// (which can shut the computer down) wait. Once that run ends the queue
+/// is idle again; if it queued its retry, that runs first.
+#[test]
+fn queue_is_not_idle_while_a_stalled_run_is_still_going() {
+    let settings = AppSettings::default();
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert_eq!(q.active_len(), 0, "its slot was given back");
+    assert!(q.has_live_stalled_runs());
+    assert!(!q.is_idle(), "the stalled run is still going");
+
+    // It ends without finishing: now the queue is idle.
+    assert_eq!(
+        q.on_late_finish(&a, EndedOutside::StoppedAsStuck, false, &settings),
+        LateFinish::Nothing
+    );
+    assert!(!q.has_live_stalled_runs());
+    assert!(q.is_idle());
+
+    // A run that finishes after all queues its retry in the same step, so
+    // the queue never looks idle in between.
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert_eq!(
+        q.on_late_finish(&a, EndedOutside::StoppedAsStuck, true, &settings),
+        LateFinish::QueuedAgain
+    );
+    assert!(!q.is_idle(), "the retry is waiting");
+
+    // Ending the same run twice is harmless.
+    assert!(!q.end_live_stalled_run(a.number));
+}
+
+/// Finding 5: the stall's counted failure is taken back once, when the
+/// automatic retry's own result is counted, so the item counts once.
+#[test]
+fn automatic_retry_takes_back_the_stall_failure_once() {
+    let settings = AppSettings::default();
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let a1 = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a1, "stalled"));
+    // The stalled run itself has nothing to take back.
+    assert!(!q.take_stall_failure_to_withdraw(&a1));
+    assert!(q.retry_after_late_finish(&a1, &settings));
+    let a2 = q.next_pending().unwrap().attempt;
+    assert!(q.take_stall_failure_to_withdraw(&a2), "taken back once");
+    assert!(!q.take_stall_failure_to_withdraw(&a2), "only once");
+
+    // The counts: 1 failed at the stall; the retry completes.
+    let mut run = (0_u32, 1_u32);
+    crate::services::notification_service::withdraw_failure_from(&mut run);
+    run.0 += 1;
+    assert_eq!(run, (1, 0), "one downloaded, not also one failed");
+    // Never below zero.
+    crate::services::notification_service::withdraw_failure_from(&mut run);
+    assert_eq!(run, (1, 0));
+
+    // The person's Retry clears anything left to take back.
+    let mut q = DownloadQueue::new();
+    let id2 = enqueue_one(&mut q);
+    let b1 = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&b1, "stalled"));
+    assert!(q.retry_after_late_finish(&b1, &settings));
+    let b2 = q.next_pending().unwrap().attempt;
+    assert!(q.set_error(&b2, "failed"));
+    q.release_slot(&b2);
+    assert!(q.retry(&id2, &settings));
+    let b3 = q.next_pending().unwrap().attempt;
+    assert!(!q.take_stall_failure_to_withdraw(&b3));
+    let _ = id;
+}
+
+/// Finding 4: an attempt's captions change the row only while it owns it.
+#[test]
+fn captions_from_a_replaced_attempt_are_ignored() {
+    let settings = AppSettings::default();
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let a1 = q.next_pending().unwrap().attempt;
+    q.set_processing_label_for(&a1, "first run");
+    assert_eq!(
+        q.get_status()[0].processing_label.as_deref(),
+        Some("first run")
+    );
+    assert!(q.cancel(&id));
+    // The old run gives its slot back as it stops.
+    q.release_slot(&a1);
+    assert!(q.retry(&id, &settings));
+    let a2 = q.next_pending().unwrap().attempt;
+    q.set_processing_label_for(&a2, "second run");
+    q.set_processing_label_for(&a1, "old run");
+    q.set_processing_progress_for(&a1, 0.9);
+    q.clear_processing_label_for(&a1);
+    let status = &q.get_status()[0];
+    assert_eq!(status.processing_label.as_deref(), Some("second run"));
+    assert_ne!(status.processing_progress, Some(0.9));
+}
+
+/// Finding 1 (source check): the completion task passes the real outcome
+/// of the tidying-up, never a plain `true`, and the clean-exit check uses
+/// whether the stalled run saved files.
+#[test]
+fn late_finish_callers_pass_the_real_outcome() {
+    let src = include_str!("processing.rs");
+    assert!(src.contains("tidying_up_finished("));
+    assert!(src.contains("let saved_files = q.stalled_run_saved_files(&attempt);"));
+    assert!(src.contains("let finished = result.is_ok() && new_files > 0;"));
 }
 
 /// Test 13 (sweep, queue half): a slot held by an attempt that is no

@@ -36,7 +36,7 @@ use std::fmt;
 
 use tauri::{AppHandle, Emitter};
 
-use super::download_queue::QueueHandle;
+use super::download_queue::{Attempt, QueueHandle};
 
 /// All per-item processing stages, in chronological order.
 ///
@@ -258,6 +258,63 @@ pub fn set_stage_with_label(
         q.set_processing_progress(download_id, stage.weight());
     }
     let _ = app.emit("queue-updated", download_id);
+}
+
+/// [`set_stage_with_label`] for one attempt only (#1432 review): the
+/// caption and bar change only while `attempt` still owns the item, so a
+/// run that was replaced (retried, cancelled, marked failed as stuck) can
+/// never write its caption onto the row of the run that took over. For the
+/// callers that have the attempt in hand: the tidying-up's last steps and
+/// the extra-format copies. Best-effort like the original (`try_lock`).
+pub fn set_stage_with_label_for(
+    app: &AppHandle,
+    queue: &QueueHandle,
+    attempt: &Attempt,
+    stage: ProgressStage,
+    label: &str,
+) {
+    if let Ok(mut q) = queue.try_lock() {
+        if q.ended_outside(attempt).is_some() {
+            return;
+        }
+        let full_label = format!("{label}{}", caption_context(&q, &attempt.id));
+        q.set_processing_label_for(attempt, &full_label);
+        q.set_processing_progress_for(attempt, stage.weight());
+    }
+    let _ = app.emit("queue-updated", attempt.id.as_str());
+}
+
+/// [`set_label_only`] for one attempt only (#1432 review); see
+/// [`set_stage_with_label_for`].
+pub fn set_label_only_for(app: &AppHandle, queue: &QueueHandle, attempt: &Attempt, label: &str) {
+    if let Ok(mut q) = queue.try_lock() {
+        if q.ended_outside(attempt).is_some() {
+            return;
+        }
+        let full_label = format!("{label}{}", caption_context(&q, &attempt.id));
+        q.set_processing_label_for(attempt, &full_label);
+    }
+    let _ = app.emit("queue-updated", attempt.id.as_str());
+}
+
+/// The " — Artist: Album" ending of a caption, the same shape the two
+/// helpers above use.
+fn caption_context(q: &super::download_queue::DownloadQueue, download_id: &str) -> String {
+    q.get_status()
+        .into_iter()
+        .find(|s| s.id == download_id)
+        .map(|s| {
+            let artist = s.artist_name.unwrap_or_default();
+            let album = s.album_name.unwrap_or_default();
+            if !artist.is_empty() && !album.is_empty() {
+                format!(" — {artist}: {album}")
+            } else if !album.is_empty() {
+                format!(" — {album}")
+            } else {
+                String::new()
+            }
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

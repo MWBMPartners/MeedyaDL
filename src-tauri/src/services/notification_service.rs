@@ -818,6 +818,23 @@ pub fn count_result(kind: NotifyKind) {
     }
 }
 
+/// Takes back one failure counted earlier for the next "Queue finished"
+/// summary (#1432 review). Used when an item the stall check counted as
+/// failed is retried automatically, so its retry's own result replaces the
+/// earlier failure instead of adding to it. Never goes below zero.
+pub fn withdraw_counted_failure() {
+    let mut run = QUEUE_RUN
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    withdraw_failure_from(&mut run);
+}
+
+/// The arithmetic of [`withdraw_counted_failure`], on a (downloaded,
+/// failed) pair. Pure, so it is tested without the shared counts.
+pub(crate) fn withdraw_failure_from(run: &mut (u32, u32)) {
+    run.1 = run.1.saturating_sub(1);
+}
+
 /// Forgets the counts, e.g. when the queue was aborted.
 pub fn reset_queue_run_counts() {
     *QUEUE_RUN

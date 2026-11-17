@@ -131,12 +131,24 @@ pub(crate) fn stop_if_ended_outside(
 /// it, save the queue and move it on. Call after [`stop_if_ended_outside`]
 /// returned `Some`, with the lock dropped, then return.
 ///
-/// `finished`: this attempt's run has just finished its work (GAMDL ended
-/// cleanly, or the tidying-up reached its end). If the stall check had
-/// marked this very attempt failed, the person is told in one plain line
-/// that the files are there but were not tidied up, and the item is
-/// queued again once so the tidying-up runs (maintainer decision, 17 Nov
-/// 2026). Nothing is queued if the person has since retried or removed it.
+/// `finished`: this attempt's run has genuinely finished its work -- GAMDL
+/// ended cleanly AND saved files, and (for the tidying-up) nothing was cut
+/// short by a time limit or stopped. Pass `false` for anything less: a run
+/// that timed out or saved nothing is not "finished after all", and
+/// queueing it again could loop for ever on an album that hangs in the same
+/// place (#1432 review).
+///
+/// If the stall check had marked this very attempt failed and it finished,
+/// the person is told in one plain line that the files are there but were
+/// not tidied up, and the item is queued again once so the tidying-up runs
+/// (maintainer decision, 17 Nov 2026). At most once per run the person
+/// started: if this was already that automatic retry, a different line
+/// says so and asks them to use Retry. Nothing is queued if the person has
+/// since retried or removed it.
+///
+/// In every case this run comes off the "stalled but still running" list
+/// in the same lock as the retry decision, so the queue can never look
+/// idle (and fire the after-queue action) in between.
 pub(crate) async fn finish_ended_outside(
     app: &AppHandle,
     queue: &QueueHandle,
@@ -149,16 +161,20 @@ pub(crate) async fn finish_ended_outside(
         "Download {dl_id} (attempt {}) had already ended ({ended:?}) — leaving it as it is",
         attempt.number
     );
-    if ended == EndedOutside::StoppedAsStuck && finished {
-        let settings = load_settings_for_queue(app);
-        let queued_again = queue
-            .lock()
-            .await
-            .retry_after_late_finish(attempt, &settings);
-        if queued_again {
+    let settings = load_settings_for_queue(app);
+    let outcome = queue
+        .lock()
+        .await
+        .on_late_finish(attempt, ended, finished, &settings);
+    match outcome {
+        LateFinish::QueuedAgain => {
             emit_download_log(app, dl_id, LATE_FINISH_LINE);
             let _ = app.emit("download-queued", dl_id);
         }
+        LateFinish::NotQueuedAgain => {
+            emit_download_log(app, dl_id, LATE_FINISH_NOT_AGAIN_LINE);
+        }
+        LateFinish::Nothing => {}
     }
     save_queue_to_disk(app, queue).await;
     process_queue(app.clone(), queue.clone()).await;
@@ -172,6 +188,44 @@ pub(crate) const LATE_FINISH_LINE: &str =
      after all. Its files are on disk, but they were not tidied up (tags, lyrics and file names), \
      so it has been queued again to finish the job. Files already there are kept unless \
      \"Overwrite Existing Files\" is on.";
+
+/// The same news when the run that finished was already MeedyaDL's one
+/// automatic retry (#1432 review): it is not queued again, so a download
+/// that keeps getting stuck cannot go round for ever.
+pub(crate) const LATE_FINISH_NOT_AGAIN_LINE: &str =
+    "This download had been marked as stuck, but it finished \
+     after all. Its files are on disk, but they were not tidied up (tags, lyrics and file names). \
+     It had already been queued again once after getting stuck, so it was not queued again \
+     automatically. Use Retry if you want MeedyaDL to try once more.";
+
+/// Counts one download result for the "Queue finished" summary, the way
+/// every result of an attempt should be counted (#1431, #1432 review).
+///
+/// Call with the queue lock held (as `count_result` requires). If this
+/// attempt is the automatic retry of an item the stall check had already
+/// counted as failed, that earlier failure is taken back first, so the item
+/// counts once in the summary: as downloaded if the retry worked, as one
+/// failure if it did not.
+pub(crate) fn count_attempt_result(
+    q: &mut DownloadQueue,
+    attempt: &Attempt,
+    kind: crate::services::notification_service::NotifyKind,
+) {
+    if q.take_stall_failure_to_withdraw(attempt) {
+        crate::services::notification_service::withdraw_counted_failure();
+    }
+    crate::services::notification_service::count_result(kind);
+}
+
+/// Did an attempt's tidying-up genuinely finish (#1432 review)? Only when
+/// nothing in it was cut short (a time limit, or the attempt being
+/// replaced) and the files passed the integrity check. Anything less must
+/// not count as a stalled run "finishing after all", or an album that hangs
+/// in the same place every time would be queued again and again.
+#[must_use]
+pub(crate) const fn tidying_up_finished(cut_short: bool, integrity_failed: bool) -> bool {
+    !cut_short && !integrity_failed
+}
 
 /// How often a long wait checks whether its attempt should still run
 /// (#1432). Two seconds: quick enough that a cancelled or retried item does
