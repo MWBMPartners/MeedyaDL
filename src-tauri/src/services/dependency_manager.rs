@@ -629,7 +629,7 @@ async fn fetch_btbn_ffmpeg_build_date() -> Result<time::OffsetDateTime, String> 
         .ok_or("BtbN's release response had no published_at field")?;
 
     crate::utils::time_compat::parse_rfc3339(published_at)
-        .map(|dt| dt.to_offset(time::UtcOffset::UTC))
+        .and_then(crate::utils::time_compat::to_utc)
         .ok_or_else(|| format!("Could not parse BtbN's published_at '{published_at}'"))
 }
 
@@ -667,7 +667,7 @@ async fn fetch_evermeet_ffmpeg_build_date() -> Result<time::OffsetDateTime, Stri
         .ok_or("evermeet.cx's response had no Last-Modified header")?;
 
     crate::utils::time_compat::parse_rfc2822(header)
-        .map(|dt| dt.to_offset(time::UtcOffset::UTC))
+        .and_then(crate::utils::time_compat::to_utc)
         .ok_or_else(|| format!("Could not parse evermeet.cx's Last-Modified '{header}'"))
 }
 
@@ -718,7 +718,7 @@ async fn fetch_mirror_ffmpeg_build_date(fresh: bool) -> Result<time::OffsetDateT
         .ok_or("The mirror's versions.json has no 'ffmpeg' entry")?;
 
     crate::utils::time_compat::parse_rfc3339(raw)
-        .map(|dt| dt.to_offset(time::UtcOffset::UTC))
+        .and_then(crate::utils::time_compat::to_utc)
         .ok_or_else(|| format!("Could not parse the mirror's ffmpeg build date '{raw}'"))
 }
 

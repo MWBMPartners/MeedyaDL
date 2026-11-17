@@ -17,7 +17,7 @@
 
 use std::collections::BTreeMap;
 
-use time::{Duration, UtcOffset};
+use time::Duration;
 
 use crate::utils::time_compat;
 use serde::Serialize;
@@ -137,7 +137,7 @@ pub fn compute_lifetime_stats(history: &[HistoryEntry]) -> LifetimeStats {
         if ts < seven_days_ago {
             continue;
         }
-        let date_key = time_compat::ymd(ts.to_offset(UtcOffset::UTC));
+        let date_key = time_compat::ymd(ts);
         *day_map.entry(date_key).or_insert(0) += 1;
     }
     let last_7_days: Vec<DayCount> = day_map

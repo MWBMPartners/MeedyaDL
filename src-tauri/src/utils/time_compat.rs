@@ -53,10 +53,32 @@ pub fn now_local_or_utc() -> OffsetDateTime {
     }
 }
 
+/// The same moment in UTC, or `None` when it cannot be shown in UTC.
+///
+/// `time` only goes up to the year 9999, so a moment such as
+/// `9999-12-31T23:30:00-01:00` has no UTC form; its own `to_offset` panics
+/// on it. Every conversion to UTC in the app goes through here instead, so
+/// a hostile or broken date is treated as unreadable rather than ending
+/// the task (review of #1449).
+pub fn to_utc(dt: OffsetDateTime) -> Option<OffsetDateTime> {
+    dt.checked_to_offset(UtcOffset::UTC)
+}
+
+/// The UTC moment for writing, falling back to the latest moment `time`
+/// can hold when the true one is past it. Only reachable with a date that
+/// came from outside without going through a reader here (the readers
+/// already refuse such dates).
+fn utc_for_writing(dt: OffsetDateTime) -> OffsetDateTime {
+    to_utc(dt).unwrap_or_else(|| {
+        log::debug!("date {dt} is past the year 9999 in UTC; writing the latest date instead");
+        time::PrimitiveDateTime::MAX.assume_utc()
+    })
+}
+
 /// Write a moment in the exact stored form described at the top of this
 /// file (the same text `chrono`'s `to_rfc3339()` wrote).
 pub fn to_stored_rfc3339(dt: OffsetDateTime) -> String {
-    let dt = dt.to_offset(UtcOffset::UTC);
+    let dt = utc_for_writing(dt);
     let mut out = String::with_capacity(35);
     let year = dt.year();
     // Years 0..=9999 are four digits; anything else is written with an
@@ -97,6 +119,11 @@ pub fn now_rfc3339() -> String {
 /// Read a standard RFC 3339 date (`2026-11-17T04:12:35Z`,
 /// `…+05:30`, with or without decimals). `None` if it is not one.
 pub fn parse_rfc3339(s: &str) -> Option<OffsetDateTime> {
+    // `time` accepts any character between the date and the time; the old
+    // library took only `T`, `t` or a space, so refuse anything else.
+    if !matches!(s.as_bytes().get(10), Some(b'T' | b't' | b' ')) {
+        return None;
+    }
     OffsetDateTime::parse(s, &Rfc3339).ok()
 }
 
@@ -106,7 +133,7 @@ pub fn parse_rfc3339(s: &str) -> Option<OffsetDateTime> {
 /// stored text (history, caches). The result is in UTC.
 pub fn parse_rfc3339_lenient(s: &str) -> Option<OffsetDateTime> {
     if let Some(dt) = parse_rfc3339(s) {
-        return Some(dt.to_offset(UtcOffset::UTC));
+        return to_utc(dt);
     }
     let mut t = s.trim().to_string();
     // "... UTC" / "...UTC" -> "+00:00"
@@ -128,7 +155,7 @@ pub fn parse_rfc3339_lenient(s: &str) -> Option<OffsetDateTime> {
             );
         }
     }
-    parse_rfc3339(&t).map(|d| d.to_offset(UtcOffset::UTC))
+    parse_rfc3339(&t).and_then(to_utc)
 }
 
 /// Read an RFC 2822 date such as an HTTP `Last-Modified` header
@@ -219,7 +246,7 @@ pub fn export_stamp(dt: OffsetDateTime) -> String {
 /// `YYYY-MM-DDTHH:MM:SSZ` in UTC, whole seconds (the `MeedyaMeta:LastModified`
 /// tag form).
 pub fn to_tag_utc_seconds(dt: OffsetDateTime) -> String {
-    let dt = dt.to_offset(UtcOffset::UTC);
+    let dt = utc_for_writing(dt);
     format!("{}T{}Z", ymd(dt), hms(dt))
 }
 
@@ -348,8 +375,28 @@ mod tests {
         }
     }
 
-    /// A leap second written as `:60` is accepted by neither as the old
-    /// library did only at 23:59:60; it never appears in our data.
+    /// A leap second written as `:60` is refused. The old library accepted
+    /// `:60` at any minute; it never appears in our data or Apple's.
+    #[test]
+    fn a_date_past_9999_in_utc_is_unreadable_not_a_crash() {
+        // `time` cannot hold the UTC form of these; they must come back as
+        // "unreadable" (or the latest date when writing), never a panic.
+        assert!(parse_rfc3339_lenient("9999-12-31T23:30:00-01:00").is_none());
+        let late = parse_rfc3339("9999-12-31T23:30:00-01:00").unwrap();
+        assert!(to_utc(late).is_none());
+        assert_eq!(
+            to_stored_rfc3339(late),
+            "9999-12-31T23:59:59.999999999+00:00"
+        );
+        assert_eq!(to_tag_utc_seconds(late), "9999-12-31T23:59:59Z");
+    }
+
+    #[test]
+    fn only_t_or_space_separates_date_and_time() {
+        assert!(parse_rfc3339("2026-11-17X04:12:35Z").is_none());
+        assert!(parse_rfc3339("2026-11-17T04:12:35Z").is_some());
+    }
+
     #[test]
     fn leap_second_is_refused() {
         assert!(parse_rfc3339("2026-11-17T04:12:60Z").is_none());

@@ -2635,7 +2635,19 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
                 .to_string(),
         ));
     };
-    let recorded_date = recorded_date.to_offset(time::UtcOffset::UTC);
+    // A date past the year 9999 in UTC has no UTC form; treat it as unreadable.
+    let Some(recorded_date) = crate::utils::time_compat::to_utc(recorded_date) else {
+        return Ok(not_checkable_update(
+            "FFmpeg",
+            "ffmpeg",
+            current_version,
+            managed_by,
+            manual_update_command,
+            "Cannot check for an FFmpeg update — the build date could not be read when this \
+             copy was installed."
+                .to_string(),
+        ));
+    };
 
     // The only network call in this function — a real failure here (and
     // only here) is allowed to bubble up as Err, same as every other
