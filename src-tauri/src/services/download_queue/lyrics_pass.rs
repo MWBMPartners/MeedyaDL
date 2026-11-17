@@ -774,10 +774,19 @@ pub(crate) fn plan_word_lyrics_pass(primary: &GamdlOptions, download_folder: &st
 ///
 /// - `download_folder`: the folder the primary run really used;
 /// - lyrics only, in `format`;
-/// - no saved cover, no playlist file, no word-by-word lyrics file.
+/// - overwrite OFF, whatever the primary run had. A lyrics-only run with
+///   overwrite on rewrites the lyrics file of every track, which would
+///   replace the word-by-word Enhanced LRC files Step 2 has just made; this
+///   run is only meant to fill gaps, so it never replaces a file;
+/// - no saved cover, no playlist file, no word-by-word lyrics file, and the
+///   settings file left out (`no_config_file`): GAMDL 3 reads that file as
+///   its defaults and its `save_cover = true` line would still make this
+///   run save a fresh `Cover` picture beside the one already renamed to the
+///   person's chosen name. Everything the file carries is already in the
+///   primary run's own options (they are built from the same settings), so
+///   leaving it out loses nothing.
 ///
-/// Overwrite stays as the primary run had it (the item's own choice). Like
-/// the word-by-word pass, this runs before any rename, so the primary's
+/// Like the word-by-word pass, this runs before any rename, so the primary's
 /// templates point at the files exactly. It used to be built from Settings
 /// instead, which missed a format label added to the file names and the
 /// newer wrapper settings, so lyrics could land beside the wrong name.
@@ -788,8 +797,10 @@ pub(crate) fn plan_lyrics_recovery_run(
 ) -> GamdlOptions {
     let mut options = primary.clone();
     options.output_path = Some(download_folder.to_string());
+    options.overwrite = Some(false);
     options.save_cover = Some(false);
     options.save_playlist = None;
+    options.no_config_file = Some(true);
     options.no_synced_lyrics = Some(false);
     options.synced_lyrics_only = Some(true);
     options.synced_lyrics_format = Some(format);
@@ -2830,8 +2841,17 @@ mod tests {
         assert_eq!(plan.save_cover, Some(false));
         assert_eq!(plan.save_playlist, None);
         assert_eq!(plan.word_timed_lyrics_file, None);
-        // The item's own overwrite choice is kept.
-        assert_eq!(plan.overwrite, Some(true));
+        // Overwrite is always off, even when the primary run had it on, so
+        // the word-by-word lyrics files Step 2 made are never replaced.
+        assert_eq!(plan.overwrite, Some(false));
+        // The settings file is left out, so its `save_cover = true` cannot
+        // make this run save a fresh Cover picture.
+        assert_eq!(plan.no_config_file, Some(true));
+        let args = plan.to_cli_args();
+        assert!(!args
+            .iter()
+            .any(|a| a == "--overwrite" || a == "--save-cover"));
+        assert!(args.iter().any(|a| a == "--no-config-file"));
     }
 
     // ---------------- the GAMDL pass: when it runs ----------------
