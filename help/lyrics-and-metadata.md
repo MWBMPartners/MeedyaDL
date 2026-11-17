@@ -61,7 +61,7 @@ Enhanced LRC adds a time before every word. Players that support it can highligh
 - Songs that only have line-by-line timing get ordinary LRC instead.
 - It is on by default. Turn it on or off in **Settings > Lyrics > Enhanced Lyrics (Word-by-Word Sync)**.
 - While it is on, TTML is kept as the main format, because the word timing comes from it. You can still tick LRC and SRT as extra formats.
-- Word-by-word lyrics are looked up first by MeedyaDL itself (your Apple Music developer details make this work reliably, see [Animated Artwork](animated-artwork.md#setup-guide)). If that is not possible for a song, and you are using GAMDL 4.0.2 or later (see [Trying GAMDL 4](tools.md#trying-gamdl-4)), the word-by-word file can come from GAMDL instead.
+- Word-by-word lyrics are looked up first by MeedyaDL itself. This needs your Apple Music sign-in (see [Cookie Management](cookie-management.md)), and your developer details make it work reliably (see [Animated Artwork](animated-artwork.md#setup-guide)). If that is not possible for a song, and you are using GAMDL 4.0.2 or later (see [Trying GAMDL 4](tools.md#trying-gamdl-4)), the word-by-word file can come from GAMDL instead.
 - The order is: word-by-word lyrics first, then the other lyric files made from them, and file renaming last.
 
 **Test word-level lyrics connection.** This button, next to the toggle, checks whether word-by-word lyrics can be fetched for you right now, without waiting for a real download.

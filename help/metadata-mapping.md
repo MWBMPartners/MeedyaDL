@@ -188,7 +188,6 @@ The same value is written on every track of the album.
 | `AlbumEditorialNote` | Apple's short write-up of the album | text |
 | `MotionArtURL` | Link to the square animated cover | text |
 | `MotionArtPortraitURL` | Link to the portrait animated cover | text |
-| `AlbumLastModified` | When Apple last changed the album | text |
 
 </details>
 
@@ -229,7 +228,6 @@ This is MeedyaDL's own group. **Every** album-level and track-level tag above is
 | `MeedyaMeta:AppleAudioTraits` | The track's audio traits, for example `["atmos","lossless","lossy-stereo"]` |
 | `MeedyaMeta:SourceStore` | Where the file came from. Always "Apple Music". (Also written as `com.apple.iTunes:SourceStore`.) |
 | `MeedyaMeta:SpatialAudioCodec` | The Atmos or spatial format, worked out from the audio file |
-| `MeedyaMeta:AppleLastModifiedDate` | When the album was last updated on Apple Music. MeedyaDL uses it to spot albums worth downloading again. |
 | `MeedyaMeta:<Service>Url` (for example `MeedyaMeta:SpotifyUrl`, `MeedyaMeta:TidalUrl`, `MeedyaMeta:YoutubeMusicUrl`) | Where the album can be found on another music service, one tag for each service that has a match. Written only when you turn on the song.link links option in **Settings > Metadata** and have an access key. |
 
 </details>

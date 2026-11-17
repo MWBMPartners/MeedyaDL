@@ -868,7 +868,7 @@ export function GeneralTab() {
           options={STOREFRONT_OPTIONS}
           value={storefront.value}
           onChange={(e) => storefront.set(e.target.value)}
-          description="Apple Music storefront region. Leave as “Auto-detect” to derive it from the metadata language setting."
+          description="Your Apple Music country. Used for the retry when a link from another country fails (see the switch below). Leave as “Auto-detect” to use your computer’s region."
         />
 
         {/* Storefront fallback on failure (#666) */}
