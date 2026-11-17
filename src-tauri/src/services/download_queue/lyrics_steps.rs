@@ -599,6 +599,12 @@ mod tests {
 
     /// A readable picture of one music file's tags: every atom and its
     /// value, sorted, so a fixed expected text can pin what was embedded.
+    ///
+    /// It uses the tag library's own debug text for each atom, so a new
+    /// version of `mp4ameta` that prints its values differently will make
+    /// these tests fail even though MeedyaDL's output has not changed. If
+    /// that happens, check the difference is only in how values are shown,
+    /// then refresh the files in `lyrics_steps_golden/`.
     fn render_tags(path: &Path) -> String {
         let tag = mp4ameta::Tag::read_from_path(path).unwrap();
         let mut lines: Vec<String> = tag

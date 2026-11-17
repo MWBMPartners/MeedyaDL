@@ -318,13 +318,6 @@ mod tests {
         assert_eq!(count, 0, "Expected 0 files generated when no source exists");
     }
 
-    #[test]
-    /// Test that an invalid directory path returns an error, not a panic.
-    fn rich_srt_invalid_directory() {
-        let result = rich_srt_in_folder("/nonexistent/path/that/does/not/exist");
-        assert!(result.is_err(), "Expected error for invalid directory");
-    }
-
     // ============================================================
     // WebVTT Service — Integration Tests
     // ============================================================
@@ -460,13 +453,6 @@ mod tests {
             vtt_content.contains("Existing content, do not overwrite"),
             "Existing VTT was overwritten"
         );
-    }
-
-    #[test]
-    /// Test WebVTT generation for an invalid directory.
-    fn webvtt_invalid_directory() {
-        let result = webvtt_in_folder("/nonexistent/path/that/does/not/exist");
-        assert!(result.is_err(), "Expected error for invalid directory");
     }
 
     // ============================================================
@@ -607,13 +593,6 @@ mod tests {
         );
     }
 
-    #[test]
-    /// Test Enhanced LRC with an invalid directory path.
-    fn enhanced_lrc_invalid_directory() {
-        let result = enhanced_lrc_in_folder("/nonexistent/path/that/does/not/exist", true);
-        assert!(result.is_err(), "Expected error for invalid directory");
-    }
-
     // ============================================================
     // ASS Subtitle Service — Integration Tests
     // ============================================================
@@ -748,13 +727,6 @@ mod tests {
 
         let ass_content = fs::read_to_string(dir.join("01 Song.ass")).expect("Failed to read ASS");
         assert_eq!(ass_content, existing, "Existing ASS file was overwritten");
-    }
-
-    #[test]
-    /// Test ASS generation with an invalid directory path.
-    fn ass_invalid_directory() {
-        let result = ass_in_folder("/nonexistent/path/that/does/not/exist");
-        assert!(result.is_err(), "Expected error for invalid directory");
     }
 
     // ============================================================

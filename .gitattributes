@@ -40,3 +40,11 @@ tests/fixtures/bcp47-language-policy-v1.json -text -filter -working-tree-encodin
 tests/fixtures/bcp47-language-policy-v1.schema.json -text -filter -working-tree-encoding -ident
 scripts/media-lang/check_copies.py -text -filter -working-tree-encoding -ident
 docs/standards/MWBM-MEDIA-LANG.lock -text -filter -working-tree-encoding -ident
+
+# ---------------------------------------------------------------------------
+# Fixed expected output for the lyrics tests (#1443)
+# ---------------------------------------------------------------------------
+# The lyrics tests compare what the code writes, byte for byte, with these
+# files. A Windows checkout would otherwise turn every "\n" into "\r\n"
+# and every one of those tests would fail on Windows only.
+src-tauri/src/services/download_queue/lyrics_steps_golden/*.txt -text
