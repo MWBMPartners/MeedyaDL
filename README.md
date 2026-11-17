@@ -188,7 +188,7 @@ When enabled, failed wrapper downloads are automatically re-queued with cookie-b
 
 If the wrapper appears connected (the connection test passes, the pre-flight checks all clear) but every track skips with `Decryption is not available for media ID: …` in the Activity Log, the wrapper's stored Apple Music credentials have most likely gone stale and need re-authenticating.
 
-With the newer wrapper (GAMDL 3.6 and newer), press **Sign in to wrapper** in Settings > Advanced > Wrapper. With the older wrapper, sign it in again following its own instructions. Full guidance is in the in-app help under [**Help > Troubleshooting > "Decryption is not available" on every track**](help/troubleshooting.md#decryption-is-not-available-on-every-track).
+With the newer wrapper (GAMDL 3.6 and newer), press **Sign in to wrapper** in Settings > Advanced > Wrapper. With the older wrapper, sign it in again following its own instructions. Full guidance is in the in-app help under [**Help > Troubleshooting > Every track is skipped when the wrapper is on**](help/troubleshooting.md#every-track-is-skipped-when-the-wrapper-is-on).
 
 ### Verifying Connectivity
 

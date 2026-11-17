@@ -208,9 +208,10 @@ If only **some** tracks are skipped, those tracks are probably not offered in th
 <details>
 <summary>More detail: other reasons tracks are skipped</summary>
 
-- **The wrapper is switched off.** Some formats, such as Lossless (ALAC), need the wrapper. Switch on **Use Wrapper** in **Settings > Advanced**, or choose a different format.
+- **The wrapper is switched off.** Some formats, such as Lossless (ALAC), need the wrapper; which ones depends on your GAMDL version (see [Wrapper Authentication](wrapper.md)). Switch on **Use Wrapper** in **Settings > Advanced**, or choose a different format.
 - **The track is not offered in that format.** Some regions have different versions of an album, and not every track has a Dolby Atmos mix. A fallback list handles this by itself.
 - **The track was replaced.** Apple sometimes replaces a song, for example when it moves to another release. Look the album up in your browser to see if it has a new link.
+- **Changing Download Mode does not help.** Downloads sometimes seem to start working after a setting change only because the attempt starts fresh.
 
 </details>
 
@@ -218,7 +219,7 @@ If only **some** tracks are skipped, those tracks are probably not offered in th
 
 You can run the wrapper on another computer on your network, such as a Raspberry Pi, and run MeedyaDL on your Mac or PC. MeedyaDL then needs that computer's address in **Settings > Advanced > Wrapper**. If only some of the addresses point at the other computer, downloads start but fail part-way through.
 
-Put the other computer's address in each wrapper address field. Keep the number after the colon as it is, unless your wrapper uses a different one. On newer versions there is one **Wrapper URL** field instead. The **Wrapper Decryption Address** can stay blank: MeedyaDL works it out from the wrapper's address.
+Put the other computer's address in the **Wrapper Account URL** and **Wrapper m3u8 Address** fields. With the newer wrapper there is one **Wrapper URL** field instead. If an address ends in a colon and a number, keep that number unless your wrapper uses a different one. The **Wrapper Decryption Address** can stay blank: MeedyaDL works it out from the wrapper's address. [Run the wrapper on another computer](wrapper.md#run-the-wrapper-on-another-computer) has the full steps.
 
 For example, for a wrapper at `192.168.1.50`, change `127.0.0.1` to `192.168.1.50` in each field and leave the decryption address blank.
 

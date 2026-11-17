@@ -26,7 +26,7 @@ and are runnable locally with nothing beyond Python 3's standard library.
   features with no code, the hidden developer unlock, and ratchets that may
   only go down). It runs before every push through `tools/hooks/pre-push`
   (each clone runs `tools/install-hooks.sh` once — git never copies hooks)
-  and in `pr-security.yml`. Its self-test `test_check_polish.py` plants 22
+  and in `pr-security.yml`. Its self-test `test_check_polish.py` plants 29
   faults and requires the check's own last line, so a crash cannot pass;
   a ratchet that goes DOWN must have its ceiling lowered in the same change.
 - **`check_build_secrets.py`** — every build-time value the code reads
