@@ -6130,6 +6130,12 @@ async fn a_tiers_format_tags_reach_only_that_tiers_new_files() {
             crate::models::tag_registry::SOURCE_LAST_MODIFIED_TAG,
         );
         let found = tag.strings_of(&ident).next().map(str::to_string);
+        let itunes = mp4ameta::FreeformIdent::new_static(
+            "com.apple.iTunes",
+            crate::models::tag_registry::ITUNES_LAST_MODIFIED_TAG,
+        );
+        let found_itunes = tag.strings_of(&itunes).next().map(str::to_string);
+        assert_eq!(found, found_itunes, "both last-updated tags must match");
         found
     };
     assert_eq!(date_of(&new_copy).as_deref(), Some("2024-03-15T07:12:45Z"));

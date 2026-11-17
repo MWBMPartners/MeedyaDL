@@ -1217,8 +1217,9 @@ pub(crate) fn normalise_last_modified(raw: &str) -> Option<String> {
 }
 
 /// Writes the date the service the file came from last updated the release,
-/// as `MeedyaMeta:LastModified`, in UTC (see [`normalise_last_modified`],
-/// #1444). Writes nothing, and leaves any date the file already has alone,
+/// as `MeedyaMeta:LastModified` and, with the same value,
+/// `com.apple.iTunes:AlbumLastModified`, in UTC (see
+/// [`normalise_last_modified`], #1444). Writes nothing, and leaves any date the file already has alone,
 /// when the service sent no date or one that cannot be read (logged at debug
 /// level). Does not read or write the file and takes no lock: the caller
 /// holds the file's write lock.
@@ -1230,6 +1231,10 @@ pub(crate) fn write_source_last_modified(tag: &mut Tag, date: Option<&str>) {
         log::debug!("Last-updated date not written: cannot read \"{raw}\" as a date");
         return;
     };
+    tag.set_data(
+        FreeformIdent::new_static(ITUNES_NAMESPACE, tag_registry::ITUNES_LAST_MODIFIED_TAG),
+        Data::Utf8(value.clone()),
+    );
     tag.set_data(
         FreeformIdent::new_static(MEEDYADL_NAMESPACE, tag_registry::SOURCE_LAST_MODIFIED_TAG),
         Data::Utf8(value),
@@ -2992,13 +2997,26 @@ mod tests {
 
     // ---- Apple Music's last-updated date (#1444) ----
 
+    /// The date in `MeedyaMeta:LastModified`, after checking that
+    /// `com.apple.iTunes:AlbumLastModified` holds exactly the same (both
+    /// present with one value, or both absent).
     fn last_modified_of(tag: &Tag) -> Option<String> {
-        tag.strings_of(&FreeformIdent::new_static(
-            MEEDYADL_NAMESPACE,
-            tag_registry::SOURCE_LAST_MODIFIED_TAG,
-        ))
-        .next()
-        .map(str::to_string)
+        let meedya = tag
+            .strings_of(&FreeformIdent::new_static(
+                MEEDYADL_NAMESPACE,
+                tag_registry::SOURCE_LAST_MODIFIED_TAG,
+            ))
+            .next()
+            .map(str::to_string);
+        let itunes = tag
+            .strings_of(&FreeformIdent::new_static(
+                ITUNES_NAMESPACE,
+                tag_registry::ITUNES_LAST_MODIFIED_TAG,
+            ))
+            .next()
+            .map(str::to_string);
+        assert_eq!(meedya, itunes, "the two last-updated tags must match");
+        meedya
     }
 
     #[test]

@@ -46,6 +46,12 @@ pub const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 /// use the same tag.
 pub const SOURCE_LAST_MODIFIED_TAG: &str = "LastModified";
 
+/// The name (inside the `com.apple.iTunes` group) of the second tag that
+/// holds the same date, so apps that read the iTunes-style album tags find it
+/// too. It always carries exactly the same value as `MeedyaMeta:LastModified`
+/// (maintainer's decision, 17 Nov 2026; MWBMPartners/MeedyaSuite-core#115).
+pub const ITUNES_LAST_MODIFIED_TAG: &str = "AlbumLastModified";
+
 /// Entries of the shared MeedyaSuite-core list that MeedyaDL does not use,
 /// because the pinned version reads the wrong field. `last_modified_date`
 /// there reads `meta.formerIds` (Apple's list of an album's old IDs), not the
