@@ -199,58 +199,37 @@ A yellow message says MeedyaDL cannot reach the wrapper. Check that the wrapper 
 
 If wrapper downloads fail often, turn on **Auto-Retry without Wrapper** in **Settings > Advanced > Wrapper**. A failed wrapper download is then queued again with the wrapper off, using your cookies. With it off, a failed item shows a **Retry without Wrapper** button so you can do this yourself.
 
-#### "Decryption is not available" on every track
+#### Every track is skipped when the wrapper is on
 
-The Activity page shows lines like:
+If **every** track in a download is skipped (the Activity page lists each one as skipped), the wrapper's sign-in to Apple Music has most likely run out, even though the wrapper looks like it is running. Sign the wrapper in again: with the newer wrapper, press **Sign in to wrapper** in **Settings > Advanced > Wrapper**; with the older one, follow its own instructions. Then retry the download. [Wrapper Authentication](wrapper.md) has the details.
 
-```text
-[Track 14/14] Skipping "Just Getting Started.": Decryption is not available for media ID: 1021848727
-```
-
-If **every** track in a download shows this, the wrapper's sign-in to Apple Music has most likely run out, even though the wrapper looks like it is running. With the newer wrapper (GAMDL 3.6 and newer), press **Sign in to wrapper** in Settings > Advanced > Wrapper. With the older wrapper, sign it in again following its own instructions. Then retry the download. [Wrapper Authentication](wrapper.md) has the details.
-
-If only **some** tracks are skipped, those tracks probably are not offered in the format you asked for. Adjust your [Fallback Quality](fallback-quality.md) list so another format is tried for them.
+If only **some** tracks are skipped, those tracks are probably not offered in the format you asked for. Adjust your [Fallback Quality](fallback-quality.md) list so another format is tried for them.
 
 <details>
 <summary>More detail: other reasons tracks are skipped</summary>
 
-- **You have not turned the wrapper on.** On older versions of GAMDL (before 3.8), Dolby Atmos, AC-3 and most other special formats need the wrapper. On GAMDL 3.8 and newer, only ALAC needs it. If you are on 3.8 or newer and want ALAC, switch on **Use Wrapper** in **Settings > Advanced**.
-- **The track is not offered in that format.** Some regions have different versions of an album, and not every track has an Atmos mix. A fallback list handles this by itself.
+- **The wrapper is switched off.** Some formats, such as Lossless (ALAC), need the wrapper. Switch on **Use Wrapper** in **Settings > Advanced**, or choose a different format.
+- **The track is not offered in that format.** Some regions have different versions of an album, and not every track has a Dolby Atmos mix. A fallback list handles this by itself.
 - **The track was replaced.** Apple sometimes replaces a song, for example when it moves to another release. Look the album up in your browser to see if it has a new link.
-- **Does Download Mode help?** No. **Download Mode** in **Settings > Advanced** does not change sign-in. Downloads sometimes seem to start working after you change it only because changing a setting starts the attempt fresh.
 
 </details>
 
 #### Running the wrapper on another device
 
-You can run the wrapper on a different computer on your network, such as a Raspberry Pi, and run MeedyaDL on your Mac or PC. MeedyaDL needs the address of the wrapper in up to **three** places. If you change only one of the first two, downloads start but fail part-way through.
+You can run the wrapper on another computer on your network, such as a Raspberry Pi, and run MeedyaDL on your Mac or PC. MeedyaDL then needs that computer's address in **Settings > Advanced > Wrapper**. If only some of the addresses point at the other computer, downloads start but fail part-way through.
 
-In **Settings > Advanced > Wrapper** (on GAMDL 3.6 and newer there is one **Wrapper URL** field instead), set the first two fields to the other device. The decryption address can stay blank: MeedyaDL then works it out from the wrapper's address.
+Put the other computer's address in each wrapper address field. Keep the number after the colon as it is, unless your wrapper uses a different one. On newer versions there is one **Wrapper URL** field instead. The **Wrapper Decryption Address** can stay blank: MeedyaDL works it out from the wrapper's address.
 
-| Setting | Default |
-| --- | --- |
-| **Wrapper Account URL** | `http://127.0.0.1:30020` |
-| **Wrapper m3u8 Address** | `127.0.0.1:20020` |
-| **Wrapper Decryption Address** | Blank (worked out from the wrapper's address; `127.0.0.1:10020` for a wrapper on the same computer) |
+For example, for a wrapper at `192.168.1.50`, change `127.0.0.1` to `192.168.1.50` in each field and leave the decryption address blank.
 
-For a wrapper at `192.168.1.50`, use `http://192.168.1.50:30020` and `192.168.1.50:20020`, and leave the decryption address blank (it becomes `192.168.1.50:10020`). Type a decryption address yourself only if your wrapper uses a different one.
-
-Before each download, MeedyaDL checks all of them and shows a yellow message that says which one cannot be reached.
+Before each download, MeedyaDL checks every address and shows a yellow message naming any it cannot reach.
 
 <details>
-<summary>More detail: common problems with a wrapper on another device</summary>
+<summary>More detail: if the other computer cannot be reached</summary>
 
-- **The wrapper must accept connections from the network,** not only from its own device. Many installs listen only on `127.0.0.1`. Change its settings, or port forwarding if it runs in Docker, so other devices can reach it.
-- **A firewall may be blocking the ports.** On Linux, something like `sudo ufw allow 30020/tcp` (and the same for `20020` and `10020`) opens them.
-- **Forgetting the Wrapper m3u8 Address.** If the account address points at the other device but the Wrapper m3u8 Address still says `127.0.0.1`, details load but downloads fail partway through.
-- **Three free ports are needed** on that device.
-- **Quick alternative:** you can leave MeedyaDL's settings alone and forward the three ports with SSH. From a terminal on the computer running MeedyaDL:
-
-  ```sh
-  ssh -L 10020:localhost:10020 -L 20020:localhost:20020 -L 30020:localhost:30020 user@your-pi-address
-  ```
-
-  While that session stays open, MeedyaDL's default addresses reach the other device.
+- **Check the wrapper accepts connections from other computers,** not only from the computer it runs on. Its own setup instructions say how.
+- **Check that computer's firewall** lets the connections through.
+- **Check every address field** points at the other computer, not just one of them.
 
 </details>
 
