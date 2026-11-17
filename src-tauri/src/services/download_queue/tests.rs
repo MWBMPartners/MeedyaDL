@@ -6171,9 +6171,17 @@ fn the_last_updated_date_is_stamped_on_this_downloads_files_only() {
     assert!(
         {
             let flat: String = processing.split_whitespace().collect();
-            flat.contains("letdate_stamp_files=ifsuper::lyrics_pass::links_share_one_album(&enrich_urls){fresh_files.clone()}")
+            flat.contains("letdate_stamp_files=ifsuper::lyrics_pass::links_share_one_album(&enrich_urls){fresh_files.clone()}else{std::collections::HashSet::new()};")
         },
-        "Step 1's date files must be the fresh files, gated on one album"
+        "Step 1's date files must be the fresh files, gated on one album, and none otherwise"
+    );
+    // The extra copies get the album's date only under the same rule.
+    assert!(
+        {
+            let flat: String = processing.split_whitespace().collect();
+            flat.contains("last_modified_date:m.last_modified_date.clone().filter(|_|{super::lyrics_pass::links_share_one_album(&enrich_urls,)},),")
+        },
+        "the copies' date must be gated on every link being in one album"
     );
 }
 
