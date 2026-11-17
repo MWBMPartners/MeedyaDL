@@ -1797,10 +1797,13 @@ pub(crate) fn apply_album_layer(
 /// UTC. Anything else returns `None`, so nothing is written (#1444).
 pub(crate) fn normalise_last_modified(raw: &str) -> Option<String> {
     let raw = raw.trim();
-    let utc = match crate::utils::time_compat::parse_rfc3339(raw) {
+    let parsed = match crate::utils::time_compat::parse_rfc3339(raw) {
         Some(dt) => dt,
         None => crate::utils::time_compat::parse_date_only_utc(raw)?,
     };
+    // A date with no UTC form (past the year 9999) is not written at all,
+    // rather than writing a date nobody sent.
+    let utc = crate::utils::time_compat::to_utc(parsed)?;
     Some(crate::utils::time_compat::to_tag_utc_seconds(utc))
 }
 
@@ -3740,6 +3743,8 @@ mod tests {
         assert_eq!(n(" 2026-11-17 ").as_deref(), Some("2026-11-17T00:00:00Z"));
         assert_eq!(n("garbage"), None);
         assert_eq!(n("2026-13-45"), None);
+        // No UTC form (past the year 9999): nothing is written.
+        assert_eq!(n("9999-12-31T23:30:00-01:00"), None);
         assert_eq!(n(""), None);
     }
 

@@ -65,9 +65,9 @@ pub fn to_utc(dt: OffsetDateTime) -> Option<OffsetDateTime> {
 }
 
 /// The UTC moment for writing, falling back to the latest moment `time`
-/// can hold when the true one is past it. Only reachable with a date that
-/// came from outside without going through a reader here (the readers
-/// already refuse such dates).
+/// can hold when the true one is past it. Callers that must not write a
+/// made-up date (the last-updated tag) check [`to_utc`] first; only
+/// `parse_rfc3339_lenient` refuses such dates by itself.
 fn utc_for_writing(dt: OffsetDateTime) -> OffsetDateTime {
     to_utc(dt).unwrap_or_else(|| {
         log::debug!("date {dt} is past the year 9999 in UTC; writing the latest date instead");
@@ -375,8 +375,6 @@ mod tests {
         }
     }
 
-    /// A leap second written as `:60` is refused. The old library accepted
-    /// `:60` at any minute; it never appears in our data or Apple's.
     #[test]
     fn a_date_past_9999_in_utc_is_unreadable_not_a_crash() {
         // `time` cannot hold the UTC form of these; they must come back as
@@ -397,6 +395,8 @@ mod tests {
         assert!(parse_rfc3339("2026-11-17T04:12:35Z").is_some());
     }
 
+    /// A leap second written as `:60` is refused. The old library accepted
+    /// `:60` at any minute; it never appears in our data or Apple's.
     #[test]
     fn leap_second_is_refused() {
         assert!(parse_rfc3339("2026-11-17T04:12:60Z").is_none());
