@@ -299,7 +299,7 @@ what it looked like halfway through.
 
 **After each real body of work, before its pull request is opened**, do a thorough update of
 every document. Not being run now (2026-09-21) — the documents were fully checked on
-2026-09-11 — but it is a standing task from here on.
+2026-09-11 — but it is a standing task from here on. **Update 17 Nov 2026:** a full sweep of every document was run on 17 Nov 2026 (after the lyrics, extra-format, notification and GAMDL 4 work); the next one is due after the next real body of work.
 
 What it covers for MeedyaDL:
 

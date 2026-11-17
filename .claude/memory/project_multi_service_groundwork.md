@@ -6,6 +6,8 @@ originSessionId: 2ab3d7da-8f4e-4331-8327-4ea82ab8e25f
 ---
 The `prep/expanded-services-groundwork` branch (live on origin as of 2026-04-27) holds the foundational multi-service work for M8–M10. A duplicate `pre/expanded-services-groundwork` branch (typo) also exists on origin and should be deleted.
 
+**17 Nov 2026 note:** the list of what was "not yet wired" below is the April picture. Since then `commands::smart_download` is registered, the Votify (Spotify) builder in `spotify_service.rs` is a real wired implementation, and Spotify is a developer-only preview everywhere in the app (see `.claude/CLAUDE.md`). `service_status` was replaced by the remote feature-availability flags (`feature_flag_service`). BBC iPlayer (M8) and YouTube (M10) are still stubs. Treat the branch-contents lists as history.
+
 **Milestone renumbering vs. the original 2026-04-10 plan:**
 - M8 (v2.0) — was Spotify, **now BBC iPlayer** (issue #102)
 - M9 (v2.1) — was YouTube, **now Spotify** (issues #101, #110, #295)

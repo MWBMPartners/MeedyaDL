@@ -13,4 +13,6 @@ Rebuilt on 16 Nov 2026 (#1431; commits 5130cba4 → cc0bad35 on `work-in-progres
 
 **Needs a real machine.** The three sounds; pointer/other-screen detection (mixed-scale monitors; Wayland); Windows/macOS development-build labelling; burst timing with real downloads.
 
+**17 Nov 2026 note:** settings are now schema v13 (v12 added the notification settings; v13 is the automatic wrapper decryption address, unrelated). The page-side notification permission is guarded by `tools/audit-checks/check_capabilities_open_path.py`.
+
 **Left for #1432.** An old download run can act on an item after it was retried (needs attempt numbering); one route frees the queue slot early; the stall check releases after a refused set_error; a stalled item gets no History entry.
