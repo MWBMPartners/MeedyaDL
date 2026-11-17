@@ -239,6 +239,20 @@ mod tests {
                 .any(|d| d.atoms.iter().any(|a| a.name == "AppleLastModified")),
             "no tag named AppleLastModified may be loaded (#1444)"
         );
+        // Nor may any other shared entry write either last-updated tag: the
+        // registry walk would stamp it on every album-matched file in the
+        // folder, older ones included. MeedyaDL writes both itself.
+        assert!(
+            !registry
+                .album_tags
+                .iter()
+                .chain(registry.track_tags.iter())
+                .any(|d| d.atoms.iter().any(|a| {
+                    (a.namespace == ITUNES_NAMESPACE && a.name == ITUNES_LAST_MODIFIED_TAG)
+                        || (a.namespace == MEEDYADL_NAMESPACE && a.name == SOURCE_LAST_MODIFIED_TAG)
+                })),
+            "no shared entry may write the last-updated tags (#1444)"
+        );
     }
 
     /// Fails when MeedyaSuite-core changes the entry, so the set-aside gets

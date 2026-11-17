@@ -2998,25 +2998,19 @@ mod tests {
     // ---- Apple Music's last-updated date (#1444) ----
 
     /// The date in `MeedyaMeta:LastModified`, after checking that
-    /// `com.apple.iTunes:AlbumLastModified` holds exactly the same (both
-    /// present with one value, or both absent).
+    /// `com.apple.iTunes:AlbumLastModified` holds exactly the same values
+    /// (at most one each), or both are absent.
     fn last_modified_of(tag: &Tag) -> Option<String> {
-        let meedya = tag
-            .strings_of(&FreeformIdent::new_static(
-                MEEDYADL_NAMESPACE,
-                tag_registry::SOURCE_LAST_MODIFIED_TAG,
-            ))
-            .next()
-            .map(str::to_string);
-        let itunes = tag
-            .strings_of(&FreeformIdent::new_static(
-                ITUNES_NAMESPACE,
-                tag_registry::ITUNES_LAST_MODIFIED_TAG,
-            ))
-            .next()
-            .map(str::to_string);
+        let values = |ns: &'static str, name: &'static str| -> Vec<String> {
+            tag.strings_of(&FreeformIdent::new_static(ns, name))
+                .map(str::to_string)
+                .collect()
+        };
+        let meedya = values(MEEDYADL_NAMESPACE, tag_registry::SOURCE_LAST_MODIFIED_TAG);
+        let itunes = values(ITUNES_NAMESPACE, tag_registry::ITUNES_LAST_MODIFIED_TAG);
         assert_eq!(meedya, itunes, "the two last-updated tags must match");
-        meedya
+        assert!(meedya.len() <= 1, "one date at most: {meedya:?}");
+        meedya.into_iter().next()
     }
 
     #[test]
