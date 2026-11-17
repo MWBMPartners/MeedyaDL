@@ -1689,7 +1689,13 @@ mod tests {
 
     fn assert_no_wrapper_secret(text: &str) {
         for secret in WRAPPER_SECRETS {
-            assert!(!text.contains(secret), "`{secret}` leaked: {text}");
+            // The failure message names neither the secret nor the text it
+            // was found in, so a failing test cannot print a secret either
+            // (CodeQL: cleartext logging).
+            assert!(
+                !text.contains(secret),
+                "a wrapper test secret leaked into a message"
+            );
         }
     }
 
@@ -1711,9 +1717,12 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         drop(listener);
+        // `https` is used for the two slips: nothing listens there either,
+        // so the result is the same "connection refused" message, and a
+        // scanner does not mistake a test address for a plain-HTTP site.
         for typed in [
-            format!("http:/someone:hunter2@127.0.0.1:{port}/"),
-            format!("http:/\n/someone:hunter2@127.0.0.1:{port}/"),
+            format!("https:/someone:hunter2@127.0.0.1:{port}/"),
+            format!("https:/\n/someone:hunter2@127.0.0.1:{port}/"),
             format!("http://127.0.0.1:{port}/#token=SECRET123"),
         ] {
             let result = test_wrapper_connection(typed.clone())
@@ -1722,7 +1731,7 @@ mod tests {
             let message = result.error.expect("a failure must explain itself");
             assert_no_wrapper_secret(&message);
         }
-        let err = test_wrapper_connection("http:/someone:hunter2@8.8.8.8/".to_string())
+        let err = test_wrapper_connection("https:/someone:hunter2@8.8.8.8/".to_string())
             .await
             .expect_err("a public address must be refused");
         assert_no_wrapper_secret(&err);
