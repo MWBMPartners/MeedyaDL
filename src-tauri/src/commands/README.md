@@ -5,6 +5,42 @@ below codify the conventions so new commands stay consistent with existing
 ones — particularly when M8 (BBC iPlayer), M9 (Spotify), and M10 (YouTube)
 land their per-service command modules.
 
+There are 149 commands today, all registered in `lib.rs`. The
+`check_ipc_commands.py` audit check (in `tools/audit-checks/`) fails if a
+command is defined but not registered, or if the frontend calls a command that
+does not exist.
+
+## Modules
+
+| Module | What its commands do |
+| --- | --- |
+| `activity_log.rs` | Export the on-disk activity log and find the logs folder |
+| `api_audit.rs` | Diagnostic check of Apple Music fields |
+| `app_relocation.rs` | Offer to move the app to Applications on macOS |
+| `artwork.rs` | Animated artwork |
+| `backup.rs` | Back up and restore settings |
+| `clipboard.rs` | Read the clipboard for the link monitor |
+| `cookies.rs` | Cookie file import and checks |
+| `crash_reports.rs` | Error reports and the pre-filled GitHub issue link |
+| `credentials.rs` | Store and read credentials in the system keychain; developer access |
+| `dependencies.rs` | Python, GAMDL and helper programs: status, install, update |
+| `download_index.rs` | The searchable index of finished downloads |
+| `feature_flags.rs` | Read and refresh remote feature availability |
+| `gamdl.rs` | Queue and downloads: start, cancel, retry, import, export, library scan |
+| `history.rs` | Download history, and opening a downloaded file safely |
+| `language.rs` | Ordering and naming of language tags for display |
+| `legal.rs` | Acknowledgements and licence texts |
+| `login_window.rs` | The built-in Apple Music sign-in window |
+| `lyrics.rs` | Connection test for word-by-word lyrics |
+| `profile_bundle.rs` | Export and import a `.meedyabundle` profile |
+| `settings.rs` | Read, save, import and export settings |
+| `smart_download.rs` | Cross-platform availability check |
+| `spotify_anti_ban.rs` | Spotify safety checks (developer-only preview) |
+| `stored_preference.rs` | Save one named answer (`set_stored_preference`) without touching other settings |
+| `system.rs` | Platform information, folders, service detection, notifications and the integrity scan |
+| `updates.rs` | Check for and install app and component updates |
+| `wrapper.rs` | Wrapper sign-in |
+
 > **Audit v2 finding #8** — pure documentation, no code changes. Tauri's
 > dependency-injection macro requires explicit parameter signatures, so
 > `State<'_, T>` boilerplate is unavoidable per-command. This guide makes
@@ -62,19 +98,21 @@ its own `State<'_, …>` parameter** — there's no way to bundle them.
 pub async fn some_command(
     app: AppHandle,
     queue: State<'_, QueueHandle>,
-    config: State<'_, ConfigHandle>,
+    cache: State<'_, SettingsCache>,
     // ...
 ) -> Result<…, String> { … }
 ```
 
 When adding a new managed state type:
 
-1. Define the wrapper type alias next to the underlying state struct
-   (`pub type FooHandle = Arc<Mutex<Foo>>;`).
+1. Where the state is shared and changeable, define a type alias next to the
+   underlying struct (`QueueHandle` is `Arc<Mutex<DownloadQueue>>`). Types that
+   are already cheap to share (`SettingsCache`, `ShutdownSignal`) are used as
+   they are.
 2. Register it in `lib.rs::run()` via `.manage(handle)` BEFORE the
    first command that needs it can run.
-3. Reference the type alias in every command signature; never spell
-   out `State<'_, Arc<Mutex<Foo>>>` inline.
+3. Use the same type in every command signature; never spell out
+   `State<'_, Arc<Mutex<Foo>>>` inline when an alias exists.
 
 ### Request payload last
 
@@ -156,14 +194,15 @@ so callers don't have to remember the snake_case command string.
 
 ## Per-service modules (M8 / M9 / M10)
 
-When a new service lands, prefer one command module per service:
+When a new service lands, prefer one command module per service. Only
+Spotify has one so far (`spotify_anti_ban.rs`, a developer-only preview);
+the others would follow the same pattern:
 
 ```text
 commands/
-├── apple_music.rs   ← future home for AM-specific commands
-├── bbc_iplayer.rs   ← M8 (BBC iPlayer session, auth)
-├── spotify.rs       ← M9 (Votify credentials, OAuth)
-├── youtube.rs       ← M10 (yt-dlp config, API key)
+├── bbc_iplayer.rs   ← M8 (BBC iPlayer session, auth), not written yet
+├── spotify_anti_ban.rs  ← M9, exists
+├── youtube.rs       ← M10 (yt-dlp config, API key), not written yet
 └── …
 ```
 
@@ -175,7 +214,7 @@ second service ships.
 
 Each service module registers its commands in `lib.rs::run()` next
 to the existing block. Per-service `State<'_, …>` handles
-(`SpotifyAuthHandle`, `IplayerSessionHandle`) live in the matching
+(for example a future BBC iPlayer session handle) live in the matching
 service module under [`src-tauri/src/services/`](../services/) and
 get `.manage()`-d in `lib.rs` alongside `QueueHandle`.
 

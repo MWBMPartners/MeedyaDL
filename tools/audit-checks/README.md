@@ -72,11 +72,14 @@ python3 tools/audit-checks/check_capabilities_open_path.py --strict
 
 ## The pre-push hook
 
-`tools/hooks/pre-push` runs `check_polish.py` and every check above that
-takes under about three seconds, all with `--strict`, before each `git
-push`, and refuses the push if any finds something. The three slower checks
-(`check_comment_paths.py`, `check_concurrency_claims.py`,
-`check_settings_reach_backend.py`) are left to the pull-request workflow.
+`tools/hooks/pre-push` runs ten checks, all with `--strict`, before each
+`git push`, and refuses the push if any finds something: `check_polish.py`,
+`check_build_secrets.py`, `check_codec_registry.py`, `check_help_topics.py`,
+`check_i18n.py`, `check_ipc_commands.py`, `check_settings_defaults.py`,
+`check_tauri_version_sync.py`, `check_updater_manifest_keys.py` and
+`check_user_agent.py`. The three slower checks (`check_comment_paths.py`,
+`check_concurrency_claims.py`, `check_settings_reach_backend.py`) and
+`check_capabilities_open_path.py` are left to the pull-request workflow.
 
 **Each clone installs its own hook, once:** git never copies hooks between
 clones (they live inside `.git`, which is not pushed or pulled).
@@ -147,14 +150,16 @@ folder, so a change you have not committed counts too. In an emergency,
 
   `test_check_polish.py` copies the files the check reads into a
   throw-away folder, confirms the copy is clean, then plants one fault at a
-  time (22 of them, at least one per rule) and requires exit 1, the right
+  time (29 of them, at least one per rule) and requires exit 1, the right
   finding, **and** the check's own last line. That last part is because a
   check that crashes part-way exits non-zero and its traceback can contain
   the words a test looks for -- so the test also runs a copy of the check
   that crashes on purpose, and requires that to count as a failure.
 
-  None of these is run by CI yet — they are run by hand when a check
-  changes. Wiring them into `pr-security.yml` is an open suggestion.
+  The pull-request workflow runs all of these self-tests in its blocking
+  "Audit-check self-tests" step (every `test_*.py` here, plus
+  `check_user_agent.py --self-test`), so a failing one stops the pull request.
+  Run them by hand when you change a check.
 - **Default exit 0, `--strict` exit 1.** CI runs them advisory; local hooks
   can opt into blocking.
 
