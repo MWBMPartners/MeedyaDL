@@ -109,6 +109,7 @@ import { useId, useState, useEffect, useCallback, useMemo, type FormEvent } from
 // wizard reset and DevToolsSection's deactivate flow). Per-field
 // reads/writes go through `useSettingsField` (audit v2 #6).
 import { useSettingsStore } from '@/stores/settingsStore';
+import { withErrorToast } from '@/lib/withErrorToast';
 import { useSettingsField } from '@/hooks/useSettingsField';
 
 // Shared form components: Select for mode dropdowns, Toggle for boolean switches,
@@ -1665,8 +1666,21 @@ function DevToolsSection() {
   };
 
   const handleDeactivate = async () => {
-    await deactivateDevAccess();
-    syncSaved({ dev_access_enabled: false });
+    // A failure (the keychain entry or the setting could not be changed) is
+    // shown to the person, and the page's copy is left as it is (#1439).
+    const ok = await withErrorToast(
+      async () => {
+        await deactivateDevAccess();
+        return true;
+      },
+      {
+        errorMsg:
+          'MeedyaDL could not turn off developer access. Try again; if it keeps happening, restart MeedyaDL.',
+      }
+    );
+    if (ok) {
+      syncSaved({ dev_access_enabled: false });
+    }
   };
 
   return (

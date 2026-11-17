@@ -123,4 +123,26 @@ describe('AdvancedTab -- Deactivate Developer Access (#1439)', () => {
     expect(state.settings.gamdl_log_level).toBe('DEBUG');
     expect(state.isDirty).toBe(true);
   });
+
+  it('leaves developer access on screen as it was when turning it off fails', async () => {
+    const { getGamdlCapabilities } = await import('@/lib/tauri-commands');
+    vi.mocked(getGamdlCapabilities).mockResolvedValue(ALL_CAPS_FALSE);
+    vi.mocked(deactivateDevAccess).mockRejectedValueOnce('could not save');
+    const base = useSettingsStore.getState().settings;
+    useSettingsStore.setState({
+      settings: { ...base, dev_access_enabled: true },
+      savedSettings: { ...base, dev_access_enabled: true },
+      isDirty: false,
+    });
+
+    await act(async () => {
+      render(<AdvancedTab />);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText('Deactivate Developer Access'));
+    });
+
+    expect(useSettingsStore.getState().settings.dev_access_enabled).toBe(true);
+    expect(useSettingsStore.getState().savedSettings.dev_access_enabled).toBe(true);
+  });
 });

@@ -709,10 +709,13 @@ pub async fn activate_dev_access(app: tauri::AppHandle, passphrase: String) -> b
         let _ = entry.set_password(DEV_ACCESS_SENTINEL);
     }
 
-    // Enable in settings
-    if let Ok(mut settings) = crate::services::config_service::load_settings(&app) {
-        settings.dev_access_enabled = true;
-        let _ = crate::services::config_service::save_settings(&app, &settings);
+    // Enable in settings: one field, written on its own, so nothing else
+    // in the file changes (#1439). A failed write is logged; the keychain
+    // sentinel is already set, so developer access is still recognised.
+    if let Err(e) = crate::services::config_service::update_settings_field(&app, |s| {
+        s.dev_access_enabled = true;
+    }) {
+        log::error!("Developer access activated, but saving the setting failed: {e}");
     }
 
     log::info!("Developer access activated");
@@ -734,11 +737,13 @@ pub async fn deactivate_dev_access(app: tauri::AppHandle) -> Result<(), String> 
         }
     }
 
-    // Disable in settings
-    if let Ok(mut settings) = crate::services::config_service::load_settings(&app) {
-        settings.dev_access_enabled = false;
-        let _ = crate::services::config_service::save_settings(&app, &settings);
-    }
+    // Disable in settings: one field, written on its own (#1439). A failed
+    // write is reported, so the Settings screen never shows developer access
+    // as off while the file still says on.
+    crate::services::config_service::update_settings_field(&app, |s| {
+        s.dev_access_enabled = false;
+    })
+    .map_err(|e| format!("Failed to save the developer access setting: {e}"))?;
 
     log::info!("Developer access deactivated");
     Ok(())

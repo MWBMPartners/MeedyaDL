@@ -335,7 +335,7 @@ function App() {
   useKonamiCode(handleKonami);
 
   // Sends the typed passphrase for checking, closes the prompt and, on success,
-  // reloads settings so the page sees `dev_access_enabled`.
+  // records `dev_access_enabled` in the page's copy of the settings.
   const handleDevSubmit = useCallback(async () => {
     // Do not even ask when nothing has been typed (#1162). The backend refuses
     // an empty passphrase too, but sending one would burn one of the five
@@ -345,8 +345,10 @@ function App() {
     setShowDevPrompt(false);
     setDevPassphrase('');
     if (ok) {
-      // Reload settings to pick up dev_access_enabled change.
-      useSettingsStore.getState().loadSettings();
+      // Activation writes only `dev_access_enabled = true`, so only that
+      // field is updated here. Reloading every setting from disk would throw
+      // away unsaved changes on the Settings screen (#1439).
+      useSettingsStore.getState().syncSaved({ dev_access_enabled: true });
     }
   }, [devPassphrase]);
 
