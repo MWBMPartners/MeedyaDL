@@ -6257,7 +6257,7 @@ fn one_walk_gives_the_audio_count_and_the_video_list() {
     assert_eq!(count, 3);
     assert_eq!(videos.len(), 2);
     // The `.m4a` files too, so a file can be told from this run's.
-    assert_eq!(music.len(), 1);
+    assert_eq!(music.expect("a complete list").len(), 1);
 }
 
 /// Every tag-writing place in the app takes the app-wide lock, at its
@@ -6716,9 +6716,7 @@ fn other_album_files_needs_song_id_and_skips_the_main_folder() {
     // The older file was there before the run and was skipped by GAMDL.
     set_mtime(&older, started - hour);
     let before: std::collections::HashSet<std::path::PathBuf> =
-        [std::fs::canonicalize(&older).unwrap()]
-            .into_iter()
-            .collect();
+        [older.clone()].into_iter().collect();
     let ids: std::collections::HashSet<String> =
         ["1", "2", "3", "4"].iter().map(|s| s.to_string()).collect();
     // A path that climbs out of the folder and back in, and one that climbs
@@ -6752,16 +6750,17 @@ fn other_album_files_needs_song_id_and_skips_the_main_folder() {
         &walked,
         Some(&before),
         Some(started - std::time::Duration::from_secs(30)),
+        false,
         &ids,
         crate::services::metadata_tag_service::song_id_of_path,
     );
-    let canon = |p: &std::path::Path| std::fs::canonicalize(p).unwrap();
     assert!(!left_out);
     assert_eq!(map.len(), 2);
-    assert_eq!(map[&canon(&two)], vec![canon(&two_a), canon(&two_b)]);
-    assert_eq!(map[&canon(&three)], vec![canon(&three_a)]);
+    // The plain paths come back, not resolved ones.
+    assert_eq!(map[&two], vec![two_a.clone(), two_b.clone()]);
+    assert_eq!(map[&three], vec![three_a.clone()]);
     // The older file, reported as already there, is not among them.
-    assert!(!map.values().flatten().any(|p| *p == canon(&older)));
+    assert!(!map.values().flatten().any(|p| *p == older));
 
     // The cap: at most MAX_OTHER_FOLDER_FILES files in all, and the flag
     // says some were left out.
@@ -6778,6 +6777,7 @@ fn other_album_files_needs_song_id_and_skips_the_main_folder() {
         &[],
         None,
         Some(started - std::time::Duration::from_secs(30)),
+        false,
         &ids,
         |_| Some("2".to_string()),
     );
@@ -6786,8 +6786,9 @@ fn other_album_files_needs_song_id_and_skips_the_main_folder() {
     assert!(left_out);
 }
 
-/// "Written by this run": not in the before-run list, or modified since the
-/// start; with neither list nor time, nothing counts.
+/// "Written by this run": not in the before-run list; a listed file only by
+/// its time and only when the run had overwrite on; without the list, the
+/// file time alone; with neither list nor time, nothing counts.
 #[test]
 fn written_this_run_rules() {
     let root = tempfile::tempdir().unwrap();
@@ -6799,24 +6800,26 @@ fn written_this_run_rules() {
     set_mtime(&old_listed, started - hour);
     set_mtime(&new_unlisted, started - hour); // a lagging clock
     set_mtime(&rewritten, started + hour);
-    let before: std::collections::HashSet<std::path::PathBuf> = [&old_listed, &rewritten]
-        .iter()
-        .map(|p| std::fs::canonicalize(p).unwrap())
-        .collect();
+    let before: std::collections::HashSet<std::path::PathBuf> =
+        [old_listed.clone(), rewritten.clone()]
+            .into_iter()
+            .collect();
     let f = super::lyrics_pass::written_this_run;
-    assert!(!f(&old_listed, Some(&before), Some(started)));
+    assert!(!f(&old_listed, Some(&before), Some(started), true));
     assert!(
-        f(&new_unlisted, Some(&before), Some(started)),
+        f(&new_unlisted, Some(&before), Some(started), false),
         "not in the list"
     );
+    // Listed and modified since the start: only with overwrite on.
+    assert!(f(&rewritten, Some(&before), Some(started), true));
     assert!(
-        f(&rewritten, Some(&before), Some(started)),
-        "modified since start"
+        !f(&rewritten, Some(&before), Some(started), false),
+        "without overwrite GAMDL cannot rewrite a file that was there"
     );
-    // No list: time alone.
-    assert!(!f(&new_unlisted, None, Some(started)));
-    assert!(f(&rewritten, None, Some(started)));
-    assert!(!f(&rewritten, None, None));
+    // No list: time alone, overwrite or not.
+    assert!(!f(&new_unlisted, None, Some(started), false));
+    assert!(f(&rewritten, None, Some(started), false));
+    assert!(!f(&rewritten, None, None, true));
 }
 
 /// The look-through finds only `.m4a` files written by this run, and stops
@@ -6843,12 +6846,12 @@ fn fresh_m4a_under_finds_only_files_written_since_start() {
         set_mtime(p, started + hour);
     }
     assert_eq!(
-        super::lyrics_pass::fresh_m4a_under(root.path(), None, Some(started), &|| false),
+        super::lyrics_pass::fresh_m4a_under(root.path(), None, Some(started), false, &|| false),
         Some(vec![new_a, new_b])
     );
     // Stopped: nothing comes back.
     assert_eq!(
-        super::lyrics_pass::fresh_m4a_under(root.path(), None, Some(started), &|| true),
+        super::lyrics_pass::fresh_m4a_under(root.path(), None, Some(started), false, &|| true),
         None
     );
 }
@@ -7039,4 +7042,117 @@ fn download_song_ids_come_only_from_looked_up_albums() {
     let ids = super::lyrics_pass::download_song_ids(&[album]);
     assert_eq!(ids.len(), 1);
     assert!(ids.contains("555"));
+}
+
+/// Resolved paths are for comparing only: with the download folder reached
+/// through a link, the folders and files handed on stay plain (under the
+/// link), so the extra-format tagging, which compares them with plain
+/// listings of the download folder, still treats them as known folders.
+#[cfg(unix)]
+#[tokio::test]
+async fn other_folders_stay_plain_when_the_download_folder_is_a_link() {
+    use crate::services::metadata_tag_service::test_support::minimal_m4a;
+    let real = tempfile::tempdir().unwrap();
+    let holder = tempfile::tempdir().unwrap();
+    let link = holder.path().join("download-link");
+    std::os::unix::fs::symlink(real.path(), &link).unwrap();
+    let main = link.join("Art").join("Main");
+    let two = link.join("Art").join("Two");
+    for d in [&main, &two] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let song = make_song(&two, "01.m4a", 2);
+    let ids: std::collections::HashSet<String> = ["2".to_string()].into_iter().collect();
+    // Reported once through the link and once by its real location.
+    let by_real = real.path().join("Art").join("Two").join("01.m4a");
+    let (map, _) = super::lyrics_pass::other_album_files(
+        &main,
+        &link,
+        &[by_real, song.clone()],
+        &[],
+        None,
+        Some(std::time::SystemTime::now() - std::time::Duration::from_secs(60)),
+        false,
+        &ids,
+        crate::services::metadata_tag_service::song_id_of_path,
+    );
+    assert_eq!(map.keys().cloned().collect::<Vec<_>>(), vec![two.clone()]);
+    assert_eq!(map[&two], vec![song.clone()]);
+
+    // The copies in that folder are known folders and are tagged.
+    let before = super::lyrics_pass::audio_files_in(&link);
+    let copy = two.join("01 B [Lossless].m4a");
+    minimal_m4a(&copy, 1, 1, false);
+    let after = super::lyrics_pass::audio_files_in(&link);
+    let dirs: Vec<std::path::PathBuf> = map.keys().cloned().collect();
+    let folders =
+        super::companions::tier_tag_folders(&link, &main, &dirs, &before, &after, None, None);
+    assert_eq!(folders, vec![main.clone(), two.clone()]);
+    let within: Vec<&std::path::Path> = folders.iter().map(|p| p.as_path()).collect();
+    assert!(super::companions::tier_files_outside(&before, &after, &within).is_empty());
+    let bytes = std::fs::read(&copy).unwrap();
+    let tagged = super::companions::tag_tier_additions(
+        &before,
+        &after,
+        &within,
+        &SongCodec::Alac,
+        "test",
+        None,
+    )
+    .await;
+    assert_eq!(tagged, 1);
+    assert_ne!(std::fs::read(&copy).unwrap(), bytes);
+}
+
+/// A download folder that cannot be read when the run starts gives NO
+/// before-run music list (the file times then decide alone); a folder that
+/// does not exist gives an empty one.
+#[test]
+fn an_unreadable_download_folder_gives_no_before_run_list() {
+    let dir = tempfile::tempdir().unwrap();
+    // A file where the folder should be: reading it as a folder fails.
+    let not_a_folder = dir.path().join("file.txt");
+    std::fs::write(&not_a_folder, b"x").unwrap();
+    let (_, _, music) = super::lyrics_pass::files_before_run(&not_a_folder);
+    assert!(
+        music.is_none(),
+        "a failed read must not look like an empty folder"
+    );
+    // Nothing there at all: an empty list.
+    let (_, _, music) = super::lyrics_pass::files_before_run(&dir.path().join("missing"));
+    assert_eq!(music.map(|m| m.len()), Some(0));
+    // A readable folder lists its `.m4a` files as plain paths.
+    let song = make_song(dir.path(), "a.m4a", 1);
+    let (_, _, music) = super::lyrics_pass::files_before_run(dir.path());
+    assert!(music.unwrap().contains(&song));
+}
+
+/// An aborted enrichment task ends the look-through: dropping the future
+/// sets the stop flag the walk reads.
+#[test]
+fn dropping_the_look_through_stops_the_walk() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let flag = std::sync::Arc::new(AtomicBool::new(false));
+    let guard = super::lyrics_pass::StopOnDrop(std::sync::Arc::clone(&flag));
+    assert!(!flag.load(Ordering::Relaxed));
+    drop(guard);
+    assert!(flag.load(Ordering::Relaxed));
+    let source = include_str!("lyrics_pass.rs");
+    let walker = source
+        .split("pub(crate) async fn walk_fresh_m4a_stoppable(")
+        .nth(1)
+        .expect("the stoppable walk");
+    assert!(
+        walker.contains("StopOnDrop(Arc::clone(&stop))"),
+        "the stoppable walk must hold the drop guard"
+    );
+}
+
+/// The enrichment hands the run's overwrite setting to the written-this-run
+/// rule, and only an overwrite-on run lets a listed file count.
+#[test]
+fn the_pass_passes_the_runs_overwrite_setting() {
+    let processing = include_str!("processing.rs");
+    assert!(processing.contains("enrich_primary_options.overwrite == Some(true)"));
+    assert!(processing.contains("run_overwrote,"));
 }

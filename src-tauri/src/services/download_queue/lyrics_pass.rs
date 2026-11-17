@@ -406,26 +406,32 @@ pub(crate) fn videos_before_run(download_folder: &Path) -> std::collections::Has
 /// Everything the start of the primary run needs from ONE walk of the
 /// download folder: how many music or video files are in it (the same
 /// count as `count_audio_files_in_directory`), the music videos in it (the
-/// same list as [`videos_before_run`]), and the `.m4a` music files in it
-/// (so a file can later be told from one this run wrote without relying on
-/// file times alone, #1446). The two lists hold [`comparable`] paths.
+/// same list as [`videos_before_run`], resolved paths), and the `.m4a` music
+/// files in it, as PLAIN paths under `download_folder` (so a file can later
+/// be told from one this run wrote without relying on file times alone,
+/// #1446; the later look-through starts from the same plain folder, so the
+/// paths match without resolving any of them). The music list is `None`
+/// when the walk could not read some folder (anything but "not found"): a
+/// list that may be missing files would make every older file look new, so
+/// the time rule decides alone then.
 pub(crate) fn files_before_run(
     download_folder: &Path,
 ) -> (
     usize,
     std::collections::HashSet<PathBuf>,
-    std::collections::HashSet<PathBuf>,
+    Option<std::sync::Arc<std::collections::HashSet<PathBuf>>>,
 ) {
-    let files = crate::utils::fs_walk::walk_dir_depth(download_folder, 10, |path| {
-        if !path.is_file() || crate::utils::fs_safe::is_filesystem_sidecar(path) {
-            return None;
-        }
-        let ext = path.extension().and_then(|e| e.to_str())?;
-        ["m4a", "m4v", "mp4"]
-            .iter()
-            .any(|x| ext.eq_ignore_ascii_case(x))
-            .then(|| path.to_path_buf())
-    });
+    let (files, complete) =
+        crate::utils::fs_walk::walk_dir_depth_reporting(download_folder, 10, |path| {
+            if !path.is_file() || crate::utils::fs_safe::is_filesystem_sidecar(path) {
+                return None;
+            }
+            let ext = path.extension().and_then(|e| e.to_str())?;
+            ["m4a", "m4v", "mp4"]
+                .iter()
+                .any(|x| ext.eq_ignore_ascii_case(x))
+                .then(|| path.to_path_buf())
+        });
     let has_ext = |p: &Path, exts: &[&str]| {
         p.extension()
             .and_then(|e| e.to_str())
@@ -436,30 +442,40 @@ pub(crate) fn files_before_run(
         .filter(|p| has_ext(p, &["m4v", "mp4"]))
         .map(|p| comparable(p))
         .collect();
-    let music = files
-        .iter()
-        .filter(|p| has_ext(p, &["m4a"]))
-        .map(|p| comparable(p))
-        .collect();
+    let music = complete.then(|| {
+        std::sync::Arc::new(
+            files
+                .iter()
+                .filter(|p| has_ext(p, &["m4a"]))
+                .cloned()
+                .collect::<std::collections::HashSet<PathBuf>>(),
+        )
+    });
     (files.len(), videos, music)
 }
 
-/// Whether a music file was written by this run: it is not in the list of
-/// files taken before the run started (`before`), or it was modified after
-/// the start (`since`, with the same two seconds of slack as
-/// [`fresh_at_snapshot`]; a re-download over an older file). Without the
-/// list (it could not be taken) the file time decides alone, and with
-/// neither nothing counts. A file GAMDL skipped because it was already
-/// there is in the list and has an old time, so it is never this run's.
+/// Whether a music file was written by this run (`path` is a plain path
+/// under the download folder, as in the before-run list).
+///
+/// With the list of files taken before the run (`before`): a file not in it
+/// is this run's; a file in it counts only when the run had overwrite on
+/// (`overwrite`; only then can GAMDL rewrite an existing file) and it was
+/// modified after the start (`since`, with the same two seconds of slack as
+/// [`fresh_at_snapshot`]). Without the list (it could not be taken) the file
+/// time decides alone, and with no time nothing counts. A file GAMDL skipped
+/// because it was already there is in the list and, with overwrite off,
+/// never this run's.
 pub(crate) fn written_this_run(
     path: &Path,
     before: Option<&std::collections::HashSet<PathBuf>>,
     since: Option<std::time::SystemTime>,
+    overwrite: bool,
 ) -> bool {
-    if fresh_at_snapshot(&[path.to_path_buf()], since).contains(path) {
-        return true;
+    let by_time = fresh_at_snapshot(&[path.to_path_buf()], since).contains(path);
+    match before {
+        Some(set) => !set.contains(path) || (overwrite && by_time),
+        None => by_time,
     }
-    before.is_some_and(|set| !set.contains(&comparable(path)))
 }
 
 /// This download's music videos among `current` (the videos in the album
@@ -1048,15 +1064,17 @@ pub(crate) fn needs_fresh_walk(gamdl_version: Option<&str>, multi_album: bool) -
 }
 
 /// Every `.m4a` file under `output_dir` (up to ten levels down, like
-/// [`audio_files_in`]) that this run wrote ([`written_this_run`]). The one
-/// place the download folder is looked through for a GAMDL 3.x run's files
-/// in other album folders; the song-number check in [`other_album_files`]
-/// filters what it finds. `stop` is checked in every folder: when it says
-/// stop, the walk ends at once and returns `None`.
+/// [`audio_files_in`]) that this run wrote ([`written_this_run`]), as plain
+/// paths under `output_dir`. The one place the download folder is looked
+/// through for a GAMDL 3.x run's files in other album folders; the
+/// song-number check in [`other_album_files`] filters what it finds. `stop`
+/// is checked in every folder: when it says stop, the walk ends at once and
+/// returns `None`.
 pub(crate) fn fresh_m4a_under(
     output_dir: &Path,
     before: Option<&std::collections::HashSet<PathBuf>>,
     since: Option<std::time::SystemTime>,
+    overwrite: bool,
     stop: &dyn Fn() -> bool,
 ) -> Option<Vec<PathBuf>> {
     fn walk(
@@ -1064,6 +1082,7 @@ pub(crate) fn fresh_m4a_under(
         depth: u32,
         before: Option<&std::collections::HashSet<PathBuf>>,
         since: Option<std::time::SystemTime>,
+        overwrite: bool,
         stop: &dyn Fn() -> bool,
         found: &mut Vec<PathBuf>,
     ) -> bool {
@@ -1079,7 +1098,7 @@ pub(crate) fn fresh_m4a_under(
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                if !walk(&path, depth + 1, before, since, stop, found) {
+                if !walk(&path, depth + 1, before, since, overwrite, stop, found) {
                     return false;
                 }
             } else if path.is_file()
@@ -1088,7 +1107,7 @@ pub(crate) fn fresh_m4a_under(
                     .extension()
                     .and_then(|e| e.to_str())
                     .is_some_and(|e| e.eq_ignore_ascii_case("m4a"))
-                && written_this_run(&path, before, since)
+                && written_this_run(&path, before, since, overwrite)
             {
                 found.push(path);
             }
@@ -1096,7 +1115,7 @@ pub(crate) fn fresh_m4a_under(
         true
     }
     let mut found = Vec::new();
-    if !walk(output_dir, 0, before, since, stop, &mut found) {
+    if !walk(output_dir, 0, before, since, overwrite, stop, &mut found) {
         return None;
     }
     found.sort();
@@ -1107,17 +1126,21 @@ pub(crate) fn fresh_m4a_under(
 /// folder (sorted), and whether some were left out by the cap.
 ///
 /// Candidates are the paths the runs reported (`reported`) and the files
-/// found by the look-through (`walked`). Paths are made comparable first
-/// ([`comparable`]: resolved when the file exists), so a different spelling
-/// of the main folder, or a path with `..`, is judged by where it really is.
-/// A file counts only if it is an existing `.m4a` under `output_dir` and
-/// not under `album_dir` (Step 1 already tags those), is not a filesystem
-/// leftover, **was written by this run** ([`written_this_run`], using
-/// `before` and `since`; a file GAMDL skipped as already there never
-/// counts), and its own song number (read by `song_id_of`) is one of those
-/// looked up for this download (`download_song_ids`). At most
-/// [`MAX_OTHER_FOLDER_FILES`] files are returned; the flag is true when an
-/// eligible file was left out.
+/// found by the look-through (`walked`). Each candidate is RESOLVED
+/// ([`comparable`]) only to judge where the file really is (a `..` path, a
+/// different letter case or a link is judged by its target) and is then
+/// mapped back under the plain `output_dir` (`output_dir` joined with the
+/// resolved path below the resolved download folder). The folders and files
+/// RETURNED are always these plain paths, never resolved ones, so everything
+/// downstream that compares them with plain listings of the download folder
+/// (the extra-format tagging) keeps matching. A file counts only if it is an
+/// existing `.m4a` under `output_dir` and not under `album_dir` (Step 1
+/// already tags those), is not a filesystem leftover, **was written by this
+/// run** ([`written_this_run`], using `before`, `since` and `overwrite`; a
+/// file GAMDL skipped as already there never counts), and its own song
+/// number (read by `song_id_of`) is one of those looked up for this download
+/// (`download_song_ids`). At most [`MAX_OTHER_FOLDER_FILES`] files are
+/// returned; the flag is true when an eligible file was left out.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn other_album_files(
     album_dir: &Path,
@@ -1126,35 +1149,42 @@ pub(crate) fn other_album_files(
     walked: &[PathBuf],
     before: Option<&std::collections::HashSet<PathBuf>>,
     since: Option<std::time::SystemTime>,
+    overwrite: bool,
     download_song_ids: &std::collections::HashSet<String>,
     song_id_of: impl Fn(&Path) -> Option<String>,
 ) -> (std::collections::BTreeMap<PathBuf, Vec<PathBuf>>, bool) {
-    let album_dir = comparable(album_dir);
-    let output_dir = comparable(output_dir);
-    let candidates: std::collections::BTreeSet<PathBuf> = reported
-        .iter()
-        .chain(walked.iter())
-        .map(|p| comparable(p))
-        .collect();
+    let resolved_album = comparable(album_dir);
+    let resolved_output = comparable(output_dir);
+    // Resolved path -> the plain path to return (first spelling wins), so the
+    // same file reached two ways is handled once.
+    let mut candidates: std::collections::BTreeMap<PathBuf, PathBuf> =
+        std::collections::BTreeMap::new();
+    for original in reported.iter().chain(walked.iter()) {
+        let resolved = comparable(original);
+        let Ok(below) = resolved.strip_prefix(&resolved_output) else {
+            continue;
+        };
+        let plain = output_dir.join(below);
+        candidates.entry(resolved).or_insert(plain);
+    }
     let mut by_folder: std::collections::BTreeMap<PathBuf, Vec<PathBuf>> =
         std::collections::BTreeMap::new();
     let mut total = 0usize;
     let mut left_out = false;
-    for path in candidates {
-        let is_m4a = path
+    for (resolved, plain) in candidates {
+        let is_m4a = plain
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| e.eq_ignore_ascii_case("m4a"));
         if !is_m4a
-            || !path.starts_with(&output_dir)
-            || path.starts_with(&album_dir)
-            || !path.is_file()
-            || crate::utils::fs_safe::is_filesystem_sidecar(&path)
-            || !written_this_run(&path, before, since)
+            || resolved.starts_with(&resolved_album)
+            || !resolved.is_file()
+            || crate::utils::fs_safe::is_filesystem_sidecar(&resolved)
+            || !written_this_run(&plain, before, since, overwrite)
         {
             continue;
         }
-        let Some(id) = song_id_of(&path) else {
+        let Some(id) = song_id_of(&plain) else {
             continue;
         };
         if !download_song_ids.contains(&id) {
@@ -1164,27 +1194,40 @@ pub(crate) fn other_album_files(
             left_out = true;
             break;
         }
-        if let Some(folder) = path.parent() {
+        if let Some(folder) = plain.parent() {
             by_folder
                 .entry(folder.to_path_buf())
                 .or_default()
-                .push(path.clone());
+                .push(plain.clone());
             total += 1;
         }
     }
     (by_folder, left_out)
 }
 
+/// Sets a flag when dropped. Held by [`walk_fresh_m4a_stoppable`] so that if
+/// the task running it is aborted (the future is dropped mid-wait), the
+/// blocking walk is told to stop and ends at its next folder.
+pub(crate) struct StopOnDrop(pub(crate) Arc<AtomicBool>);
+
+impl Drop for StopOnDrop {
+    /// Tells the walk to stop.
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+}
+
 /// Looks through the download folder for this run's `.m4a` files
 /// ([`fresh_m4a_under`]) on a blocking thread, stopping early when the item
-/// is cancelled or the app is shutting down (checked every quarter second
-/// from here, and in every folder inside the walk). Returns `None` when it
-/// was stopped, never started because the item was already cancelled, or
-/// the walk failed.
+/// is cancelled, the app is shutting down, or this future is dropped
+/// (checked every quarter second from here, and in every folder inside the
+/// walk). Returns `None` when it was stopped, never started because the item
+/// was already cancelled, or the walk failed.
 pub(crate) async fn walk_fresh_m4a_stoppable(
     root: &Path,
-    before: Option<std::collections::HashSet<PathBuf>>,
+    before: Option<Arc<std::collections::HashSet<PathBuf>>>,
     since: Option<std::time::SystemTime>,
+    overwrite: bool,
     queue: &QueueHandle,
     dl_id: &str,
     shutdown: &ShutdownSignal,
@@ -1193,11 +1236,13 @@ pub(crate) async fn walk_fresh_m4a_stoppable(
         return None;
     }
     let stop = Arc::new(AtomicBool::new(false));
+    // Dropped with this future, so an aborted task ends the walk too.
+    let _stop_on_drop = StopOnDrop(Arc::clone(&stop));
     let walk_stop = Arc::clone(&stop);
     let shutdown_flag = shutdown.flag();
     let walk_root = root.to_path_buf();
     let mut handle = tokio::task::spawn_blocking(move || {
-        fresh_m4a_under(&walk_root, before.as_ref(), since, &|| {
+        fresh_m4a_under(&walk_root, before.as_deref(), since, overwrite, &|| {
             walk_stop.load(Ordering::Relaxed) || shutdown_flag.load(Ordering::Relaxed)
         })
     });

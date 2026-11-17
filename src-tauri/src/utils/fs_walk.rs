@@ -95,6 +95,63 @@ where
     }
 }
 
+/// Same walk as [`walk_dir_depth`], but also says whether it was COMPLETE.
+///
+/// `walk_dir_depth` silently skips a folder it cannot read, which is wrong
+/// for a caller that treats "not in the list" as meaningful (a list of the
+/// files that existed before a download). This variant returns `false` as
+/// the second value when any folder (the base included) or any entry could
+/// not be read. A folder that does not exist (or vanishes mid-walk) counts
+/// as empty, not as a failure. `walk_dir_depth` itself is unchanged.
+pub fn walk_dir_depth_reporting<T, F>(base: &Path, max_depth: u32, mut visit: F) -> (Vec<T>, bool)
+where
+    F: FnMut(&Path) -> Option<T>,
+{
+    let mut results = Vec::new();
+    let mut complete = true;
+    walk_inner_reporting(base, 0, max_depth, &mut visit, &mut results, &mut complete);
+    (results, complete)
+}
+
+/// Recursive worker for [`walk_dir_depth_reporting`]: the same walk as
+/// `walk_inner`, noting every read failure other than "not found".
+fn walk_inner_reporting<T, F>(
+    dir: &Path,
+    depth: u32,
+    max_depth: u32,
+    visit: &mut F,
+    results: &mut Vec<T>,
+    complete: &mut bool,
+) where
+    F: FnMut(&Path) -> Option<T>,
+{
+    if depth > max_depth {
+        return;
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                *complete = false;
+            }
+            return;
+        }
+    };
+    for entry in entries {
+        let Ok(entry) = entry else {
+            *complete = false;
+            continue;
+        };
+        let path = entry.path();
+        if let Some(value) = visit(&path) {
+            results.push(value);
+        }
+        if path.is_dir() {
+            walk_inner_reporting(&path, depth + 1, max_depth, visit, results, complete);
+        }
+    }
+}
+
 /// Find-first companion to [`walk_dir_depth`]: returns the FIRST path
 /// for which the visitor returns `Some(T)`, stopping the walk early.
 ///

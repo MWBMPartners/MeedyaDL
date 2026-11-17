@@ -1046,7 +1046,7 @@ pub fn process_queue(
             let (pre_run_audio_count, videos_before_run, music_before_run): (
                 usize,
                 FileSet,
-                FileSet,
+                Option<Arc<std::collections::HashSet<std::path::PathBuf>>>,
             ) = if same_folder {
                 let folder = primary_download_folder.clone().unwrap_or_default();
                 match tokio::task::spawn_blocking(move || {
@@ -1054,7 +1054,7 @@ pub fn process_queue(
                 })
                 .await
                 {
-                    Ok((count, videos, music)) => (count, Some(videos), Some(music)),
+                    Ok((count, videos, music)) => (count, Some(videos), music),
                     // The walk itself failed: fall back to the plain count,
                     // and no lists.
                     Err(_) => (
@@ -1084,7 +1084,7 @@ pub fn process_queue(
                     None => None,
                 };
                 match lists {
-                    Some((_, videos, music)) => (count, Some(videos), Some(music)),
+                    Some((_, videos, music)) => (count, Some(videos), music),
                     None => (count, None, None),
                 }
             };
@@ -2718,6 +2718,10 @@ pub fn process_queue(
                                         chrono::DateTime::parse_from_rfc3339(&enrich_started_at)
                                             .ok()
                                             .map(std::time::SystemTime::from);
+                                    // Only GAMDL can rewrite an existing file,
+                                    // and only with overwrite on.
+                                    let run_overwrote =
+                                        enrich_primary_options.overwrite == Some(true);
                                     // Only files THIS run wrote are ever touched
                                     // here: not in the list taken before the run,
                                     // or modified since it started. A file GAMDL
@@ -2730,6 +2734,7 @@ pub fn process_queue(
                                             &root,
                                             enrich_music_before.clone(),
                                             started,
+                                            run_overwrote,
                                             &enrich_queue,
                                             &enrich_dl_id,
                                             &enrich_shutdown,
@@ -2755,8 +2760,9 @@ pub fn process_queue(
                                                     &find_root,
                                                     &reported,
                                                     &walked,
-                                                    before.as_ref(),
+                                                    before.as_deref(),
                                                     started,
+                                                    run_overwrote,
                                                     &song_ids,
                                                     super::metadata_tag_service::song_id_of_path,
                                                 )
