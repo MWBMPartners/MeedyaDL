@@ -972,6 +972,23 @@ pub struct WrapperTestResult {
     pub error: Option<String>,
 }
 
+/// The wrapper address as it may be shown on screen: built from the PARSED
+/// address with any user name, password, query and fragment removed.
+///
+/// Built from the parsed address, not the text as typed, because the
+/// parser forgives typing slips that a text-based cleaner does not:
+/// `http:/someone:hunter2@127.0.0.1:1/` (one slash) parses as the full
+/// address with a password, yet a cleaner looking for `://` finds nothing
+/// to remove. What the connection uses is what gets cleaned (#1445).
+fn address_for_message(parsed: &url::Url) -> String {
+    let mut shown = parsed.clone();
+    let _ = shown.set_username("");
+    let _ = shown.set_password(None);
+    shown.set_query(None);
+    shown.set_fragment(None);
+    shown.to_string()
+}
+
 /// Tests connectivity to the configured wrapper service URL.
 ///
 /// **Frontend caller:** `testWrapperConnection(url)` in `src/lib/tauri-commands.ts`
@@ -1026,7 +1043,7 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
              neither). A wrapper runs locally, so set one in Settings > Advanced > Wrapper.",
             // The address can carry a sign-in token or a name and password,
             // and this message is shown on screen, so both are removed.
-            crate::services::download_queue::redact_url_query(&url)
+            address_for_message(&parsed)
         ));
     }
 
@@ -1080,7 +1097,7 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
                 // password first.
                 format!(
                     "Connection refused — is the wrapper running at {}?",
-                    crate::services::download_queue::redact_url_query(&url)
+                    address_for_message(&parsed)
                 )
             } else {
                 // The web library repeats the whole address in its own
@@ -1683,6 +1700,31 @@ mod tests {
         )
         .await
         .expect_err("a public address must be refused");
+        assert_no_wrapper_secret(&err);
+    }
+
+    #[tokio::test]
+    async fn test_connection_hides_secrets_in_addresses_typed_with_slips() {
+        // Review round 2 of #1445: the parser accepts these as an address
+        // with a password, so they must be cleaned too, and the part after
+        // `#` is removed as well.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        for typed in [
+            format!("http:/someone:hunter2@127.0.0.1:{port}/"),
+            format!("http:/\n/someone:hunter2@127.0.0.1:{port}/"),
+            format!("http://127.0.0.1:{port}/#token=SECRET123"),
+        ] {
+            let result = test_wrapper_connection(typed.clone())
+                .await
+                .expect("an unreachable wrapper is an answer, not an error");
+            let message = result.error.expect("a failure must explain itself");
+            assert_no_wrapper_secret(&message);
+        }
+        let err = test_wrapper_connection("http:/someone:hunter2@8.8.8.8/".to_string())
+            .await
+            .expect_err("a public address must be refused");
         assert_no_wrapper_secret(&err);
     }
 

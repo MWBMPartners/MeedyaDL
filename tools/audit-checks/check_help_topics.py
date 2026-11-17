@@ -297,7 +297,14 @@ def heading_text_to_plain(raw: str) -> str:
     emphasis underscores (`_x_`, `__x__`), strike-through marks and HTML tags
     are removed, and HTML entities (`&amp;`) are turned into the character
     they stand for. An underscore inside a word (`snake_case`) is kept, as
-    Markdown keeps it."""
+    Markdown keeps it.
+
+    Known differences from the app, none used by any help page today
+    (found in review round 2 of #1445): an image in a heading (the app drops
+    its alt text), a reference-style link `[label][r]` (the app drops `[r]`),
+    an autolink `<https://…>` (the app keeps the address as text), and a
+    backslash-escaped `\_` (the app keeps the underscores). Avoid these in
+    headings that other links point at."""
     raw = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", raw)
     raw = re.sub(r"<[^>]+>", "", raw)
     raw = raw.replace("`", "").replace("*", "").replace("~~", "")
