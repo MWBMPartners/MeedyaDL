@@ -21,8 +21,9 @@ uploaded is the dependable way to leave it out.
 What it does
 ------------
 For every .sarif file in the folder given, it removes each result whose
-locations ALL point under src-tauri/vendor/. A result that also points at
-our own code is kept, so nothing in our own code can be hidden this way.
+locations ALL point under src-tauri/vendor/ (main and related locations,
+every step of its data-flow paths, and stack frames). A result that also
+points at our own code anywhere is kept, so nothing in our own code can be hidden this way.
 Every other result, and every other part of the report, is left exactly as
 it was. It prints how many results it removed from each file.
 
@@ -40,19 +41,35 @@ from pathlib import Path
 VENDOR_PREFIX = "src-tauri/vendor/"
 
 
+def _uri(location: dict) -> str | None:
+    """The file path of one SARIF location, if it has one."""
+    uri = (
+        ((location or {}).get("physicalLocation") or {})
+        .get("artifactLocation", {})
+        .get("uri")
+    )
+    return uri if isinstance(uri, str) else None
+
+
 def result_paths(result: dict) -> list[str]:
-    """Every file path a result points at (its main and related locations)."""
-    paths: list[str] = []
+    """Every file path a result points at.
+
+    That is its main and related locations, every step of its data-flow
+    paths (`codeFlows`: a "hard-coded value" alert is a path alert, and its
+    starting point may be in our own code even when the alert itself is
+    reported inside the vendor folder), and any stack frames.
+    """
+    found: list[str | None] = []
     for key in ("locations", "relatedLocations"):
-        for location in result.get(key) or []:
-            uri = (
-                (location.get("physicalLocation") or {})
-                .get("artifactLocation", {})
-                .get("uri")
-            )
-            if isinstance(uri, str):
-                paths.append(uri)
-    return paths
+        found += [_uri(loc) for loc in result.get(key) or []]
+    for flow in result.get("codeFlows") or []:
+        for thread in flow.get("threadFlows") or []:
+            for step in thread.get("locations") or []:
+                found.append(_uri((step or {}).get("location") or {}))
+    for stack in result.get("stacks") or []:
+        for frame in stack.get("frames") or []:
+            found.append(_uri((frame or {}).get("location") or {}))
+    return [p for p in found if p is not None]
 
 
 def is_vendor_only(result: dict) -> bool:
@@ -61,7 +78,7 @@ def is_vendor_only(result: dict) -> bool:
     if not paths:
         # A result with no file location is never ours to drop.
         return False
-    return all(p.lstrip("./").startswith(VENDOR_PREFIX) for p in paths)
+    return all(p.removeprefix("./").startswith(VENDOR_PREFIX) for p in paths)
 
 
 def filter_report(report: dict) -> int:
