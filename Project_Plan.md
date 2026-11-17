@@ -590,14 +590,17 @@ No blockers. Open follow-ups (all unmerged work sits in PR #1420 until it lands;
 
 | Issue | What |
 |-------|------|
-| [#1432](https://github.com/MWBMPartners/MeedyaDL/issues/1432) | Queue: an old download run can act on an item after it was retried, and one route frees the queue slot too early |
-| [#1436](https://github.com/MWBMPartners/MeedyaDL/issues/1436) | GAMDL 3: the lyrics recovery step writes into the album folder's old name after it gains [Explicit]/[Clean] |
 | [#1437](https://github.com/MWBMPartners/MeedyaDL/issues/1437) | Re-download after files were renamed: renamed files are not found, so the album downloads again |
 | [#1438](https://github.com/MWBMPartners/MeedyaDL/issues/1438) | Make GAMDL 4 the routine install, after real-download tests on each platform |
-| [#1439](https://github.com/MWBMPartners/MeedyaDL/issues/1439) | Three small UI faults spotted during the code comment pass |
-| [#1443](https://github.com/MWBMPartners/MeedyaDL/issues/1443) | Remove the old whole-folder lyrics functions once nothing needs them |
+| [#1444](https://github.com/MWBMPartners/MeedyaDL/issues/1444) | Check which tags MeedyaDL really writes (the date tag is done; old unused tag writers and some names on the metadata help page remain) |
+| [#1448](https://github.com/MWBMPartners/MeedyaDL/issues/1448) | Download into a hidden staging folder and move files into place only when finished — planned, every decision taken, next big piece |
+| [#1450](https://github.com/MWBMPartners/MeedyaDL/issues/1450) | Later move of date handling from `time` to `jiff` |
+| [#1451](https://github.com/MWBMPartners/MeedyaDL/issues/1451) | Make stuck-download and retry behaviour the same for every service |
+| [#1452](https://github.com/MWBMPartners/MeedyaDL/issues/1452) | After a retry, the "did the download save anything?" check can count an earlier attempt's files |
 
-Still needing real machines: notification sounds and other-screen detection, a live download on each platform with GAMDL 3.9.1, and a browser cookie import after the #1413 change.
+Done in PR #1420 and closing when it merges: #1432, #1436, #1439, #1443 (with #1440-#1442, #1445-#1447, #1449 and others).
+
+Still needing real machines: notification sounds and other-screen detection, a live download on each platform with GAMDL 3.9.1, a stuck-download check (#1432), and a browser cookie import on Windows after the #1413 and #1449 changes.
 
 ---
 

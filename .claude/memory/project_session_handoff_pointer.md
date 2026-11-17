@@ -14,7 +14,7 @@ Dated handoff duplicates previously kept in `.claude/memory/` and
 
 **Do not recreate a handoff document under `.claude/`.** Update `.github/HANDOFF.md` instead:
 add a new section at the top whose heading contains `LATEST`, the date and the topic (the file
-currently uses `## ★★★★ LATEST — <date>: <topic>`), change the previous section's `LATEST` to
+currently uses `## ★★★★★ LATEST — <date>: <topic>`; the number of stars is decoration, only the word matters), change the previous section's `LATEST` to
 `Previous` so exactly one heading says `LATEST`, and refresh the `**Last updated:**`
 and `**Working branch:**` lines in the header.
 

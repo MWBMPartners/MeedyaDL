@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-11-17 — see ★★★★ LATEST below
+**Last updated:** 2026-11-17 (evening) — see ★★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.90** · `beta` **1.9.4-beta.23** · `release-candidate` **1.0.0-rc.50** — read from each branch's `package.json` on 16 Nov.
+**Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.90** · `beta` **1.9.4-beta.23** · `release-candidate` **1.0.0-rc.50** — read from each branch's `package.json` on 17 Nov (evening).
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,59 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★ LATEST — 2026-11-17: CodeQL vendor alerts, chrono replacement, staging plan
+## ★★★★★ LATEST — 2026-11-17 (evening): START HERE — state at session end and the queue for the next session
+
+**In one line:** all queued work is finished, reviewed and pushed to `work-in-progress` (head `aa0062aa` or later); PR #1420 to `alpha` is green on every check and mergeable, waiting for the maintainer. Nothing is half-built.
+
+### How to pick up in a new session
+
+1. `git fetch origin work-in-progress && git checkout work-in-progress` and run `./scripts/sync-claude-memory.sh`.
+2. Re-check PR #1420 by hand (its CI and comments): the GitHub watch on it ended with the old session. If the new session should keep watching it, subscribe again.
+3. Read the queue below, then the Previous sections only as needed for detail.
+4. Codex has been unavailable all along: every review so far was a fresh Claude Opus agent. Try `codex` first at the start of the new session (standing rule: retry the usual reviewer every new run).
+
+### State of the work
+
+| # | Item | Issue | Status | Notes |
+|---|---|---|---|---|
+| 1 | Combined PR `work-in-progress` → `alpha` | #1420 | **Open, all checks green, mergeable** | Description is up to date (107 Release-Note lines, lint passes). Last fix: `aa0062aa` (a #1432 test assumed Unix line endings; failed on Windows only). **A Codex review of the whole PR is still owed** before it counts as fully reviewed. Merge is the maintainer's call. |
+| 2 | Five-issue batch the maintainer queued (17 Nov) | #1439, #1445, #1436, #1432, #1443 | **Done — all reviewed clean** | Rows 6-10 of the Previous section below. Each issue has a comment with its commits ("closes when #1420 merges"). |
+| 3 | Rethink stuck downloads / retry so every service behaves the same (maintainer's request) | #1451 | **Open, not started** | Raised 17 Nov. |
+| 4 | Saved-files check after a retry can use an earlier attempt's files | #1452 | **Open, not started** | Found in the #1432 reviews. |
+| 5 | Staging folder (`.MeedyaDL_temp.nosync` / `.MeedyaDL_held.nosync`) | #1448 | **Planned, every decision taken — next big build** | Decision list in the 17 Nov comment on #1448. Start with phase 1 (one source for the run folder, no visible change), then phase 2 (the library check run alongside today's downloads). Plan with Opus first, one agent at a time. |
+| 6 | Move date handling from `time` to `jiff` later | #1450 | Open, later | |
+| 7 | Re-download vs files MeedyaDL renamed (second copies) | #1437 | Open, not started | Staging (#1448) may remove most of it; check before building. |
+| 8 | Make GAMDL 4 the routine install | #1438 | Open, waits for real-download tests on each platform | |
+| 9 | Check which tags MeedyaDL really writes (dead album/track tag writers; wrong names on `help/metadata-mapping.md`) | #1444 | Partly done (date tag shipped) | The remaining part stays open after #1420 merges. |
+| 10 | GitHub wiki refresh (stale since May; four channels not seven; published the developer-access key sequence) | — | See "GitHub records" below | |
+| 11 | Possibly flaky test `health_check_service::tests::wrapper_v2_sign_in_state_that_cannot_be_read_says_so_without_the_token` | — | Suggested as a separate task | Seen failing once locally, never in CI. |
+
+**Open questions for the maintainer:** none. The next piece of work is the maintainer's choice from rows 3-8 (the last stated order was: staging #1448 phase 1 first).
+
+### When #1420 merges
+
+Close (with a completion comment): #1404 (open the "GAMDL 4 routine" follow-up if #1438 does not already cover it), #1236, #1289, #1385, #1413, #1419, #1431, #1432, #1433, #1434, #1435, #1436, #1439, #1440, #1441, #1442, #1443, #1445, #1446, #1447, #1449, and the quick-fix issues (#1232, #1233, #1235, #1237, #1267, #1310 — check each against its comment first). Keep #1444 open for its remaining part. Then fast-check that the alpha auto-cut built every platform.
+
+### Real-machine checks still wanted (maintainer)
+
+Listed on each issue: #1432 (stuck download, late finish, abort), #1433, #1435, #1436, #1440, #1441, #1442, #1448 (later), #1449 (one browser cookie import on Windows). Also a verbose-mode Apple Music data dump to confirm `meta.formerIds` (#1447). Nothing in #1420 has yet been tried against a real download.
+
+### GitHub records (17 Nov evening)
+
+- **Issues:** every issue worked on this session has a comment with its commit IDs.
+- **Milestones:** none of the current issues carry a milestone; the version milestones (v1.0 RC, v1.0 GA, v2.0-v2.2) describe the old plan. Still for the maintainer by hand (no milestone or project tool in the cloud session): close "v1.0 Release Candidate" and "v1.0 GA" after moving #182, #109, #111, #125, #329; set #110's milestone.
+- **Project board 6:** the cloud session has no tool to add items or change their status. Issues #1432-#1452 need adding by hand, with Status matching the table above.
+- **Wiki:** see the wiki note at the end of this section.
+
+### Also still for the maintainer by hand
+
+- Recover the split releases `v1.9.4-beta.22` and `v1.0.0-rc.28` (steps in the 16 Nov section below; needs `gh` with write access).
+- Delete branch `docs/subtitle-carriage-research` (PR #1348, closed; this session may only push to `work-in-progress`).
+- Dismiss CodeQL alert 73 (test password moved by the reformat) if it is still listed.
+
+---
+
+## ★★★★ Previous — 2026-11-17: CodeQL vendor alerts, chrono replacement, staging plan
 
 All on `work-in-progress` (PR #1420). Codex unavailable; reviews are fresh Claude Opus agents.
 
