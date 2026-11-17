@@ -212,7 +212,7 @@ MeedyaDL does not include a built-in metadata editor. If you need to modify meta
 
 ### What is GAMDL?
 
-GAMDL is a command-line Apple Music download tool created by glomatico. It does the actual downloading, and MeedyaDL provides a friendly graphical interface on top of GAMDL's capabilities. GAMDL is installed automatically during MeedyaDL's first-run setup, so you do not need to install it separately.
+GAMDL is a command-line Apple Music download tool created by glomatico. It does the actual downloading, and MeedyaDL provides a friendly graphical interface on top of GAMDL's capabilities. GAMDL is installed automatically during MeedyaDL's first-run setup, so you do not need to install it separately. MeedyaDL recommends GAMDL 3.9.1. GAMDL 4 can be tried on purpose, but it has not been tested on real downloads yet. See [Trying GAMDL 4](tools.md#trying-gamdl-4).
 
 ### Can I use MeedyaDL and the GAMDL CLI at the same time?
 
@@ -227,7 +227,7 @@ A large album or playlist can take from a few seconds to a minute to get going b
 MeedyaDL checks for updates automatically (you can also press **Check for Updates** on the Updates page at any time). It checks three kinds of thing:
 
 - **App updates**: The application checks GitHub Releases for new versions of MeedyaDL itself. When an update is available, a banner appears in the app with upgrade and dismiss actions.
-- **GAMDL updates**: The app checks PyPI for new versions of the GAMDL backend. When an update is available, GAMDL can be upgraded with one click directly from the update banner.
+- **GAMDL updates**: The app checks for new versions of GAMDL. It offers updates within the version line you are on, so GAMDL 3 users are offered GAMDL 3 updates only. When an update is available, GAMDL can be upgraded with one click directly from the update banner.
 - **Helper tool updates**: The five helper programs — FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box and MediaInfo — are each checked against the place a new copy would actually come from. See [External Tools](tools.md#keeping-the-tools-up-to-date).
 
 No manual intervention is needed — simply follow the prompts when the update banner appears.

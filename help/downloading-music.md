@@ -231,7 +231,9 @@ MeedyaDL can also download extra versions of the same music in other qualities. 
 
 By default (**Atmos → Lossless (ALAC)**), a Dolby Atmos download also gets a lossless (ALAC) copy. Other modes add lossy AAC copies as well. **Custom…** lets you tick exactly the qualities you want.
 
-Extra versions usually get a short tag in the file name, for example `[Lossless]` or `[Dolby Atmos]`, so they can sit side by side in the album folder. Extra versions are made before the next item in the queue starts, and each one gets its own lyric files when lyrics are available. You can follow them on the **Activity** page. See [Quality Settings](quality-settings.md#companion-downloads) for what each mode does.
+Extra versions usually get a short tag in the file name, for example `[Lossless]` or `[Dolby Atmos]`, so they can sit side by side in the album folder. Extra versions are made after the main download has had its lyrics, tags and file names finished, and before the next item in the queue starts. Each one gets the same lyric files as the main download. You can follow them on the **Activity** page.
+
+Extra versions never replace a file that is already there. If a file with the same name exists, that copy is skipped and the Activity page says so. See [Quality Settings](quality-settings.md#companion-downloads) for what each mode does.
 
 ---
 
@@ -265,7 +267,19 @@ There are three ways:
 
 Importing on the Download page only fills in the links. The downloads use your current settings plus any choices you make on screen. Importing on the Queue page also restores the per-download choices that were saved in the file.
 
-You can also look through a whole folder for manifests with the **Scan** button on the Download page, or with the **Library** page in the sidebar.
+You can also look through a whole folder for manifests with the **Scan** button on the Download page, or with the **Library** page in the sidebar (see [Library Scan](#library-scan)).
+
+---
+
+## Library Scan
+
+The **Library** page in the sidebar looks through a folder of music MeedyaDL has already downloaded (press **Choose folder & scan**). For each album it shows whether tracks are missing, whether a format you planned is missing, and whether Apple Music has updated the album since you downloaded it.
+
+Press **Re-download** on a row to fix it:
+
+- **Missing songs or formats:** MeedyaDL asks only for what is missing and keeps the songs already in the folder. It never replaces them.
+- **Only "Content updated":** the album is downloaded again only if **Overwrite Existing Files** is on in **Settings > General > Preferences**, and then only files with the same names are replaced. With that setting off, nothing is queued and a message tells you to turn it on.
+- **Renamed files:** if the album's files or folder carry a label such as `[Explicit]`, `[Clean]` or `[Lossless]`, a re-download may add a second copy beside them, so MeedyaDL asks first.
 
 ---
 

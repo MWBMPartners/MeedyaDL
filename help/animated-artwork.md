@@ -23,6 +23,8 @@ If you turn on **Download Artist Promo Video**, you also get `ArtistSpotlightCov
 
 Not every album has animated art. It is mostly found on newer, popular albums.
 
+**Download Animated Cover Art** and **Download Artist Promo Video** are both on by default. They do nothing until your Apple Music developer details are filled in (see [Setup Guide](#setup-guide)). **Hide Animated Artwork Files** is off by default.
+
 <details>
 <summary>More detail: the video files</summary>
 
@@ -113,7 +115,7 @@ The `.p8` file is plain text. You need to copy everything inside it.
 
 ### Step 6: Enter Your Details in MeedyaDL
 
-1. Open **Settings** > **Cover Art** and turn on **Download Animated Cover Art**.
+1. Open **Settings** > **Cover Art** and check that **Download Animated Cover Art** is on (it is by default).
 2. Open **Settings** > **Advanced** > **API Credentials**.
 3. Type your Team ID into **MusicKit Team ID**.
 4. Type your Key ID into **MusicKit Key ID**.

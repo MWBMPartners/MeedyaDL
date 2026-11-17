@@ -89,6 +89,16 @@ Not every track or video comes in every format.
 - **Tip:** ALAC (lossless) is offered for the most tracks.
 - **Video:** Video resolution never causes this error. It is a ceiling, so you always get the best the video has at or below your choice.
 
+#### An extra format copy was not made
+
+You turned on **Companion Downloads** but one extra copy is missing.
+
+- **A file with the same name was already there.** Extra copies never replace a file. The Activity page says how many extra copies in that format were not made because a file with the same name was already there. Move or rename the old file, then download again.
+- **The format is not offered for that song.** The Activity page says so, and the song is left out of that format.
+- **Downloading an album again does not refresh extra copies** that are already in the folder.
+
+See [Quality Settings](quality-settings.md#companion-downloads).
+
 #### Some tracks skipped (partial album)
 
 Only some tracks downloaded, and the Activity page says "Requested format is not available" for the rest.
@@ -166,6 +176,7 @@ If you told MeedyaDL to use a Python already on your computer, and you later upg
 GAMDL 4 has not been tested on real downloads yet, so problems are possible.
 
 - **A message about lyrics:** **Synced Lyrics Only** (Settings > Lyrics) does not work with GAMDL 4. Turn it off.
+- **Which version:** use GAMDL 4.0.2. Versions 4.0.0 and 4.0.1 are marked as having known problems in **Settings > Tools**, and MeedyaDL will not install them.
 - **Anything else:** Go back to GAMDL 3.9.1 in **Settings > Tools > GAMDL Version Management**, and please report what happened. See [Trying GAMDL 4](tools.md#trying-gamdl-4).
 
 #### "GAMDL backend not found"
@@ -263,6 +274,7 @@ When you retry an album that only partly downloaded, MeedyaDL compares the track
 - If **all** tracks are already there, the retry says `Nothing to retry — all N track(s) are already on disk`.
 - If **some** are missing, only those are fetched. The Activity page says, for example, `Smart retry for {id}: targeting 3 of 50 track(s) — 3 URL(s) queued`.
 - If the album folder has no `manifest.meedyadl` file (the first run failed too early to write one), MeedyaDL retries the whole album and keeps the files that already exist.
+- The **Library** page does the same for albums you downloaded earlier. Its **Re-download** button fills only the gaps and keeps the songs already there. See [Library Scan](downloading-music.md#library-scan).
 
 ---
 

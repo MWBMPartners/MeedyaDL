@@ -61,7 +61,8 @@ Enhanced LRC adds a time before every word. Players that support it can highligh
 - Songs that only have line-by-line timing get ordinary LRC instead.
 - It is on by default. Turn it on or off in **Settings > Lyrics > Enhanced Lyrics (Word-by-Word Sync)**.
 - While it is on, TTML is kept as the main format, because the word timing comes from it. You can still tick LRC and SRT as extra formats.
-- With GAMDL 4.0.2 or later, word-by-word lyrics can also be added when you sign in with the wrapper.
+- Word-by-word lyrics are looked up first by MeedyaDL itself (this needs your Apple Music developer details, see [Animated Artwork](animated-artwork.md), and your sign-in). If that is not possible for a song, and you are using GAMDL 4.0.2 or later (see [Trying GAMDL 4](tools.md#trying-gamdl-4)), the word-by-word file can come from GAMDL instead.
+- The order is: word-by-word lyrics first, then the other lyric files made from them, and file renaming last.
 
 **Test word-level lyrics connection.** This button, next to the toggle, checks whether word-by-word lyrics can be fetched for you right now, without waiting for a real download.
 
@@ -158,6 +159,10 @@ These are all in **Settings > Lyrics** and are off unless noted:
 - **Generate ASS Subtitles** makes `.ass` files with colours and positions, used by VLC, mpv and MPC-HC.
 - **Embed Subtitles in Media Files** stores SRT and WebVTT text inside MP4, M4A and M4V files.
 
+### Which songs get lyric files
+
+Lyric and subtitle files are made only for the songs and videos of the download that just ran, including any in disc folders. Older songs that happen to be in the same folder are not converted, embedded or changed.
+
 ### Where lyric files go
 
 Lyric files are saved in the same folder as the song or video, with the same name and a different ending:
@@ -173,7 +178,7 @@ Most players find files named like this by themselves.
 
 If you use **Companion Downloads** (see [Quality Settings](quality-settings.md#companion-downloads)), each extra version of a song gets its own lyric files, named to match, for example `01 Song Title [Lossless].lrc` next to `01 Song Title [Lossless].m4a`.
 
-Each extra version gets the same lyrics as the main one, including word-by-word timing where the main download has it, and the same lyric and subtitle files you chose in **Settings > Lyrics** (the Lyricsfile and the lyrics stored inside the file included). If an extra version came with better lyrics than the main one, it keeps them, and the main version is given them too. Only lyric and subtitle files made during the same download are replaced this way; files that were already in your folder before are left alone.
+An extra version is never made over a file that is already there, and it is made only after the main download's lyrics and file names are finished. Each extra version gets the same lyrics as the main one, including word-by-word timing where the main download has it, and the same lyric and subtitle files you chose in **Settings > Lyrics** (the Lyricsfile and the lyrics stored inside the file included). If an extra version came with better lyrics than the main one, it keeps them, and the main version is given them too. Only lyric and subtitle files made during the same download are replaced this way; files that were already in your folder before are left alone.
 
 <details>
 <summary>More detail: will my edits to lyric files be overwritten?</summary>
@@ -335,7 +340,7 @@ Loudness tags can be written to M4A, M4V, MP4, M4P, M4B, FLAC, OGG, OGA, Opus an
 
 ### Links on other music services (optional)
 
-Turn it on in **Settings > Metadata > Links on Other Music Services**. After a download, MeedyaDL asks [song.link](https://song.link) where else the album can be found: Spotify, YouTube Music, Tidal, Deezer, Amazon Music and more. Each link found is saved in every track's tags, and in the album's `manifest.meedyadl` file.
+Turn on **Look up where else each album is available** in **Settings > Metadata > Links on Other Music Services**. After a download, MeedyaDL asks [song.link](https://song.link) where else the album can be found: Spotify, YouTube Music, Tidal, Deezer, Amazon Music and more. Each link found is saved in every track's tags, and in the album's `manifest.meedyadl` file.
 
 - Only the album's Apple Music link is sent. Nothing else about you or your library goes with it.
 - It needs an access key. song.link is run by a company called Odesli, and it stopped free access in 2026. Apply for a key at [Odesli's help pages](https://odesli.co/help), then paste it into **Settings > Advanced > API Credentials > song.link (Odesli)**. Without a key the switch does nothing, and the Activity page says so once.

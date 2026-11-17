@@ -36,6 +36,8 @@ Each song is tagged in two stages:
 
 MeedyaDL only **adds or updates** tags. It never wipes out the tags a file already has.
 
+If you use **Companion Downloads** for extra formats, each extra copy gets the details of its own format. Those details are written only to the files that extra download added, never to your main files or to older files in the same folder. All tag writes go through one writer per file, so two jobs never write to the same file at once.
+
 A few tags depend on the file itself:
 
 - **Codec-specific:** a lossless flag (ALAC only) and a spatial-audio type (Atmos only).
@@ -278,7 +280,7 @@ MeedyaDL downloads are M4A (music) and M4V or MP4 (music videos). The table show
 | **The download itself** | The standard tags, Apple's number codes and the cover art |
 | **Apple's public iTunes information** | Country, number of discs and the iTunes link. Collected first. |
 | **Apple Music catalogue** | The richer detail: editorial notes, audio traits, content rating, Apple Digital Master flag, label, copyright, release date, composer, length, lyrics flag, previews and genres. Where both sources have a field, this one wins. It needs your MusicKit details for the extras (see [Animated Artwork](animated-artwork.md)). |
-| **MusicBrainz** (optional) | Links to the same music on other services. Turn it on in **Settings > Codec & Resolution > Video Quality**. |
+| **MusicBrainz** (optional) | Helps find music videos for your songs when the usual way finds none. It does not add tags to your files. Turn it on in **Settings > Codec & Resolution > Video Quality**. |
 | **song.link** (optional) | Links to the album on other services. Turn it on in **Settings > Metadata**. It needs an access key, which you apply for through [Odesli's help pages](https://odesli.co/help). Free public access closed in 2026. |
 | **AcoustID** (optional) | A sound fingerprint and recording ID. Turn it on in **Settings > Metadata**. |
 | **Your own computer** | The surround layout, spatial format and loudness, worked out from the audio file |
