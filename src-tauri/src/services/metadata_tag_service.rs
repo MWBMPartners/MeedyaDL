@@ -60,6 +60,7 @@
 // @see mp4ameta docs: https://docs.rs/mp4ameta/
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use mp4ameta::{Data, FreeformIdent, Tag};
 use tauri::AppHandle;
@@ -113,18 +114,19 @@ pub(crate) const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 ///   Individual file failures are logged at debug level but do not stop
 ///   processing of remaining files.
 ///
-/// `last_modified_date` is the date Apple Music last updated the album, when
-/// known. It is written, in the same pass, as
-/// `MeedyaMeta:LastModified` to every file this call tags (see
-/// [`write_source_last_modified`]); `None` writes nothing.
+/// `stamps` says which album each file belongs to and so which last-updated
+/// date it gets (see [`DownloadStamps::pick`]). The date is written, in the
+/// same pass, as `MeedyaMeta:LastModified` to each file whose album can be
+/// told (see [`write_source_last_modified`]); `None`, or a file whose album
+/// cannot be told, writes nothing.
 ///
 /// Takes no write lock itself. Callers hold the app-wide lock
 /// (`utils::file_locks::global()`) for each file they hand it; the
 /// extra-format task calls it with one file at a time for that reason.
-pub fn apply_codec_metadata_tags(
+pub(crate) fn apply_codec_metadata_tags(
     output_path: &str,
     codec: &SongCodec,
-    last_modified_date: Option<&str>,
+    stamps: Option<&DownloadStamps>,
 ) -> Result<usize, String> {
     // Codec-specific tags: ALAC, Atmos, AC3, Binaural, Downmix.
     // For non-binaural/downmix codecs (AAC Legacy, AAC, etc.), we still need
@@ -147,11 +149,18 @@ pub fn apply_codec_metadata_tags(
         SongCodec::AacDownmix | SongCodec::AacHeDownmix => Box::new(write_downmix_tags),
         _ => Box::new(clear_binaural_downmix_tags),
     };
-    // The format tags and (when known) the album's last-updated date go out
-    // together, in the one write per file.
+    // The format tags and (when known) the file's own album's last-updated
+    // date go out together, in the one write per file.
     let tag_writer = |tag: &mut Tag| {
         format_writer(tag);
-        write_source_last_modified(tag, last_modified_date);
+        if let Some(stamps) = stamps {
+            let song_id = song_id_of(tag);
+            let disc = tag.disc_number().unwrap_or(1);
+            if let Some((album, track)) = stamps.pick(song_id.as_deref(), disc, tag.track_number())
+            {
+                write_album_stamp(tag, album, track, true);
+            }
+        }
     };
 
     let path = Path::new(output_path);
@@ -362,14 +371,18 @@ fn is_m4a(path: &Path) -> bool {
 /// * `output_path` - Download output path (file or album directory)
 /// * `codec` - Audio codec used for this download
 /// * `urls` - Apple Music URL(s) from the download request
-/// * `pre_fetched_metadata` - Pre-fetched API metadata to reuse (avoids
-///   duplicate API calls when called from companion downloads)
+/// * `albums` - The album details already fetched for this download (the
+///   primary album first, then any others its links point at). Each file is
+///   tagged from the one album it belongs to ([`pick_album_for_file`]); no
+///   album is fetched here.
 /// * `date_stamp_files` - The files this download itself wrote (judged before
-///   any tag was rewritten). Only these get the album's last-updated date
+///   any tag was rewritten). Only these get their album's last-updated date
 ///   (`MeedyaMeta:LastModified`, #1444). A file already in the
 ///   folder from an earlier download holds an older version of the album, so
 ///   it must not be marked as current. An empty set (for example when the
-///   start time could not be read) writes the date nowhere.
+///   start time could not be read) writes the date nowhere. When the
+///   download spans several albums, a file also needs its song number to
+///   match one album before it gets a date.
 ///
 /// # Errors
 ///
@@ -384,12 +397,12 @@ pub async fn apply_enriched_metadata_tags(
     app: &AppHandle,
     output_path: &str,
     codec: &SongCodec,
-    urls: &[String],
-    pre_fetched_metadata: Option<&AlbumMetadata>,
+    _urls: &[String],
+    albums: &DownloadAlbums,
     event_context: Option<(&tauri::AppHandle, &str)>,
     uses_native_priority: bool,
     content_advisory_in_filenames: bool,
-    is_library: bool,
+    _is_library: bool,
     deferred_primary_files: Option<&[PathBuf]>,
     in_flight_writes: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
     date_stamp_files: &std::collections::HashSet<PathBuf>,
@@ -405,10 +418,11 @@ pub async fn apply_enriched_metadata_tags(
     if m4a_files.is_empty() {
         return Ok(EnrichedTagsResult {
             tagged_count: 0,
-            metadata: pre_fetched_metadata.cloned(),
+            metadata: albums.primary().cloned(),
             renamed_folder: None,
             file_codecs: Vec::new(),
             album_matched_files: Vec::new(),
+            file_albums: Vec::new(),
         });
     }
 
@@ -442,19 +456,12 @@ pub async fn apply_enriched_metadata_tags(
         log::debug!("MediaInfo available for codec detection");
     }
 
-    // Resolve album metadata: reuse pre-fetched or try API fetch.
-    //
-    // #871: Library URLs (`/library/songs/`, `/library/albums/`, …) point at
-    // a user's personal Apple Music library — those IDs are NOT valid against
-    // the catalog endpoints (the API returns 404). Skip the fetch entirely
-    // so we don't waste an HTTP round-trip and don't log a misleading
-    // "Album not found" warning for a working library download. AcoustID,
-    // ReplayGain, channel detection, and codec tag writes still run below.
-    let album_metadata: Option<AlbumMetadata> = match pre_fetched_metadata {
-        Some(m) => Some(m.clone()),
-        None if is_library => None,
-        None => try_fetch_metadata(app, urls, event_context).await,
-    };
+    // The primary album, for the advisory renames below. The album details
+    // are always fetched by the caller (once, for the whole download): this
+    // function never asks Apple Music itself. A library link has no catalogue
+    // album, so it arrives with none (#871) and AcoustID, ReplayGain, channel
+    // detection and the format tags still run below.
+    let album_metadata: Option<AlbumMetadata> = albums.primary().cloned();
 
     // Apply content advisory suffixes ([Explicit] / [Clean]) to filenames
     // and album folder before tag writing. Must happen AFTER metadata fetch
@@ -486,6 +493,7 @@ pub async fn apply_enriched_metadata_tags(
     let mut tagged_count = 0;
     let mut file_codecs: Vec<(PathBuf, SongCodec)> = Vec::new();
     let mut album_matched_files: Vec<PathBuf> = Vec::new();
+    let mut file_albums: Vec<(PathBuf, usize)> = Vec::new();
     for file_path in &files_to_enrich {
         match enrich_single_file(
             file_path,
@@ -493,18 +501,24 @@ pub async fn apply_enriched_metadata_tags(
             uses_native_priority,
             ffprobe_path.as_ref(),
             mediainfo_path.as_ref(),
-            album_metadata.as_ref(),
+            Arc::clone(&albums.albums),
+            albums.single_album_download,
             event_context,
             in_flight_writes,
             stamps_last_modified(file_path, date_stamp_files),
         )
         .await
         {
-            Ok((detected_codec, album_matched)) => {
+            Ok((detected_codec, album_index)) => {
                 tagged_count += 1;
                 file_codecs.push((file_path.clone(), detected_codec));
-                if album_matched {
-                    album_matched_files.push(file_path.clone());
+                if let Some(index) = album_index {
+                    file_albums.push((file_path.clone(), index));
+                    // `album_matched_files` keeps its old meaning: the files
+                    // that belong to the PRIMARY album.
+                    if albums.has_primary && index == 0 {
+                        album_matched_files.push(file_path.clone());
+                    }
                 }
             }
             Err(e) => {
@@ -542,6 +556,7 @@ pub async fn apply_enriched_metadata_tags(
         renamed_folder: renamed_output,
         file_codecs,
         album_matched_files,
+        file_albums,
     })
 }
 
@@ -559,10 +574,15 @@ pub struct EnrichedTagsResult {
     /// that deferred the renames, to add the format suffix later
     /// ([`apply_deferred_file_renames`]).
     pub file_codecs: Vec<(PathBuf, SongCodec)>,
-    /// The tagged files whose album matched the Apple Music album's (so
-    /// they are this album's tracks, not another album's sharing the
-    /// folder). Empty when there were no album details.
+    /// The tagged files whose album matched the PRIMARY Apple Music album
+    /// (so they are this album's tracks, not another album's sharing the
+    /// folder). Empty when there were no album details. Files that belong to
+    /// one of the download's other albums are not in this list; see
+    /// `file_albums`.
     pub album_matched_files: Vec<PathBuf>,
+    /// Each tagged file and the album it was tagged from, as an index into
+    /// [`DownloadAlbums::albums`]. A file that matched no album is left out.
+    pub file_albums: Vec<(PathBuf, usize)>,
 }
 
 /// Renames the primary download's files once every lyrics step has run:
@@ -580,9 +600,18 @@ pub struct EnrichedTagsResult {
 /// Returns what happened to each file, in the same order (a file that no
 /// longer exists is left out); [`renames_complete`] says whether every
 /// suffix really landed.
+///
+/// The advisory label of each file comes from the tracks of the album that
+/// file was tagged from (`file_albums`, an index into `albums`). A file with
+/// no recorded album gets the first album's tracks only when
+/// `others_present` is false (a download of one album, as before); with
+/// several albums in the download it gets no advisory label rather than a
+/// guessed one.
 pub fn apply_deferred_file_renames(
     primary_files: &[PathBuf],
-    album_metadata: Option<&AlbumMetadata>,
+    others_present: bool,
+    albums: &[AlbumMetadata],
+    file_albums: &[(PathBuf, usize)],
     file_codecs: &[(PathBuf, SongCodec)],
     advisory_on: bool,
 ) -> Vec<DeferredRename> {
@@ -592,7 +621,12 @@ pub fn apply_deferred_file_renames(
             continue;
         }
         let advisory = if advisory_on {
-            album_metadata.and_then(|meta| advisory_suffix_for_file(file, &meta.tracks))
+            let own_album = file_albums
+                .iter()
+                .find(|(p, _)| p == file)
+                .and_then(|(_, index)| albums.get(*index));
+            let album = own_album.or_else(|| if others_present { None } else { albums.first() });
+            album.and_then(|meta| advisory_suffix_for_file(file, &meta.tracks))
         } else {
             None
         };
@@ -778,13 +812,18 @@ pub(crate) fn album_names_match(file_name: &str, api_name: &str) -> bool {
 /// `album_metadata` is given and the file's album and artist agree with it,
 /// the Apple Music tags from the tag registry.
 ///
+/// `albums` holds every album this download's links point at. The file is
+/// tagged from the one it belongs to (see [`apply_album_layer`]); with one
+/// album this is exactly the old behaviour. `single_album_download` says
+/// every link of the download is in one album.
+///
 /// The real format is used only when `uses_native_priority` is true (GAMDL
 /// chose from a list, so the request does not say what arrived). Otherwise
 /// the requested format is trusted. If neither tool can tell, the request
 /// is used and a warning is logged.
 ///
-/// Returns `(format used, album_matched)`. `album_matched` is false when
-/// the file's album did not match `album_metadata`, so Apple Music tags
+/// Returns `(format used, album index)`. The index (into `albums`) is
+/// `None` when the file's album did not match any album, so Apple Music tags
 /// were skipped to avoid mixing two releases (#452). `event_context` (the
 /// app and download id) is optional and only used for activity-log lines.
 /// Errors if the file's tags cannot be read or written.
@@ -798,11 +837,12 @@ async fn enrich_single_file(
     uses_native_priority: bool,
     ffprobe_path: Option<&PathBuf>,
     mediainfo_path: Option<&PathBuf>,
-    album_metadata: Option<&AlbumMetadata>,
+    albums: Arc<Vec<AlbumMetadata>>,
+    single_album_download: bool,
     event_context: Option<(&tauri::AppHandle, &str)>,
     in_flight_writes: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
     stamp_last_modified: bool,
-) -> Result<(SongCodec, bool), String> {
+) -> Result<(SongCodec, Option<usize>), String> {
     // Try MediaInfo first (more accurate for Atmos/AC3 detection), then ffprobe as fallback.
     let mediainfo_result = if let Some(mi_path) = mediainfo_path {
         super::mediainfo_service::detect_codec(mi_path, file_path).await
@@ -942,7 +982,6 @@ async fn enrich_single_file(
     // effective_codec is cloned so we can return it after the closure consumes the original.
     let return_codec = effective_codec.clone();
     let tag_path = file_path.to_path_buf();
-    let metadata_owned = album_metadata.cloned();
     // An owned copy of the activity-log context. The borrowed pair cannot
     // cross into the blocking thread, which outlives this function.
     let log_context = event_context.map(|(app, dl_id)| (app.clone(), dl_id.to_string()));
@@ -950,8 +989,8 @@ async fn enrich_single_file(
     // Offload all Tag I/O to a blocking thread. Tag::read_from_path and
     // Tag::write_to_path are synchronous file I/O that can block for
     // seconds on slow FUSE mounts (CloudMounter, NFS, etc.).
-    // Whether the file's album matched the Apple Music album (so the
-    // file is this album's track) — returned to the caller.
+    // Which album the file belongs to (so the file is that album's
+    // track) — returned to the caller.
     // A shared hold on the caller's in-flight tracker, taken BEFORE the job
     // starts and moved into it: aborting the caller cannot stop this closure,
     // and a task that finishes the lyrics afterwards waits for the hold.
@@ -959,13 +998,13 @@ async fn enrich_single_file(
         Some(tracker) => Some(tracker.clone().read_owned().await),
         None => None,
     };
-    let album_matched = tokio::task::spawn_blocking(move || {
+    let album_index = tokio::task::spawn_blocking(move || {
         let _in_flight_hold = in_flight_hold;
         // The app-wide write lock for this file, around the whole read and
         // write below. Taken here (a blocking thread, where waiting is fine)
         // and not inside any smaller write function.
         let _write_guard = crate::utils::file_locks::global().lock_blocking(&tag_path);
-        let mut album_matched = false;
+        let mut album_index: Option<usize> = None;
         // Open the M4A file for reading/writing
         let mut tag = Tag::read_from_path(&tag_path).map_err(|e| {
             format!(
@@ -1010,137 +1049,71 @@ async fn enrich_single_file(
         // Uses config-driven tag definitions from tags.toml via the tag registry.
         // The registry defines JSON paths, value types, and atom names — adding
         // new tags requires only editing tags.toml, zero Rust code changes.
-        if let Some(ref metadata) = metadata_owned {
-            // Safety guard (#452): verify the file belongs to this album before
-            // writing API metadata. If the file's embedded album name doesn't
-            // match the API response, skip API metadata to prevent cross-
-            // contamination between concurrent downloads.
-            let file_album = tag.album().map(|s| s.to_string());
-            let file_artist = tag
-                .album_artist()
-                .or_else(|| tag.artist())
-                .map(|s| s.to_string());
-            let api_album = metadata.album_name.as_deref();
-            let api_artist = metadata.artist_name.as_deref();
-            let album_matches = match (&file_album, api_album) {
-                (Some(file_name), Some(api_name)) => {
-                    // An exact match (bar capitalisation) needs nothing more.
-                    // A match that only holds after ignoring iTunes' " - Single"
-                    // / " - EP" suffix is weaker, so it also has to agree on the
-                    // artist. Without that, a single and a full album of the
-                    // same name by DIFFERENT artists — "Flowers - Single"
-                    // against the album "Flowers" — would look like the same
-                    // release, which is exactly the mix-up this guard exists to
-                    // stop. Two releases by the SAME artist named that way can
-                    // still match; nothing on the file can separate those, and
-                    // refusing them would bring back the silent skip this whole
-                    // change is here to fix.
-                    let exact = file_name.trim().to_lowercase() == api_name.trim().to_lowercase();
-                    // Both artists must be PRESENT and equal, not merely
-                    // "not known to differ". An independent review caught
-                    // the earlier version, which treated a missing artist
-                    // as agreement — so a file with an album name but no
-                    // artist tag could be given another artist's metadata
-                    // purely because the two album names matched once the
-                    // " - Single" wording was set aside. An absent fact is
-                    // not evidence, and this guard only has two facts to
-                    // work with.
-                    let artists_agree = match (&file_artist, api_artist) {
-                        (Some(fa), Some(aa)) => fa.to_lowercase() == aa.to_lowercase(),
-                        _ => false,
-                    };
-                    exact || (album_names_match(file_name, api_name) && artists_agree)
-                }
-                (None, Some(_)) => {
-                    // File has no album tag — try artist name as fallback guard.
-                    // If artist names also differ, this file likely belongs to
-                    // a different download (#452).
-                    match (&file_artist, api_artist) {
-                        (Some(fa), Some(aa)) => fa.to_lowercase() == aa.to_lowercase(),
-                        // If both album AND artist are missing from file, allow
-                        // enrichment (fresh file with minimal tags)
-                        _ => true,
+        //
+        // The file is tagged from the ONE album it belongs to (#1446). The
+        // guard (#452) still applies: a file whose embedded album name does
+        // not match the album is left without API metadata, to prevent
+        // cross-contamination between concurrent downloads.
+        if !albums.is_empty() {
+            let pick =
+                apply_album_layer(&mut tag, &albums, stamp_last_modified, single_album_download);
+            match pick {
+                AlbumPick::Chosen { index, .. } => album_index = Some(index),
+                AlbumPick::NoMatch => {
+                    let file_album = tag.album().map(|s| s.to_string());
+                    let api_album = albums[0].album_name.as_deref();
+                    log::warn!(
+                        "Skipping API metadata for {} — album mismatch: file='{}', API='{}'",
+                        tag_path.display(),
+                        file_album.as_deref().unwrap_or("?"),
+                        api_album.unwrap_or("?"),
+                    );
+                    // Also say it where a user can see it. Until GAMDL 3.9 this
+                    // was nearly unreachable, because a single or a music video
+                    // had no album name at all and the check fell through to
+                    // comparing artists. From 3.9 onwards GAMDL fills the album
+                    // name in from iTunes, while the name compared against here
+                    // comes from Apple Music's catalogue — and the two do not
+                    // always agree (iTunes adds " - Single" and " - EP"; edition
+                    // wording differs). When they disagree, every piece of extra
+                    // metadata MeedyaDL adds is skipped for that file, the
+                    // download still succeeds, and nothing on screen says so.
+                    // A line in the log file only is not good enough for that.
+                    if let Some((app, download_id)) = log_context.as_ref() {
+                        crate::utils::activity_log::emit_download_log(
+                            app,
+                            download_id,
+                            &format!(
+                                "Extra metadata skipped for \"{}\" — the album name on the file \
+                                 (\"{}\") does not match the one Apple Music gave us (\"{}\"). \
+                                 The file itself downloaded normally.",
+                                tag_path.file_name().map_or_else(
+                                    || tag_path.display().to_string(),
+                                    |n| n.to_string_lossy().to_string()
+                                ),
+                                file_album.as_deref().unwrap_or("none"),
+                                api_album.unwrap_or("none"),
+                            ),
+                        );
                     }
                 }
-                // API has no album name — allow enrichment
-                (_, None) => true,
-            };
-
-            album_matched = album_matches;
-            if !album_matches {
-                log::warn!(
-                    "Skipping API metadata for {} — album mismatch: file='{}', API='{}'",
-                    tag_path.display(),
-                    file_album.as_deref().unwrap_or("?"),
-                    api_album.unwrap_or("?"),
-                );
-                // Also say it where a user can see it. Until GAMDL 3.9 this
-                // was nearly unreachable, because a single or a music video
-                // had no album name at all and the check fell through to
-                // comparing artists. From 3.9 onwards GAMDL fills the album
-                // name in from iTunes, while the name compared against here
-                // comes from Apple Music's catalogue — and the two do not
-                // always agree (iTunes adds " - Single" and " - EP"; edition
-                // wording differs). When they disagree, every piece of extra
-                // metadata MeedyaDL adds is skipped for that file, the
-                // download still succeeds, and nothing on screen says so.
-                // A line in the log file only is not good enough for that.
-                if let Some((app, download_id)) = log_context.as_ref() {
-                    crate::utils::activity_log::emit_download_log(
-                        app,
-                        download_id,
-                        &format!(
-                            "Extra metadata skipped for \"{}\" — the album name on the file \
-                             (\"{}\") does not match the one Apple Music gave us (\"{}\"). \
-                             The file itself downloaded normally.",
-                            tag_path.file_name().map_or_else(
-                                || tag_path.display().to_string(),
-                                |n| n.to_string_lossy().to_string()
-                            ),
-                            file_album.as_deref().unwrap_or("none"),
-                            api_album.unwrap_or("none"),
-                        ),
+                AlbumPick::Ambiguous => {
+                    log::warn!(
+                        "Skipping API metadata for {} — it matches more than one album in this download",
+                        tag_path.display(),
                     );
-                }
-            } else {
-                // Match this file to a track by track/disc number
-                let track_num = tag.track_number();
-                let disc_num = tag.disc_number().unwrap_or(1);
-                let matched_track = match_track_to_metadata(track_num, disc_num, &metadata.tracks);
-
-                write_tags_from_registry(
-                    &mut tag,
-                    &TAG_REGISTRY,
-                    &metadata.raw_json,
-                    matched_track.map(|t| &t.raw_json),
-                );
-
-                // The date Apple Music last updated the album (#1444), only
-                // for files this download wrote. Inside the album-match
-                // guard, and in the same single write as the rest.
-                if stamp_last_modified {
-                    write_source_last_modified(&mut tag, metadata.last_modified_date.as_deref());
-                }
-
-                // Correct the STANDARD album-artist (`aART`) atom from the
-                // catalog's full album-artist string (#326). GAMDL tags `aART`
-                // with only the FIRST artist on multi-artist albums ("Drake"
-                // instead of "Drake & 21 Savage"); the catalog `artistName`
-                // carries the complete display string. This runs inside the
-                // album-match guard above, so a sibling album's artist can never
-                // leak in. The registry only writes the freeform `AlbumArtistSort`
-                // atom — most players read the standard `aART`, which is what we
-                // fix here.
-                if let Some(ref api_album_artist) = metadata.artist_name {
-                    let current = tag.album_artist().map(str::to_string);
-                    if current.as_deref() != Some(api_album_artist.as_str()) {
-                        log::debug!(
-                            "Correcting album-artist (aART) for {}: '{}' -> '{}'",
-                            tag_path.display(),
-                            current.as_deref().unwrap_or("<none>"),
-                            api_album_artist,
+                    if let Some((app, download_id)) = log_context.as_ref() {
+                        crate::utils::activity_log::emit_download_log(
+                            app,
+                            download_id,
+                            &format!(
+                                "Extra metadata skipped for \"{}\" — it matches more than one album in this download.",
+                                tag_path.file_name().map_or_else(
+                                    || tag_path.display().to_string(),
+                                    |n| n.to_string_lossy().to_string()
+                                ),
+                            ),
                         );
-                        tag.set_album_artist(api_album_artist.clone());
                     }
                 }
             }
@@ -1177,12 +1150,12 @@ async fn enrich_single_file(
         })?;
 
         log::debug!("Enriched: {}", tag_path.display());
-        Ok::<bool, String>(album_matched)
+        Ok::<Option<usize>, String>(album_index)
     })
     .await
     .map_err(|e| format!("Metadata enrichment task panicked: {e}"))??;
 
-    Ok((return_codec, album_matched))
+    Ok((return_codec, album_index))
 }
 
 // ============================================================
@@ -1197,6 +1170,446 @@ pub(crate) fn stamps_last_modified(
     fresh: &std::collections::HashSet<PathBuf>,
 ) -> bool {
     fresh.contains(path)
+}
+
+/// Every album a download's links point at, with Apple Music's details for
+/// each (#1446). The primary album (the one the first album link names) comes
+/// first when its details could be fetched; any other albums follow.
+///
+/// With one album this is just that album, and everything that reads it
+/// behaves as it did before several albums were handled.
+#[derive(Debug, Clone, Default)]
+pub struct DownloadAlbums {
+    /// The albums' details. Shared, not copied, when handed to a file's
+    /// tagging job.
+    pub albums: Arc<Vec<AlbumMetadata>>,
+    /// Whether `albums[0]` is the primary album (false when its details
+    /// could not be fetched and `albums` holds only other albums).
+    pub has_primary: bool,
+    /// Whether every link of the download is in one album
+    /// (`links_share_one_album` in the download queue's lyrics pass).
+    pub single_album_download: bool,
+}
+
+impl DownloadAlbums {
+    /// Builds the list from the primary album (when its details were found)
+    /// and the other albums' details.
+    pub fn new(
+        primary: Option<AlbumMetadata>,
+        others: Vec<AlbumMetadata>,
+        single_album_download: bool,
+    ) -> Self {
+        let has_primary = primary.is_some();
+        let mut albums: Vec<AlbumMetadata> = primary.into_iter().collect();
+        albums.extend(others);
+        Self {
+            albums: Arc::new(albums),
+            has_primary,
+            single_album_download,
+        }
+    }
+
+    /// The primary album's details, when they were fetched.
+    pub fn primary(&self) -> Option<&AlbumMetadata> {
+        if self.has_primary {
+            self.albums.first()
+        } else {
+            None
+        }
+    }
+}
+
+/// Which album a file belongs to, out of a download's albums.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AlbumPick {
+    /// The file belongs to `albums[index]`. `by_song_id` says the song
+    /// number on the file named it (rather than the album and artist names).
+    Chosen { index: usize, by_song_id: bool },
+    /// No album fits the file. Its Apple Music tags are skipped.
+    NoMatch,
+    /// More than one album fits the file and nothing tells them apart.
+    /// Its Apple Music tags are skipped rather than guessed.
+    Ambiguous,
+}
+
+/// The album-and-artist guard (#452): does a file's own album and artist
+/// agree with this album's details? Used before any Apple Music tag is
+/// written to the file, so one album's metadata can never land on another
+/// album's tracks.
+///
+/// An exact album-name match (ignoring case) is enough when the names are
+/// present. A match that holds only after ignoring iTunes' " - Single" /
+/// " - EP" wording must also agree on the artist (see [`album_names_match`]).
+/// A file with no album name falls back to comparing artists; a file with
+/// neither is let through.
+pub(crate) fn file_matches_album(
+    file_album: Option<&str>,
+    file_artist: Option<&str>,
+    album: &AlbumMetadata,
+) -> bool {
+    let api_album = album.album_name.as_deref();
+    let api_artist = album.artist_name.as_deref();
+    match (file_album, api_album) {
+        (Some(file_name), Some(api_name)) => {
+            // An exact match (bar capitalisation) needs nothing more.
+            // A match that only holds after ignoring iTunes' " - Single"
+            // / " - EP" suffix is weaker, so it also has to agree on the
+            // artist. Without that, a single and a full album of the
+            // same name by DIFFERENT artists — "Flowers - Single"
+            // against the album "Flowers" — would look like the same
+            // release, which is exactly the mix-up this guard exists to
+            // stop. Two releases by the SAME artist named that way can
+            // still match; nothing on the file can separate those, and
+            // refusing them would bring back the silent skip this whole
+            // change is here to fix.
+            let exact = file_name.trim().to_lowercase() == api_name.trim().to_lowercase();
+            // Both artists must be PRESENT and equal, not merely
+            // "not known to differ". An independent review caught
+            // the earlier version, which treated a missing artist
+            // as agreement — so a file with an album name but no
+            // artist tag could be given another artist's metadata
+            // purely because the two album names matched once the
+            // " - Single" wording was set aside. An absent fact is
+            // not evidence, and this guard only has two facts to
+            // work with.
+            let artists_agree = match (file_artist, api_artist) {
+                (Some(fa), Some(aa)) => fa.to_lowercase() == aa.to_lowercase(),
+                _ => false,
+            };
+            exact || (album_names_match(file_name, api_name) && artists_agree)
+        }
+        (None, Some(_)) => {
+            // File has no album tag — try artist name as fallback guard.
+            // If artist names also differ, this file likely belongs to
+            // a different download (#452).
+            match (file_artist, api_artist) {
+                (Some(fa), Some(aa)) => fa.to_lowercase() == aa.to_lowercase(),
+                // If both album AND artist are missing from file, allow
+                // enrichment (fresh file with minimal tags)
+                _ => true,
+            }
+        }
+        // API has no album name — allow enrichment
+        (_, None) => true,
+    }
+}
+
+/// Reads Apple Music's earlier numbers for an album or song from its raw
+/// details (`meta.formerIds`): strings or numbers, trimmed, empty ones
+/// dropped. A missing list gives an empty result.
+pub(crate) fn former_ids_from_json(v: &serde_json::Value) -> Vec<String> {
+    v.get("meta")
+        .and_then(|m| m.get("formerIds"))
+        .and_then(|f| f.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| match item {
+                    serde_json::Value::String(s) => Some(s.trim().to_string()),
+                    serde_json::Value::Number(n) => Some(n.to_string()),
+                    _ => None,
+                })
+                .filter(|id| !id.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Whether this track has the given song number, now or as an earlier one.
+fn track_has_song_id(track: &apple_music_api::TrackMetadata, song_id: &str) -> bool {
+    track.song_id == song_id
+        || former_ids_from_json(&track.raw_json)
+            .iter()
+            .any(|f| f == song_id)
+}
+
+/// Chooses which of a download's albums a file belongs to.
+///
+/// 1. When the file has a song number: the albums having a track with that
+///    number (now or as an earlier number). Exactly one is the candidate; it
+///    is chosen only if the file's album and artist names also agree
+///    ([`file_matches_album`]), otherwise there is no match, and **no other
+///    album is tried**. More than one is ambiguous. None falls through to
+///    step 2.
+/// 2. Otherwise the names decide: the albums that pass
+///    [`file_matches_album`]. One is chosen, none is no match, several is
+///    ambiguous.
+///
+/// With a single album the answer is exactly what the old album guard gave.
+pub(crate) fn pick_album_for_file(
+    albums: &[AlbumMetadata],
+    song_id: Option<&str>,
+    file_album: Option<&str>,
+    file_artist: Option<&str>,
+) -> AlbumPick {
+    if let Some(id) = song_id {
+        let hits: Vec<usize> = albums
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.tracks.iter().any(|t| track_has_song_id(t, id)))
+            .map(|(i, _)| i)
+            .collect();
+        match hits.as_slice() {
+            [] => {}
+            [index] => {
+                return if file_matches_album(file_album, file_artist, &albums[*index]) {
+                    AlbumPick::Chosen {
+                        index: *index,
+                        by_song_id: true,
+                    }
+                } else {
+                    AlbumPick::NoMatch
+                };
+            }
+            _ => return AlbumPick::Ambiguous,
+        }
+    }
+    let matching: Vec<usize> = albums
+        .iter()
+        .enumerate()
+        .filter(|(_, a)| file_matches_album(file_album, file_artist, a))
+        .map(|(i, _)| i)
+        .collect();
+    match matching.as_slice() {
+        [] => AlbumPick::NoMatch,
+        [index] => AlbumPick::Chosen {
+            index: *index,
+            by_song_id: false,
+        },
+        _ => AlbumPick::Ambiguous,
+    }
+}
+
+/// Reads Apple Music's song number from a file's `cnID` atom, when it has
+/// one. Read only; takes no lock.
+pub(crate) fn song_id_of(tag: &Tag) -> Option<String> {
+    tag.data_of(&mp4ameta::Fourcc(*b"cnID"))
+        .find_map(|d| match d {
+            Data::BeSigned(bytes) | Data::Reserved(bytes)
+                if !bytes.is_empty() && bytes.len() <= 8 =>
+            {
+                let mut value: i64 = 0;
+                for b in bytes {
+                    value = (value << 8) | i64::from(*b);
+                }
+                (value > 0).then(|| value.to_string())
+            }
+            _ => None,
+        })
+}
+
+/// One song of an album, as far as stamping a file needs to know it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct StampTrack {
+    /// Apple Music's song number.
+    pub song_id: String,
+    /// Earlier numbers Apple Music gave the same song.
+    pub former_song_ids: Vec<String>,
+    /// Disc number (1-based).
+    pub disc: u32,
+    /// Track number (1-based).
+    pub track: u32,
+}
+
+/// What a file is stamped with from its album: the date Apple Music last
+/// updated it, and the songs it holds (to tell a file's song).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct AlbumStamp {
+    /// The date the service last updated the album, as it sent it.
+    pub last_modified_date: Option<String>,
+    /// The album's songs.
+    pub tracks: Vec<StampTrack>,
+}
+
+impl AlbumStamp {
+    /// Takes the stamp facts from an album's details.
+    pub(crate) fn from_metadata(m: &AlbumMetadata) -> Self {
+        Self {
+            last_modified_date: m.last_modified_date.clone(),
+            tracks: m
+                .tracks
+                .iter()
+                .map(|t| StampTrack {
+                    song_id: t.song_id.clone(),
+                    former_song_ids: former_ids_from_json(&t.raw_json),
+                    disc: t.disc_number,
+                    track: t.track_number,
+                })
+                .collect(),
+        }
+    }
+
+    /// The song with this number (now or as an earlier number), if any.
+    fn track_with_song_id(&self, id: &str) -> Option<&StampTrack> {
+        self.tracks
+            .iter()
+            .find(|t| t.song_id == id || t.former_song_ids.iter().any(|f| f == id))
+    }
+}
+
+/// The stamps of every album of a download, for files written after
+/// enrichment (the extra-format copies), which are matched to an album by
+/// their song number.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct DownloadStamps {
+    /// One stamp per album.
+    pub albums: Vec<AlbumStamp>,
+    /// Whether every link of the download is in one album.
+    pub single_album_download: bool,
+}
+
+impl DownloadStamps {
+    /// Takes the stamps from a download's albums.
+    pub(crate) fn from_albums(a: &DownloadAlbums) -> Self {
+        Self {
+            albums: a.albums.iter().map(AlbumStamp::from_metadata).collect(),
+            single_album_download: a.single_album_download,
+        }
+    }
+
+    /// Chooses the album (and song) a file is stamped from.
+    ///
+    /// * With a song number that exactly one album has (now or as an earlier
+    ///   number): that album and that song.
+    /// * Otherwise, when the whole download is one album: that album, so
+    ///   every new copy gets its date. The song is matched by disc and
+    ///   track only when the file has no song number.
+    /// * Otherwise nothing: with several albums and no song number the
+    ///   album is not guessed.
+    pub(crate) fn pick(
+        &self,
+        song_id: Option<&str>,
+        disc: u16,
+        track: Option<u16>,
+    ) -> Option<(&AlbumStamp, Option<&StampTrack>)> {
+        if let Some(id) = song_id {
+            let mut hits = self
+                .albums
+                .iter()
+                .filter_map(|a| a.track_with_song_id(id).map(|t| (a, t)));
+            if let (Some((album, found)), None) = (hits.next(), hits.next()) {
+                return Some((album, Some(found)));
+            }
+        }
+        if self.single_album_download && self.albums.len() == 1 {
+            let album = &self.albums[0];
+            let found = if song_id.is_none() {
+                track.and_then(|t| {
+                    album
+                        .tracks
+                        .iter()
+                        .find(|s| s.disc == u32::from(disc) && s.track == u32::from(t))
+                })
+            } else {
+                None
+            };
+            return Some((album, found));
+        }
+        None
+    }
+}
+
+/// Writes what an album stamps on one of its files, in the file's one
+/// write: today the date Apple Music last updated the album, when
+/// `write_date` is true. `_track` is the song the file holds, when known;
+/// nothing is written from it yet. Takes no lock: the caller holds the
+/// file's write lock.
+pub(crate) fn write_album_stamp(
+    tag: &mut Tag,
+    album: &AlbumStamp,
+    _track: Option<&StampTrack>,
+    write_date: bool,
+) {
+    if write_date {
+        write_source_last_modified(tag, album.last_modified_date.as_deref());
+    }
+}
+
+/// Tags one file from the one album of a download it belongs to (#1446).
+///
+/// Reads the file's song number, album and artist, picks the album
+/// ([`pick_album_for_file`]), and on a match writes that album's tags from
+/// the tag registry, corrects the album artist, and, only when the file is
+/// one this download wrote (`fresh`) and the album is certain (the whole
+/// download is one album, or the song number named it), the album's
+/// last-updated date. Returns the pick, so the caller can log a skipped
+/// file. Takes no lock: the caller holds the file's write lock.
+pub(crate) fn apply_album_layer(
+    tag: &mut Tag,
+    albums: &[AlbumMetadata],
+    fresh: bool,
+    single_album_download: bool,
+) -> AlbumPick {
+    let song_id = song_id_of(tag);
+    let file_album = tag.album().map(str::to_string);
+    let file_artist = tag
+        .album_artist()
+        .or_else(|| tag.artist())
+        .map(str::to_string);
+    let pick = pick_album_for_file(
+        albums,
+        song_id.as_deref(),
+        file_album.as_deref(),
+        file_artist.as_deref(),
+    );
+    let AlbumPick::Chosen { index, by_song_id } = pick else {
+        return pick;
+    };
+    let album = &albums[index];
+
+    // Match this file to a track of the chosen album by track/disc number
+    let track_num = tag.track_number();
+    let disc_num = tag.disc_number().unwrap_or(1);
+    let matched_track = match_track_to_metadata(track_num, disc_num, &album.tracks);
+    write_tags_from_registry(
+        tag,
+        &TAG_REGISTRY,
+        &album.raw_json,
+        matched_track.map(|t| &t.raw_json),
+    );
+
+    // The date Apple Music last updated the album (#1444), only for files
+    // this download wrote, and only when the album is certain.
+    if fresh && (single_album_download || by_song_id) {
+        let stamp = AlbumStamp::from_metadata(album);
+        let song_track = if by_song_id {
+            song_id
+                .as_deref()
+                .and_then(|id| stamp.track_with_song_id(id))
+        } else if single_album_download {
+            track_num.and_then(|t| {
+                stamp
+                    .tracks
+                    .iter()
+                    .find(|s| s.disc == u32::from(disc_num) && s.track == u32::from(t))
+            })
+        } else {
+            None
+        };
+        write_album_stamp(tag, &stamp, song_track, true);
+    }
+
+    // Correct the STANDARD album-artist (`aART`) atom from the
+    // catalog's full album-artist string (#326). GAMDL tags `aART`
+    // with only the FIRST artist on multi-artist albums ("Drake"
+    // instead of "Drake & 21 Savage"); the catalog `artistName`
+    // carries the complete display string. This only runs for the
+    // chosen album, so a sibling album's artist can never leak in.
+    // The registry only writes the freeform `AlbumArtistSort`
+    // atom — most players read the standard `aART`, which is what we
+    // fix here.
+    if let Some(ref api_album_artist) = album.artist_name {
+        let current = tag.album_artist().map(str::to_string);
+        if current.as_deref() != Some(api_album_artist.as_str()) {
+            log::debug!(
+                "Correcting album-artist (aART): '{}' -> '{}'",
+                current.as_deref().unwrap_or("<none>"),
+                api_album_artist,
+            );
+            tag.set_album_artist(api_album_artist.clone());
+        }
+    }
+    pick
 }
 
 /// Turns the date a service sent for "last updated" into the form the file
@@ -2819,6 +3232,51 @@ pub async fn try_fetch_metadata(
         }
     };
 
+    log_event("Apple Music API: resolving MusicKit developer token...");
+
+    // Parse URL to find an album URL (API enrichment only works for albums)
+    let parsed = match urls
+        .iter()
+        .find_map(|url| apple_music_api::parse_apple_music_url(url))
+        .filter(|p| p.content_type == "album")
+    {
+        Some(p) => p,
+        None => {
+            log_event("Apple Music API: URL is not an album, skipping API metadata");
+            return None;
+        }
+    };
+
+    let jwt = resolve_enrichment_jwt(app, event_context).await?;
+    match fetch_one_album(&jwt, &parsed.storefront, &parsed.album_id, event_context).await {
+        AlbumFetch::Found(metadata) => Some(*metadata),
+        AlbumFetch::NotFound | AlbumFetch::Failed => None,
+    }
+}
+
+/// Finds the Apple Music developer token enrichment uses for catalogue
+/// lookups, logging what it did. `None` when none can be had (nothing is
+/// configured, or resolving it failed).
+///
+/// Uses the 3-tier premium-feature resolver (user MusicKit JWT -> embedded
+/// build token -> web-player token from the OS keychain) rather than the
+/// 2-tier basic-catalog resolver. Without this, a user who authenticated only
+/// via the Apple Music web player (no MusicKit developer credentials and no
+/// embedded build token) received `None` album metadata during enrichment,
+/// which silently disabled the Step 1b syllable / word-by-word lyrics fetch
+/// (and the richer Apple Music API tags) -- even though Step 1b itself
+/// already resolves the web-player token. Tier 1 (user JWT) still wins
+/// whenever present, so the MusicKit-credentials path is unchanged.
+pub(crate) async fn resolve_enrichment_jwt(
+    app: &AppHandle,
+    event_context: Option<(&tauri::AppHandle, &str)>,
+) -> Option<String> {
+    let log_event = |msg: &str| {
+        if let Some((app_handle, dl_id)) = event_context {
+            crate::utils::activity_log::emit_download_log(app_handle, dl_id, msg);
+        }
+    };
+
     // Load settings for MusicKit credentials
     let settings = config_service::load_settings(app).unwrap_or_default();
 
@@ -2837,38 +3295,7 @@ pub async fn try_fetch_metadata(
         }
     };
 
-    log_event("Apple Music API: resolving MusicKit developer token...");
-
-    // Parse URL to find an album URL (API enrichment only works for albums)
-    let parsed = match urls
-        .iter()
-        .find_map(|url| apple_music_api::parse_apple_music_url(url))
-        .filter(|p| p.content_type == "album")
-    {
-        Some(p) => p,
-        None => {
-            log_event("Apple Music API: URL is not an album, skipping API metadata");
-            return None;
-        }
-    };
-
-    // Web-dev-key path: use the 3-tier premium-feature resolver (user
-    // MusicKit JWT -> embedded build token -> web-player token from the OS
-    // keychain) rather than the 2-tier basic-catalog resolver. Without this,
-    // a user who authenticated only via the Apple Music web player (no
-    // MusicKit developer credentials and no embedded build token) received
-    // `None` album metadata during enrichment, which silently disabled the
-    // Step 1b syllable / word-by-word lyrics fetch (and the richer Apple
-    // Music API tags) -- even though Step 1b itself already resolves the
-    // web-player token. The animated-artwork path already fetches catalog
-    // metadata with this resolver, so this aligns enrichment with the
-    // established pattern. Tier 1 (user JWT) still wins whenever present, so
-    // the MusicKit-credentials path is unchanged.
-    let jwt = match apple_music_api::resolve_premium_feature_token(
-        team_id,
-        key_id,
-        private_key.as_deref(),
-    ) {
+    match apple_music_api::resolve_premium_feature_token(team_id, key_id, private_key.as_deref()) {
         Ok(pair) => {
             let Some((jwt, token_source)) = pair else {
                 log_event(
@@ -2886,22 +3313,40 @@ pub async fn try_fetch_metadata(
                     &format!("MusicKit token source: {token_source}"),
                 );
             }
-            jwt
+            Some(jwt)
         }
         Err(e) => {
             log::warn!("Failed to resolve MusicKit token for enrichment: {e}");
             log_event(&format!("Apple Music API: token resolution failed: {e}"));
-            return None;
+            None
+        }
+    }
+}
+
+/// The result of asking Apple Music for one album.
+pub(crate) enum AlbumFetch {
+    /// The album's details.
+    Found(Box<AlbumMetadata>),
+    /// Apple Music has no such album (in any storefront tried).
+    NotFound,
+    /// The request failed (an error, not "not found").
+    Failed,
+}
+
+/// Fetches one album's details (trying other storefronts when the first
+/// has none), logging the outcome the way the enrichment always has.
+pub(crate) async fn fetch_one_album(
+    jwt: &str,
+    storefront: &str,
+    album_id: &str,
+    event_context: Option<(&tauri::AppHandle, &str)>,
+) -> AlbumFetch {
+    let log_event = |msg: &str| {
+        if let Some((app_handle, dl_id)) = event_context {
+            crate::utils::activity_log::emit_download_log(app_handle, dl_id, msg);
         }
     };
-
-    match apple_music_api::fetch_album_metadata_with_fallback(
-        &jwt,
-        &parsed.storefront,
-        &parsed.album_id,
-    )
-    .await
-    {
+    match apple_music_api::fetch_album_metadata_with_fallback(jwt, storefront, album_id).await {
         Ok(Some(metadata)) => {
             log_event(&format!(
                 "Apple Music API: fetched metadata ({} track(s), artist: {}, UPC: {})",
@@ -2926,18 +3371,54 @@ pub async fn try_fetch_metadata(
                     );
                 }
             }
-            Some(metadata)
+            AlbumFetch::Found(Box::new(metadata))
         }
         Ok(None) => {
             log_event("Apple Music API: album not found in catalog");
-            None
+            AlbumFetch::NotFound
         }
         Err(e) => {
             log::warn!("Failed to fetch album metadata for enrichment: {e}");
             log_event(&format!("Apple Music API: fetch failed: {e}"));
-            None
+            AlbumFetch::Failed
         }
     }
+}
+
+/// Fetches the details of a download's other albums (`refs`: storefront and
+/// album number each; see
+/// [`crate::services::download_queue::lyrics_pass::other_albums_to_fetch`]),
+/// one at a time, so each file can be tagged from its own album (#1446).
+///
+/// Resolves the developer token once. An album Apple Music does not have is
+/// skipped and the rest carry on; the first failed request ends the loop
+/// (an authentication or network problem would repeat for every album), as
+/// does the app shutting down. Returns the details that were found, in the
+/// order asked. An empty `refs` returns at once, without logging anything.
+pub async fn try_fetch_other_albums(
+    app: &AppHandle,
+    refs: &[(String, String)],
+    event_context: Option<(&tauri::AppHandle, &str)>,
+    shutdown: &crate::services::download_queue::ShutdownSignal,
+) -> Vec<AlbumMetadata> {
+    if refs.is_empty() {
+        return Vec::new();
+    }
+    let Some(jwt) = resolve_enrichment_jwt(app, event_context).await else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for (storefront, album_id) in refs {
+        if shutdown.is_triggered() {
+            break;
+        }
+        match fetch_one_album(&jwt, storefront, album_id, event_context).await {
+            AlbumFetch::Found(metadata) => found.push(*metadata),
+            AlbumFetch::NotFound => {}
+            AlbumFetch::Failed => break,
+        }
+    }
+    found
 }
 
 // ============================================================
@@ -3080,12 +3561,16 @@ mod tests {
         test_support::minimal_m4a(&without, 1, 1, false);
         let spatial = FreeformIdent::new_static(MEEDYADL_NAMESPACE, "SpatialType");
 
-        let n = apply_codec_metadata_tags(
-            &with.to_string_lossy(),
-            &SongCodec::Atmos,
-            Some("2024-03-15T07:12:45Z"),
-        )
-        .unwrap();
+        let stamps = DownloadStamps {
+            albums: vec![AlbumStamp {
+                last_modified_date: Some("2024-03-15T07:12:45Z".to_string()),
+                tracks: Vec::new(),
+            }],
+            single_album_download: true,
+        };
+        let n =
+            apply_codec_metadata_tags(&with.to_string_lossy(), &SongCodec::Atmos, Some(&stamps))
+                .unwrap();
         assert_eq!(n, 1);
         let tag = Tag::read_from_path(&with).unwrap();
         assert_eq!(
@@ -3755,7 +4240,9 @@ mod tests {
         let meta = album_with_explicit_track();
         let finals = apply_deferred_file_renames(
             std::slice::from_ref(&audio),
-            Some(&meta),
+            false,
+            std::slice::from_ref(&meta),
+            &[(audio.clone(), 0)],
             &[(audio.clone(), SongCodec::Alac)],
             true,
         );
@@ -3811,7 +4298,9 @@ mod tests {
         std::fs::write(dir.path().join("02 U.ttml"), b"t").unwrap();
         let finals = apply_deferred_file_renames(
             std::slice::from_ref(&audio),
-            None,
+            false,
+            &[],
+            &[],
             &[(audio.clone(), SongCodec::Alac)],
             true,
         );
@@ -3825,7 +4314,9 @@ mod tests {
         let gone = dir.path().join("04 Gone.m4a");
         let finals = apply_deferred_file_renames(
             &[aac.clone(), gone],
-            None,
+            false,
+            &[],
+            &[],
             &[(aac.clone(), SongCodec::Aac)],
             false,
         );
@@ -4078,7 +4569,486 @@ mod tests {
         // ignoring a suffix. The pair is what stops a single by one
         // artist being enriched with a same-named album by another.
         assert!(album_names_match("Flowers - Single", "Flowers"));
-        // ...which is why the caller does not stop there. See the
-        // `album_matches` block in `enrich_single_file`.
+        // ...which is why the caller does not stop there. See
+        // `file_matches_album`.
+    }
+    // ---- One download, several albums (#1446) ----
+
+    /// Album details for a test: names, a last-updated date, a record label
+    /// (written from the registry, so it shows which album a file got) and
+    /// songs given as `(song ID, disc, track)`.
+    fn fixture_album(
+        id: &str,
+        name: &str,
+        artist: &str,
+        date: Option<&str>,
+        label: &str,
+        songs: &[(&str, u32, u32)],
+    ) -> AlbumMetadata {
+        let mut meta: AlbumMetadata = serde_json::from_value(serde_json::json!({
+            "album_id": id,
+            "album_name": name,
+            "genre_names": [],
+            "tracks": [],
+        }))
+        .unwrap();
+        meta.artist_name = Some(artist.to_string());
+        meta.last_modified_date = date.map(str::to_string);
+        meta.raw_json = serde_json::json!({"attributes": {"recordLabel": label}});
+        meta.tracks = songs
+            .iter()
+            .map(|(song_id, disc, track)| {
+                let mut t = sample_tracks().remove(1);
+                t.song_id = (*song_id).to_string();
+                t.disc_number = *disc;
+                t.track_number = *track;
+                t
+            })
+            .collect();
+        meta
+    }
+
+    /// A tag as GAMDL leaves it: album, album artist, disc and track, and
+    /// (when given) Apple Music's song number in the `cnID` atom.
+    fn fixture_tag(song_id: Option<u32>, album: &str, artist: &str, disc: u16, track: u16) -> Tag {
+        let mut tag = Tag::default();
+        tag.set_album(album);
+        tag.set_album_artist(artist);
+        tag.set_disc_number(disc);
+        tag.set_track_number(track);
+        if let Some(id) = song_id {
+            tag.set_data(
+                mp4ameta::Fourcc(*b"cnID"),
+                Data::BeSigned(id.to_be_bytes().to_vec()),
+            );
+        }
+        tag
+    }
+
+    fn label_of(tag: &Tag) -> Option<String> {
+        tag.strings_of(&FreeformIdent::new_static(
+            MEEDYADL_NAMESPACE,
+            "RecordLabel",
+        ))
+        .next()
+        .map(str::to_string)
+    }
+
+    /// Two albums that look the same from the names (same title, same
+    /// artist), each with a song at disc 1 track 1, told apart only by
+    /// their song numbers.
+    fn twin_albums() -> Vec<AlbumMetadata> {
+        vec![
+            fixture_album(
+                "1",
+                "Same",
+                "Art",
+                Some("2024-01-01T00:00:00Z"),
+                "LabelA",
+                &[("100", 1, 1)],
+            ),
+            fixture_album(
+                "2",
+                "Same",
+                "Art",
+                Some("2025-02-02T00:00:00Z"),
+                "LabelB",
+                &[("200", 1, 1)],
+            ),
+        ]
+    }
+
+    #[test]
+    fn pick_album_prefers_song_id_over_disc_track() {
+        let albums = twin_albums();
+        assert_eq!(
+            pick_album_for_file(&albums, Some("200"), Some("Same"), Some("Art")),
+            AlbumPick::Chosen {
+                index: 1,
+                by_song_id: true
+            }
+        );
+        assert_eq!(
+            pick_album_for_file(&albums, Some("100"), Some("Same"), Some("Art")),
+            AlbumPick::Chosen {
+                index: 0,
+                by_song_id: true
+            }
+        );
+        // An earlier number of a song counts as that song.
+        let mut with_former = twin_albums();
+        with_former[1].tracks[0].raw_json = serde_json::json!({"meta": {"formerIds": [777]}});
+        assert_eq!(
+            pick_album_for_file(&with_former, Some("777"), Some("Same"), Some("Art")),
+            AlbumPick::Chosen {
+                index: 1,
+                by_song_id: true
+            }
+        );
+    }
+
+    #[test]
+    fn pick_album_song_id_match_still_needs_name_check() {
+        let albums = vec![
+            fixture_album("1", "Alpha", "Art", None, "A", &[("100", 1, 1)]),
+            fixture_album("2", "Beta", "Art", None, "B", &[("200", 1, 1)]),
+        ];
+        // The song number says Alpha, the file's album says Beta: no match,
+        // and Beta is NOT tried instead.
+        assert_eq!(
+            pick_album_for_file(&albums, Some("100"), Some("Beta"), Some("Art")),
+            AlbumPick::NoMatch
+        );
+        // The song number says Alpha and the names agree.
+        assert_eq!(
+            pick_album_for_file(&albums, Some("100"), Some("Alpha"), Some("Art")),
+            AlbumPick::Chosen {
+                index: 0,
+                by_song_id: true
+            }
+        );
+        // A song number no album has falls back to the names.
+        assert_eq!(
+            pick_album_for_file(&albums, Some("999"), Some("Beta"), Some("Art")),
+            AlbumPick::Chosen {
+                index: 1,
+                by_song_id: false
+            }
+        );
+    }
+
+    #[test]
+    fn pick_album_without_song_id_uses_names_and_refuses_ties() {
+        let albums = vec![
+            fixture_album("1", "Alpha", "Art", None, "A", &[("100", 1, 1)]),
+            fixture_album("2", "Beta", "Art", None, "B", &[("200", 1, 1)]),
+        ];
+        assert_eq!(
+            pick_album_for_file(&albums, None, Some("beta"), Some("Art")),
+            AlbumPick::Chosen {
+                index: 1,
+                by_song_id: false
+            }
+        );
+        assert_eq!(
+            pick_album_for_file(&albums, None, Some("Gamma"), Some("Art")),
+            AlbumPick::NoMatch
+        );
+        // Two albums with the same name and artist and no song number: not
+        // guessed.
+        assert_eq!(
+            pick_album_for_file(&twin_albums(), None, Some("Same"), Some("Art")),
+            AlbumPick::Ambiguous
+        );
+        // A song number both albums have is ambiguous too.
+        let mut shared = twin_albums();
+        shared[1].tracks[0].song_id = "100".to_string();
+        assert_eq!(
+            pick_album_for_file(&shared, Some("100"), Some("Same"), Some("Art")),
+            AlbumPick::Ambiguous
+        );
+    }
+
+    #[test]
+    fn pick_album_with_one_album_equals_old_guard() {
+        // (file album, file artist, album name, album artist, old answer).
+        // The answers are what the single-album guard gave before several
+        // albums were handled.
+        let table = [
+            (Some("Album"), Some("Art"), Some("Album"), Some("Art"), true),
+            (
+                Some(" album "),
+                Some("ART"),
+                Some("Album"),
+                Some("Art"),
+                true,
+            ),
+            (Some("Album"), None, Some("Album"), Some("Art"), true),
+            (
+                Some("Album - Single"),
+                Some("Art"),
+                Some("Album"),
+                Some("Art"),
+                true,
+            ),
+            (
+                Some("Album - Single"),
+                None,
+                Some("Album"),
+                Some("Art"),
+                false,
+            ),
+            (
+                Some("Album - Single"),
+                Some("Other"),
+                Some("Album"),
+                Some("Art"),
+                false,
+            ),
+            (
+                Some("Album - EP"),
+                Some("Art"),
+                Some("Album - Single"),
+                Some("Art"),
+                false,
+            ),
+            (
+                Some("Other"),
+                Some("Art"),
+                Some("Album"),
+                Some("Art"),
+                false,
+            ),
+            (None, Some("Art"), Some("Album"), Some("Art"), true),
+            (None, Some("Other"), Some("Album"), Some("Art"), false),
+            (None, None, Some("Album"), Some("Art"), true),
+            (Some("Anything"), Some("Anyone"), None, None, true),
+            (None, None, None, None, true),
+        ];
+        for (file_album, file_artist, name, artist, expected) in table {
+            let mut album = fixture_album("1", "x", "x", None, "x", &[("100", 1, 1)]);
+            album.album_name = name.map(str::to_string);
+            album.artist_name = artist.map(str::to_string);
+            let albums = [album];
+            // With and without a song number the album does not have.
+            for song_id in [None, Some("555")] {
+                let pick = pick_album_for_file(&albums, song_id, file_album, file_artist);
+                let want = if expected {
+                    AlbumPick::Chosen {
+                        index: 0,
+                        by_song_id: false,
+                    }
+                } else {
+                    AlbumPick::NoMatch
+                };
+                assert_eq!(
+                    pick, want,
+                    "{file_album:?} / {file_artist:?} vs {name:?} / {artist:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn album_layer_tags_each_file_from_its_own_album() {
+        let albums = twin_albums();
+        let mut tag = fixture_tag(Some(200), "Same", "Art", 1, 1);
+        let pick = apply_album_layer(&mut tag, &albums, true, false);
+        assert_eq!(
+            pick,
+            AlbumPick::Chosen {
+                index: 1,
+                by_song_id: true
+            }
+        );
+        // The second album's tags and date, not the first album's.
+        assert_eq!(label_of(&tag).as_deref(), Some("LabelB"));
+        assert_eq!(
+            last_modified_of(&tag).as_deref(),
+            Some("2025-02-02T00:00:00Z")
+        );
+
+        let mut first = fixture_tag(Some(100), "Same", "Art", 1, 1);
+        apply_album_layer(&mut first, &albums, true, false);
+        assert_eq!(label_of(&first).as_deref(), Some("LabelA"));
+        assert_eq!(
+            last_modified_of(&first).as_deref(),
+            Some("2024-01-01T00:00:00Z")
+        );
+
+        // A file that fits no album (or two) gets nothing from either.
+        let mut stray = fixture_tag(None, "Same", "Art", 1, 1);
+        assert_eq!(
+            apply_album_layer(&mut stray, &albums, true, false),
+            AlbumPick::Ambiguous
+        );
+        assert_eq!(label_of(&stray), None);
+        assert_eq!(last_modified_of(&stray), None);
+    }
+
+    #[test]
+    fn multi_album_date_needs_song_id() {
+        let albums = vec![
+            fixture_album(
+                "1",
+                "Alpha",
+                "Art",
+                Some("2024-01-01T00:00:00Z"),
+                "A",
+                &[("100", 1, 1)],
+            ),
+            fixture_album(
+                "2",
+                "Beta",
+                "Art",
+                Some("2025-02-02T00:00:00Z"),
+                "B",
+                &[("200", 1, 1)],
+            ),
+        ];
+        // Matched by name only, in a download of several albums: tagged, but
+        // no date (the album is not certain).
+        let mut by_name = fixture_tag(None, "Beta", "Art", 1, 1);
+        apply_album_layer(&mut by_name, &albums, true, false);
+        assert_eq!(label_of(&by_name).as_deref(), Some("B"));
+        assert_eq!(last_modified_of(&by_name), None);
+        // With its song number it gets its album's date.
+        let mut by_id = fixture_tag(Some(200), "Beta", "Art", 1, 1);
+        apply_album_layer(&mut by_id, &albums, true, false);
+        assert_eq!(
+            last_modified_of(&by_id).as_deref(),
+            Some("2025-02-02T00:00:00Z")
+        );
+        // A download that is one album stamps by name too.
+        let one = vec![albums[1].clone()];
+        let mut single = fixture_tag(None, "Beta", "Art", 1, 1);
+        apply_album_layer(&mut single, &one, true, true);
+        assert_eq!(
+            last_modified_of(&single).as_deref(),
+            Some("2025-02-02T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn album_layer_not_fresh_writes_no_date() {
+        let albums = twin_albums();
+        let mut tag = fixture_tag(Some(200), "Same", "Art", 1, 1);
+        let pick = apply_album_layer(&mut tag, &albums, false, true);
+        assert!(matches!(pick, AlbumPick::Chosen { index: 1, .. }));
+        // The album's tags are written, the date is not: an older file
+        // holds an older version of the album.
+        assert_eq!(label_of(&tag).as_deref(), Some("LabelB"));
+        assert_eq!(last_modified_of(&tag), None);
+    }
+
+    #[test]
+    fn download_stamps_pick_rules() {
+        let stamps_of = |albums: Vec<AlbumMetadata>, single: bool| {
+            DownloadStamps::from_albums(&DownloadAlbums::new(None, albums, single))
+        };
+        // One album, no song number: the album, whatever the file is.
+        let one = stamps_of(
+            vec![fixture_album(
+                "1",
+                "A",
+                "Art",
+                Some("2024-01-01T00:00:00Z"),
+                "x",
+                &[("100", 1, 1), ("101", 1, 2)],
+            )],
+            true,
+        );
+        let (album, track) = one.pick(None, 1, Some(2)).unwrap();
+        assert_eq!(
+            album.last_modified_date.as_deref(),
+            Some("2024-01-01T00:00:00Z")
+        );
+        assert_eq!(track.map(|t| t.song_id.as_str()), Some("101"));
+        // Not in the album's list: still the album, no song.
+        let (_, track) = one.pick(None, 1, Some(9)).unwrap();
+        assert!(track.is_none());
+        // A song number is used instead of disc and track.
+        let (_, track) = one.pick(Some("100"), 1, Some(2)).unwrap();
+        assert_eq!(track.map(|t| t.song_id.as_str()), Some("100"));
+
+        // Several albums.
+        let many = stamps_of(twin_albums(), false);
+        assert!(many.pick(None, 1, Some(1)).is_none());
+        let (album, _) = many.pick(Some("200"), 1, Some(1)).unwrap();
+        assert_eq!(
+            album.last_modified_date.as_deref(),
+            Some("2025-02-02T00:00:00Z")
+        );
+        // An unknown song number is not guessed.
+        assert!(many.pick(Some("999"), 1, Some(1)).is_none());
+        // A song both albums have is not guessed either.
+        let mut shared = twin_albums();
+        shared[1].tracks[0].song_id = "100".to_string();
+        assert!(stamps_of(shared, false)
+            .pick(Some("100"), 1, Some(1))
+            .is_none());
+        // An earlier song number finds its album.
+        let mut former = twin_albums();
+        former[0].tracks[0].raw_json = serde_json::json!({"meta": {"formerIds": ["55"]}});
+        let former_stamps = stamps_of(former, false);
+        let (album, _) = former_stamps.pick(Some("55"), 1, Some(1)).unwrap();
+        assert_eq!(
+            album.last_modified_date.as_deref(),
+            Some("2024-01-01T00:00:00Z")
+        );
+        // Nothing to stamp from.
+        assert!(DownloadStamps::default()
+            .pick(Some("1"), 1, Some(1))
+            .is_none());
+    }
+
+    #[test]
+    fn codec_tagging_writes_each_copys_own_album_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.m4a");
+        let b = dir.path().join("b.m4a");
+        let stray = dir.path().join("c.m4a");
+        for p in [&a, &b, &stray] {
+            test_support::minimal_m4a(p, 1, 1, false);
+        }
+        for (p, id) in [(&a, Some(100u32)), (&b, Some(200)), (&stray, None)] {
+            let mut tag = Tag::read_from_path(p).unwrap();
+            if let Some(id) = id {
+                tag.set_data(
+                    mp4ameta::Fourcc(*b"cnID"),
+                    Data::BeSigned(id.to_be_bytes().to_vec()),
+                );
+            }
+            tag.write_to_path(p).unwrap();
+        }
+        let stamps = DownloadStamps::from_albums(&DownloadAlbums::new(None, twin_albums(), false));
+        for p in [&a, &b, &stray] {
+            apply_codec_metadata_tags(&p.to_string_lossy(), &SongCodec::Alac, Some(&stamps))
+                .unwrap();
+        }
+        assert_eq!(
+            last_modified_of(&Tag::read_from_path(&a).unwrap()).as_deref(),
+            Some("2024-01-01T00:00:00Z")
+        );
+        assert_eq!(
+            last_modified_of(&Tag::read_from_path(&b).unwrap()).as_deref(),
+            Some("2025-02-02T00:00:00Z")
+        );
+        // A copy with no song number in a several-album download is not
+        // given a guessed date.
+        assert_eq!(
+            last_modified_of(&Tag::read_from_path(&stray).unwrap()),
+            None
+        );
+    }
+
+    #[test]
+    fn deferred_renames_use_each_files_own_album() {
+        let dir = tempfile::tempdir().unwrap();
+        // Two albums share a folder; both have a disc 1 track 1 song, but
+        // only the first album's is rated explicit.
+        let mut explicit_album = album_with_explicit_track();
+        explicit_album.album_name = Some("One".to_string());
+        let mut plain_album = album_with_explicit_track();
+        plain_album.album_name = Some("Two".to_string());
+        plain_album.tracks[0].content_rating = None;
+        let albums = vec![explicit_album, plain_album];
+
+        let one = dir.path().join("01 One.m4a");
+        let two = dir.path().join("01 Two.m4a");
+        let stray = dir.path().join("01 Stray.m4a");
+        for p in [&one, &two, &stray] {
+            minimal_m4a(p, 1, 1, false);
+        }
+        let files = [one.clone(), two.clone(), stray.clone()];
+        let file_albums = [(one.clone(), 0usize), (two.clone(), 1usize)];
+        let finals = apply_deferred_file_renames(&files, true, &albums, &file_albums, &[], true);
+        assert_eq!(finals.len(), 3);
+        // The first album's file gets the label from the first album...
+        assert!(dir.path().join("01 One [Explicit].m4a").is_file());
+        // ...the second album's file does not borrow it...
+        assert!(two.is_file(), "the second album's file must keep its name");
+        // ...and a file with no recorded album gets no guessed label.
+        assert!(stray.is_file(), "a file with no album must keep its name");
     }
 }

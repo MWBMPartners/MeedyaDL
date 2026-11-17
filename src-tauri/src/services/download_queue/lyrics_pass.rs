@@ -903,10 +903,47 @@ pub(crate) struct GateAlbumFacts {
     /// The album's name, to tell its existing copies from another release's
     /// when a file has no song ID.
     pub name: Option<String>,
-    /// The date the service last updated the album, as it sent it. Written
-    /// into each new extra-format copy (#1444). `None` unless every link of
-    /// the download is in this one album ([`links_share_one_album`]).
-    pub last_modified_date: Option<String>,
+    /// What each new extra-format copy is stamped with from its own album:
+    /// the date the service last updated it (#1444, #1446). A copy is matched
+    /// to an album by its song number; with one album every copy gets it.
+    pub stamps: crate::services::metadata_tag_service::DownloadStamps,
+}
+
+/// The most other albums whose details are looked up for one download.
+/// Beyond this the rest keep only the tags they were downloaded with.
+pub(crate) const MAX_OTHER_ALBUM_LOOKUPS: usize = 25;
+
+/// The albums, other than the primary one, that a download's links point at,
+/// as `(storefront, album number)` pairs to look up (#1446).
+///
+/// Takes every link that reads as an album link (with or without a song) and
+/// has an album number; library links, music videos and playlists are
+/// ignored. Duplicates are removed (first in link order wins), the primary
+/// album is left out, and the list is cut at [`MAX_OTHER_ALBUM_LOOKUPS`].
+/// The second value is how many albums were left out by the cut.
+pub(crate) fn other_albums_to_fetch(
+    urls: &[String],
+    primary_album_id: Option<&str>,
+) -> (Vec<(String, String)>, usize) {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut wanted: Vec<(String, String)> = Vec::new();
+    for url in urls {
+        let Some(parsed) = crate::services::apple_music_api::parse_apple_music_url(url) else {
+            continue;
+        };
+        if parsed.content_type != "album" || parsed.album_id.is_empty() {
+            continue;
+        }
+        if Some(parsed.album_id.as_str()) == primary_album_id {
+            continue;
+        }
+        if seen.insert(parsed.album_id.clone()) {
+            wanted.push((parsed.storefront, parsed.album_id));
+        }
+    }
+    let left_out = wanted.len().saturating_sub(MAX_OTHER_ALBUM_LOOKUPS);
+    wanted.truncate(MAX_OTHER_ALBUM_LOOKUPS);
+    (wanted, left_out)
 }
 
 /// Whether every link in a download points at the same Apple Music album
@@ -1511,6 +1548,43 @@ pub(crate) async fn run_word_lyrics_pass(
 mod tests {
 
     #[test]
+    fn other_albums_to_fetch_takes_every_album_link() {
+        let album = |sf: &str, id: u32| format!("https://music.apple.com/{sf}/album/x/{id}");
+        let urls = vec![
+            album("us", 1),
+            // A song link into album 2, then album 2 again: one lookup.
+            format!("{}?i=22", album("us", 2)),
+            album("us", 2),
+            // Album 3 in another storefront.
+            album("gb", 3),
+            // Not albums: a playlist, a music video, a library link, junk.
+            "https://music.apple.com/us/playlist/x/pl.abc".to_string(),
+            "https://music.apple.com/us/music-video/x/555".to_string(),
+            "https://music.apple.com/us/library/albums/l.zzz".to_string(),
+            "not a link".to_string(),
+        ];
+        let (wanted, left_out) = other_albums_to_fetch(&urls, Some("1"));
+        assert_eq!(
+            wanted,
+            vec![
+                ("us".to_string(), "2".to_string()),
+                ("gb".to_string(), "3".to_string())
+            ]
+        );
+        assert_eq!(left_out, 0);
+        // Without a known primary album, album 1 is looked up too.
+        assert_eq!(other_albums_to_fetch(&urls, None).0.len(), 3);
+
+        // The cap: 30 albums gives 25 lookups and says 5 were left out.
+        let many: Vec<String> = (100..130).map(|i| album("us", i)).collect();
+        let (wanted, left_out) = other_albums_to_fetch(&many, None);
+        assert_eq!(wanted.len(), MAX_OTHER_ALBUM_LOOKUPS);
+        assert_eq!(left_out, 5);
+        assert_eq!(wanted[0].1, "100");
+        assert!(other_albums_to_fetch(&[], None).0.is_empty());
+    }
+
+    #[test]
     fn links_share_one_album_only_for_one_album() {
         let a = "https://music.apple.com/us/album/x/1111111111".to_string();
         let a_song = "https://music.apple.com/us/album/x/1111111111?i=2222222222".to_string();
@@ -1963,10 +2037,13 @@ mod tests {
         std::fs::write(&audio, b"a").unwrap();
         let renamed = apply_deferred_file_renames(
             std::slice::from_ref(&audio),
-            None,
+            false,
+            &[],
+            &[],
             &[(audio.clone(), SongCodec::Alac)],
             false,
         );
+        assert!(renamed.iter().all(|r| r.original_path == audio));
         assert!(renames_complete(&renamed));
         assert!(dir.path().join("01 T [Lossless].m4a").exists());
         // …so ALAC is on the protection list, and an ALAC companion is
@@ -2545,7 +2622,13 @@ mod tests {
             vec![SongCodec::Aac],
             GateAlbumFacts {
                 name: Some("Album".to_string()),
-                last_modified_date: Some("2024-03-15T07:12:45Z".to_string()),
+                stamps: crate::services::metadata_tag_service::DownloadStamps {
+                    albums: vec![crate::services::metadata_tag_service::AlbumStamp {
+                        last_modified_date: Some("2024-03-15T07:12:45Z".to_string()),
+                        tracks: Vec::new(),
+                    }],
+                    single_album_download: true,
+                },
             },
         );
         let state = waiting.await.unwrap().unwrap();
@@ -2555,8 +2638,9 @@ mod tests {
         assert_eq!(state.primary_tracks, vec![(SongCodec::Alac, 1, 1)]);
         assert_eq!(state.album_tracks, vec![(1, 1, "100".to_string())]);
         assert_eq!(state.album.name.as_deref(), Some("Album"));
+        let (stamped, _) = state.album.stamps.pick(None, 1, Some(1)).unwrap();
         assert_eq!(
-            state.album.last_modified_date.as_deref(),
+            stamped.last_modified_date.as_deref(),
             Some("2024-03-15T07:12:45Z")
         );
         assert_eq!(state.unplaceable, vec![SongCodec::Aac]);

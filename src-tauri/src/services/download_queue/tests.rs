@@ -3019,7 +3019,9 @@ fn a_stale_copy_in_the_folder_does_not_make_the_album_mixed() {
     // Only this download's files are renamed.
     let renamed = crate::services::metadata_tag_service::apply_deferred_file_renames(
         &this_download,
-        None,
+        false,
+        &[],
+        &[],
         &file_codecs,
         false,
     );
@@ -6095,13 +6097,20 @@ async fn a_tiers_format_tags_reach_only_that_tiers_new_files() {
     let older_bytes = std::fs::read(&older).unwrap();
     let copy_bytes = std::fs::read(&new_copy).unwrap();
 
+    let stamps = crate::services::metadata_tag_service::DownloadStamps {
+        albums: vec![crate::services::metadata_tag_service::AlbumStamp {
+            last_modified_date: Some("2024-03-15T07:12:45Z".to_string()),
+            tracks: Vec::new(),
+        }],
+        single_album_download: true,
+    };
     let tagged = super::companions::tag_tier_additions(
         &before,
         &after,
         &[dir.path()],
         &SongCodec::Alac,
         "test",
-        Some("2024-03-15T07:12:45Z"),
+        Some(&stamps),
     )
     .await;
 
@@ -6172,22 +6181,31 @@ fn the_last_updated_date_is_stamped_on_this_downloads_files_only() {
         call.contains("&date_stamp_files"),
         "Step 1 must pass the files this download wrote"
     );
-    // ...and those are this download's fresh files, only when every link is
-    // in one album.
     assert!(
-        {
-            let flat: String = processing.split_whitespace().collect();
-            flat.contains("letdate_stamp_files=ifsuper::lyrics_pass::links_share_one_album(&enrich_urls){fresh_files.clone()}else{std::collections::HashSet::new()};")
-        },
-        "Step 1's date files must be the fresh files, gated on one album, and none otherwise"
+        call.contains("&download_albums"),
+        "Step 1 must pass every album of the download, not just the first"
     );
-    // The extra copies get the album's date only under the same rule.
+    let flat: String = processing.split_whitespace().collect();
+    // ...those are this download's fresh files, with no first-album-only
+    // gate: each file's own album decides whether it gets a date.
     assert!(
-        {
-            let flat: String = processing.split_whitespace().collect();
-            flat.contains("last_modified_date:m.last_modified_date.clone().filter(|_|{super::lyrics_pass::links_share_one_album(&enrich_urls,)},),")
-        },
-        "the copies' date must be gated on every link being in one album"
+        flat.contains("letdate_stamp_files=fresh_files.clone();"),
+        "Step 1's date files must be the fresh files, with no one-album gate"
+    );
+    assert!(
+        !flat.contains("letdate_stamp_files=ifsuper::lyrics_pass::links_share_one_album"),
+        "a first-album-only date gate came back"
+    );
+    // The extra copies get each copy's own album's date.
+    assert!(
+        flat.contains(
+            "stamps:super::metadata_tag_service::DownloadStamps::from_albums(&download_albums,),"
+        ),
+        "the gate must carry the stamps of every album"
+    );
+    assert!(
+        !flat.contains("last_modified_date:m.last_modified_date"),
+        "a first-album-only date for the copies came back"
     );
 }
 
@@ -6367,7 +6385,9 @@ fn the_write_functions_never_take_the_lock() {
     let lyrics_steps = include_str!("lyrics_steps.rs");
     let leaves: Vec<(&str, &str)> = vec![
         (tag_service, "fn tag_single_file("),
-        (tag_service, "pub fn apply_codec_metadata_tags("),
+        (tag_service, "pub(crate) fn apply_codec_metadata_tags("),
+        (tag_service, "pub(crate) fn apply_album_layer("),
+        (tag_service, "pub(crate) fn write_album_stamp("),
         (
             include_str!("../enhanced_lyrics_service.rs"),
             "pub fn embed_enhanced_lrc_in_file(",

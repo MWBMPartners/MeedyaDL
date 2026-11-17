@@ -2380,6 +2380,52 @@ pub fn process_queue(
                                 }
                             }
 
+                            // A download can span several albums (an artist
+                            // item or playlist turned into song links). Each
+                            // file is tagged from the album it belongs to, so
+                            // the details of every other album the links point
+                            // at are fetched too, one at a time (#1446). A
+                            // one-album download looks up nothing more. Every
+                            // consumer that works on the first album only
+                            // keeps reading `album_metadata`.
+                            let single_album_download =
+                                super::lyrics_pass::links_share_one_album(&enrich_urls);
+                            let primary_album_id = enrich_urls
+                                .iter()
+                                .find_map(|u| super::apple_music_api::parse_apple_music_url(u))
+                                .filter(|p| p.content_type == "album")
+                                .map(|p| p.album_id);
+                            let (other_album_refs, over_cap) = if is_library {
+                                (Vec::new(), 0)
+                            } else {
+                                super::lyrics_pass::other_albums_to_fetch(
+                                    &enrich_urls,
+                                    primary_album_id.as_deref(),
+                                )
+                            };
+                            let other_albums = super::metadata_tag_service::try_fetch_other_albums(
+                                &enrich_app,
+                                &other_album_refs,
+                                Some((&enrich_app, &enrich_dl_id)),
+                                &enrich_shutdown,
+                            )
+                            .await;
+                            if over_cap > 0 {
+                                emit_download_log(
+                                    &enrich_app,
+                                    &enrich_dl_id,
+                                    &format!(
+                                        "Album details were looked up for {} other albums only; songs from the other {over_cap} albums keep only the tags they were downloaded with.",
+                                        super::lyrics_pass::MAX_OTHER_ALBUM_LOOKUPS
+                                    ),
+                                );
+                            }
+                            let download_albums = super::metadata_tag_service::DownloadAlbums::new(
+                                album_metadata.clone(),
+                                other_albums,
+                                single_album_download,
+                            );
+
                             // --- Step 0: iTunes Lookup API enrichment (#454) ---
                             // Run FIRST (no auth required). Writes baseline metadata
                             // (country, disc count) that Apple Music API can overwrite.
@@ -2556,27 +2602,22 @@ pub fn process_queue(
                             &enrich_dl_id,
                             "Enriching metadata (codec tags, source tags, channel detection, Apple Music API)...",
                         );
-                            // The album's last-updated date goes on this
-                            // download's files only when every link is in that
-                            // one album: the album details come from the first
-                            // album link, so a download spanning several albums
-                            // (a playlist or artist item turned into song
-                            // links) must not stamp its date on the others'
-                            // songs (#1444).
-                            let date_stamp_files =
-                                if super::lyrics_pass::links_share_one_album(&enrich_urls) {
-                                    fresh_files.clone()
-                                } else {
-                                    std::collections::HashSet::new()
-                                };
-                            let (file_codecs, album_matched_files) = if let Some(ref codec) = codec
+                            // Each album's last-updated date goes on this
+                            // download's own files only. With one album that is
+                            // every fresh file; with several, a file also needs
+                            // its song number to match one album before it gets
+                            // that album's date (#1444, #1446).
+                            let date_stamp_files = fresh_files.clone();
+                            let (file_codecs, album_matched_files, file_albums) = if let Some(
+                                ref codec,
+                            ) = codec
                             {
                                 match super::metadata_tag_service::apply_enriched_metadata_tags(
                                     &enrich_app,
                                     &album_dir,
                                     codec,
                                     &enrich_urls,
-                                    album_metadata.as_ref(),
+                                    &download_albums,
                                     Some((&enrich_app, &enrich_dl_id)),
                                     enrich_native_priority,
                                     enrich_settings.content_advisory_in_filenames,
@@ -2606,7 +2647,11 @@ pub fn process_queue(
                                             &format!("Enriched {count} file(s) with metadata tags{api_note}"),
                                         );
                                         }
-                                        (result.file_codecs, result.album_matched_files)
+                                        (
+                                            result.file_codecs,
+                                            result.album_matched_files,
+                                            result.file_albums,
+                                        )
                                     }
                                     Err(e) => {
                                         log::debug!(
@@ -2617,11 +2662,11 @@ pub fn process_queue(
                                             &enrich_dl_id,
                                             &format!("Metadata enrichment failed: {e}"),
                                         );
-                                        (Vec::new(), Vec::new())
+                                        (Vec::new(), Vec::new(), Vec::new())
                                     }
                                 }
                             } else {
-                                (Vec::new(), Vec::new())
+                                (Vec::new(), Vec::new(), Vec::new())
                             };
 
                             // THIS download's own files, out of everything the
@@ -3380,6 +3425,7 @@ pub fn process_queue(
                             // now held until this is done, and are pointed at
                             // whichever folder really holds the files.
                             let mut file_codecs = file_codecs;
+                            let mut file_albums = file_albums;
                             let mut this_download_paths = this_download_paths;
                             // Which files this run wrote (judged at snapshot
                             // time), followed through the folder rename below.
@@ -3406,6 +3452,12 @@ pub fn process_queue(
                                             .into_iter()
                                             .map(|(p, c)| {
                                                 (super::lyrics_pass::remap_path(&p, &old, &new), c)
+                                            })
+                                            .collect();
+                                        file_albums = file_albums
+                                            .into_iter()
+                                            .map(|(p, i)| {
+                                                (super::lyrics_pass::remap_path(&p, &old, &new), i)
                                             })
                                             .collect();
                                         written_now = written_now
@@ -3443,7 +3495,10 @@ pub fn process_queue(
                             let renamed_primary =
                                 super::metadata_tag_service::apply_deferred_file_renames(
                                     &this_download_paths,
-                                    album_metadata.as_ref(),
+                                    download_albums.albums.len()
+                                        > usize::from(download_albums.has_primary),
+                                    &download_albums.albums,
+                                    &file_albums,
                                     &file_codecs,
                                     enrich_settings.content_advisory_in_filenames,
                                 );
@@ -3520,24 +3575,18 @@ pub fn process_queue(
                                 split.tracks,
                                 album_tracks,
                                 split.unplaceable,
-                                album_metadata
-                                    .as_ref()
-                                    .map(|m| super::lyrics_pass::GateAlbumFacts {
-                                        name: m.album_name.clone(),
-                                        // Only when every link is in this
-                                        // one album: a playlist or artist
-                                        // item turned into song links from
-                                        // several albums must not get this
-                                        // album's date on the others' copies.
-                                        last_modified_date: m.last_modified_date.clone().filter(
-                                            |_| {
-                                                super::lyrics_pass::links_share_one_album(
-                                                    &enrich_urls,
-                                                )
-                                            },
+                                super::lyrics_pass::GateAlbumFacts {
+                                    name: album_metadata
+                                        .as_ref()
+                                        .and_then(|m| m.album_name.clone()),
+                                    // Each extra copy gets its own album's
+                                    // date, matched by song number; with a
+                                    // single album, every copy gets it.
+                                    stamps:
+                                        super::metadata_tag_service::DownloadStamps::from_albums(
+                                            &download_albums,
                                         ),
-                                    })
-                                    .unwrap_or_default(),
+                                },
                             );
 
                             emit_download_log(
