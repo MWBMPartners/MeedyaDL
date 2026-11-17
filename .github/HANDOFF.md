@@ -23,6 +23,13 @@ All on `work-in-progress` (PR #1420). Codex unavailable; reviews are fresh Claud
 | 4 | Staging folder (download into `.MeedyaDL_temp.nosync`, move into library when finished) | #1448 | **Planned, all decisions taken** | Full decision list on #1448 (comment of 17 Nov). Next build step: phase 1, one source for the run folder (no visible change), then phase 2, the library check run alongside today's downloads. |
 | 5 | Per-album tags (#1446) and Apple Music ID tags (#1447) | #1446, #1447 | **Done — reviewed clean** | See the Previous section rows 13-16. |
 
+| 6 | Small screen faults | #1439 | **Done — reviewed clean (3 rounds)** | `394c3f17`, `d04fd47c`, `c962a6ca`. Turning developer access on or off no longer throws away unsaved Settings changes. |
+| 7 | Documentation-sweep follow-ups | #1445 | **Done — reviewed clean (3 rounds)** | `39d98c1c`, `b164e98f`, `36538859`, plus CodeQL test fixes `67b70380`, `9510ebe3`, `695898cc`. ALAC needs the wrapper below GAMDL 3.8 (settled from GAMDL's source). |
+| 8 | GAMDL 3 lyrics recovery | #1436 | **Done — reviewed clean (2 rounds)** | `80cf9cbe`, `c2f3ccaf`. Built from the main run's options; overwrite off; no config file. Real-machine check still wanted. |
+| 9 | Remove the six whole-folder lyrics functions | #1443 | **Done — reviewed clean (2 rounds)** | `b3bb4ff3`, `a0d6dd60`. Fixed-output tests in `download_queue/lyrics_steps_golden/` (marked `-text`). |
+| 10 | Queue attempts own their slots and state | #1432 | **Built; review round 6 running** | `3804072e`, `974cea30`, `c971eaf7`, `cca0f7e3`, `01b40fe3`, `a25890f9`, `c57494f1`. Maintainer decisions recorded on #1432 and in CLAUDE.md "Serial queue processing". Follow-ups: #1451 (same stuck/retry rule for every service), #1452 (saved-files check after a retry). Real-machine checks listed on #1432. |
+| 11 | Plan the move to `jiff` | #1450 | Open, later | |
+
 Open questions for the maintainer: none outstanding. Still wanted: a verbose-mode Apple Music data dump to confirm `meta.formerIds`; real-machine checks listed on #1435 and #1448.
 
 ---
