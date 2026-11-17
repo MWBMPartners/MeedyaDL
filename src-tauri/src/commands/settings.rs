@@ -224,8 +224,8 @@ fn keep_fields_the_settings_screen_cannot_change(
     // Security: `dev_access_enabled` must only be toggled by the dedicated
     // `activate_dev_access` / `deactivate_dev_access` commands, which
     // validate a passphrase (or clear the keychain sentinel) before
-    // persisting via `config_service::save_settings` directly — a path this
-    // clamp does NOT intercept. A general settings write (this IPC) must
+    // persisting that one field via `config_service::update_settings_field`
+    // — a path this clamp does NOT intercept. A general settings write (this IPC) must
     // never be able to flip the flag on, regardless of what the incoming
     // payload contains.
     settings.dev_access_enabled = previous.is_some_and(|p| p.dev_access_enabled);

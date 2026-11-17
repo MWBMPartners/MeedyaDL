@@ -710,12 +710,18 @@ pub async fn activate_dev_access(app: tauri::AppHandle, passphrase: String) -> b
     }
 
     // Enable in settings: one field, written on its own, so nothing else
-    // in the file changes (#1439). A failed write is logged; the keychain
-    // sentinel is already set, so developer access is still recognised.
+    // in the file changes (#1439). If the write fails, activation is
+    // undone (the keychain sentinel removed) and `false` returned: the
+    // backend's developer-only checks read the file, so reporting success
+    // would show developer access as on while it still acts as off.
     if let Err(e) = crate::services::config_service::update_settings_field(&app, |s| {
         s.dev_access_enabled = true;
     }) {
-        log::error!("Developer access activated, but saving the setting failed: {e}");
+        log::error!("Developer access not activated: saving the setting failed: {e}");
+        if let Ok(entry) = keyring::Entry::new(SERVICE_NAME, DEV_ACCESS_KEYCHAIN_KEY) {
+            let _ = entry.delete_credential();
+        }
+        return false;
     }
 
     log::info!("Developer access activated");
