@@ -758,6 +758,36 @@ pub(crate) fn plan_word_lyrics_pass(primary: &GamdlOptions, download_folder: &st
     options
 }
 
+/// The options for one GAMDL 3 lyrics recovery run (Step 2b, #1436): the
+/// primary run's own options (same sign-in, wrapper addresses, folder and
+/// file templates, including any format label MeedyaDL added to the file
+/// names), with:
+///
+/// - `download_folder`: the folder the primary run really used;
+/// - lyrics only, in `format`;
+/// - no saved cover, no playlist file, no word-by-word lyrics file.
+///
+/// Overwrite stays as the primary run had it (the item's own choice). Like
+/// the word-by-word pass, this runs before any rename, so the primary's
+/// templates point at the files exactly. It used to be built from Settings
+/// instead, which missed a format label added to the file names and the
+/// newer wrapper settings, so lyrics could land beside the wrong name.
+pub(crate) fn plan_lyrics_recovery_run(
+    primary: &GamdlOptions,
+    download_folder: &str,
+    format: LyricsFormat,
+) -> GamdlOptions {
+    let mut options = primary.clone();
+    options.output_path = Some(download_folder.to_string());
+    options.save_cover = Some(false);
+    options.save_playlist = None;
+    options.no_synced_lyrics = Some(false);
+    options.synced_lyrics_only = Some(true);
+    options.synced_lyrics_format = Some(format);
+    options.word_timed_lyrics_file = None;
+    options
+}
+
 /// Whether the links are ones the pass may run for: albums and songs
 /// only. Not artist links (they mean many albums), music videos (no word
 /// lyrics), playlists (their tracks are not in one album folder), or
@@ -2731,6 +2761,32 @@ mod tests {
             plan.compilation_folder_template.as_deref(),
             Some("Compilations/{album}")
         );
+    }
+
+    #[test]
+    fn the_gamdl_3_lyrics_recovery_uses_the_primarys_own_names_and_folder() {
+        // #1436: built from the primary run, not from Settings, so a format
+        // label MeedyaDL added to the file names is kept and the lyrics
+        // land beside the files the primary run really wrote.
+        let plan = plan_lyrics_recovery_run(&primary(), "/Resolved/Music", LyricsFormat::Srt);
+        assert_eq!(plan.output_path.as_deref(), Some("/Resolved/Music"));
+        assert_eq!(
+            plan.single_disc_file_template.as_deref(),
+            Some("{track:02d} {title} [Dolby Atmos]")
+        );
+        assert_eq!(
+            plan.album_folder_template.as_deref(),
+            Some("{album_artist}/{album}")
+        );
+        // Lyrics only, in the asked-for format, nothing extra saved.
+        assert_eq!(plan.synced_lyrics_only, Some(true));
+        assert_eq!(plan.synced_lyrics_format, Some(LyricsFormat::Srt));
+        assert_eq!(plan.no_synced_lyrics, Some(false));
+        assert_eq!(plan.save_cover, Some(false));
+        assert_eq!(plan.save_playlist, None);
+        assert_eq!(plan.word_timed_lyrics_file, None);
+        // The item's own overwrite choice is kept.
+        assert_eq!(plan.overwrite, Some(true));
     }
 
     // ---------------- the GAMDL pass: when it runs ----------------

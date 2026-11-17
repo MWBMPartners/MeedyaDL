@@ -3285,6 +3285,9 @@ pub fn process_queue(
                                     &lyrics_targets,
                                     &enrich_urls,
                                     &enrich_settings,
+                                    enrich_download_folder
+                                        .as_deref()
+                                        .map(|folder| (&enrich_primary_options, folder)),
                                 )
                                 .await;
                             }

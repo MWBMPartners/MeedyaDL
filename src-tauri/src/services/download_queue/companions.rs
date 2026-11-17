@@ -2224,6 +2224,7 @@ pub(crate) async fn run_lyrics_fallback(
     targets: &[std::path::PathBuf],
     urls: &[String],
     settings: &crate::models::settings::AppSettings,
+    primary: Option<(&GamdlOptions, &str)>,
 ) {
     // M9-7 belt-and-braces: lyrics fallback uses GAMDL's
     // `synced_lyrics_only` flag which only accepts Apple Music URLs.
@@ -2302,39 +2303,43 @@ pub(crate) async fn run_lyrics_fallback(
             ),
         );
 
-        // Build minimal options for lyrics-only download using struct init
-        // syntax (clippy: field_reassign_with_default). Carries over auth
-        // and template settings so lyrics land in the correct folder.
-        let opts = GamdlOptions {
-            synced_lyrics_format: Some(format.clone()),
-            synced_lyrics_only: Some(true),
-            output_path: crate::services::config_service::usable_download_folder(
-                &settings.output_path,
-            ),
-            temp_path: Some(if settings.temp_path.is_empty() {
-                std::env::temp_dir()
-                    .join("MeedyaDL")
-                    .to_string_lossy()
-                    .to_string()
-            } else {
-                settings.temp_path.clone()
-            }),
-            cookies_path: settings.cookies_path.clone(),
-            use_wrapper: Some(settings.use_wrapper),
-            wrapper_account_url: if settings.use_wrapper {
-                Some(settings.wrapper_account_url.clone())
-            } else {
-                None
-            },
-            single_disc_file_template: Some(settings.single_disc_file_template.clone()),
-            multi_disc_file_template: Some(settings.multi_disc_file_template.clone()),
-            no_album_file_template: Some(settings.no_album_file_template.clone()),
-            playlist_file_template: Some(settings.playlist_file_template.clone()),
-            album_folder_template: Some(settings.album_folder_template.clone()),
-            compilation_folder_template: Some(settings.compilation_folder_template.clone()),
-            no_album_folder_template: Some(settings.no_album_folder_template.clone()),
-            overwrite: Some(settings.overwrite),
-            ..Default::default()
+        // The primary run's own options when they are known (#1436), so the
+        // lyrics land beside the files exactly as the primary named them.
+        // Otherwise, minimal options built from Settings, as before.
+        let opts = if let Some((primary_options, folder)) = primary {
+            super::lyrics_pass::plan_lyrics_recovery_run(primary_options, folder, format.clone())
+        } else {
+            GamdlOptions {
+                synced_lyrics_format: Some(format.clone()),
+                synced_lyrics_only: Some(true),
+                output_path: crate::services::config_service::usable_download_folder(
+                    &settings.output_path,
+                ),
+                temp_path: Some(if settings.temp_path.is_empty() {
+                    std::env::temp_dir()
+                        .join("MeedyaDL")
+                        .to_string_lossy()
+                        .to_string()
+                } else {
+                    settings.temp_path.clone()
+                }),
+                cookies_path: settings.cookies_path.clone(),
+                use_wrapper: Some(settings.use_wrapper),
+                wrapper_account_url: if settings.use_wrapper {
+                    Some(settings.wrapper_account_url.clone())
+                } else {
+                    None
+                },
+                single_disc_file_template: Some(settings.single_disc_file_template.clone()),
+                multi_disc_file_template: Some(settings.multi_disc_file_template.clone()),
+                no_album_file_template: Some(settings.no_album_file_template.clone()),
+                playlist_file_template: Some(settings.playlist_file_template.clone()),
+                album_folder_template: Some(settings.album_folder_template.clone()),
+                compilation_folder_template: Some(settings.compilation_folder_template.clone()),
+                no_album_folder_template: Some(settings.no_album_folder_template.clone()),
+                overwrite: Some(settings.overwrite),
+                ..Default::default()
+            }
         };
 
         // Build and run GAMDL command
