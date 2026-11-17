@@ -1363,6 +1363,8 @@ pub async fn cancel_download(
         // Persist the updated queue (cancelled item removed from active set)
         let queue_handle = queue.inner().clone();
         download_queue::save_queue_to_disk(&app, &queue_handle).await;
+        // Restart the queue's idle check, in case this was a stuck run.
+        kick_queue_after_stop(&app, &queue_handle).await;
 
         let short = &download_id[..8.min(download_id.len())];
         emit_app_log(&app, &format!("Cancelled download [{short}]"));
@@ -1988,6 +1990,7 @@ pub async fn delete_queue_item(
 
             let short = &download_id[..8.min(download_id.len())];
             emit_app_log(&app, &format!("Removed queue item [{short}]"));
+            kick_queue_after_stop(&app, &queue_handle).await;
 
             // Best-effort frontend notification; the deletion has already
             // landed regardless of whether the event reaches the UI.
@@ -2058,6 +2061,7 @@ pub async fn clear_all_queue(
     if removed > 0 {
         emit_app_log(&app, &format!("Cleared all {removed} item(s) from queue"));
     }
+    kick_queue_after_stop(&app, &queue_handle).await;
 
     Ok(removed)
 }
@@ -2126,9 +2130,34 @@ pub async fn abort_all_downloads(
         // Event emission is best-effort; the state change already landed,
         // so a failed emit is non-critical.
         let _ = app.emit("downloads-aborted", &summary);
+    } else if summary.stuck_runs_stopped > 0 {
+        // Only runs already marked stuck were stopped.
+        emit_app_log(&app, "Aborted: stopped a download that was marked stuck");
     }
+    kick_queue_after_stop(&app, &queue_handle).await;
 
     Ok(summary)
+}
+
+/// Restarts the queue's idle check after something was stopped or removed
+/// (#1432). A stuck run hung in a blocking step may have been the only thing
+/// keeping the queue "busy", and nothing else would look again. Only items
+/// that are `Queued` can be started, so this is safe after an Abort (none are
+/// left); with other items waiting it respects the "auto-start" setting.
+async fn kick_queue_after_stop(app: &AppHandle, queue: &QueueHandle) {
+    let has_queued = {
+        let q = queue.lock().await;
+        q.get_status()
+            .iter()
+            .any(|i| i.state == crate::models::download::DownloadState::Queued)
+    };
+    if has_queued {
+        let settings = crate::services::config_service::load_settings(app).unwrap_or_default();
+        if !settings.auto_start_queue {
+            return;
+        }
+    }
+    download_queue::process_queue(app.clone(), queue.clone()).await;
 }
 
 /// Pauses the queue scheduler — **non-destructive** (#889).

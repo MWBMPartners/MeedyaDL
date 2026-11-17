@@ -8136,3 +8136,40 @@ fn stalled_run_saved_files_ignores_an_earlier_attempt() {
         "the earlier attempt's file does not count"
     );
 }
+
+/// Work handed out after an Abort owns the next drain (#1432 review): the
+/// abort record must not outlive the aborted batch.
+#[test]
+fn starting_new_work_clears_the_abort_record() {
+    let mut queue = DownloadQueue::new();
+    let _a = enqueue_one(&mut queue);
+    queue.abort_all();
+    // New links are pasted before the aborted run reached its stop check.
+    let _b = enqueue_one(&mut queue);
+    assert!(queue.next_pending().is_some());
+    assert!(
+        !queue.take_recently_aborted(),
+        "the new batch must not inherit the old abort"
+    );
+}
+
+/// Deleting or clearing an item takes its still-running stuck attempt off
+/// the live list (#1432 review).
+#[test]
+fn delete_and_clear_end_the_stuck_run_of_removed_items() {
+    let mut q = DownloadQueue::new();
+    let _id = enqueue_one(&mut q);
+    let a = q.next_pending().expect("starts").attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert!(q.has_live_stalled_runs());
+    assert_eq!(q.delete(&a.id).ok(), Some(true));
+    assert!(!q.has_live_stalled_runs(), "delete ends the stuck run");
+
+    let mut q = DownloadQueue::new();
+    let _id = enqueue_one(&mut q);
+    let a = q.next_pending().expect("starts").attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert!(q.has_live_stalled_runs());
+    q.clear_all();
+    assert!(!q.has_live_stalled_runs(), "clear_all ends the stuck run");
+}

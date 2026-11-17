@@ -611,6 +611,11 @@ pub struct AbortSummary {
     /// Items that were in post-download `Processing` (enrichment,
     /// companion downloads, etc.) when the abort fired.
     pub processing_stopped: u32,
+    /// Runs already marked stuck (failed by the stall check but still going)
+    /// that this abort stopped. Not counted in `total()` and not sent to the
+    /// frontend; used only for the activity-log line.
+    #[serde(skip)]
+    pub stuck_runs_stopped: u32,
 }
 
 impl AbortSummary {
@@ -1266,6 +1271,11 @@ impl DownloadQueue {
                  Cancel it first."
             )),
             _ => {
+                // A run marked stuck may still be going; the removed item can
+                // no longer own it, so stop it holding the queue back.
+                if let Some(n) = self.items[idx].stalled_attempt {
+                    self.end_live_stalled_run(n);
+                }
                 self.items.remove(idx);
                 log::info!("Deleted download {download_id} from queue");
                 Ok(true)
@@ -1301,6 +1311,22 @@ impl DownloadQueue {
     /// Number of items removed.
     pub fn clear_all(&mut self) -> usize {
         let before = self.items.len();
+        // Runs marked stuck that belong to items about to be removed no
+        // longer hold the queue back.
+        let gone: Vec<u64> = self
+            .items
+            .iter()
+            .filter(|i| {
+                !matches!(
+                    i.status.state,
+                    DownloadState::Downloading | DownloadState::Processing
+                )
+            })
+            .filter_map(|i| i.stalled_attempt)
+            .collect();
+        for n in gone {
+            self.end_live_stalled_run(n);
+        }
         self.items.retain(|item| {
             matches!(
                 item.status.state,
@@ -1418,6 +1444,7 @@ impl DownloadQueue {
         for number in &stuck_runs {
             self.end_live_stalled_run(*number);
         }
+        summary.stuck_runs_stopped = stuck_runs.len() as u32;
         for id in &ids_to_evict {
             crate::utils::activity_log::evict_activity_counter(id);
         }
@@ -2397,6 +2424,12 @@ impl DownloadQueue {
         // after-queue action fires on a real drain and not merely because the
         // queue was asked to start with nothing in it (#1169).
         self.ran_since_drain = true;
+        // Work handed out after an Abort owns the next drain: the abort record
+        // belongs to the batch that was aborted, not to whatever starts next
+        // (Undo on the abort message, or new links pasted before the aborted
+        // run reached its stop check). Left set, it would hide the new
+        // batch's "Queue finished" and after-queue action.
+        self.recently_aborted = false;
 
         // Return the data needed to start the download, including the
         // detected service ID for service-aware routing (#318).
