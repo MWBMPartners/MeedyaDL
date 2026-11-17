@@ -293,7 +293,7 @@ fn setup_panic_handler() {
         // Build the crash report JSON
         let report = serde_json::json!({
             "id": uuid::Uuid::new_v4().to_string(),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "timestamp": crate::utils::time_compat::now_rfc3339(),
             "app_version": env!("CARGO_PKG_VERSION"),
             "os": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
@@ -314,7 +314,10 @@ fn setup_panic_handler() {
         let crash_dir = utils::platform::resolve_early_app_data_root().join("crashes");
 
         if std::fs::create_dir_all(&crash_dir).is_ok() {
-            let filename = format!("crash-{}.json", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+            let filename = format!(
+                "crash-{}.json",
+                crate::utils::time_compat::compact_stamp(crate::utils::time_compat::now_utc())
+            );
             let path = crash_dir.join(&filename);
             if let Ok(json) = serde_json::to_string_pretty(&report) {
                 let _ = std::fs::write(&path, json);

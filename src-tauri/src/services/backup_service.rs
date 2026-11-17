@@ -37,7 +37,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use chrono::Utc;
 use serde::Serialize;
 use tauri::AppHandle;
 
@@ -67,7 +66,7 @@ fn backups_root(app: &AppHandle) -> PathBuf {
 /// `20260518-001530`. Uses UTC so backups sort correctly regardless
 /// of the user's TZ (which can shift across DST).
 fn snapshot_dir_name() -> String {
-    Utc::now().format("%Y%m%d-%H%M%S").to_string()
+    crate::utils::time_compat::compact_stamp(crate::utils::time_compat::now_utc())
 }
 
 /// Summary returned to the caller (and on to the frontend via IPC).

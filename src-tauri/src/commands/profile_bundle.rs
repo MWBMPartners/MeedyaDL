@@ -268,7 +268,7 @@ pub async fn export_profile(
     let default_name = format!(
         "MeedyaDL-{}-{}.meedyabundle",
         crate_version,
-        chrono::Utc::now().format("%Y-%m-%d")
+        crate::utils::time_compat::ymd(crate::utils::time_compat::now_utc())
     );
     let file_path = app
         .dialog()

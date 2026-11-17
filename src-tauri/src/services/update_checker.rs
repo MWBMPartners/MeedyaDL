@@ -64,7 +64,7 @@
 //   Response format: { "info": { "version": "X.Y.Z", ... }, "releases": { ... } }
 // - GitHub Releases API: https://docs.github.com/en/rest/releases/releases#get-the-latest-release
 // - Reqwest HTTP client: https://docs.rs/reqwest/latest/reqwest/
-// - Chrono for timestamps: https://docs.rs/chrono/latest/chrono/
+// - `time` for timestamps (through utils/time_compat.rs): https://docs.rs/time/latest/time/
 
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -1134,7 +1134,7 @@ pub async fn check_all_updates(
     };
 
     UpdateCheckResult {
-        checked_at: chrono::Utc::now().to_rfc3339(),
+        checked_at: crate::utils::time_compat::now_rfc3339(),
         has_updates,
         components,
         errors,
@@ -2624,7 +2624,7 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         ));
     };
 
-    let Ok(recorded_date) = chrono::DateTime::parse_from_rfc3339(recorded_date) else {
+    let Some(recorded_date) = crate::utils::time_compat::parse_rfc3339(recorded_date) else {
         return Ok(not_checkable_update(
             "FFmpeg",
             "ffmpeg",
@@ -2635,7 +2635,7 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
                 .to_string(),
         ));
     };
-    let recorded_date = recorded_date.with_timezone(&chrono::Utc);
+    let recorded_date = recorded_date.to_offset(time::UtcOffset::UTC);
 
     // The only network call in this function — a real failure here (and
     // only here) is allowed to bubble up as Err, same as every other
@@ -2645,7 +2645,7 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         crate::services::dependency_manager::fetch_ffmpeg_source_build_date(&info.source, false)
             .await?;
 
-    let age_days = (current_build_date - recorded_date).num_days();
+    let age_days = (current_build_date - recorded_date).whole_days();
     let update_available = age_days > STALE_AFTER_DAYS;
 
     Ok(ComponentUpdate {
@@ -2654,7 +2654,7 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         // FFmpeg has no meaningful version number to show as "latest" for
         // two of its three sources — the build date is the only thing
         // that means the same thing every time, so it's shown instead.
-        latest_version: Some(current_build_date.date_naive().to_string()),
+        latest_version: Some(crate::utils::time_compat::ymd(current_build_date)),
         update_available,
         not_checkable_reason: None,
         is_compatible: true,

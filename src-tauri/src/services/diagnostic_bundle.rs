@@ -115,7 +115,7 @@ pub fn build_diagnostic_bundle(
     }
     body.push_str(&format!(
         "**Generated:** {}\n",
-        chrono::Utc::now().to_rfc3339()
+        crate::utils::time_compat::now_rfc3339()
     ));
     body.push_str(&format!(
         "**MeedyaDL version:** {}\n",

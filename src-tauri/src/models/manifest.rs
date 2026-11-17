@@ -195,7 +195,7 @@ fn default_disc() -> u32 {
 impl ManifestFile {
     /// Create a new manifest with a single source.
     pub fn new(source: ManifestSource) -> Self {
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = crate::utils::time_compat::now_rfc3339();
         Self {
             version: 1,
             app: "MeedyaDL".to_string(),
@@ -224,7 +224,7 @@ impl ManifestFile {
     ///   - Different `url` → append (existing multi-platform /
     ///     multi-album behaviour).
     pub fn merge_source(&mut self, source: ManifestSource) {
-        self.updated_at = chrono::Utc::now().to_rfc3339();
+        self.updated_at = crate::utils::time_compat::now_rfc3339();
 
         // Replace existing source for the same platform + URL + codec,
         // or append. `codec` is part of the key so primary + companion

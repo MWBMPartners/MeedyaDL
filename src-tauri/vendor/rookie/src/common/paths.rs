@@ -97,29 +97,6 @@ pub fn find_safari_based_paths(config: &Browser) -> Result<PathBuf> {
 }
 
 #[cfg(target_os = "windows")]
-pub fn find_ie_based_paths(config: &Browser) -> Result<PathBuf> {
-  for path in &config.paths {
-    // base paths
-    let channels = config.channels.clone().unwrap_or(vec!["".to_string()]);
-    for channel in channels {
-      // channels
-
-      let path = path.replace("{channel}", &channel);
-      let path = expand_path(path.as_str())?;
-      let glob_paths = expand_glob_paths(path)?;
-      for path in glob_paths {
-        // expanded glob paths
-        if path.exists() {
-          log::debug!("Found IE path {}", path.display());
-          return Ok(path);
-        }
-      }
-    }
-  }
-
-  bail!("Can't find cookies file")
-}
-#[cfg(target_os = "windows")]
 pub fn expand_path(path: &str) -> Result<PathBuf> {
   use regex::Regex;
   // Define a regex pattern to match placeholders like %SOMETHING%

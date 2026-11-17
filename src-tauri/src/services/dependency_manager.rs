@@ -584,7 +584,7 @@ pub(crate) fn ffmpeg_build_info_path(app: &AppHandle) -> PathBuf {
 pub(crate) async fn fetch_ffmpeg_source_build_date(
     source: &str,
     fresh: bool,
-) -> Result<chrono::DateTime<chrono::Utc>, String> {
+) -> Result<time::OffsetDateTime, String> {
     match source {
         "btbn" => fetch_btbn_ffmpeg_build_date().await,
         "evermeet" => fetch_evermeet_ffmpeg_build_date().await,
@@ -602,7 +602,7 @@ pub(crate) async fn fetch_ffmpeg_source_build_date(
 /// (2026-09-23 14:55)" reported `published_at` from the same day), so
 /// that field is a trustworthy build date even though the tag itself
 /// never changes.
-async fn fetch_btbn_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>, String> {
+async fn fetch_btbn_ffmpeg_build_date() -> Result<time::OffsetDateTime, String> {
     let client = crate::utils::http_client::build_simple(15)?;
     let response = client
         .get("https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest")
@@ -628,9 +628,9 @@ async fn fetch_btbn_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>,
         .and_then(|v| v.as_str())
         .ok_or("BtbN's release response had no published_at field")?;
 
-    chrono::DateTime::parse_from_rfc3339(published_at)
-        .map(|dt| dt.with_timezone(&chrono::Utc))
-        .map_err(|e| format!("Could not parse BtbN's published_at '{published_at}': {e}"))
+    crate::utils::time_compat::parse_rfc3339(published_at)
+        .map(|dt| dt.to_offset(time::UtcOffset::UTC))
+        .ok_or_else(|| format!("Could not parse BtbN's published_at '{published_at}'"))
 }
 
 /// evermeet.cx doesn't publish a JSON date field for its "release" build
@@ -641,7 +641,7 @@ async fn fetch_btbn_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>,
 /// header reported the same date (18 September 2026) as the build's own
 /// RSS feed entry, so it's a trustworthy stand-in for "when was this
 /// build made" without needing to parse the feed's XML.
-async fn fetch_evermeet_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>, String> {
+async fn fetch_evermeet_ffmpeg_build_date() -> Result<time::OffsetDateTime, String> {
     // No User-Agent header here, matching every other evermeet.cx request
     // this app already makes (the actual FFmpeg download in
     // `archive::download_file()` sends none either, and evermeet.cx has
@@ -666,9 +666,9 @@ async fn fetch_evermeet_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::U
         .and_then(|v| v.to_str().ok())
         .ok_or("evermeet.cx's response had no Last-Modified header")?;
 
-    chrono::DateTime::parse_from_rfc2822(header)
-        .map(|dt| dt.with_timezone(&chrono::Utc))
-        .map_err(|e| format!("Could not parse evermeet.cx's Last-Modified '{header}': {e}"))
+    crate::utils::time_compat::parse_rfc2822(header)
+        .map(|dt| dt.to_offset(time::UtcOffset::UTC))
+        .ok_or_else(|| format!("Could not parse evermeet.cx's Last-Modified '{header}'"))
 }
 
 /// Does the mirror record a build DATE for the FFmpeg it serves to this
@@ -698,9 +698,7 @@ pub(crate) fn mirror_records_ffmpeg_build_date_for(os: &str) -> bool {
 /// `"2026-09-22T13:38:08Z"`) — the simplest of the three sources to read,
 /// since no reshaping is needed at all. On a Mac this refuses: see
 /// [`mirror_records_ffmpeg_build_date_for`].
-async fn fetch_mirror_ffmpeg_build_date(
-    fresh: bool,
-) -> Result<chrono::DateTime<chrono::Utc>, String> {
+async fn fetch_mirror_ffmpeg_build_date(fresh: bool) -> Result<time::OffsetDateTime, String> {
     if !mirror_records_ffmpeg_build_date_for(std::env::consts::OS) {
         return Err(
             "The mirror records a version number, not a build date, for its macOS FFmpeg — \
@@ -719,9 +717,9 @@ async fn fetch_mirror_ffmpeg_build_date(
         .filter(|s| !s.is_empty())
         .ok_or("The mirror's versions.json has no 'ffmpeg' entry")?;
 
-    chrono::DateTime::parse_from_rfc3339(raw)
-        .map(|dt| dt.with_timezone(&chrono::Utc))
-        .map_err(|e| format!("Could not parse the mirror's ffmpeg build date '{raw}': {e}"))
+    crate::utils::time_compat::parse_rfc3339(raw)
+        .map(|dt| dt.to_offset(time::UtcOffset::UTC))
+        .ok_or_else(|| format!("Could not parse the mirror's ffmpeg build date '{raw}'"))
 }
 
 // Regex caches.
@@ -2873,7 +2871,9 @@ async fn install_new_copy(
         }
         let info = FfmpegBuildInfo {
             source: ffmpeg_source.to_string(),
-            build_date: build_date.ok().map(|dt| dt.to_rfc3339()),
+            build_date: build_date
+                .ok()
+                .map(crate::utils::time_compat::to_stored_rfc3339),
         };
         if let Err(e) = crate::utils::atomic_write::atomic_write_json(
             &ffmpeg_build_info_path(app),
@@ -5851,21 +5851,23 @@ sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
     /// 2026-09-23 (see `fetch_btbn_ffmpeg_build_date()`,
     /// `fetch_evermeet_ffmpeg_build_date()`, and
     /// `fetch_mirror_ffmpeg_build_date()`'s doc comments) and proves
-    /// `chrono` actually parses each one — most notably evermeet.cx's
+    /// the date reader actually parses each one — most notably evermeet.cx's
     /// `Last-Modified` header, which uses the obsolete "GMT" zone name
     /// (RFC 7231 IMF-fixdate) rather than a numeric offset, which is
     /// the one case that could plausibly fail to parse.
     #[test]
     fn ffmpeg_source_date_formats_all_parse() {
         // BtbN's GitHub release `published_at` — plain RFC 3339.
-        assert!(chrono::DateTime::parse_from_rfc3339("2026-09-23T15:14:33Z").is_ok());
+        assert!(crate::utils::time_compat::parse_rfc3339("2026-09-23T15:14:33Z").is_some());
 
         // evermeet.cx's `Last-Modified` HTTP header — RFC 2822 with the
         // "GMT" zone name instead of a numeric offset.
-        assert!(chrono::DateTime::parse_from_rfc2822("Fri, 18 Sep 2026 19:34:47 GMT").is_ok());
+        assert!(
+            crate::utils::time_compat::parse_rfc2822("Fri, 18 Sep 2026 19:34:47 GMT").is_some()
+        );
 
         // The mirror's own versions.json "ffmpeg" entry — also RFC 3339.
-        assert!(chrono::DateTime::parse_from_rfc3339("2026-09-22T13:38:08Z").is_ok());
+        assert!(crate::utils::time_compat::parse_rfc3339("2026-09-22T13:38:08Z").is_some());
     }
 
     /// The exact real-world case named in issue #273: the mirror's

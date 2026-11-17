@@ -56,7 +56,6 @@ byteorder = "1"
 
 [target.'cfg(windows)'.dependencies]
 base64 = "0.22"
-libesedb = "0.2"
 rawcopy-rs-next = "0.1.3"
 privilege = "0.3.0"
 windows = { version = "0.51", features = [

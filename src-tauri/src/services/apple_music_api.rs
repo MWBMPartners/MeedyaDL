@@ -873,7 +873,7 @@ pub fn get_webplayer_token_from_keychain() -> Result<Option<String>, String> {
     match entry.get_password() {
         Ok(token) if token.trim().is_empty() => Ok(None),
         Ok(token) => {
-            let now = chrono::Utc::now().timestamp();
+            let now = crate::utils::time_compat::now_utc().unix_timestamp();
             if webplayer_token_is_stale(&token, now) {
                 log::warn!(
                     "Web player developer token in keychain is stale (expired or expiring \

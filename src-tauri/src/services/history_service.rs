@@ -308,8 +308,8 @@ mod tests {
             album: Some("Test Album".to_string()),
             codec: Some("alac".to_string()),
             file_path: None,
-            started_at: chrono::Utc::now().to_rfc3339(),
-            completed_at: chrono::Utc::now().to_rfc3339(),
+            started_at: crate::utils::time_compat::now_rfc3339(),
+            completed_at: crate::utils::time_compat::now_rfc3339(),
             status: status.to_string(),
             error_message: None,
         }

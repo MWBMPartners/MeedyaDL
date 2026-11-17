@@ -307,7 +307,7 @@ fn write_event(
 
     // Fall back to "today" if the timestamp is malformed for any reason.
     let date = if event_date.is_empty() {
-        chrono::Utc::now().format("%Y-%m-%d").to_string()
+        crate::utils::time_compat::ymd(crate::utils::time_compat::now_utc())
     } else {
         event_date
     };

@@ -329,16 +329,14 @@ uuid = { version = "1", features = ["v4"] }
 
 # ---- Date/Time ----
 
-# chrono -- Date and time library with timezone support.
-# Used for:
-#   - Parsing cookie expiration timestamps from Apple Music cookies
-#   - Formatting timestamps in download history and logs
-#   - Calculating time-based UI displays (e.g., "downloaded 5 minutes ago")
-#
-# Feature "serde" enables #[derive(Serialize, Deserialize)] for chrono types,
-# allowing dates to be included in IPC responses and persisted state.
-# @see https://docs.rs/chrono/ -- chrono documentation
-chrono = { version = "0.4", features = ["serde"] }
+# time -- Date and time library (replaces chrono, #1449). Used through
+# `utils/time_compat.rs`, which writes every stored date in exactly the
+# text form chrono used to write, so old files keep working.
+# `local-offset` is needed to read the computer's own time zone (labels,
+# the session file name, the Spotify daily-cap day); if it cannot be read
+# the code falls back to UTC. `time` was already part of the build through
+# other crates, so this adds one tiny crate (`num_threads`).
+time = { version = "0.3.55", features = ["std", "formatting", "parsing", "macros", "local-offset"] }
 
 # ---- Logging & Telemetry ----
 
@@ -419,15 +417,14 @@ thiserror = "2"
 # `.meedyadl` manifests on disk REMAIN the source of truth — the DB
 # is rebuildable from them via scan_folder_for_manifests.
 #
-# Features:
+# Feature:
 #   - `bundled` -- ships SQLite source statically, no system dep
-#   - `chrono` -- ISO-8601 timestamp marshalling for activity_events
-# Both required for a zero-deployment-friction story (no system
-# SQLite shared-library lookup; chrono types we already use across
-# the project marshal directly into TEXT columns).
+#     (a zero-deployment-friction story: no system SQLite shared-library
+#     lookup). Dates are stored as plain TEXT written by
+#     `utils/time_compat.rs`, so no date-type feature is needed (#1449).
 # @see https://docs.rs/rusqlite/ -- rusqlite documentation
 # @see #875 -- EPIC A: SQLite-backed download index + activity log
-rusqlite = { version = "0.43", features = ["bundled", "chrono"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 
 # ---- Shared MeedyaSuite-core fingerprint + ReplayGain crate (#353) ----
 
@@ -734,10 +731,13 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage
 # pins rusqlite ^0.31, whose bundled SQLite (libsqlite3-sys 0.28) is
 # covered by RUSTSEC-2026-0459. `vendor/rookie` is rookie 0.5.6 exactly as
 # published (MIT; its licence travels with it in MIT-LICENSE.txt), with
-# three changes: its rusqlite dependency is 0.43, which bundles a fixed
+# four changes: its rusqlite dependency is 0.43, which bundles a fixed
 # SQLite; two cookie expiry reads take a signed number (rusqlite 0.43 no
-# longer reads into u64); and its manifest declares `license = "MIT"`
-# instead of pointing at a licence file outside the folder. rookie only
+# longer reads into u64); its manifest declares `license = "MIT"`
+# instead of pointing at a licence file outside the folder; and Internet
+# Explorer support is removed (#1449): MeedyaDL never imports from it, and
+# it was the only reason the Windows build pulled in `libesedb` (LGPL, plus
+# a C build step) and, through it, `chrono` (RUSTSEC-2026-0543). rookie only
 # opens the browser's cookie database read-only, prepares a query and
 # reads rows, which works the same on both rusqlite versions.
 # Remove this patch (and the vendor folder) once rookie publishes a

@@ -117,18 +117,6 @@ ignore = [
     # that wording to "a dependency MeedyaDL cannot replace on its own".
     "RUSTSEC-2024-0449", # unsafe-libyaml — unmaintained (via serde_yaml -> meedya-lyrics)
 
-    # chrono — unmaintained (advisory published 17 Nov 2026; every version is
-    # affected and there is nothing newer to move to). It is a notice that
-    # bugs will not be fixed upstream, not a reported vulnerability. MeedyaDL
-    # uses it directly for dates, and it also arrives through `rusqlite`
-    # (MeedyaDL and the bundled cookie library) and, at build time, through
-    # `patch-apply -> libesedb-sys -> libesedb -> rookie`. So even once
-    # MeedyaDL's own code moves to `jiff` or `time` (the advisory's
-    # suggestions), chrono stays in the build until those libraries drop it.
-    # Tracked in #1449; remove this entry when the lockfile no longer
-    # contains chrono.
-    "RUSTSEC-2026-0543", # chrono — unmaintained (direct, and via rusqlite / rookie)
-
     # glib — VariantStrIter unsoundness in Iterator / DoubleEndedIterator
     # impls. Removed from the tree at some point during the Tauri dependency
     # churn (cargo-deny reports "advisory-not-detected"); the ignore is
@@ -250,16 +238,6 @@ license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 # cannot avoid. They are statically linked into the binary, which technically
 # requires LGPL compliance (source availability for the LGPL portions).
 # MeedyaDL is open-source (MIT), so this obligation is satisfied.
-
-[[licenses.exceptions]]
-# libesedb — LGPL-3.0-or-later only (transitive via rookie cookie extraction)
-name = "libesedb"
-allow = ["LGPL-3.0-or-later"]
-
-[[licenses.exceptions]]
-# libesedb-sys — LGPL-3.0-or-later only (transitive via rookie)
-name = "libesedb-sys"
-allow = ["LGPL-3.0-or-later"]
 
 [[licenses.exceptions]]
 # r-efi — MIT OR Apache-2.0 OR LGPL-2.1-or-later (MIT chosen, but LGPL listed)

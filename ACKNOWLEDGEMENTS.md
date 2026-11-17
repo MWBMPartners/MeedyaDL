@@ -61,7 +61,6 @@ exact number.
 | aes-gcm | 0.10 | MIT/Apache-2.0 | AES-GCM authenticated encryption (Profile Bundle export, credential vault) |
 | arboard | 3.7 | MIT/Apache-2.0 | Cross-platform clipboard access |
 | base64 | 0.22 | MIT/Apache-2.0 | Base64 encoding/decoding (animated artwork, API payloads) |
-| chrono | 0.4 | MIT/Apache-2.0 | Date and time library |
 | cookie | 0.18 | MIT/Apache-2.0 | HTTP cookie parsing |
 | dirs | 6.0 | MIT/Apache-2.0 | Platform-standard directories |
 | flate2 | 1.1 | MIT/Apache-2.0 | Gzip compression/decompression |
@@ -81,7 +80,7 @@ exact number.
 | rand | 0.8 | MIT/Apache-2.0 | Random number generation (salt + nonce derivation, retry jitter, temporary file names that never repeat) |
 | regex | 1.13 | MIT/Apache-2.0 | Regular expression parsing |
 | reqwest | 0.12 | MIT/Apache-2.0 | HTTP client |
-| rookie | 0.5 | MIT | Browser cookie extraction (our own copy of 0.5.6 in `src-tauri/vendor/rookie`, moved to a fixed SQLite; #1413) |
+| rookie | 0.5 | MIT | Browser cookie extraction (our own copy of 0.5.6 in `src-tauri/vendor/rookie`, moved to a fixed SQLite; #1413; Internet Explorer support removed, #1449) |
 | roxmltree | 0.21 | MIT/Apache-2.0 | XML parsing (TTML lyrics) |
 | rusqlite | 0.43 | MIT | SQLite bindings (Library Index database + Profile Bundle export manifests) |
 | sentry | 0.46 | MIT | Crash reporting (opt-in) |
@@ -93,6 +92,7 @@ exact number.
 | tar | 0.4 | MIT/Apache-2.0 | TAR archive extraction |
 | tauri | 2.12 | MIT/Apache-2.0 | Desktop application framework |
 | thiserror | 2.0 | MIT/Apache-2.0 | Derive macro for ergonomic error types |
+| time | 0.3 | MIT/Apache-2.0 | Date and time library (every stored date goes through one helper, `utils/time_compat.rs`; replaced chrono, #1449) |
 | tokio | 1.54 | MIT | Async runtime |
 | toml | 0.9 | MIT/Apache-2.0 | TOML configuration parsing |
 | tracing | 0.1 | MIT | Structured logging |

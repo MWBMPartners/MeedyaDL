@@ -17,7 +17,9 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Duration, Utc};
+use time::{Duration, UtcOffset};
+
+use crate::utils::time_compat;
 use serde::Serialize;
 use tauri::AppHandle;
 
@@ -122,20 +124,20 @@ pub fn compute_lifetime_stats(history: &[HistoryEntry]) -> LifetimeStats {
     let top_album = top_name(history, |e| e.album.as_deref());
 
     // Last 7 days: bucket by ISO date (UTC). Parse `completed_at` to
-    // a chrono DateTime; entries with unparseable timestamps are
+    // a date; entries with unparseable timestamps are
     // silently skipped (legacy data hygiene — never a parse error
     // worth surfacing).
-    let now = Utc::now();
+    let now = time_compat::now_utc();
     let seven_days_ago = now - Duration::days(7);
     let mut day_map: BTreeMap<String, usize> = BTreeMap::new();
     for entry in history {
-        let Ok(ts) = entry.completed_at.parse::<DateTime<Utc>>() else {
+        let Some(ts) = time_compat::parse_rfc3339_lenient(&entry.completed_at) else {
             continue;
         };
         if ts < seven_days_ago {
             continue;
         }
-        let date_key = ts.format("%Y-%m-%d").to_string();
+        let date_key = time_compat::ymd(ts.to_offset(UtcOffset::UTC));
         *day_map.entry(date_key).or_insert(0) += 1;
     }
     let last_7_days: Vec<DayCount> = day_map
@@ -230,7 +232,7 @@ mod tests {
 
     #[test]
     fn computes_success_rate_and_codec_distribution() {
-        let now = Utc::now().to_rfc3339();
+        let now = time_compat::now_rfc3339();
         let entries = vec![
             entry(Some("A"), Some("X"), Some("alac"), "success", &now),
             entry(Some("A"), Some("X"), Some("alac"), "success", &now),
@@ -257,8 +259,8 @@ mod tests {
 
     #[test]
     fn last_7_days_filters_old_entries() {
-        let recent = Utc::now().to_rfc3339();
-        let old = (Utc::now() - Duration::days(10)).to_rfc3339();
+        let recent = time_compat::now_rfc3339();
+        let old = time_compat::to_stored_rfc3339(time_compat::now_utc() - Duration::days(10));
         let entries = vec![
             entry(Some("A"), None, Some("alac"), "success", &recent),
             entry(Some("B"), None, Some("alac"), "success", &old),
@@ -269,7 +271,7 @@ mod tests {
 
     #[test]
     fn failures_dont_pollute_codec_distribution() {
-        let now = Utc::now().to_rfc3339();
+        let now = time_compat::now_rfc3339();
         // A failed entry with a populated codec must NOT count in
         // the distribution — failures didn't produce a file.
         let entries = vec![

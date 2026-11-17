@@ -335,7 +335,7 @@ fn emit_inner(
         download_id: id.to_string(),
         stream: "internal",
         line,
-        timestamp: chrono::Utc::now().to_rfc3339(),
+        timestamp: crate::utils::time_compat::now_rfc3339(),
         severity,
     };
 
@@ -469,7 +469,7 @@ pub fn emit_subprocess_line(
         download_id: download_id.to_string(),
         stream,
         line,
-        timestamp: chrono::Utc::now().to_rfc3339(),
+        timestamp: crate::utils::time_compat::now_rfc3339(),
         severity,
     };
     if show_in_ui {

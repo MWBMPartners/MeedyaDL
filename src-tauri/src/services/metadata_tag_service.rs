@@ -1797,14 +1797,11 @@ pub(crate) fn apply_album_layer(
 /// UTC. Anything else returns `None`, so nothing is written (#1444).
 pub(crate) fn normalise_last_modified(raw: &str) -> Option<String> {
     let raw = raw.trim();
-    let utc = match chrono::DateTime::parse_from_rfc3339(raw) {
-        Ok(dt) => dt.with_timezone(&chrono::Utc),
-        Err(_) => chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d")
-            .ok()?
-            .and_hms_opt(0, 0, 0)?
-            .and_utc(),
+    let utc = match crate::utils::time_compat::parse_rfc3339(raw) {
+        Some(dt) => dt,
+        None => crate::utils::time_compat::parse_date_only_utc(raw)?,
     };
-    Some(utc.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+    Some(crate::utils::time_compat::to_tag_utc_seconds(utc))
 }
 
 /// Writes the date the service the file came from last updated the release,

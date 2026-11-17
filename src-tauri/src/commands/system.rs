@@ -248,7 +248,7 @@ pub fn save_session_log(app: tauri::AppHandle, entries: Vec<String>) -> Result<(
     let log_dir = crate::utils::platform::get_app_data_dir(&app).join("logs");
     std::fs::create_dir_all(&log_dir).map_err(|e| format!("Failed to create log dir: {e}"))?;
 
-    let date = chrono::Local::now().format("%Y-%m-%d");
+    let date = crate::utils::time_compat::ymd(crate::utils::time_compat::now_local_or_utc());
     let session_file = log_dir.join(format!("session-{date}.log"));
 
     let mut file = std::fs::OpenOptions::new()

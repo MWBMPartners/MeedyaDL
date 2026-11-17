@@ -147,12 +147,6 @@
           "%LOCALAPPDATA%/librewolf",
           "%APPDATA%/librewolf"
         ]
-      },
-      "ie": {
-        "paths": [
-          "%APPDATA%/Microsoft/Windows/WebCache/WebCacheV01.dat",
-          "%LOCALAPPDATA%/Microsoft/Windows/WebCache/WebCacheV01.dat"
-        ]
       }
     },
     "macos": {

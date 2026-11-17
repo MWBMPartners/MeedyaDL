@@ -399,7 +399,7 @@ pub fn process_queue(
 
         // Capture download start time for the manifest file. This is when
         // the first file begins downloading, not when enrichment finishes.
-        let download_started_at = chrono::Utc::now().to_rfc3339();
+        let download_started_at = crate::utils::time_compat::now_rfc3339();
 
         // M9-7: Look up this item's engine for the new top-of-loop
         // dispatch fork. Branching on engine (not service) is
@@ -1721,7 +1721,7 @@ pub fn process_queue(
                                 );
                                 let report = CrashReport {
                                     id: uuid::Uuid::new_v4().to_string(),
-                                    timestamp: chrono::Utc::now().to_rfc3339(),
+                                    timestamp: crate::utils::time_compat::now_rfc3339(),
                                     app_version: env!("CARGO_PKG_VERSION").to_string(),
                                     os: std::env::consts::OS.to_string(),
                                     arch: std::env::consts::ARCH.to_string(),
@@ -1758,7 +1758,7 @@ pub fn process_queue(
                                             codec: None,
                                             file_path: None,
                                             started_at: created,
-                                            completed_at: chrono::Utc::now().to_rfc3339(),
+                                            completed_at: crate::utils::time_compat::now_rfc3339(),
                                             status: "failed".to_string(),
                                             error_message: Some(error_msg.clone()),
                                         },
@@ -1908,7 +1908,7 @@ pub fn process_queue(
                             codec: completed_codec.clone(),
                             file_path: output_path_for_artwork.clone(),
                             started_at: history_created_at.unwrap_or_default(),
-                            completed_at: chrono::Utc::now().to_rfc3339(),
+                            completed_at: crate::utils::time_compat::now_rfc3339(),
                             status: "success".to_string(),
                             error_message: None,
                         },
@@ -2331,8 +2331,7 @@ pub fn process_queue(
                             // copy of the same track in the folder.
                             let fresh_files = super::lyrics_pass::fresh_at_snapshot(
                                 &primary_files,
-                                chrono::DateTime::parse_from_rfc3339(&enrich_started_at)
-                                    .ok()
+                                crate::utils::time_compat::parse_rfc3339(&enrich_started_at)
                                     .map(std::time::SystemTime::from),
                             );
                             // The same judgement for music VIDEOS, which are not
@@ -2345,8 +2344,7 @@ pub fn process_queue(
                                         std::path::Path::new(&album_dir),
                                     ),
                                     enrich_videos_before.as_ref(),
-                                    chrono::DateTime::parse_from_rfc3339(&enrich_started_at)
-                                        .ok()
+                                    crate::utils::time_compat::parse_rfc3339(&enrich_started_at)
                                         .map(std::time::SystemTime::from),
                                 );
                             // As early as this download's files can be known:
@@ -2715,9 +2713,10 @@ pub fn process_queue(
                                 {
                                     let root = std::path::PathBuf::from(root);
                                     let started: Option<std::time::SystemTime> =
-                                        chrono::DateTime::parse_from_rfc3339(&enrich_started_at)
-                                            .ok()
-                                            .map(std::time::SystemTime::from);
+                                        crate::utils::time_compat::parse_rfc3339(
+                                            &enrich_started_at,
+                                        )
+                                        .map(std::time::SystemTime::from);
                                     // Only GAMDL can rewrite an existing file,
                                     // and only with overwrite on.
                                     let run_overwrote =
@@ -3721,10 +3720,9 @@ pub fn process_queue(
                                     // When this download started, so the extra-
                                     // copy step can tell the lyric files this
                                     // download made from older ones.
-                                    download_started_at: chrono::DateTime::parse_from_rfc3339(
+                                    download_started_at: crate::utils::time_compat::parse_rfc3339(
                                         &enrich_started_at,
                                     )
-                                    .ok()
                                     .map(std::time::SystemTime::from),
                                     // Only files this run wrote may be upgraded
                                     // from an extra copy, at their final names.
@@ -6020,7 +6018,7 @@ pub fn process_queue(
                             );
                             let report = CrashReport {
                                 id: uuid::Uuid::new_v4().to_string(),
-                                timestamp: chrono::Utc::now().to_rfc3339(),
+                                timestamp: crate::utils::time_compat::now_rfc3339(),
                                 app_version: env!("CARGO_PKG_VERSION").to_string(),
                                 os: std::env::consts::OS.to_string(),
                                 arch: std::env::consts::ARCH.to_string(),
@@ -6058,7 +6056,7 @@ pub fn process_queue(
                                     codec: None,
                                     file_path: None,
                                     started_at: created,
-                                    completed_at: chrono::Utc::now().to_rfc3339(),
+                                    completed_at: crate::utils::time_compat::now_rfc3339(),
                                     status: "failed".to_string(),
                                     error_message: Some(error_msg.clone()),
                                 },

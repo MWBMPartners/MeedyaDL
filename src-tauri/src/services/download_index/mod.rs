@@ -9,7 +9,7 @@
 // `scan_folder_for_manifests`.
 //
 // M1 scope (this commit):
-//   * `rusqlite` dependency wired (`bundled` + `chrono` features).
+//   * `rusqlite` dependency wired (`bundled` feature).
 //   * Schema v1 SQL embedded via `include_str!` from `schema_v1.sql`.
 //   * `DownloadIndex` wrapper around `rusqlite::Connection`.
 //   * Idempotent migration runner that creates the schema on first
@@ -145,7 +145,7 @@ impl DownloadIndex {
         tx.execute_batch(SCHEMA_V1_SQL)?;
         tx.execute(
             "INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (1, ?1)",
-            [chrono::Utc::now().to_rfc3339()],
+            [crate::utils::time_compat::now_rfc3339()],
         )?;
         tx.commit()?;
         Ok(())
@@ -158,7 +158,7 @@ impl DownloadIndex {
         tx.execute_batch(SCHEMA_V2_SQL)?;
         tx.execute(
             "INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (2, ?1)",
-            [chrono::Utc::now().to_rfc3339()],
+            [crate::utils::time_compat::now_rfc3339()],
         )?;
         tx.commit()?;
         Ok(())
@@ -188,7 +188,7 @@ impl DownloadIndex {
         self.conn.execute(
             "INSERT INTO meta (key, value, set_at) VALUES (?1, ?2, ?3) \
              ON CONFLICT(key) DO UPDATE SET value = excluded.value, set_at = excluded.set_at",
-            [key, value, &chrono::Utc::now().to_rfc3339()],
+            [key, value, &crate::utils::time_compat::now_rfc3339()],
         )?;
         Ok(())
     }

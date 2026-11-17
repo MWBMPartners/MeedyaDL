@@ -202,7 +202,7 @@ impl BundleMeta {
             producer: PRODUCER_ID.to_string(),
             producer_version: producer_version.into(),
             producer_platform: current_platform_string(),
-            exported_at: chrono::Utc::now().to_rfc3339(),
+            exported_at: crate::utils::time_compat::now_rfc3339(),
             exported_by: None,
             note: None,
             contents: Vec::new(),

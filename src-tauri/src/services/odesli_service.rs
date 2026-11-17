@@ -457,11 +457,11 @@ fn save_cache(path: &Path, file: &OdesliCacheFile) {
 fn cache_get<'a>(
     file: &'a OdesliCacheFile,
     url: &str,
-    now: chrono::DateTime<chrono::Utc>,
+    now: time::OffsetDateTime,
 ) -> Option<&'a CrossPlatformUrls> {
     let entry = file.entries.get(url)?;
-    let looked_up_at: chrono::DateTime<chrono::Utc> = entry.looked_up_at.parse().ok()?;
-    if now - looked_up_at > chrono::Duration::days(CACHE_MAX_AGE_DAYS) {
+    let looked_up_at = crate::utils::time_compat::parse_rfc3339_lenient(&entry.looked_up_at)?;
+    if now - looked_up_at > time::Duration::days(CACHE_MAX_AGE_DAYS) {
         return None;
     }
     Some(&entry.urls)
@@ -476,13 +476,13 @@ fn cache_put(
     file: &mut OdesliCacheFile,
     url: &str,
     urls: CrossPlatformUrls,
-    now: chrono::DateTime<chrono::Utc>,
+    now: time::OffsetDateTime,
     max_entries: usize,
 ) {
     file.entries.insert(
         url.to_string(),
         OdesliLookupResult {
-            looked_up_at: now.to_rfc3339(),
+            looked_up_at: crate::utils::time_compat::to_stored_rfc3339(now),
             source_url: url.to_string(),
             urls,
         },
@@ -493,13 +493,13 @@ fn cache_put(
             .entries
             .iter()
             .min_by(|(_, a), (_, b)| {
-                let a_ts = a.looked_up_at.parse::<chrono::DateTime<chrono::Utc>>();
-                let b_ts = b.looked_up_at.parse::<chrono::DateTime<chrono::Utc>>();
+                let a_ts = crate::utils::time_compat::parse_rfc3339_lenient(&a.looked_up_at);
+                let b_ts = crate::utils::time_compat::parse_rfc3339_lenient(&b.looked_up_at);
                 match (a_ts, b_ts) {
-                    (Ok(a), Ok(b)) => a.cmp(&b),
-                    (Err(_), Ok(_)) => std::cmp::Ordering::Less,
-                    (Ok(_), Err(_)) => std::cmp::Ordering::Greater,
-                    (Err(_), Err(_)) => std::cmp::Ordering::Equal,
+                    (Some(a), Some(b)) => a.cmp(&b),
+                    (None, Some(_)) => std::cmp::Ordering::Less,
+                    (Some(_), None) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
                 }
             })
             .map(|(k, _)| k.clone());
@@ -760,7 +760,7 @@ pub async fn lookup(
         return fetch_links(&key, api_key).await;
     };
 
-    let now = chrono::Utc::now();
+    let now = crate::utils::time_compat::now_utc();
 
     // Check the cache first. The lock is held only long enough to
     // read it — released at the end of this block, before any
@@ -1156,12 +1156,12 @@ mod tests {
 
     #[test]
     fn cache_get_returns_only_fresh_entries() {
-        let now = chrono::Utc::now();
+        let now = crate::utils::time_compat::now_utc();
         let mut file = OdesliCacheFile::default();
         file.entries.insert(
             "fresh".to_string(),
             OdesliLookupResult {
-                looked_up_at: now.to_rfc3339(),
+                looked_up_at: crate::utils::time_compat::to_stored_rfc3339(now),
                 source_url: "fresh".to_string(),
                 urls: CrossPlatformUrls::new(),
             },
@@ -1169,7 +1169,9 @@ mod tests {
         file.entries.insert(
             "stale".to_string(),
             OdesliLookupResult {
-                looked_up_at: (now - chrono::Duration::days(31)).to_rfc3339(),
+                looked_up_at: crate::utils::time_compat::to_stored_rfc3339(
+                    now - time::Duration::days(31),
+                ),
                 source_url: "stale".to_string(),
                 urls: CrossPlatformUrls::new(),
             },
@@ -1191,20 +1193,20 @@ mod tests {
 
     #[test]
     fn cache_put_evicts_oldest_beyond_cap() {
-        let now = chrono::Utc::now();
+        let now = crate::utils::time_compat::now_utc();
         let mut file = OdesliCacheFile::default();
         cache_put(
             &mut file,
             "a",
             CrossPlatformUrls::new(),
-            now - chrono::Duration::minutes(2),
+            now - time::Duration::minutes(2),
             2,
         );
         cache_put(
             &mut file,
             "b",
             CrossPlatformUrls::new(),
-            now - chrono::Duration::minutes(1),
+            now - time::Duration::minutes(1),
             2,
         );
         assert_eq!(file.entries.len(), 2);
@@ -1221,7 +1223,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join(CACHE_FILENAME);
 
-        let now = chrono::Utc::now();
+        let now = crate::utils::time_compat::now_utc();
         let mut file = OdesliCacheFile::default();
         let mut urls = CrossPlatformUrls::new();
         urls.insert(

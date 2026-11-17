@@ -2342,7 +2342,7 @@ pub async fn export_queue(app: AppHandle, queue: State<'_, QueueHandle>) -> Resu
     let export_file = download_queue::QueueExportFile {
         version: 1,
         app: "MeedyaDL".to_string(),
-        exported_at: chrono::Utc::now().to_rfc3339(),
+        exported_at: crate::utils::time_compat::now_rfc3339(),
         items,
     };
 
@@ -2645,8 +2645,8 @@ pub struct ActivityLogExportEntry {
 
 /// Formats an ISO 8601 timestamp to a short HH:MM:SS string for the export file.
 fn format_timestamp_short(iso: &str) -> String {
-    chrono::DateTime::parse_from_rfc3339(iso)
-        .map_or_else(|_| iso.to_string(), |dt| dt.format("%H:%M:%S").to_string())
+    crate::utils::time_compat::parse_rfc3339(iso)
+        .map_or_else(|| iso.to_string(), crate::utils::time_compat::hms)
 }
 
 /// Exports activity log entries to a `.log` file via a native save dialog.
@@ -2681,7 +2681,7 @@ pub async fn export_activity_log(
     let mut lines = Vec::with_capacity(count + 3);
     lines.push(format!(
         "MeedyaDL Activity Log -- Exported {}",
-        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+        crate::utils::time_compat::ymd_hms(crate::utils::time_compat::now_local_or_utc())
     ));
     lines.push(format!("{count} entries"));
     lines.push(String::new()); // blank separator
@@ -2705,9 +2705,10 @@ pub async fn export_activity_log(
 
     // Open native save dialog with .log filter.
     // Filename includes the current date/time for easy identification.
-    let default_name = chrono::Local::now()
-        .format("MeedyaDL-activity-log_%Y-%m-%d_%Hh%Mm.log")
-        .to_string();
+    let default_name = format!(
+        "MeedyaDL-activity-log_{}.log",
+        crate::utils::time_compat::export_stamp(crate::utils::time_compat::now_local_or_utc())
+    );
     let file_path = app
         .dialog()
         .file()

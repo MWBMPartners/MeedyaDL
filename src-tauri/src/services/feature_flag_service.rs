@@ -464,7 +464,7 @@ async fn resolve_refresh(
             // the diagnostics wholesale.
             fresh.meta = FetchMeta {
                 source: FlagSource::Remote,
-                fetched_at: Some(chrono::Utc::now().to_rfc3339()),
+                fetched_at: Some(crate::utils::time_compat::now_rfc3339()),
                 consecutive_failures: 0,
                 last_error: None,
             };

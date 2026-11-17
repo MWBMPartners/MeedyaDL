@@ -31,7 +31,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use chrono::{Local, NaiveDate};
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
@@ -220,14 +219,14 @@ impl DailyCapCounter {
 /// Wrapped here so the test below can mock the clock via the
 /// internal [`today_iso_for_now`] sibling.
 fn today_iso() -> String {
-    today_iso_for_now(Local::now().date_naive())
+    today_iso_for_now(crate::utils::time_compat::now_local_or_utc().date())
 }
 
 /// Pure variant of [`today_iso`] — takes the date instead of
 /// reading the wall clock. Lets tests pin the rollover edges
 /// without time-travel hacks.
-fn today_iso_for_now(d: NaiveDate) -> String {
-    d.format("%Y-%m-%d").to_string()
+fn today_iso_for_now(d: time::Date) -> String {
+    crate::utils::time_compat::ymd_of_date(d)
 }
 
 // ============================================================
@@ -369,7 +368,6 @@ mod tests {
         assert!(is_developer_preview_package("votify"));
         assert!(!is_developer_preview_package("gamdl"));
     }
-    use chrono::NaiveDate;
 
     fn settings_default() -> AntiBanSettings {
         AntiBanSettings::default()
@@ -513,7 +511,7 @@ mod tests {
 
     #[test]
     fn today_iso_for_now_formats_correctly() {
-        let d = NaiveDate::from_ymd_opt(2026, 6, 9).unwrap();
+        let d = time::Date::from_calendar_date(2026, time::Month::June, 9).unwrap();
         assert_eq!(today_iso_for_now(d), "2026-06-09");
     }
 

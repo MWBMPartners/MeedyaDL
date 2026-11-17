@@ -207,7 +207,7 @@ pub fn write_diagnostic_if_any(
 
     let report = CrashReport {
         id: uuid::Uuid::new_v4().to_string(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
+        timestamp: crate::utils::time_compat::now_rfc3339(),
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),

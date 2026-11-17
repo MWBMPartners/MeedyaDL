@@ -609,7 +609,7 @@ fn save_cookies_from_webview(
     }
 
     // Check cookie expiry (if expiry info is available).
-    let now = chrono::Utc::now().timestamp();
+    let now = crate::utils::time_compat::now_utc().unix_timestamp();
     let mut has_expired = false;
     for cookie in &apple_cookies {
         if let Some(cookie::Expiration::DateTime(dt)) = cookie.expires() {

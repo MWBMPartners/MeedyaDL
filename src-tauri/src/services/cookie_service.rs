@@ -546,7 +546,7 @@ pub fn extract_and_save(app: &AppHandle, browser_id: &str) -> Result<CookieImpor
 
     // Step 5: Build the result with validation info
     let mut warnings = Vec::new();
-    let now = chrono::Utc::now().timestamp();
+    let now = crate::utils::time_compat::now_utc().unix_timestamp();
 
     // Count Apple Music cookies and check expiry
     let mut apple_music_count = 0;

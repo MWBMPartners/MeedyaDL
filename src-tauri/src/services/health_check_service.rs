@@ -323,7 +323,7 @@ pub fn parse_cookies_file(path: &str) -> Result<CookieValidation, String> {
     let mut expired = false;
     let mut warnings = Vec::new();
     // Current UTC timestamp for comparing against cookie expiry times
-    let now = chrono::Utc::now().timestamp();
+    let now = crate::utils::time_compat::now_utc().unix_timestamp();
 
     // Parse each line of the Netscape cookie file
     for line in contents.lines() {

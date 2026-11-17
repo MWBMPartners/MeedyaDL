@@ -118,9 +118,6 @@ version = "0.10"
 [target."cfg(windows)".dependencies.base64]
 version = "0.22"
 
-[target."cfg(windows)".dependencies.libesedb]
-version = "0.2"
-
 [target."cfg(windows)".dependencies.privilege]
 version = "0.3.0"
 

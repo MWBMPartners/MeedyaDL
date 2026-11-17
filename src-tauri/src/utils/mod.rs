@@ -202,3 +202,8 @@ pub mod language;
 /// The wrapper's decryption address: automatic or typed, and splitting it
 /// into host and port (#1433).
 pub mod wrapper_address;
+
+/// Date and time helpers (#1449): the one place that writes and reads
+/// stored dates, so their text form never drifts from what older versions
+/// of the app wrote.
+pub mod time_compat;

@@ -1180,7 +1180,7 @@ pub async fn export_settings(app: AppHandle) -> Result<String, String> {
     let export_file = SettingsExportFile {
         version: 1,
         app: "MeedyaDL".to_string(),
-        exported_at: chrono::Utc::now().to_rfc3339(),
+        exported_at: crate::utils::time_compat::now_rfc3339(),
         settings,
     };
 

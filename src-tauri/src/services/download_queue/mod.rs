@@ -700,7 +700,7 @@ impl DownloadQueue {
                     warnings: Vec::new(),
                     audio_traits: Vec::new(),
                     mv_companion_count: None,
-                    created_at: chrono::Utc::now().to_rfc3339(),
+                    created_at: crate::utils::time_compat::now_rfc3339(),
                 }
             },
             request,
