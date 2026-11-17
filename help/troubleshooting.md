@@ -201,9 +201,9 @@ If wrapper downloads fail often, turn on **Auto-Retry without Wrapper** in **Set
 
 #### Every track is skipped when the wrapper is on
 
-If **every** track in a download is skipped for the same reason, saying it is not available, even though the wrapper looks fine, the wrapper's sign-in to Apple Music has most likely run out, even though the wrapper looks like it is running. Sign the wrapper in again: with the newer wrapper, press **Sign in to wrapper** in **Settings > Advanced > Wrapper**; with the older one, follow its own instructions. Then retry the download. [Wrapper Authentication](wrapper.md) has the details.
+If **every** track in a download is skipped for the same reason, saying it is not available, the wrapper's sign-in to Apple Music has most likely run out, even though the wrapper looks like it is running. Sign the wrapper in again: with the newer wrapper, press **Sign in to wrapper** in **Settings > Advanced > Wrapper**; with the older one, follow its own instructions. Then retry the download. [Wrapper Authentication](wrapper.md) has the details.
 
-If only **some** tracks are skipped, or you chose a single format with no fallback, those tracks are probably not offered in that format. Adjust your [Fallback Quality](fallback-quality.md) list so another format is tried for them (see also [Some tracks skipped](#some-tracks-skipped-partial-album)).
+If only **some** tracks are skipped, those tracks are probably not offered in that format. The same goes for every track being skipped if you chose a single format with no fallback: try again with a common format such as **AAC**, or add more formats to your [Fallback Quality](fallback-quality.md) list (see also "Some tracks skipped" earlier on this page). If a common format also skips every track, the wrapper sign-in above is the likely cause.
 
 <details>
 <summary>More detail: other reasons tracks are skipped</summary>
