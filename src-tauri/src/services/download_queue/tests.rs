@@ -8222,8 +8222,9 @@ fn stop_commands_do_not_call_process_queue() {
         .find("fn kick_queue_after_stop")
         .expect("kick fn exists");
     let body = &src[start..];
-    let end = body.find("\n}\n").expect("fn ends");
-    let body = &body[..end];
+    // Windows checkouts use "\r\n" line endings; the shared helper
+    // finds the closing brace with either.
+    let body = &body[..end_of_function(body)];
     assert!(!body.contains("process_queue"));
     assert!(body.contains("finish_queue_if_drained"));
 }
