@@ -88,6 +88,8 @@ os.environ["RUSTUP_HOME"] = "/opt/rustup"
 assert package_folders() == ["/opt/cargo/registry", "/opt/cargo/git", "/opt/rustup"]
 assert classify("/opt/cargo/registry/src/aes/lib.rs", "/w") == "outside"
 assert classify("/opt/cargo/bin/x.rs", "/w") == "ours"
+assert classify("/opt/cargo/git/checkouts/MeedyaSuite-core-1a2b/abc/src/lib.rs", "/w") == "ours"
+assert classify("/opt/cargo/git/checkouts/other-1a2b/abc/src/lib.rs", "/w") == "outside"
 assert classify("file://" + os.getcwd() + "/" + VENDOR, os.getcwd()) == "vendor"
 
 # An empty folder fails rather than uploading nothing.

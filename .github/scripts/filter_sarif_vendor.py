@@ -137,6 +137,10 @@ def classify(path: str, checkout: str, packages: list[str] | None = None) -> str
         root = checkout.replace("\\", "/")
         if _under(path, root):
             path = path[len(root.rstrip("/")):].lstrip("/")
+        elif "/meedyasuite-core" in path.lower():
+            # MeedyaSuite-core is our own shared code, even when Cargo keeps
+            # it in its git cache, so it is never treated as third-party.
+            return "ours"
         elif any(_under(path, f.replace("\\", "/"))
                  for f in (package_folders() if packages is None else packages)):
             return "outside"
