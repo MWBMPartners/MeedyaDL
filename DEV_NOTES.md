@@ -1616,7 +1616,7 @@ The post-download enrichment pipeline runs inside `tokio::spawn(async move {...}
 1. Tag I/O wrapped in `tokio::task::spawn_blocking()` in all 4 services
 2. `tokio::task::yield_now().await` added between all enrichment steps
 
-`enhanced_lyrics_service::process_enhanced_lyrics_for_directory()` was changed from `async fn` to `fn` (had zero `.await` calls). It no longer has a call site in the download pipeline: since #1441 the per-file steps in `download_queue/lyrics_steps.rs` do this work, and the folder-wide function is kept only as the reference the parity tests compare with (removal is #1443).
+The Enhanced LRC conversion was once an `async fn` with no `.await` calls, and was changed to a plain `fn` that callers wrap in `spawn_blocking()`. Since #1441 the per-file steps in `download_queue/lyrics_steps.rs` do this work, and the old whole-folder function (`process_enhanced_lyrics_for_directory`) was removed in #1443.
 
 ---
 
@@ -2631,7 +2631,7 @@ Lyric/subtitle generators run on every enrichment pass (first download, companio
 | ASS generator              | `.ass`             | `lyrics_steps.rs` (`step_ass`) | **Skips** an existing `.ass` unless the caller allows replacing it |
 | Lyricsfile generator       | `.lyrics`          | `lyrics_steps.rs` (`step_lyricsfile`) | **Skips** an existing `.lyrics` unless the caller allows replacing it (keeps hand edits made in LRCGET) |
 
-The per-file steps in `lyrics_steps.rs` (#1441) are the one code path now. The older folder-wide service functions are kept only as a reference the parity tests check against (removal is #1443). Where a step may replace an existing `.vtt`, `.ass` or `.lyrics` is decided by the caller: the main download's own steps never replace an existing `.vtt`, `.ass` or `.lyrics`; only the upgrade of a main file from a better extra copy may, and then only files this download made; extra copies and the catch-up never replace one.
+The per-file steps in `lyrics_steps.rs` (#1441) are the one code path now. The older folder-wide service functions were removed in #1443; the per-file output is pinned by fixed expected-output files in `download_queue/lyrics_steps_golden/`. Where a step may replace an existing `.vtt`, `.ass` or `.lyrics` is decided by the caller: the main download's own steps never replace an existing `.vtt`, `.ass` or `.lyrics`; only the upgrade of a main file from a better extra copy may, and then only files this download made; extra copies and the catch-up never replace one.
 
 **Status: documented, not changed.** The audit in #550 considered four options (status quo with docs / content-hash skip / opt-in preservation / `.bak` backup) and settled on documented-status-quo. The overwriting generators are idempotent converters whose inputs (TTML from GAMDL, TTML from `/syllable-lyrics`) are themselves refreshed from upstream, so overwriting is the correct default for the 95% case — first-time generation and upstream content updates. The asymmetry between `.lrc`/`.srt` (overwrite) and `.vtt`/`.ass` (skip) is historical; it's called out in `help/lyrics-and-metadata.md` so users with hand-edited sidecars can work around it (rename to a non-generator extension, disable the generator, or copy the file before re-running enrichment).
 

@@ -6,8 +6,10 @@
 // Enrichment's Steps 2, 2c, 2d, 2e, 2f and 2g each used to hand a whole
 // folder to a folder-wide service function. That also converted older files
 // that happened to sit in the same folder (rewriting their `.lrc` and `.srt`,
-// re-embedding their lyrics), and it missed disc sub-folders. This module is
-// the one per-file implementation of those steps:
+// re-embedding their lyrics), and it missed disc sub-folders. Those six
+// folder-wide functions were removed in #1443; this module is the one
+// per-file implementation of the steps, and its tests pin the exact output
+// against fixed expected text (`lyrics_steps_golden/`):
 //
 // - The extra-format copies' driver (`companion_lyrics::process_copy`) calls
 //   the step functions below in order, for one copy.
@@ -595,6 +597,42 @@ mod tests {
         out
     }
 
+    /// A readable picture of one music file's tags: every atom and its
+    /// value, sorted, so a fixed expected text can pin what was embedded.
+    fn render_tags(path: &Path) -> String {
+        let tag = mp4ameta::Tag::read_from_path(path).unwrap();
+        let mut lines: Vec<String> = tag
+            .data()
+            .map(|(ident, data)| match data {
+                mp4ameta::Data::Utf8(text) => format!("{ident:?} = {text}"),
+                other => format!("{ident:?} = {other:?}"),
+            })
+            .collect();
+        lines.sort();
+        lines.join("\n")
+    }
+
+    /// A readable picture of a whole folder (top level): each file's name,
+    /// then its text, or for a music file its tags. This is what the fixed
+    /// expected-output files in `lyrics_steps_golden/` hold.
+    fn render(dir: &Path) -> String {
+        let mut out = String::new();
+        for (name, bytes) in snapshot(dir) {
+            out.push_str(&format!("=== {name} ===\n"));
+            let ext = Path::new(&name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            if matches!(ext, "m4a" | "m4v" | "mp4") {
+                out.push_str(&render_tags(&dir.join(&name)));
+            } else {
+                out.push_str(&String::from_utf8_lossy(&bytes));
+            }
+            out.push('\n');
+        }
+        out
+    }
+
     /// The music files in a folder (top level), sorted.
     fn media_in(dir: &Path) -> Vec<PathBuf> {
         let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
@@ -642,53 +680,51 @@ mod tests {
         track("08 No lyrics");
     }
 
-    /// Two identical folders, one run folder-wide and one per file.
-    fn parity(whole_folder: impl Fn(&str), per_file: impl Fn(&[PathBuf]), prepare: impl Fn(&Path)) {
-        let a = tempfile::tempdir().unwrap();
-        let b = tempfile::tempdir().unwrap();
-        fixtures(a.path());
-        fixtures(b.path());
-        prepare(a.path());
-        prepare(b.path());
-        whole_folder(&a.path().to_string_lossy());
-        per_file(&media_in(b.path()));
-        let (sa, sb) = (snapshot(a.path()), snapshot(b.path()));
-        assert_eq!(
-            sa.iter().map(|(n, _)| n).collect::<Vec<_>>(),
-            sb.iter().map(|(n, _)| n).collect::<Vec<_>>(),
-            "the same files must exist"
+    /// Builds the fixture folder, runs one step over its music files, and
+    /// checks the whole folder afterwards against a fixed expected text in
+    /// `lyrics_steps_golden/`. (Before #1443 this compared the per-file code
+    /// with the old whole-folder functions; those are gone, so the exact
+    /// output they produced is written down instead.)
+    fn pinned(expected: &str, per_file: impl Fn(&[PathBuf]), prepare: impl Fn(&Path)) {
+        let dir = tempfile::tempdir().unwrap();
+        fixtures(dir.path());
+        prepare(dir.path());
+        per_file(&media_in(dir.path()));
+        let got = render(dir.path());
+        assert!(
+            got == expected,
+            "the folder after the step does not match the fixed expected output.\n--- got ---\n{got}\n--- expected ---\n{expected}"
         );
-        for ((name, a_bytes), (_, b_bytes)) in sa.iter().zip(sb.iter()) {
-            assert_eq!(a_bytes, b_bytes, "{name} differs between the two routes");
-        }
     }
 
-    // ---- 1. parity with the folder-wide functions ----
+    // ---- 1. fixed expected output for every step ----
 
     #[test]
-    fn enhanced_lrc_matches_the_folder_wide_function() {
-        for keep in [true, false] {
-            parity(
-                |d| {
-                    crate::services::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
-                        d, keep,
-                    )
-                    .unwrap();
-                },
-                |f| {
-                    enhanced_lrc_for_files(f, keep).unwrap();
-                },
-                |_| {},
-            );
-        }
-    }
-
-    #[test]
-    fn webvtt_matches_the_folder_wide_function() {
-        parity(
-            |d| {
-                crate::services::webvtt_service::generate_webvtt_for_directory(d).unwrap();
+    fn enhanced_lrc_gives_the_pinned_output() {
+        pinned(
+            include_str!("lyrics_steps_golden/enhanced_lrc_keep.txt"),
+            |f| {
+                enhanced_lrc_for_files(f, true).unwrap();
             },
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn enhanced_lrc_without_keeping_the_sidecar_gives_the_pinned_output() {
+        pinned(
+            include_str!("lyrics_steps_golden/enhanced_lrc_no_keep.txt"),
+            |f| {
+                enhanced_lrc_for_files(f, false).unwrap();
+            },
+            |_| {},
+        );
+    }
+
+    #[test]
+    fn webvtt_gives_the_pinned_output() {
+        pinned(
+            include_str!("lyrics_steps_golden/webvtt.txt"),
             |f| {
                 webvtt_for_files(f).unwrap();
             },
@@ -697,11 +733,9 @@ mod tests {
     }
 
     #[test]
-    fn rich_srt_matches_the_folder_wide_function() {
-        parity(
-            |d| {
-                crate::services::rich_srt_service::generate_rich_srt_for_directory(d).unwrap();
-            },
+    fn rich_srt_gives_the_pinned_output() {
+        pinned(
+            include_str!("lyrics_steps_golden/rich_srt.txt"),
             |f| {
                 rich_srt_for_files(f).unwrap();
             },
@@ -710,17 +744,15 @@ mod tests {
     }
 
     #[test]
-    fn subtitle_embedding_matches_the_folder_wide_function() {
-        // Give the files `.srt` and `.vtt` text first, so there is
-        // something to embed on both routes.
+    fn subtitle_embedding_gives_the_pinned_output() {
+        // Give one file `.srt` and `.vtt` text first, so there is
+        // something to embed.
         let prepare = |dir: &Path| {
             std::fs::write(dir.join("01 Word.srt"), SRT).unwrap();
             std::fs::write(dir.join("01 Word.vtt"), VTT).unwrap();
         };
-        parity(
-            |d| {
-                crate::services::rich_srt_service::embed_subtitles_for_directory(d).unwrap();
-            },
+        pinned(
+            include_str!("lyrics_steps_golden/embed_subtitles.txt"),
             |f| {
                 embed_subtitles_for_files(f).unwrap();
             },
@@ -729,30 +761,20 @@ mod tests {
     }
 
     #[test]
-    fn ass_matches_the_folder_wide_function() {
-        parity(
-            |d| {
-                crate::services::ass_subtitle_service::generate_ass_for_directory(d).unwrap();
-            },
+    fn ass_gives_the_pinned_output() {
+        pinned(
+            include_str!("lyrics_steps_golden/ass.txt"),
             |f| {
                 ass_for_files(f).unwrap();
             },
-            // A `.vtt` source for the Rich/ASS fallback.
             |_| {},
         );
     }
 
     #[test]
-    fn lyricsfile_matches_the_folder_wide_function() {
-        parity(
-            |d| {
-                crate::services::lyricsfile_service::generate_lyricsfile_for_directory(
-                    d,
-                    "Album Title",
-                    "Album Artist",
-                )
-                .unwrap();
-            },
+    fn lyricsfile_gives_the_pinned_output() {
+        pinned(
+            include_str!("lyrics_steps_golden/lyricsfile.txt"),
             |f| {
                 lyricsfile_for_files(f, "Album Title", "Album Artist").unwrap();
             },
@@ -761,28 +783,19 @@ mod tests {
     }
 
     #[test]
-    fn the_whole_chain_in_order_matches_the_folder_wide_chain() {
-        let a = tempfile::tempdir().unwrap();
-        let b = tempfile::tempdir().unwrap();
-        fixtures(a.path());
-        fixtures(b.path());
-        let d = a.path().to_string_lossy().to_string();
-        crate::services::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(&d, true)
-            .unwrap();
-        crate::services::webvtt_service::generate_webvtt_for_directory(&d).unwrap();
-        crate::services::rich_srt_service::generate_rich_srt_for_directory(&d).unwrap();
-        crate::services::rich_srt_service::embed_subtitles_for_directory(&d).unwrap();
-        crate::services::ass_subtitle_service::generate_ass_for_directory(&d).unwrap();
-        crate::services::lyricsfile_service::generate_lyricsfile_for_directory(&d, "T", "A")
-            .unwrap();
-        let files = media_in(b.path());
-        enhanced_lrc_for_files(&files, true).unwrap();
-        webvtt_for_files(&files).unwrap();
-        rich_srt_for_files(&files).unwrap();
-        embed_subtitles_for_files(&files).unwrap();
-        ass_for_files(&files).unwrap();
-        lyricsfile_for_files(&files, "T", "A").unwrap();
-        assert_eq!(snapshot(a.path()), snapshot(b.path()));
+    fn the_whole_chain_in_order_gives_the_pinned_output() {
+        pinned(
+            include_str!("lyrics_steps_golden/whole_chain.txt"),
+            |files| {
+                enhanced_lrc_for_files(files, true).unwrap();
+                webvtt_for_files(files).unwrap();
+                rich_srt_for_files(files).unwrap();
+                embed_subtitles_for_files(files).unwrap();
+                ass_for_files(files).unwrap();
+                lyricsfile_for_files(files, "T", "A").unwrap();
+            },
+            |_| {},
+        );
     }
 
     // ---- 2. a ttml with no music file, and the failed-write embed ----
@@ -791,15 +804,8 @@ mod tests {
     fn a_ttml_with_no_music_file_is_not_converted() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("lonely.ttml"), WORD_TTML).unwrap();
-        // The folder-wide function converts it (the known difference)...
-        crate::services::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
-            &dir.path().to_string_lossy(),
-            true,
-        )
-        .unwrap();
-        assert!(dir.path().join("lonely.lrc").exists());
-        std::fs::remove_file(dir.path().join("lonely.lrc")).unwrap();
-        // ...the per-file route has no music file to belong to.
+        // A `.ttml` that no music file belongs to is left alone: the steps
+        // work from the list of music files, not from the folder's lyrics.
         let files = vec![dir.path().join("lonely.m4a")];
         assert_eq!(enhanced_lrc_for_files(&files, true), Ok(0));
         assert!(!dir.path().join("lonely.lrc").exists());
@@ -898,18 +904,6 @@ mod tests {
         assert_eq!(enhanced_lrc_for_files(&targets, true), Ok(2));
         assert!(dir.path().join("00 Top.lrc").exists());
         assert!(disc.join("01 A.lrc").exists());
-        // The folder-wide function never looked inside the disc folder.
-        let other = tempfile::tempdir().unwrap();
-        let d2 = other.path().join("Disc 1");
-        std::fs::create_dir(&d2).unwrap();
-        minimal_m4a(&d2.join("01 A.m4a"), 1, 1, false);
-        std::fs::write(d2.join("01 A.ttml"), WORD_TTML).unwrap();
-        crate::services::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(
-            &other.path().to_string_lossy(),
-            true,
-        )
-        .unwrap();
-        assert!(!d2.join("01 A.lrc").exists());
     }
 
     // ---- 5. the list of files ----

@@ -3313,24 +3313,47 @@ fn the_companion_path_never_deletes_files() {
 
 /// The main download's lyrics steps work on a list of this download's
 /// files. A folder-wide call coming back would again convert every older
-/// file in the folder (#1441), so neither source file may call one of the
-/// six folder-wide lyrics functions.
+/// file in the folder (#1441). The six whole-folder lyrics functions were
+/// removed in #1443, so none of the files that held or called them may
+/// name them again.
 #[test]
-fn the_download_pipeline_never_calls_a_folder_wide_lyrics_function() {
+fn the_folder_wide_lyrics_functions_stay_removed() {
     let folder_wide = [
-        "process_enhanced_lyrics_for_directory(",
-        "generate_webvtt_for_directory(",
-        "generate_rich_srt_for_directory(",
-        "embed_subtitles_for_directory(",
-        "generate_ass_for_directory(",
-        "generate_lyricsfile_for_directory(",
+        "process_enhanced_lyrics_for_directory",
+        "generate_webvtt_for_directory",
+        "generate_rich_srt_for_directory",
+        "embed_subtitles_for_directory",
+        "generate_ass_for_directory",
+        "generate_lyricsfile_for_directory",
     ];
     for (name, src) in [
         ("processing.rs", include_str!("processing.rs")),
         ("companions.rs", include_str!("companions.rs")),
+        ("lyrics_steps.rs", include_str!("lyrics_steps.rs")),
+        (
+            "enhanced_lyrics_service.rs",
+            include_str!("../enhanced_lyrics_service.rs"),
+        ),
+        ("webvtt_service.rs", include_str!("../webvtt_service.rs")),
+        (
+            "rich_srt_service.rs",
+            include_str!("../rich_srt_service.rs"),
+        ),
+        (
+            "ass_subtitle_service.rs",
+            include_str!("../ass_subtitle_service.rs"),
+        ),
+        (
+            "lyricsfile_service.rs",
+            include_str!("../lyricsfile_service.rs"),
+        ),
+        (
+            "integration_tests.rs",
+            include_str!("../integration_tests.rs"),
+        ),
     ] {
         for call in folder_wide {
-            assert!(!src.contains(call), "{name} calls {call}");
+            assert!(!src.contains(call), "{name} names {call}");
         }
     }
 }

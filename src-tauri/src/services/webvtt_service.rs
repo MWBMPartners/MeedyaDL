@@ -17,129 +17,19 @@
 //
 // ## Integration
 //
-// Called from the enrichment pipeline (Step 2c) via `spawn_blocking()`.
-// This function is intentionally synchronous (no `.await` calls) because
-// it only does filesystem I/O — the async runtime wrapper prevents
-// blocking the tokio event loop on slow FUSE mounts.
+// This file holds the conversions (TTML, SRT and LRC to WebVTT). The
+// enrichment pipeline (Step 2c) calls them one music file at a time through
+// `download_queue::lyrics_steps`, on a blocking thread. They are plain
+// synchronous functions (no `.await`) because they only do text work.
 //
 // ## Opt-In
 //
 // Controlled by the `generate_webvtt` setting (default: false). Toggle
 // in Settings > Lyrics > "Generate WebVTT Subtitles".
 
-use std::path::Path;
-
-// ============================================================
-// Public API
-// ============================================================
-
-/// Generate WebVTT subtitle files for all media files in a directory.
-///
-/// Scans the directory for media files (`.m4a`, `.m4v`, `.mp4`) and
-/// attempts to create a `.vtt` sidecar for each one by converting the
-/// best available lyrics source file.
-///
-/// Source priority: `.ttml` → `.srt` → `.lrc`
-///
-/// Skips tracks that already have a `.vtt` file.
-///
-/// # Arguments
-/// * `album_dir` - Path to the album directory containing media and lyrics files
-///
-/// # Returns
-/// The number of `.vtt` files successfully generated.
-///
-/// The download pipeline no longer calls this folder-wide function: it works
-/// on every file in a folder, including older ones. The pipeline uses
-/// `download_queue::lyrics_steps`, which works on a list of files. This one is
-/// kept as the reference the per-file code is checked against.
-pub fn generate_webvtt_for_directory(album_dir: &str) -> Result<usize, String> {
-    let dir = Path::new(album_dir);
-    if !dir.is_dir() {
-        return Err(format!("Not a directory: {album_dir}"));
-    }
-
-    // Collect all media file stems (unique base names without extension)
-    let entries = std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {e}"))?;
-
-    let mut generated = 0;
-
-    // Iterate over directory entries looking for media files
-    for entry in entries.flatten() {
-        let path = entry.path();
-
-        // Skip macOS AppleDouble shadows and similar sidecars before
-        // the extension check — `._Track.m4a` would otherwise pass
-        // the allowlist below (#577).
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-            continue;
-        }
-
-        // Only process media files (.m4a, .m4v, .mp4)
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        if ext != "m4a" && ext != "m4v" && ext != "mp4" {
-            continue;
-        }
-
-        // Get the file stem (e.g., "01 Song Title")
-        let stem = match path.file_stem().and_then(|s| s.to_str()) {
-            Some(s) => s.to_string(),
-            None => continue,
-        };
-
-        // Skip if .vtt already exists for this track
-        let vtt_path = dir.join(format!("{stem}.vtt"));
-        if vtt_path.exists() {
-            continue;
-        }
-
-        // Try source formats in priority order: TTML → SRT → LRC
-        let vtt_content = if let Some(content) = try_convert_ttml(dir, &stem) {
-            content
-        } else if let Some(content) = try_convert_srt(dir, &stem) {
-            content
-        } else if let Some(content) = try_convert_lrc(dir, &stem) {
-            content
-        } else {
-            // No source lyrics found for this track
-            continue;
-        };
-
-        // Write the .vtt file
-        if let Err(e) = std::fs::write(&vtt_path, &vtt_content) {
-            log::debug!("Failed to write VTT for {stem}: {e}");
-            continue;
-        }
-
-        log::debug!("Generated WebVTT: {stem}.vtt");
-        generated += 1;
-    }
-
-    Ok(generated)
-}
-
 // ============================================================
 // TTML → WebVTT Conversion
 // ============================================================
-
-/// Try to convert a TTML file to WebVTT for the given track stem.
-///
-/// Returns `Some(vtt_content)` if a `.ttml` file exists and was
-/// successfully parsed, or `None` if no TTML file exists or parsing failed.
-fn try_convert_ttml(dir: &Path, stem: &str) -> Option<String> {
-    let ttml_path = dir.join(format!("{stem}.ttml"));
-    if !ttml_path.exists() {
-        return None;
-    }
-
-    let ttml_content = std::fs::read_to_string(&ttml_path).ok()?;
-    ttml_to_webvtt(&ttml_content).ok()
-}
 
 /// Convert TTML XML content to WebVTT format.
 ///
@@ -274,17 +164,6 @@ fn collect_text_content(node: &roxmltree::Node) -> String {
 // SRT → WebVTT Conversion
 // ============================================================
 
-/// Try to convert an SRT file to WebVTT for the given track stem.
-fn try_convert_srt(dir: &Path, stem: &str) -> Option<String> {
-    let srt_path = dir.join(format!("{stem}.srt"));
-    if !srt_path.exists() {
-        return None;
-    }
-
-    let srt_content = std::fs::read_to_string(&srt_path).ok()?;
-    Some(srt_to_webvtt(&srt_content))
-}
-
 /// Convert SRT content to WebVTT format.
 ///
 /// SRT and WebVTT are nearly identical formats. The main differences:
@@ -312,22 +191,6 @@ pub fn srt_to_webvtt(srt_content: &str) -> String {
 // ============================================================
 // LRC → WebVTT Conversion
 // ============================================================
-
-/// Try to convert an LRC file to WebVTT for the given track stem.
-fn try_convert_lrc(dir: &Path, stem: &str) -> Option<String> {
-    let lrc_path = dir.join(format!("{stem}.lrc"));
-    if !lrc_path.exists() {
-        return None;
-    }
-
-    let lrc_content = std::fs::read_to_string(&lrc_path).ok()?;
-    let vtt = lrc_to_webvtt(&lrc_content);
-    if vtt == "WEBVTT\n\n" {
-        // Empty conversion — no valid cues found
-        return None;
-    }
-    Some(vtt)
-}
 
 /// Convert LRC content to WebVTT format.
 ///
