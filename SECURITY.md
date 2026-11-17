@@ -15,11 +15,11 @@
 
 ## Supported Components
 
-MeedyaDL ships with a validated **component support matrix** — a pinned range of versions for every external dependency (Python runtime, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo, rclone, votify). We only verify the security and functional behaviour of these components within those ranges.
+MeedyaDL ships with a validated **component support matrix** — a pinned range of versions for every external dependency (Python runtime, GAMDL, FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo, votify). We only verify the security and functional behaviour of these components within those ranges.
 
 - The current support matrix lives in [README.md](./README.md#-component-support-matrix) and is the canonical, user-facing reference.
 - The machine-readable source of truth is [`src-tauri/tool-versions.toml`](./src-tauri/tool-versions.toml). Bumping a component's range requires a code change, review, and a new MeedyaDL release.
-- GAMDL specifically is bounded by `[gamdl] maximum_tested_version`, and some platforms are held lower where newer releases cannot be installed. The ordinary install and upgrade stay inside that range. A newer upstream release is still shown, so you know it exists, but it is marked "Untested" with a warning, and installing it is your explicit choice. A release known to be broken (currently GAMDL 3.9) is refused outright. Anyone running a version outside the range sees an activity-log warning and loses our support guarantees until a MeedyaDL release validates it.
+- GAMDL specifically is bounded by `[gamdl] maximum_tested_version`, and some platforms are held lower where newer releases cannot be installed. The ordinary install and upgrade stay inside that range. A newer upstream release is still shown, so you know it exists, but it is marked "Untested" with a warning, and installing it is your explicit choice. A release known to be broken (currently GAMDL 3.9, 4.0.0 and 4.0.1) is refused outright. GAMDL 4 can be tried, on purpose, from Settings > Tools > GAMDL Version Management; it is an untested trial and is never installed by an ordinary install or update (someone on GAMDL 3 is only ever offered GAMDL 3 updates). Anyone running a version outside the range sees an activity-log warning and loses our support guarantees until a MeedyaDL release validates it.
 
 Running MeedyaDL with components **outside** the listed ranges (e.g. a manually installed newer GAMDL, or a system-PATH FFmpeg below our floor) is not a supported configuration. We will triage bug reports against supported versions first, and may decline to investigate issues that do not reproduce inside the documented range.
 
@@ -27,14 +27,14 @@ Running MeedyaDL with components **outside** the listed ranges (e.g. a manually 
 
 The Apple Music wrapper used for FairPlay-protected codecs is **not bundled with MeedyaDL** and is deployed independently by the user. MeedyaDL supports two upstream wrapper projects depending on the installed GAMDL release:
 
-- **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) — used by GAMDL 3.0 – 3.5.x. Exposes three local sockets (HTTP account + TCP m3u8 + TCP decrypt). It's a native program; which platforms it has builds for is a question for that project, not MeedyaDL — check its own releases page before assuming one exists for yours.
-- **wrapper-v2** ([glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2)) — required by GAMDL 3.6+. C++ daemon built with the Android NDK, running inside a Linux chroot. Exposes one HTTP REST API. Requires Docker on macOS/Windows; requires `SYS_ADMIN` / `SYS_CHROOT` / `SYS_PTRACE` privileges on native Linux. **The user is responsible for extracting Apple Music for Android's `.so` libraries** and staging them into the wrapper's `rootfs/system/lib64/` — these `.so` files are Apple's proprietary code and are not redistributed by the wrapper-v2 upstream OR by MeedyaDL.
+- **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) — used by GAMDL 3.0 – 3.5.x. Exposes three local connections (HTTP account + TCP m3u8 + TCP decrypt). It's a native program; which platforms it has builds for is a question for that project, not MeedyaDL — check its own releases page before assuming one exists for yours.
+- **wrapper-v2** ([glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2)) — required by GAMDL 3.6+. C++ daemon built with the Android NDK, running inside a Linux chroot. Exposes one HTTP REST API (plus, from GAMDL 3.8.2, a separate TCP port for decryption). Requires Docker on macOS/Windows; requires `SYS_ADMIN` / `SYS_CHROOT` / `SYS_PTRACE` privileges on native Linux. **The user is responsible for extracting Apple Music for Android's `.so` libraries** and staging them into the wrapper's `rootfs/system/lib64/` — these `.so` files are Apple's proprietary code and are not redistributed by the wrapper-v2 upstream OR by MeedyaDL.
 
 **Threat surface introduced by the wrapper:**
 
 - MeedyaDL sends your Apple ID + password to the wrapper's `POST /login` endpoint (wrapper-v2) or its equivalent native-binary login command (wrapper-v1). These credentials are then held by the wrapper process, which uses them to mint Apple Music session tokens. **Do not run the wrapper on a host you do not trust** — anyone with access to the wrapper's data directory can read the cached session tokens, and anyone with read access to its memory can recover the cleartext credentials while a login is in flight.
 - Wrapper-v2 requires elevated capabilities (chroot / ptrace) which expand the attack surface if the daemon process is compromised. Run it inside a single-purpose container or VM where possible.
-- MeedyaDL preflights both wrapper versions over plain HTTP (no TLS). If you expose the wrapper across a LAN, restrict its bind address (`HTTP_PORT` env var on wrapper-v2; CLI flag on wrapper-v1) and rely on network-layer isolation — there is no transport encryption between MeedyaDL and the wrapper.
+- MeedyaDL checks both wrapper versions over plain HTTP and plain TCP (no TLS). If you expose the wrapper across a LAN, restrict its bind address (`HTTP_PORT` env var on wrapper-v2; CLI flag on wrapper-v1) and rely on network-layer isolation — there is no transport encryption between MeedyaDL and the wrapper.
 
 MeedyaDL itself does not bundle, host, or distribute Apple's native code. Both wrapper projects link Apple's Android `.so` files at runtime via dynamic-load (`dlopen`/`dlsym`); the user must obtain those binaries by extracting them from the Apple Music for Android APK on a device they own.
 
@@ -56,12 +56,13 @@ MeedyaDL implements the following security measures:
 - **URL validation** prevents CLI flag injection in subprocess calls
 - **INI injection prevention** via newline sanitization in config values
 - **HTML sanitization** in markdown rendering (rehype-sanitize)
-- **Credential redaction** in all logging, exports, and crash reports
+- **Credential redaction** in all logging, exports, and crash reports — web addresses lose their query strings and any embedded sign-in details wherever they are written down, whatever option carried them; on macOS and Linux the cookies file and the settings file are readable only by you
 - **Atomic file writes** for settings and queue persistence
-- **Field-level validation** on imported settings/queue files
+- **Field-level validation** on imported settings/queue files — over-long values are cut at a whole character, and a dropped queue file adds at most 500 links at once
 - **No shell interpolation** — all subprocess calls use parameterised arguments
 - **Content Security Policy** configured in Tauri for the webview
 - **Secrets stored in OS keychain** (not on disk)
+- **Crash reporting is off unless you switch it on** — reports are saved on your own machine first, and anonymous sending, and the one-click report to GitHub Issues (which shows exactly what would be sent first), are both your choice
 - **Checksum-checking code exists but is not yet turned on inside the app** — MeedyaDL can compute and check a downloaded tool's checksum against a saved value, but no download the app makes on your computer currently uses this check, because no checksums are saved for it yet (tracked in issue [#987](https://github.com/MWBMPartners/MeedyaDL/issues/987))
 - **The offline installer's bundled tools are checked** — when we build the larger offline installer, every helper tool copied into it is checked against the checksum published alongside it, and the build stops if a checksum is missing or does not match ([#984](https://github.com/MWBMPartners/MeedyaDL/issues/984))
 - **No constantly-changing "nightly" build of MP4Box** — on every platform, MP4Box is no longer taken from an upstream nightly build (a file that changes on every upstream build, so it can never be checked against a known checksum). Unless you already have your own copy, or MeedyaDL can install it through Homebrew (on a Mac) or apt (on Linux on ARM), it now comes from our own tools mirror instead

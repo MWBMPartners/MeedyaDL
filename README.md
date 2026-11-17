@@ -29,14 +29,16 @@
 
 - **Songs, Albums, Playlists, Artists, Music Videos** — download anything from Apple Music. Non-geographic URLs (without a storefront code) are auto-detected and normalized
 - **Quality selection with smart fallback chain**: ALAC → Atmos → AC3 → AAC Binaural → AAC → AAC Legacy
-- **Companion downloads** — configurable multi-format downloads: automatically download additional codec versions alongside the primary download. Choose from 5 preset modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy, All Formats) or use **Custom** mode with multi-select checkboxes to pick exactly which codecs to download as companions. **Music video companions** — optionally download the music video for each track alongside audio (requires MusicKit credentials)
+- **Companion downloads** — configurable multi-format downloads: automatically download additional codec versions alongside the primary download. Choose from 5 preset modes (Disabled, Atmos→Lossless, Atmos→Lossless+Lossy, Specialist→Lossy, All Formats) or use **Custom** mode with multi-select checkboxes to pick exactly which codecs to download as companions. Extra-format downloads wait until the main download's lyrics and file renames are finished, never overwrite a file that is already there, and only touch files from the download that made them. Each extra copy gets the same lyrics files as the main download, and a better lyrics file found in an extra copy can improve the main download's too. **Music video companions** — optionally download the music video for each track alongside audio (requires MusicKit credentials)
 - **Persistent download queue** — queue survives app close/crash; auto-resumes on restart, failed downloads persist for manual retry. Queue header shows live statistics (active/queued/completed/failed counts) with an aggregate progress bar; album downloads display a "Track N of M" counter
 - **Queue export/import** — save queue to `.meedyadl` file, transfer to another device
+- **Library Scan** — point MeedyaDL at a music folder you already downloaded into; it lists every album it finds a record for, shows what is missing or has been updated on Apple Music, and re-downloads only the gaps. A re-download follows your "Overwrite Existing Files" setting for albums that were only updated, and warns first if it could add a second copy beside differently-named files
+- **Download history** — every download is kept (up to 1,000), with search, and a failed one can be retried from the History page
 - **Animated cover art** — automatically download motion artwork (FrontCover.mp4 / FrontCoverPortrait.mp4) via MusicKit API, with a configurable resolution ceiling (Standard ~1080p by default, High ~2160p, or Maximum/uncapped) and optional OS-level file hiding to keep folders clean
 
 ### 📝 Metadata & Extras
 
-- **Enhanced LRC with word-by-word sync** — automatically converts Apple Music's TTML lyrics to Enhanced LRC with word-level synchronized timestamps for karaoke-style highlighting in compatible players (foobar2000, Poweramp, AIMP). Falls back to standard line-level LRC for songs without word-level data. Companion lyrics formats (LRC, SRT) remain selectable alongside Enhanced LRC. A **Test word-level lyrics connection** button in Settings > Lyrics verifies your Apple Music credentials can fetch word-level timing before you start a download.
+- **Enhanced LRC with word-by-word sync** — automatically converts Apple Music's TTML lyrics to Enhanced LRC with word-level synchronized timestamps for karaoke-style highlighting in compatible players (foobar2000, Poweramp, AIMP). MeedyaDL fetches the word-timed lyrics itself first; on GAMDL 4.0.2 or newer it can ask GAMDL for its word-timed file as a second try. All lyrics files are made after that, and files are renamed last. Falls back to standard line-level LRC for songs without word-level data. Companion lyrics formats (LRC, SRT) remain selectable alongside Enhanced LRC. A **Test word-level lyrics connection** button in Settings > Lyrics verifies your Apple Music credentials can fetch word-level timing before you start a download.
 - **Lyricsfile (.lyrics) YAML sidecars** — opt-in support for the open, extensible Lyricsfile format endorsed by [LRCGET v2.0](https://github.com/tranxuanthang/lrcget/releases/tag/2.0.0) and [LRCLIB](https://lrclib.net/). Preserves Apple Music's word-level timing in a plain-text-editable YAML format that can be opened and edited in any text editor or in LRCGET itself. Toggle in **Settings → Lyrics**. Generated sidecars are never overwritten on re-download, so manual edits in LRCGET survive.
 - **Lyrics format fallback** — if the primary lyrics format isn't available for some tracks, automatically tries alternatives (Audio: TTML → LRC → SRT; Video: TTML → SRT → LRC)
 - **Lyrics embed + sidecar** — embed lyrics in file metadata AND save as separate LRC, SRT, or TTML files
@@ -79,7 +81,7 @@
 - **Feature availability notices** — if we ever have to temporarily pause a feature (for example while an upstream service change is investigated), the app shows a clear in-app notice explaining that the pause is deliberate and temporary — a feature never just silently disappears. If the paused feature is a whole download service, MeedyaDL declines new downloads for it with an explanation while it's paused — anything already downloading finishes normally, and other services are unaffected. If MeedyaDL can't check availability (for example, offline), it simply carries on with the last known state — being offline never turns anything off, and a fresh install with no internet runs with everything enabled.
 - **System tray support** for background operation
 - **Smart notifications** — messages inside the app never stack up identical copies and go away by themselves when their cause is fixed (e.g., the wrapper warning clears when the wrapper becomes reachable). Finished and failed downloads, and the end of the queue, are always shown in the app with the album's name. Your computer shows them as system notifications too, but by default only while MeedyaDL is not in front or your pointer is on another screen, and when several finish close together the first is named and the rest are summed up in one notification. You choose when, for which messages, and for which events in Settings > General > Notifications
-- **Crash reporting** — crash reports saved on your own machine, optional anonymous reporting you can switch on, and one-click reporting to GitHub Issues (a pre-filled issue opened in your browser, with a preview of exactly what would be sent)
+- **Crash reporting** — crash reports saved on your own machine, optional anonymous reporting that is off until you switch it on, and one-click reporting to GitHub Issues (a pre-filled issue opened in your browser, with a preview of exactly what would be sent)
 - **Graceful shutdown** — background tasks (enrichment, companion downloads, lyrics) stop cleanly on window close or tray quit instead of being abruptly terminated
 - **Supply chain hardening** — all CI/CD GitHub Actions pinned to immutable commit SHAs, `cargo-deny` licence scanning in CI (org-level source allowlist for `MWBMPartners` and `MeedyaSuite` GitHub orgs — see `src-tauri/deny.toml`). The app also has the code needed to check a downloaded tool against a saved checksum, but that check is not turned on for any download yet ([#987](https://github.com/MWBMPartners/MeedyaDL/issues/987))
 - **Accessibility** — ARIA labels on interactive elements, `aria-live` regions for dynamic content updates, `prefers-reduced-motion` support, skip navigation, high-contrast mode, colour-blind themes (deuteranopia, protanopia, tritanopia)
@@ -114,7 +116,7 @@ MeedyaDL orchestrates several external components (a portable Python runtime, th
 | Component | Role | Supported range | Recommended | Source of truth |
 | --- | --- | --- | --- | --- |
 | **[Python](https://www.python.org/)** | Portable runtime that hosts GAMDL. Bundled with MeedyaDL — users never install this manually. | 3.10+ | 3.12.x | `src-tauri/src/services/python_manager.rs` (`PYTHON_VERSION`) |
-| **[GAMDL](https://github.com/glomatico/gamdl)** | Apple Music download engine. Installed via `pip` into the bundled Python. GAMDL **v3** (and **4.0.2 as an opt-in, untested trial** — see below) — v3.0–v3.5.x use [wrapper-v1](https://github.com/WorldObservationLog/wrapper), v3.6+ use [wrapper-v2](https://github.com/glomatico/wrapper-v2) (both supported; the Settings UI adapts). | **3.0 – 3.9.1**, except 3.9 | 3.9.1 (Windows on ARM: 3.8.5) | `src-tauri/tool-versions.toml` → `[gamdl]` |
+| **[GAMDL](https://github.com/glomatico/gamdl)** | Apple Music download engine. Installed via `pip` into the bundled Python. GAMDL **v3** (and **4.0.2 as an opt-in, untested trial** — see below) — v3.0–v3.5.x use [wrapper-v1](https://github.com/WorldObservationLog/wrapper), v3.6+ use [wrapper-v2](https://github.com/glomatico/wrapper-v2) (both supported; the Settings UI adapts). | **3.0 – 3.9.1**, except 3.9 (Windows on ARM: up to 3.8.5; Linux ARMv7: up to 3.8.1) | 3.9.1 (Windows on ARM: 3.8.5; Linux ARMv7: 3.8.1) | `src-tauri/tool-versions.toml` → `[gamdl]` |
 | **[FFmpeg](https://ffmpeg.org/)** | Audio codec conversion and video remuxing. Still used by MeedyaDL's own pipeline (ReplayGain loudness analysis) regardless of GAMDL version. Also used by N_m3u8DL-RE on GAMDL 3.7+ via `--ffmpeg-path`. | 5.0+ | 7.x | `src-tauri/tool-versions.toml` → `[ffmpeg]` |
 | **mp4decrypt** ([Bento4](https://github.com/axiomatic-systems/Bento4)) | Decrypts Widevine-protected streams. Required by GAMDL 3.0 – 3.5.x; **unused** by GAMDL 3.6+ (native decryption) but still shipped while older releases are in the support window. | 1.6.0+ | 1.6.0+ | `src-tauri/tool-versions.toml` → `[mp4decrypt]` |
 | **[N_m3u8DL-RE](https://github.com/nilaoda/N_m3u8DL-RE)** | Alternative HLS/DASH downloader used by some codec paths. Depends on FFmpeg at HLS-stream time. | 0.4.0+ | 0.5.x | `src-tauri/tool-versions.toml` → `[nm3u8dlre]` |
@@ -319,7 +321,7 @@ Only **Alpha** is hidden from the channel selector by default — it only appear
 
 On first launch, the setup wizard will guide you through:
 
-1. 📦 **Dependency installation** — automatically downloads and installs a standalone Python, GAMDL, votify, and external tools (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo). If compatible versions are already installed on your system, those are used instead of downloading fresh copies.
+1. 📦 **Dependency installation** — automatically downloads and installs a standalone Python, GAMDL, and external tools (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo). If compatible versions are already installed on your system, those are used instead of downloading fresh copies.
 2. 🍪 **Cookie configuration** — import your Apple Music cookies for authentication
 3. 📂 **Output directory** — choose where downloaded music will be saved
 4. 🎚️ **Quality preferences** — select your preferred audio codec and fallback chain
@@ -421,6 +423,10 @@ This launches:
 
 cd src-tauri && cargo check
 
+# Check formatting (run `cargo fmt` to fix)
+
+cargo fmt --check
+
 # Run clippy linter
 
 cargo clippy -- -D warnings
@@ -468,8 +474,8 @@ chore(deps): update dependencies                     # → no bump, hidden from 
 1. 🍴 Fork the repository
 2. 🌿 Create a feature branch: `git checkout -b feat/my-feature`
 3. 💾 Commit changes using conventional commits
-4. ✅ Ensure the checks CI will run actually pass. On the frontend: `npm run lint && npm run type-check && npm run test`. On the backend, from inside `src-tauri/`: `cargo clippy -- -D warnings && cargo test`. CI runs all of these and will fail the pull request on any one of them.
-5. 📬 Open a pull request against `main`
+4. ✅ Ensure the checks CI will run actually pass. On the frontend: `npm run format:check && npm run lint && npm run type-check && npm run test`. On the backend, from inside `src-tauri/`: `cargo fmt --check && cargo clippy -- -D warnings && cargo test`. CI runs all of these and will fail the pull request on any one of them. The whole codebase is formatted, so run `npm run format` and `cargo fmt` before you commit.
+5. 📬 Open a pull request against `alpha` (where all active development lands)
 
 ---
 
@@ -536,7 +542,7 @@ Each milestone adds a new media service with its own CLI subprocess engine, URL 
 ### Future
 
 - ✅ **Feature availability notices** ([#106](https://github.com/MWBMPartners/MeedyaDL/issues/106), [#1069](https://github.com/MWBMPartners/MeedyaDL/issues/1069), [#1071](https://github.com/MWBMPartners/MeedyaDL/issues/1071)) — shipped: the app displays a notice when a feature has been temporarily paused by the developers, and declines new downloads for a paused service with an explanation (anything already downloading finishes normally).
-- 🔮 **Anonymous Crash Reporting** ([#44](https://github.com/MWBMPartners/MeedyaDL/issues/44)) — PHP relay for crash submission without GitHub account
+- 🔮 **Crash reporting without a GitHub account** ([#44](https://github.com/MWBMPartners/MeedyaDL/issues/44)) — opt-in anonymous crash reporting has shipped (Settings > Advanced); this tracks a simpler relay for people with no GitHub account
 - 🔮 **Native SwiftUI UI for macOS** ([#109](https://github.com/MWBMPartners/MeedyaDL/issues/109)) — fully native frontend on Apple Silicon
 
 ---
