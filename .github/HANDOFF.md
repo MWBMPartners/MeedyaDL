@@ -35,7 +35,7 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 | 7 | Re-download vs files MeedyaDL renamed (second copies) | #1437 | Open, not started | Staging (#1448) may remove most of it; check before building. |
 | 8 | Make GAMDL 4 the routine install | #1438 | Open, waits for real-download tests on each platform | |
 | 9 | Check which tags MeedyaDL really writes (dead album/track tag writers; wrong names on `help/metadata-mapping.md`) | #1444 | Partly done (date tag shipped) | The remaining part stays open after #1420 merges. |
-| 10 | GitHub wiki refresh (stale since May; four channels not seven; published the developer-access key sequence) | — | **Written, waiting to be pushed by the maintainer** | Patch in `.github/wiki-pending/`; see "GitHub records" below. |
+| 10 | GitHub wiki refresh (stale since May; four channels not seven; published the developer-access key sequence) | — | **Done** — pushed by the maintainer, 17 Nov (wiki `9e4b8fe`) | Not yet done: wrapper-v2 setup steps; check of the Docker and two-step sign-in steps. |
 | 11 | Possibly flaky test `health_check_service::tests::wrapper_v2_sign_in_state_that_cannot_be_read_says_so_without_the_token` | — | Suggested as a separate task | Seen failing once locally, never in CI. |
 
 **Open questions for the maintainer:** none. The next piece of work is the maintainer's choice from rows 3-8 (the last stated order was: staging #1448 phase 1 first).
@@ -53,7 +53,7 @@ Listed on each issue: #1432 (stuck download, late finish, abort), #1433, #1435, 
 - **Issues:** every issue worked on this session has a comment with its commit IDs.
 - **Milestones:** none of the current issues carry a milestone; the version milestones (v1.0 RC, v1.0 GA, v2.0-v2.2) describe the old plan. Still for the maintainer by hand (no milestone or project tool in the cloud session): close "v1.0 Release Candidate" and "v1.0 GA" after moving #182, #109, #111, #125, #329; set #110's milestone.
 - **Project board 6:** the cloud session has no tool to add items or change their status. Issues #1432-#1452 need adding by hand, with Status matching the table above.
-- **Wiki:** refreshed on 17 Nov (four channels, current features, troubleshooting, wrapper settings, developer-access key sequence removed), but the cloud session is refused write access to the wiki. **The maintainer applies it from a workstation**: `.github/wiki-pending/README.md` has the three commands. Not yet done from the wiki pages: wrapper-v2 setup steps (the pages link to its project) and a check of the Docker and two-step sign-in steps.
+- **Wiki:** refreshed on 17 Nov (four channels, current features, troubleshooting, wrapper settings, developer-access key sequence removed), pushed by the maintainer from a workstation (wiki `9e4b8fe`). Cloud sessions can read the wiki but not push to it: save a future wiki change as a patch in `.github/wiki-pending/` and have the maintainer run, from a wiki clone inside their MeedyaDL checkout, `git -C .. fetch origin work-in-progress && git -C .. show FETCH_HEAD:.github/wiki-pending/<file>.patch | git am && git push`, then delete the patch. Not yet done from the wiki pages: wrapper-v2 setup steps (the pages link to its project) and a check of the Docker and two-step sign-in steps.
 
 ### Also still for the maintainer by hand
 
