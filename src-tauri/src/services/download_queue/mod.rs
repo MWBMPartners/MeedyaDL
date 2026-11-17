@@ -2658,10 +2658,10 @@ impl DownloadQueue {
 
     /// The watchdog's check (#1432): has the one-hour wait of any stalled
     /// run that is still going run out at `now`, and the queue not been
-    /// started for it yet? Marks those runs so this is `true` once per run.
-    /// When `true`, the caller starts the queue, so that -- if nothing else
-    /// is queued or running -- "Queue finished" and the after-queue action
-    /// happen now rather than waiting for something else to start it.
+    /// checked for it yet? Marks those runs so this is `true` once per run.
+    /// When `true`, the caller checks whether the queue has finished, so
+    /// that -- if nothing else is queued or running -- "Queue finished" and
+    /// the after-queue action happen now. Nothing is started.
     pub(crate) fn stalled_waits_just_ran_out(&mut self, now: std::time::Instant) -> bool {
         let mut any = false;
         for run in &mut self.live_stalled_runs {
