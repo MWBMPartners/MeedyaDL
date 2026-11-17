@@ -25,7 +25,7 @@ MeedyaDL unterstützt Tastaturkürzel für schnelles Navigieren und häufige Akt
 |----------|--------|
 | **Enter** | Startet den Download (wenn das URL-Feld fokussiert ist) |
 | **Shift + Enter** | Fügt im URL-Feld einen Zeilenumbruch ein (Modus für mehrere URLs) |
-| **Cmd/Ctrl + Shift + .** | Bricht jeden aktiven und wartenden Download ab |
+| **Cmd/Ctrl + Shift + .** | Bricht jeden aktiven und wartenden Download ab. Zuerst wird um Bestätigung gebeten, außer Sie haben im Fenster zum Abbrechen der Warteschlange **Nicht mehr fragen** angekreuzt. Die Frage lässt sich unter **Settings > General > Preferences** wieder einschalten. |
 | **Cmd/Ctrl + Shift + ?** | Öffnet diese Tastaturkürzel-Übersicht von überall in der App aus |
 | **Escape** | Schließt das aktive Modal-Fenster oder den aktiven Dialog |
 

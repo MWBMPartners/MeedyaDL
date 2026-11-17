@@ -78,10 +78,10 @@ If you would rather not update yet, right-click (or Control-click) the app and c
 
 ### Linux
 
-**Debian / Ubuntu (.deb):**
+**Debian / Ubuntu (.deb), or Fedora / openSUSE (.rpm):**
 
-1. Download the `.deb` package for your type of processor (x64).
-2. Install it using your package manager or by running `sudo dpkg -i meedyadl_*.deb` in a terminal.
+1. Download the `.deb` or `.rpm` package for your type of processor.
+2. Install it using your package manager or by running `sudo dpkg -i meedyadl_*.deb` in a terminal. For an `.rpm`, use your package manager the same way.
 3. Launch MeedyaDL from your application menu or by running `meedyadl` in a terminal.
 
 **AppImage:**

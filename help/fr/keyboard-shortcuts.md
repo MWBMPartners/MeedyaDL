@@ -25,7 +25,7 @@ MeedyaDL prend en charge des raccourcis clavier pour naviguer rapidement et effe
 |----------|--------|
 | **Enter** | Lance le téléchargement (quand le champ d'URL a le focus) |
 | **Shift + Enter** | Insère un retour à la ligne dans le champ d'URL (mode multi-URL) |
-| **Cmd/Ctrl + Shift + .** | Annule tous les téléchargements actifs et en attente |
+| **Cmd/Ctrl + Shift + .** | Annule tous les téléchargements actifs et en attente. Une confirmation est demandée d'abord, sauf si vous avez coché **Ne plus demander** dans la fenêtre d'annulation de la file. Vous pouvez réactiver la question dans **Settings > General > Preferences**. |
 | **Cmd/Ctrl + Shift + ?** | Ouvre cette liste de raccourcis clavier depuis n'importe où dans l'application |
 | **Escape** | Ferme la fenêtre modale ou la boîte de dialogue active |
 
