@@ -25,7 +25,8 @@ points into src-tauri/vendor/ and nowhere in our own code. It looks at
 every location a result has (main and related locations, every step of its
 data-flow paths, and stack frames). A location outside the checkout (the
 downloaded-packages cache, where CodeQL reads the encryption libraries the
-vendored code calls) counts as third-party too: the first run of this
+vendored code calls) counts as third-party too, but only when it is inside a known package
+folder (Cargo's downloaded crates or the Rust toolchain): the first run of this
 filter removed nothing because each alert's path ended inside such a
 library. A result that also points at our own code anywhere is kept, so
 nothing in our own code can be hidden this way, and so is a location whose
@@ -85,44 +86,79 @@ def result_paths(result: dict) -> list[str]:
     return ["" if p is None else p for p in found]
 
 
-def classify(path: str, checkout: str) -> str:
-    """"vendor", "outside" (not part of the checkout at all) or "ours".
+def package_folders() -> list[str]:
+    """The folders that hold downloaded third-party packages on this machine.
+
+    Only a full path under one of these counts as third-party: Cargo's
+    downloaded crates (`registry/` and `git/` under CARGO_HOME, default
+    ~/.cargo) and the Rust toolchain's own library (RUSTUP_HOME, default
+    ~/.rustup). Any other full path is treated as possibly ours.
+    """
+    home = os.path.expanduser("~")
+    cargo = os.environ.get("CARGO_HOME") or os.path.join(home, ".cargo")
+    rustup = os.environ.get("RUSTUP_HOME") or os.path.join(home, ".rustup")
+    return [
+        os.path.join(cargo, "registry"),
+        os.path.join(cargo, "git"),
+        rustup,
+    ]
+
+
+def _under(path: str, folder: str) -> bool:
+    folder = folder.rstrip("/")
+    return path == folder or path.startswith(folder + "/")
+
+
+def classify(path: str, checkout: str, packages: list[str] | None = None) -> str:
+    """"vendor", "outside" (a downloaded package) or "ours".
 
     Anything that cannot be placed with certainty is "ours", so it keeps the
-    result: an unreadable path, a path that climbs out with "..", or an
-    address of a kind this script does not know.
+    result: an unreadable path, any ".." anywhere, a full path that is
+    neither inside the checkout nor inside a known package folder, or an
+    address of a kind this script does not know. Paths are decoded
+    (percent-encoding) before they are judged, relative ones included.
     """
     if not path:
         return "ours"
     if "://" in path or path.startswith("file:"):
         parsed = urlparse(path)
-        if parsed.scheme != "file":
+        if parsed.scheme != "file" or parsed.netloc not in ("", "localhost"):
             return "ours"
-        path = unquote(parsed.path)
-    path = path.replace("\\", "/")
-    is_absolute = path.startswith("/") or (len(path) > 2 and path[1] == ":")
-    if is_absolute:
-        root = checkout.replace("\\", "/").rstrip("/") + "/"
-        if not path.startswith(root):
-            return "outside"
-        path = path[len(root):]
-    parts = path.removeprefix("./").split("/")
+        path = parsed.path
+    path = unquote(path).replace("\\", "/")
+    parts = path.split("/")
     if ".." in parts:
         return "ours"
-    if "/".join(parts).startswith(VENDOR_PREFIX):
+    # Collapse doubled slashes and "./" so the comparisons below are exact.
+    path = "/".join(part for i, part in enumerate(parts) if part or i == 0)
+    path = path.replace("/./", "/").removeprefix("./")
+    is_absolute = path.startswith("/") or (len(path) > 2 and path[1] == ":")
+    if is_absolute:
+        root = checkout.replace("\\", "/")
+        if _under(path, root):
+            path = path[len(root.rstrip("/")):].lstrip("/")
+        elif any(_under(path, f.replace("\\", "/"))
+                 for f in (package_folders() if packages is None else packages)):
+            return "outside"
+        else:
+            return "ours"
+    if path.startswith(VENDOR_PREFIX):
         return "vendor"
     return "ours"
 
 
-def is_vendor_only(result: dict, checkout: str = "") -> bool:
+def is_vendor_only(result: dict, checkout: str = "",
+                   packages: list[str] | None = None) -> bool:
     """True when the result points into the vendor folder and never at our code."""
-    kinds = [classify(p, checkout or os.getcwd()) for p in result_paths(result)]
+    kinds = [classify(p, checkout or os.getcwd(), packages)
+             for p in result_paths(result)]
     # A result with no file location is never ours to drop, and one that
     # only points outside the checkout is not about the vendor folder.
     return "vendor" in kinds and "ours" not in kinds
 
 
-def filter_report(report: dict, checkout: str = "") -> int:
+def filter_report(report: dict, checkout: str = "",
+                  packages: list[str] | None = None) -> int:
     """Remove vendor-only results from a parsed report; returns how many.
 
     Prints the paths of any result whose main location is in the vendor
@@ -136,11 +172,12 @@ def filter_report(report: dict, checkout: str = "") -> int:
             continue
         kept = []
         for r in results:
-            if is_vendor_only(r, checkout):
+            if is_vendor_only(r, checkout, packages):
                 continue
             kept.append(r)
             main_paths = [_uri(loc) or "" for loc in r.get("locations") or []]
-            if any(classify(p, checkout or os.getcwd()) == "vendor" for p in main_paths):
+            if any(classify(p, checkout or os.getcwd(), packages) == "vendor"
+                   for p in main_paths):
                 print(f"  kept {r.get('ruleId')}: {sorted(set(result_paths(r)))}")
         removed += len(results) - len(kept)
         run["results"] = kept
