@@ -365,7 +365,18 @@ pub fn process_queue(
                 } else {
                     Vec::new()
                 };
-                (idle, q.take_recently_aborted(), ran, still_running_stalled)
+                // The abort record is taken the same way (#1432 review): only
+                // once the queue is really quiet. A stalled run that is still
+                // going keeps the queue busy; taking the record then would
+                // forget the Abort, and the queue going quiet later would fire
+                // "Queue finished" and the after-queue action (which may shut
+                // the computer down) straight after the person aborted.
+                let was_aborted = if idle {
+                    q.take_recently_aborted()
+                } else {
+                    false
+                };
+                (idle, was_aborted, ran, still_running_stalled)
             };
             // One plain line per download that was marked stuck and was
             // still running when the queue finished (#1432), written

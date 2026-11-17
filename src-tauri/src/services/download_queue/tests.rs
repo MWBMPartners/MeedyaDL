@@ -7988,3 +7988,151 @@ fn the_pass_passes_the_runs_overwrite_setting() {
     assert!(processing.contains("enrich_primary_options.overwrite == Some(true)"));
     assert!(processing.contains("run_overwrote,"));
 }
+
+/// #1432 review: Abort reaches a stalled run that is still going. Its late
+/// finish then queues nothing and completes nothing (Apple Music and
+/// Spotify), the queue can go idle, and the abort is still on record when
+/// it does, so no after-queue action fires.
+#[test]
+fn abort_stops_a_stuck_run_that_is_still_going() {
+    let settings = AppSettings::default();
+    // Apple Music: the late finish is ignored.
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    q.update_item_progress(
+        &a,
+        &GamdlOutputEvent::Complete {
+            path: "/music/A/B/01 Song.m4a".to_string(),
+        },
+    );
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert!(!q.is_idle(), "the stuck run holds the queue");
+    let summary = q.abort_all();
+    assert_eq!(
+        summary.total(),
+        0,
+        "only queued or running items are counted"
+    );
+    assert!(!q.has_live_stalled_runs());
+    assert!(q.is_idle(), "the stopped run no longer holds the queue");
+    assert!(!q.should_keep_running(&a), "the run is told to stop");
+    let ended = q.ended_outside(&a).unwrap();
+    assert_eq!(ended, EndedOutside::Replaced);
+    assert_eq!(
+        q.on_late_finish(&a, ended, true, &settings),
+        LateFinish::Nothing
+    );
+    assert!(q.next_pending().is_none(), "nothing queued again");
+    assert_eq!(q.get_status()[0].state, DownloadState::Error);
+    assert!(q.take_recently_aborted(), "the abort is remembered");
+
+    // Spotify: a late finish does not mark it Complete.
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    let _ = q.abort_all();
+    assert_eq!(
+        q.finish_stalled_spotify_run(&a, true),
+        SpotifyLateFinish::Nothing
+    );
+    assert_eq!(q.get_status()[0].state, DownloadState::Error);
+    assert!(q.next_pending().is_none());
+    assert!(q.is_idle());
+    assert!(q.take_recently_aborted());
+}
+
+/// #1432 review: a stuck item whose run has already ended is left alone by
+/// Abort, and does not arm the suppression on its own.
+#[test]
+fn abort_ignores_a_stuck_item_whose_run_has_ended() {
+    let settings = AppSettings::default();
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert_eq!(
+        q.on_late_finish(&a, EndedOutside::StoppedAsStuck, false, &settings),
+        LateFinish::Nothing
+    );
+    let _ = q.abort_all();
+    assert!(!q.take_recently_aborted());
+}
+
+/// #1432 review: Cancel on a stuck item whose run is still going stops that
+/// run the same way Abort does.
+#[test]
+fn cancel_stops_a_stuck_run_that_is_still_going() {
+    let settings = AppSettings::default();
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert!(q.cancel(&id));
+    assert!(!q.has_live_stalled_runs());
+    assert!(q.is_idle());
+    assert!(!q.should_keep_running(&a));
+    let ended = q.ended_outside(&a).unwrap();
+    assert_eq!(
+        q.on_late_finish(&a, ended, true, &settings),
+        LateFinish::Nothing
+    );
+    assert!(q.next_pending().is_none());
+    assert_eq!(
+        q.finish_stalled_spotify_run(&a, true),
+        SpotifyLateFinish::Nothing
+    );
+    assert_eq!(q.get_status()[0].state, DownloadState::Error);
+    // Once stopped, a second Cancel finds nothing to do.
+    assert!(!q.cancel(&id));
+    // The person can still retry it.
+    assert!(q.retry(&id, &settings));
+}
+
+/// #1432 review (source check): `process_queue` takes the abort record only
+/// once the queue is idle, so a stuck run keeping it busy cannot use the
+/// record up before the queue really drains.
+#[test]
+fn abort_record_is_taken_only_when_the_queue_is_idle() {
+    let src = include_str!("processing.rs");
+    let at = src
+        .find("let was_aborted = if idle {")
+        .expect("abort record taken behind the idle check");
+    assert!(src[at..at + 120].contains("q.take_recently_aborted()"));
+    assert_eq!(src.matches("take_recently_aborted()").count(), 1);
+    // In the queue itself, the record stays until it is taken.
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let _ = q.abort_all();
+    assert!(q.take_recently_aborted());
+}
+
+/// #1432 review: "the stalled run saved files" counts only files saved by
+/// that attempt, not an earlier attempt's output path.
+#[test]
+fn stalled_run_saved_files_ignores_an_earlier_attempt() {
+    let settings = AppSettings::default();
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    q.update_item_progress(
+        &a,
+        &GamdlOutputEvent::Complete {
+            path: "/music/A/B/01 Song.m4a".to_string(),
+        },
+    );
+    assert!(q.set_error(&a, "failed"));
+    assert!(q.release_slot(&a));
+    assert!(q.retry(&id, &settings));
+    let b = q.next_pending().unwrap().attempt;
+    assert!(
+        q.get_status()[0].output_path.is_some(),
+        "kept for Open Folder"
+    );
+    assert!(q.fail_stalled_attempt(&b, "stalled"));
+    assert!(
+        !q.stalled_run_saved_files(&b),
+        "the earlier attempt's file does not count"
+    );
+}

@@ -320,12 +320,14 @@ pub(crate) struct QueueItem {
     /// longer change the item; if it later finishes, the item is queued again
     /// once. Cleared whenever the item gets a new attempt number.
     pub stalled_attempt: Option<u64>,
-    /// Whether the run the stall check marked failed is known to have saved
-    /// at least one file (#1432 review): set from the item's output path at
-    /// the moment of the stall, and again if that run reports a saved file
-    /// afterwards. A late clean exit only counts as "finished after all"
-    /// when files were really saved; a run that ends without saving
-    /// anything is not queued again. Cleared with `stalled_attempt`.
+    /// Whether the current attempt has reported saving at least one file
+    /// (#1432 review): set by each saved-file report from the attempt that
+    /// owns the item, and by the reports of a run the stall check marked
+    /// failed. Cleared whenever the item gets a new attempt number, so files
+    /// an EARLIER attempt saved (the output path is kept for "Open Folder")
+    /// never count. Read only for a stalled run: a late clean exit counts as
+    /// "finished after all" only when files were really saved; a run that
+    /// ends without saving anything is not queued again.
     pub stalled_run_saved_files: bool,
     /// Set when MeedyaDL queued this item again by itself because a run the
     /// stall check had marked failed finished after all (#1432 review).
@@ -1182,6 +1184,19 @@ impl DownloadQueue {
     /// # Returns
     /// `true` if the item was found, `false` otherwise.
     pub fn cancel(&mut self, download_id: &str) -> bool {
+        // An item the stall check marked failed whose run is still going
+        // (#1432 review): the person chose to stop it, so retire its attempt
+        // (the run stops and can neither queue its automatic retry nor
+        // complete the item) and stop it holding the queue back. The item
+        // stays failed, as the stall check left it.
+        if let Some(number) = self.live_stuck_run_of(download_id) {
+            if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+                retire_running_attempt(item, &mut self.next_attempt);
+            }
+            self.end_live_stalled_run(number);
+            log::info!("Download {download_id}: stopped its run that was marked as stuck");
+            return true;
+        }
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             match item.status.state {
                 DownloadState::Queued => {
@@ -1214,6 +1229,17 @@ impl DownloadQueue {
             log::warn!("Download {download_id} not found in queue");
             false
         }
+    }
+
+    /// The attempt number of `download_id`'s run that the stall check marked
+    /// failed but which is still going (#1432 review), if there is one.
+    fn live_stuck_run_of(&self, download_id: &str) -> Option<u64> {
+        let item = self.items.iter().find(|i| i.status.id == download_id)?;
+        if item.status.state != DownloadState::Error {
+            return None;
+        }
+        item.stalled_attempt
+            .filter(|n| self.live_stalled_runs.iter().any(|r| r.number == *n))
     }
 
     /// Removes a single item from the queue by ID.
@@ -1328,7 +1354,13 @@ impl DownloadQueue {
     /// which is why nobody had looked.
     ///
     /// Items already in `Complete`, `Cancelled`, or `Error` are untouched so
-    /// the user keeps their history intact.
+    /// the user keeps their history intact -- except that an `Error` item
+    /// the stall check marked failed while its run is still going has that
+    /// run stopped (#1432 review): its attempt is retired, so the run can
+    /// neither queue its automatic retry nor complete the item, and it no
+    /// longer holds the queue back. Such items stay `Error` and are not
+    /// counted in the summary (which counts only items that were queued or
+    /// running), but they do arm the after-queue suppression.
     ///
     /// The returned [`AbortSummary`] exposes per-pre-abort-state counts so
     /// the caller can produce a meaningful activity-log line + toast without
@@ -1339,6 +1371,8 @@ impl DownloadQueue {
         // OUTSIDE the borrow of `self.items` (the eviction function
         // doesn't touch the queue, so this is just cleanliness).
         let mut ids_to_evict: Vec<String> = Vec::new();
+        // Attempt numbers of stuck runs still going that this abort stops.
+        let mut stuck_runs: Vec<u64> = Vec::new();
         for item in &mut self.items {
             match item.status.state {
                 DownloadState::Queued => {
@@ -1360,15 +1394,40 @@ impl DownloadQueue {
                     summary.processing_stopped += 1;
                     ids_to_evict.push(item.status.id.clone());
                 }
+                DownloadState::Error
+                    if item
+                        .stalled_attempt
+                        .is_some_and(|n| self.live_stalled_runs.iter().any(|r| r.number == n)) =>
+                {
+                    // Failed by the stall check, but its run is still going
+                    // (#1432 review). Abort must reach it too: retire the
+                    // attempt so the run stops and, if it ends anyway, can
+                    // neither queue its automatic retry nor complete the
+                    // item. The item stays failed (already counted and in
+                    // History) and is not counted in the summary.
+                    stuck_runs.extend(item.stalled_attempt);
+                    retire_running_attempt(item, &mut self.next_attempt);
+                }
                 DownloadState::Complete | DownloadState::Cancelled | DownloadState::Error => {
                     // Terminal — leave alone.
                 }
             }
         }
+        // The stopped stuck runs no longer hold the queue back, so it can
+        // count as finished once their runs have gone.
+        for number in &stuck_runs {
+            self.end_live_stalled_run(*number);
+        }
         for id in &ids_to_evict {
             crate::utils::activity_log::evict_activity_counter(id);
         }
-        if summary.total() > 0 {
+        if !stuck_runs.is_empty() {
+            log::info!(
+                "Abort: stopped {} run(s) already marked as stuck",
+                stuck_runs.len()
+            );
+        }
+        if summary.total() > 0 || !stuck_runs.is_empty() {
             log::info!(
                 "Abort: cancelled {queued} queued, stopped {dl} downloading, stopped {proc} processing",
                 queued = summary.queued_cancelled,
@@ -1560,6 +1619,9 @@ impl DownloadQueue {
                     // Set the output file/directory path for the "Open" button in the UI
                     item.status.output_path = Some(path.clone());
                     item.status.progress = 100.0;
+                    // This attempt has saved a file (#1432 review). Read only
+                    // if the stall check later marks this attempt failed.
+                    item.stalled_run_saved_files = true;
                     // Also remember every path, not just the last: a download
                     // can write to several album folders (#1446).
                     push_reported_path(&mut item.reported_paths, path);
@@ -2473,9 +2535,10 @@ impl DownloadQueue {
         item.status.state = DownloadState::Error;
         item.status.error = Some(error.to_string());
         item.stalled_attempt = Some(attempt.number);
-        // Files saved before the stall count as "this run saved files"; the
-        // run's later reports of saved files are added as they come in.
-        item.stalled_run_saved_files = item.status.output_path.is_some();
+        // `stalled_run_saved_files` already says whether THIS attempt
+        // reported a saved file before the stall (it is cleared whenever the
+        // item gets a new attempt number, so an earlier attempt's files do
+        // not count); the run's later reports are added as they come in.
         crate::utils::activity_log::evict_activity_counter(&attempt.id);
         self.release_slot(attempt);
         // The run is left going; until it ends (or STALLED_RUN_WAIT
