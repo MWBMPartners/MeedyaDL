@@ -66,10 +66,14 @@ def result_paths(result: dict) -> list[str]:
         for thread in flow.get("threadFlows") or []:
             for step in thread.get("locations") or []:
                 found.append(_uri((step or {}).get("location") or {}))
+                for frame in ((step or {}).get("stack") or {}).get("frames") or []:
+                    found.append(_uri((frame or {}).get("location") or {}))
     for stack in result.get("stacks") or []:
         for frame in stack.get("frames") or []:
             found.append(_uri((frame or {}).get("location") or {}))
-    return [p for p in found if p is not None]
+    # A location with no readable path is kept as "" so that it can never
+    # count as inside the vendor folder: when in doubt, the result is kept.
+    return ["" if p is None else p for p in found]
 
 
 def is_vendor_only(result: dict) -> bool:

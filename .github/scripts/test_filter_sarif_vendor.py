@@ -26,11 +26,26 @@ report = {"runs": [{"results": [
     {"ruleId": "flow-vendor", "locations": [loc(VENDOR)],
      "codeFlows": [{"threadFlows": [{"locations": [{"location": loc(VENDOR)}]}]}]},
     {"ruleId": "no-location"},
+    {"ruleId": "unreadable-related", "locations": [loc(VENDOR)],
+     "relatedLocations": [{"physicalLocation": {"artifactLocation": {"index": 3}}}]},
+    {"ruleId": "flow-stack-ours", "locations": [loc(VENDOR)],
+     "codeFlows": [{"threadFlows": [{"locations": [
+         {"location": loc(VENDOR), "stack": {"frames": [{"location": loc(OURS)}]}}]}]}]},
+    {"ruleId": "stacks-ours", "locations": [loc(VENDOR)],
+     "stacks": [{"frames": [{"location": loc(OURS)}]}]},
+    {"ruleId": "dot-vendor", "locations": [loc("./" + VENDOR)]},
 ]}, {"results": []}]}
 
 removed = filter_report(report)
 kept = [r["ruleId"] for r in report["runs"][0]["results"]]
-assert removed == 2, removed
-assert kept == ["ours", "related-ours", "flow-ours", "no-location"], kept
+assert removed == 3, removed
+assert kept == ["ours", "related-ours", "flow-ours", "no-location",
+                "unreadable-related", "flow-stack-ours", "stacks-ours"], kept
+
+# An empty folder fails rather than uploading nothing.
+import tempfile  # noqa: E402
+from filter_sarif_vendor import main  # noqa: E402
+with tempfile.TemporaryDirectory() as empty:
+    assert main(["x", empty]) == 1
 assert report["runs"][1]["results"] == []
 print("filter_sarif_vendor self-test passed")
