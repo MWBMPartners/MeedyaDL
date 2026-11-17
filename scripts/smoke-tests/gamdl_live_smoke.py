@@ -182,7 +182,8 @@ def _read_tested_ceiling() -> str:
                 m = re.match(r'maximum_tested_version\s*=\s*"(\d+(?:\.\d+)*)"', stripped)
                 if m:
                     return m.group(1)
-    except OSError:
+    except (OSError, ValueError):
+        # ValueError covers UnicodeDecodeError (a file that is not UTF-8).
         pass
     return _FALLBACK_GAMDL_SPEC_CEILING
 

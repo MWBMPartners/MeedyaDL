@@ -1207,8 +1207,8 @@ pub fn process_queue(
                                                 "Partial download: {existing_audio} track(s) \
                                                  downloaded, {skip_count} skipped \
                                                  (experimental codec without wrapper). \
-                                                 Re-downloading skipped tracks with \
-                                                 lossless fallback..."
+                                                 Re-downloading skipped tracks in a \
+                                                 format that does not need the wrapper..."
                                             ),
                                         );
 
@@ -1235,7 +1235,8 @@ pub fn process_queue(
                                                     &app_clone,
                                                     &dl_id,
                                                     "Gap-fill complete — skipped tracks \
-                                                     recovered in lossless format",
+                                                     recovered in a format that does not \
+                                                     need the wrapper",
                                                 );
                                                 log::info!("Download {dl_id} gap-fill succeeded");
                                             }

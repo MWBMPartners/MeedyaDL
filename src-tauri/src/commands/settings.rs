@@ -1022,8 +1022,11 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
     // network.
     if !crate::commands::wrapper::wrapper_host_is_local_or_private(&url).await {
         return Err(format!(
-            "MeedyaDL will only test an address on this computer or this network ({url} is \
-             neither). A wrapper runs locally, so set one in Settings > Advanced > Wrapper."
+            "MeedyaDL will only test an address on this computer or this network ({} is \
+             neither). A wrapper runs locally, so set one in Settings > Advanced > Wrapper.",
+            // The address can carry a sign-in token or a name and password,
+            // and this message is shown on screen, so both are removed.
+            crate::services::download_queue::redact_url_query(&url)
         ));
     }
 
@@ -1073,9 +1076,16 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
             let error_msg = if e.is_timeout() {
                 "Connection timed out (5s)".to_string()
             } else if e.is_connect() {
-                format!("Connection refused — is the wrapper running at {url}?")
+                // Shown on screen: the address is cleaned of any token or
+                // password first.
+                format!(
+                    "Connection refused — is the wrapper running at {}?",
+                    crate::services::download_queue::redact_url_query(&url)
+                )
             } else {
-                format!("{e}")
+                // The web library repeats the whole address in its own
+                // error text, so it is cleaned rather than used as it is.
+                crate::services::health_check_service::http_error_for_message(e)
             };
             Ok(WrapperTestResult {
                 reachable: false,
@@ -1651,6 +1661,46 @@ pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Test Connection never shows the address's secrets ───────────────
+    //
+    // The wrapper address can carry a token and a name and password. The
+    // messages this button returns are shown on screen, so none of them may
+    // repeat those.
+
+    const WRAPPER_SECRETS: [&str; 3] = ["SECRET123", "hunter2", "someone"];
+
+    fn assert_no_wrapper_secret(text: &str) {
+        for secret in WRAPPER_SECRETS {
+            assert!(!text.contains(secret), "`{secret}` leaked: {text}");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_connection_refusal_of_a_far_address_hides_the_secrets() {
+        let err = test_wrapper_connection(
+            "http://someone:hunter2@8.8.8.8:30020/?token=SECRET123".to_string(),
+        )
+        .await
+        .expect_err("a public address must be refused");
+        assert_no_wrapper_secret(&err);
+    }
+
+    #[tokio::test]
+    async fn test_connection_failure_on_a_closed_port_hides_the_secrets() {
+        // A port on this machine with nothing listening on it.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let result = test_wrapper_connection(format!(
+            "http://someone:hunter2@127.0.0.1:{port}/?token=SECRET123"
+        ))
+        .await
+        .expect("an unreachable wrapper is an answer, not an error");
+        assert!(!result.reachable);
+        let message = result.error.expect("a failure must explain itself");
+        assert_no_wrapper_secret(&message);
+    }
 
     // ── Shortening a value must not crash the app (#229) ────────────────
     //

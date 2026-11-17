@@ -460,7 +460,7 @@ pub fn validate_cookies(cookies_path: &str) -> Option<PreflightWarning> {
 /// name and password only after a `http://`-style start: an address
 /// typed without one, such as `name:password@127.0.0.1`, cannot be
 /// connected to, but would still be printed with the password in it.
-fn http_error_for_message(err: reqwest::Error) -> String {
+pub(crate) fn http_error_for_message(err: reqwest::Error) -> String {
     crate::services::crash_report_service::redact_urls_in_text(&err.without_url().to_string())
 }
 

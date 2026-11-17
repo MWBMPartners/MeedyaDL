@@ -56,6 +56,38 @@ expect(
 STYLED = "## The `Wrapper` **Setup** [guide](x.md)\n\n[a](#the-wrapper-setup-guide)\n"
 expect("styled heading text", mod.find_broken_same_page_anchors(STYLED), [])
 
+# The match is exact: a link differing only in capital letters does not work
+# in the app, so it is reported.
+CASE = "## Setup Guide\n\n[a](#Setup-Guide)\n"
+expect(
+    "a link differing only in case is reported",
+    mod.find_broken_same_page_anchors(CASE),
+    [(3, "Setup-Guide")],
+)
+
+# Underscore emphasis and entities are read the way the app shows them.
+expect("underscore emphasis", mod.heading_text_to_plain("__Bold__ Title"), "Bold Title")
+expect("single underscore emphasis", mod.heading_text_to_plain("_It_ works"), "It works")
+expect("snake case kept", mod.heading_text_to_plain("the snake_case name"), "the snake_case name")
+expect("entities decoded", mod.heading_text_to_plain("Tom &amp; Jerry"), "Tom & Jerry")
+UNDER = "## __Bold__ Title\n\n[a](#bold-title)\n"
+expect("underscore heading target", mod.find_broken_same_page_anchors(UNDER), [])
+ENT = "## Tom &amp; Jerry\n\n[a](#tom--jerry)\n"
+expect("entity heading target", mod.find_broken_same_page_anchors(ENT), [])
+
+# A link to a help page's id is fine (the app opens that page).
+TOPIC = "## Title\n\n[c](#cookie-management)\n"
+expect(
+    "a help page id is not reported",
+    mod.find_broken_same_page_anchors(TOPIC, {"cookie-management"}),
+    [],
+)
+expect(
+    "an unknown id is reported",
+    mod.find_broken_same_page_anchors(TOPIC, {"other"}),
+    [(3, "cookie-management")],
+)
+
 if failures:
     print("FAIL\n" + "\n".join(failures))
     sys.exit(1)

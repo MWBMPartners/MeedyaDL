@@ -628,6 +628,7 @@ pub(crate) async fn run_step_1b(
     // when Storefront is on Auto-detect, so it is never used as it is.
     let storefront = lyrics_lookup_storefront(
         urls,
+        metadata.fallback_storefront.as_deref(),
         &settings.storefront,
         crate::services::login_window_service::detect_storefront(),
     );
@@ -1887,23 +1888,33 @@ pub(crate) async fn run_word_lyrics_pass(
 
 /// The country (storefront) code used for the word-by-word lyrics lookup.
 ///
-/// Order of choice, the same one the rest of the app uses when it has to
-/// work out a country:
+/// Order of choice:
 ///
-/// 1. The country in the download's own link (`music.apple.com/gb/...`),
+/// 1. The country the album was actually found in, when the album lookup
+///    had to fall back from the link's country (`found_in`, the album
+///    details' `fallback_storefront`). The album exists there, so its
+///    lyrics must be asked for there too.
+/// 2. The country in the download's own link (`music.apple.com/gb/...`),
 ///    because that is the catalogue the person actually asked for.
-/// 2. The Storefront setting, when it is not empty (it is empty while the
+/// 3. The Storefront setting, when it is not empty (it is empty while the
 ///    setting is on Auto-detect).
-/// 3. The country of the computer's language settings (`detected`).
-/// 4. `us`, which is always a valid Apple Music country.
+/// 4. The country of the computer's language settings (`detected`).
+/// 5. `us`, which is always a valid Apple Music country.
+///
+/// (The album lookup itself goes link, then the computer's region, then
+/// `us`; this follows whichever of those it settled on.)
 ///
 /// Pure (the computer's own country is handed in) so it can be tested
 /// without depending on the machine the tests run on.
 pub(crate) fn lyrics_lookup_storefront(
     urls: &[String],
+    found_in: Option<&str>,
     setting: &str,
     detected: Option<String>,
 ) -> String {
+    if let Some(found) = found_in.map(str::trim).filter(|s| !s.is_empty()) {
+        return found.to_ascii_lowercase();
+    }
     if let Some(from_link) = urls
         .iter()
         .find_map(|u| crate::services::apple_music_api::parse_apple_music_url(u))
@@ -3181,17 +3192,33 @@ mod tests {
     }
 
     #[test]
-    fn lyrics_storefront_prefers_the_link_then_setting_then_detected_then_us() {
+    fn lyrics_storefront_prefers_found_in_then_link_then_setting_then_detected_then_us() {
         let link = vec!["https://music.apple.com/gb/album/x/123".to_string()];
+        // The country the album was really found in wins over the link.
         assert_eq!(
-            lyrics_lookup_storefront(&link, "de", Some("fr".into())),
+            lyrics_lookup_storefront(&link, Some("US"), "de", Some("fr".into())),
+            "us"
+        );
+        // A blank "found in" is ignored.
+        assert_eq!(
+            lyrics_lookup_storefront(&link, Some("  "), "de", Some("fr".into())),
             "gb"
         );
-        assert_eq!(lyrics_lookup_storefront(&[], "DE", Some("fr".into())), "de");
-        assert_eq!(lyrics_lookup_storefront(&[], "", Some("fr".into())), "fr");
-        assert_eq!(lyrics_lookup_storefront(&[], "  ", None), "us");
+        assert_eq!(
+            lyrics_lookup_storefront(&link, None, "de", Some("fr".into())),
+            "gb"
+        );
+        assert_eq!(
+            lyrics_lookup_storefront(&[], None, "DE", Some("fr".into())),
+            "de"
+        );
+        assert_eq!(
+            lyrics_lookup_storefront(&[], None, "", Some("fr".into())),
+            "fr"
+        );
+        assert_eq!(lyrics_lookup_storefront(&[], None, "  ", None), "us");
         // A link that is not an Apple Music link gives no country.
         let other = vec!["https://example.com/x".to_string()];
-        assert_eq!(lyrics_lookup_storefront(&other, "", None), "us");
+        assert_eq!(lyrics_lookup_storefront(&other, None, "", None), "us");
     }
 }

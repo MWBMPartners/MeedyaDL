@@ -53,6 +53,7 @@ Usage:
 
 from __future__ import annotations
 
+import html
 import re
 import sys
 import unicodedata
@@ -290,12 +291,19 @@ def github_slug_base(text: str) -> str:
 
 
 def heading_text_to_plain(raw: str) -> str:
-    """The visible words of a heading written in Markdown: link text is
-    kept (its address dropped), code ticks, emphasis stars and HTML tags
-    are removed."""
+    """The visible words of a heading as the app shows them (the app builds
+    each link target from the shown text, `src/lib/headingAnchors.ts`): link
+    text is kept (its address dropped), code ticks, emphasis stars,
+    emphasis underscores (`_x_`, `__x__`), strike-through marks and HTML tags
+    are removed, and HTML entities (`&amp;`) are turned into the character
+    they stand for. An underscore inside a word (`snake_case`) is kept, as
+    Markdown keeps it."""
     raw = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", raw)
     raw = re.sub(r"<[^>]+>", "", raw)
-    raw = raw.replace("`", "").replace("*", "")
+    raw = raw.replace("`", "").replace("*", "").replace("~~", "")
+    # Emphasis with underscores only counts at the edge of a word.
+    raw = re.sub(r"(?<![\w])(_{1,3})(?=\S)(.+?)(?<=\S)\1(?![\w])", r"\2", raw)
+    raw = html.unescape(raw)
     return raw.strip()
 
 
@@ -318,9 +326,18 @@ def collect_heading_anchors(text: str) -> set[str]:
     return anchors
 
 
-def find_broken_same_page_anchors(text: str) -> list[tuple[int, str]]:
+def find_broken_same_page_anchors(
+    text: str, topic_ids: "frozenset[str] | set[str]" = frozenset()
+) -> list[tuple[int, str]]:
     """(line_no, anchor) for every `](#anchor)` link in `text` whose anchor
-    matches no heading in the same text. Code samples are ignored."""
+    matches no heading in the same text. Code samples are ignored.
+
+    The match is EXACT, capital letters included: the app jumps to a
+    heading only when the link's text equals the heading's target name
+    (`scrollToHeading` in `src/lib/headingAnchors.ts`), and target names are
+    always lower case. A link that differs only in case is therefore
+    reported. A link whose text is the id of a help page (`#cookie-management`)
+    is also fine: the app opens that page (`topic_ids` holds those ids)."""
     scannable = strip_inline_code(strip_fenced_code(text))
     anchors = collect_heading_anchors(text)
     broken: list[tuple[int, str]] = []
@@ -330,7 +347,7 @@ def find_broken_same_page_anchors(text: str) -> list[tuple[int, str]]:
             anchor = unquote(anchor)
         except Exception:  # pragma: no cover - unquote does not raise
             pass
-        if anchor.lower() not in anchors:
+        if anchor not in anchors and anchor not in topic_ids:
             broken.append((line_no_at(scannable, m.start()), anchor))
     return broken
 
@@ -339,10 +356,11 @@ def collect_broken_anchors() -> list[tuple[str, int, str]]:
     """(rel_path, line_no, anchor) for every broken same-page link in
     help/**/*.md."""
     results: list[tuple[str, int, str]] = []
+    topic_ids = set(collect_manifest_entries())
     for md in sorted(HELP_DIR.rglob("*.md")):
         rel = str(md.relative_to(REPO_ROOT))
         text = md.read_text(encoding="utf-8", errors="ignore")
-        for line, anchor in find_broken_same_page_anchors(text):
+        for line, anchor in find_broken_same_page_anchors(text, topic_ids):
             results.append((rel, line, anchor))
     return results
 
@@ -532,7 +550,8 @@ def check() -> int:
         for rel, line, anchor in broken_anchors:
             print(
                 f"  • {rel}:{line} — links to '#{anchor}', but no heading on this page has "
-                f"that name. Fix the link, or the heading it should point at."
+                f"that exact name (capital letters count; heading names are lower case). "
+                f"Fix the link, or the heading it should point at."
             )
         print()
         findings += len(broken_anchors)
