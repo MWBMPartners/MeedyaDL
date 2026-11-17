@@ -206,7 +206,11 @@ def main(argv: list[str]) -> int:
         # shows exactly which alerts remain and where they point.
         for run in report.get("runs") or []:
             for r in run.get("results") or []:
-                main_paths = [_uri(loc) or "?" for loc in (r or {}).get("locations") or []]
+                main_paths = [
+                    f"{_uri(loc) or '?'}:"
+                    f"{(((loc or {}).get('physicalLocation') or {}).get('region') or {}).get('startLine', '?')}"
+                    for loc in (r or {}).get("locations") or []
+                ]
                 print(f"  uploaded {r.get('ruleId')}: {', '.join(main_paths) or '(no location)'}")
         path.write_text(json.dumps(report), encoding="utf-8")
         print(f"{path.name}: removed {removed} result(s) inside {VENDOR_PREFIX}")
