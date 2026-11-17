@@ -827,20 +827,29 @@ pub(crate) fn tier_tag_folder(
 }
 
 /// The folders a tier's new copies may be tagged in: the known download
-/// folder, plus the folder the artist and album names point at when some new
-/// copy landed outside the known one (the predicted-suffix folder case the
-/// lyrics step handles with `resolve_extra_dir`). The name lookup only runs
-/// when a new file really is outside the known folder.
+/// folder, the other album folders of this download that still exist inside
+/// the output folder (`other_album_dirs`, from the gate, #1446), plus the
+/// folder the artist and album names point at when some new copy landed
+/// outside all of those (the predicted-suffix folder case the lyrics step
+/// handles with `resolve_extra_dir`). The name lookup only runs when a new
+/// file really is outside every known folder.
 pub(crate) fn tier_tag_folders(
     output_dir: &std::path::Path,
     tag_folder: &std::path::Path,
+    other_album_dirs: &[std::path::PathBuf],
     before: &std::collections::BTreeSet<std::path::PathBuf>,
     after: &std::collections::BTreeSet<std::path::PathBuf>,
     artist_hint: Option<&str>,
     album_hint: Option<&str>,
 ) -> Vec<std::path::PathBuf> {
     let mut folders = vec![tag_folder.to_path_buf()];
-    if !tier_files_outside(before, after, &[tag_folder]).is_empty() {
+    for dir in other_album_dirs {
+        if dir.is_dir() && dir.starts_with(output_dir) && !folders.contains(dir) {
+            folders.push(dir.clone());
+        }
+    }
+    let known: Vec<&std::path::Path> = folders.iter().map(|p| p.as_path()).collect();
+    if !tier_files_outside(before, after, &known).is_empty() {
         if let Some(extra) = super::companion_lyrics::resolve_extra_dir(
             output_dir,
             artist_hint,
@@ -3187,6 +3196,9 @@ pub(crate) fn spawn_companion_downloads(
             let mut companion_album_dir: Option<std::path::PathBuf> = None;
             let mut gate_album_name: Option<String> = None;
             let mut gate_stamps = super::metadata_tag_service::DownloadStamps::default();
+            // The download's other album folders (#1446): copies landing there
+            // get format tags and their own album's stamps, nothing more.
+            let mut gate_other_dirs: Vec<std::path::PathBuf> = Vec::new();
             let mut unplaceable: Vec<SongCodec> = Vec::new();
             let mut lyricsfile_artist: Option<String> = None;
             let mut lyricsfile_default_title: Option<String> = None;
@@ -3229,6 +3241,7 @@ pub(crate) fn spawn_companion_downloads(
                 companion_album_dir = state.album_dir.as_deref().map(std::path::PathBuf::from);
                 gate_album_name.clone_from(&state.album.name);
                 gate_stamps.clone_from(&state.album.stamps);
+                gate_other_dirs.clone_from(&state.other_album_dirs);
                 unplaceable.clone_from(&state.unplaceable);
                 lyricsfile_artist.clone_from(&state.lyricsfile_artist);
                 lyricsfile_default_title.clone_from(&state.lyricsfile_default_title);
@@ -3921,6 +3934,7 @@ pub(crate) fn spawn_companion_downloads(
                                 let tag_folders = tier_tag_folders(
                                     std::path::Path::new(output_dir),
                                     &tag_folder,
+                                    &gate_other_dirs,
                                     &before_tier,
                                     &after_tier,
                                     artist_hint.as_deref(),

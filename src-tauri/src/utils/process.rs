@@ -797,6 +797,24 @@ pub enum GamdlOutputEvent {
     },
 }
 
+/// The file path in a GAMDL 3.x "already exists" warning, such as
+/// `Skipping "Title": Media file already exists: /music/A/B/01 Title.m4a`
+/// (with or without a leading `[WARNING  12:00:00]` log prefix), or `None`
+/// for any other line (a "Requested format is not available" skip, an
+/// unrelated line, or a line with no path). GAMDL 3.x prints no other saved
+/// path at its normal log level (#1446). It is matched on upstream's own
+/// wording; if that changes, the path is simply not seen.
+pub fn existing_media_path(line: &str) -> Option<String> {
+    const MARKER: &str = "Media file already exists: ";
+    let trimmed = line.trim();
+    if !trimmed.contains("Skipping") {
+        return None;
+    }
+    let start = trimmed.find(MARKER)? + MARKER.len();
+    let path = trimmed[start..].trim();
+    (!path.is_empty()).then(|| path.to_string())
+}
+
 /// Parses a single line of GAMDL output into a structured event.
 ///
 /// GAMDL and its subprocesses (yt-dlp, `FFmpeg`) output progress and status

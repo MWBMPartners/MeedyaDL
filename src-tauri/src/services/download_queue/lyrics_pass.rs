@@ -883,6 +883,12 @@ pub(crate) struct CompanionGateState {
     /// What Apple Music said about the album itself: its name and the date
     /// it was last updated.
     pub album: GateAlbumFacts,
+    /// The other album folders this download wrote songs into (a download
+    /// can span several albums, #1446), whose songs enrichment tagged.
+    /// Extra-format copies landing there get their format tags and their own
+    /// album's stamps too. Not used for renames, lyrics or the advisory
+    /// pass, which stay with the main folder.
+    pub other_album_dirs: Vec<PathBuf>,
     /// The format of each of this download's primary files whose disc or
     /// track number could not be read: they cannot be requested on their
     /// own, and are counted in the "left without an extra copy" line.
@@ -972,6 +978,130 @@ pub(crate) fn links_share_one_album(urls: &[String]) -> bool {
     first.is_some()
 }
 
+// ============================================================
+// Other album folders (#1446)
+// ============================================================
+
+/// The most files tagged in a download's other album folders.
+pub(crate) const MAX_OTHER_FOLDER_FILES: usize = 2000;
+
+/// Every song number that belongs to this download: each song of every album
+/// whose details were fetched (its current number and any earlier ones), and
+/// every `?i=` song number named by a link.
+pub(crate) fn download_song_ids(
+    albums: &[AlbumMetadata],
+    urls: &[String],
+) -> std::collections::HashSet<String> {
+    let mut ids = std::collections::HashSet::new();
+    for album in albums {
+        for track in &album.tracks {
+            if !track.song_id.is_empty() {
+                ids.insert(track.song_id.clone());
+            }
+            ids.extend(metadata_tag_service::former_ids_from_json(&track.raw_json));
+        }
+    }
+    for url in urls {
+        if let Some(id) = crate::services::apple_music_api::parse_apple_music_url(url)
+            .and_then(|p| p.song_id)
+            .filter(|id| !id.is_empty())
+        {
+            ids.insert(id);
+        }
+    }
+    ids
+}
+
+/// Whether the look through the download folder for this run's files is
+/// needed: only when the download spans several albums and the run was GAMDL
+/// 3.x (or the version is unknown). GAMDL 3.x reports no saved paths at its
+/// normal log level; GAMDL 4.x reports every one, so there nothing is walked.
+pub(crate) fn needs_fresh_walk(gamdl_version: Option<&str>, multi_album: bool) -> bool {
+    if !multi_album {
+        return false;
+    }
+    let major = gamdl_version
+        .and_then(|v| v.trim().trim_start_matches('v').split('.').next())
+        .and_then(|m| m.parse::<u32>().ok());
+    major.is_none_or(|m| m < 4)
+}
+
+/// Every `.m4a` file under `output_dir` (up to ten levels down, like
+/// [`audio_files_in`]) written since `started`, with the same two seconds of
+/// slack as [`fresh_at_snapshot`]. The one place the download folder is
+/// looked through for a GAMDL 3.x run's files in other album folders; the
+/// song-number check in [`other_album_files`] filters what it finds.
+pub(crate) fn fresh_m4a_under(output_dir: &Path, started: std::time::SystemTime) -> Vec<PathBuf> {
+    let all: Vec<PathBuf> = audio_files_in(output_dir)
+        .into_iter()
+        .filter(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("m4a"))
+        })
+        .collect();
+    let mut fresh: Vec<PathBuf> = fresh_at_snapshot(&all, Some(started)).into_iter().collect();
+    fresh.sort();
+    fresh
+}
+
+/// This download's files in album folders other than the main one, grouped
+/// by folder (sorted).
+///
+/// Candidates are the paths the runs reported (`reported`) and the files
+/// found by the look-through (`walked_fresh`). A file counts only if it is an
+/// existing `.m4a` under `output_dir` and not under `album_dir` (Step 1
+/// already tags those), is not a filesystem leftover, and its own song number
+/// (read by `song_id_of`) is one of this download's (`download_song_ids`).
+/// The song-number check applies to reported files too, so a file whose album
+/// was not looked up is left alone. At most [`MAX_OTHER_FOLDER_FILES`] files
+/// are returned.
+pub(crate) fn other_album_files(
+    album_dir: &Path,
+    output_dir: &Path,
+    reported: &[PathBuf],
+    walked_fresh: &[PathBuf],
+    download_song_ids: &std::collections::HashSet<String>,
+    song_id_of: impl Fn(&Path) -> Option<String>,
+) -> std::collections::BTreeMap<PathBuf, Vec<PathBuf>> {
+    let candidates: std::collections::BTreeSet<&PathBuf> =
+        reported.iter().chain(walked_fresh.iter()).collect();
+    let mut by_folder: std::collections::BTreeMap<PathBuf, Vec<PathBuf>> =
+        std::collections::BTreeMap::new();
+    let mut total = 0usize;
+    for path in candidates {
+        if total >= MAX_OTHER_FOLDER_FILES {
+            break;
+        }
+        let is_m4a = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| e.eq_ignore_ascii_case("m4a"));
+        if !is_m4a
+            || !path.starts_with(output_dir)
+            || path.starts_with(album_dir)
+            || !path.is_file()
+            || crate::utils::fs_safe::is_filesystem_sidecar(path)
+        {
+            continue;
+        }
+        let Some(id) = song_id_of(path) else {
+            continue;
+        };
+        if !download_song_ids.contains(&id) {
+            continue;
+        }
+        if let Some(folder) = path.parent() {
+            by_folder
+                .entry(folder.to_path_buf())
+                .or_default()
+                .push(path.clone());
+            total += 1;
+        }
+    }
+    by_folder
+}
+
 /// Enrichment's end of the gate. Dropping it — an early return, a panic,
 /// the enrichment deadline aborting the task — releases the companions
 /// too, so they are never left waiting and the item never stalls.
@@ -990,6 +1120,11 @@ impl CompanionGate {
     /// Records the folder that holds the primary files now.
     pub(crate) fn set_album_dir(&self, dir: Option<String>) {
         self.0.send_modify(|s| s.album_dir = dir);
+    }
+
+    /// Records the other album folders whose songs enrichment tagged.
+    pub(crate) fn set_other_album_dirs(&self, dirs: Vec<PathBuf>) {
+        self.0.send_modify(|s| s.other_album_dirs = dirs);
     }
 
     /// Records the artist and fallback title the main download's Lyricsfile

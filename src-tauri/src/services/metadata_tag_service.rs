@@ -1442,6 +1442,14 @@ pub(crate) fn song_id_of(tag: &Tag) -> Option<String> {
         })
 }
 
+/// The song number in a file's tags, or `None` when the file cannot be read
+/// or carries none. Read only; takes no lock.
+pub(crate) fn song_id_of_path(path: &Path) -> Option<String> {
+    Tag::read_from_path(path)
+        .ok()
+        .and_then(|tag| song_id_of(&tag))
+}
+
 /// One song of an album, as far as stamping a file needs to know it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct StampTrack {

@@ -66,6 +66,7 @@
 // - Tauri event system: https://v2.tauri.app/develop/calling-rust/#events
 
 pub(crate) use std::collections::{HashSet, VecDeque};
+use std::path::PathBuf;
 // Future and Pin are needed for the recursive async pattern in process_queue().
 // Recursive async functions cannot use normal `async fn` syntax because the
 // compiler cannot determine the size of the future at compile time.
@@ -292,6 +293,30 @@ pub(crate) struct QueueItem {
     /// saved queue keeps only the original request and is merged afresh on
     /// restore, so a restored item has nothing added to strip.
     pub added_template_suffixes: Vec<&'static str>,
+    /// Every file path the main download runs reported, in the order seen
+    /// (GAMDL 4.x `✓`/`↷ … → path` lines, GAMDL 3.x "Media file already
+    /// exists" lines), without repeats and capped at
+    /// [`MAX_REPORTED_PATHS`]. Enrichment reads it to find this download's
+    /// files in other album folders (#1446). In memory only: a restored item
+    /// starts empty. Cleared where a main download attempt starts
+    /// ([`DownloadQueue::begin_run`]), never before the gap-fill run.
+    pub reported_paths: Vec<PathBuf>,
+}
+
+/// The most file paths one queue item remembers from its main runs.
+pub const MAX_REPORTED_PATHS: usize = 5000;
+
+/// Adds `path` to a reported-path list unless it is empty, already there, or
+/// the list is full ([`MAX_REPORTED_PATHS`]).
+fn push_reported_path(list: &mut Vec<PathBuf>, path: &str) {
+    let path = path.trim();
+    if path.is_empty() || list.len() >= MAX_REPORTED_PATHS {
+        return;
+    }
+    let candidate = PathBuf::from(path);
+    if !list.contains(&candidate) {
+        list.push(candidate);
+    }
 }
 
 // ============================================================
@@ -685,6 +710,7 @@ impl DownloadQueue {
             engine_fallback_index: 0,
             storefront_fallback_attempted: false,
             added_template_suffixes: Vec::new(),
+            reported_paths: Vec::new(),
         };
 
         log::info!(
@@ -1182,6 +1208,9 @@ impl DownloadQueue {
                     // Set the output file/directory path for the "Open" button in the UI
                     item.status.output_path = Some(path.clone());
                     item.status.progress = 100.0;
+                    // Also remember every path, not just the last: a download
+                    // can write to several album folders (#1446).
+                    push_reported_path(&mut item.reported_paths, path);
                 }
                 process::GamdlOutputEvent::Error { message } => {
                     // Record the error but don't change state yet — the process
@@ -1209,6 +1238,25 @@ impl DownloadQueue {
                 // remaining tracks succeed and the item ends Complete.
                 process::GamdlOutputEvent::CodecSkip { .. } => {}
             }
+        }
+    }
+
+    /// Remembers a file path the main download reported without treating it
+    /// as the item's output path (used for GAMDL 3.x "Media file already
+    /// exists" lines, which must not change `output_path`). Empty paths,
+    /// repeats and anything past the cap are ignored.
+    pub fn record_reported_path(&mut self, download_id: &str, path: &str) {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            push_reported_path(&mut item.reported_paths, path);
+        }
+    }
+
+    /// Forgets the paths reported so far: called where a main download
+    /// attempt starts. Not called before the gap-fill run, which belongs to
+    /// the same download, so the two runs' lists add up.
+    pub fn begin_run(&mut self, download_id: &str) {
+        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+            item.reported_paths.clear();
         }
     }
 
@@ -2312,6 +2360,7 @@ impl DownloadQueue {
                 network_retries_left: self.max_network_retries,
                 storefront_fallback_attempted: false,
                 added_template_suffixes: Vec::new(),
+                reported_paths: Vec::new(),
             };
             self.items.push_back(item);
         }
