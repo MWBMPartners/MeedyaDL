@@ -2524,6 +2524,7 @@ pub fn process_queue(
                                 &enrich_dl_id,
                                 &enrich_settings,
                                 album_metadata.as_ref(),
+                                &enrich_urls,
                                 &primary_files,
                                 &fresh_files,
                                 primary_suffix,

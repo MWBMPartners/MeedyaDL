@@ -8,8 +8,8 @@ immediate writes on the wrapper-decrypt path, so payload order didn't
 always match the container's sample-size table — the audible symptom is a
 **truncated or corrupt song ending**. MeedyaDL's tested and recommended
 GAMDL is now 3.9.1 (3.9 itself is refused as known-bad), but this script was
-written for the 3.8.4 fix and its install helper still stops at 3.8.5 (see
-below). It is the live verification gate that closes the loop between "the
+written for the 3.8.4 fix and its install helper now follows the tested version in
+`src-tauri/tool-versions.toml` (see below). It is the live verification gate that closes the loop between "the
 upstream fix landed" and "we confirmed it works on our supported platforms."
 
 **This script is intentionally NOT wired into any CI workflow, and never
@@ -54,7 +54,7 @@ GAMDL version-audit entries for the cadence this has followed historically).
    and aborts at startup on any mismatch).
 3. **Download matrix** — real downloads into a fresh temp directory:
    - non-wrapper leg: `aac` (works without wrapper auth on GAMDL 3.8+),
-   - wrapper leg: `alac` (still wrapper-dependent on 3.8.5) **and**
+   - wrapper leg: `alac` (still wrapper-dependent on 3.9.1) **and**
      `atmos` (a second, independent wrapper-decrypt code path).
 4. **Song-ending integrity** — the core check, run per downloaded file:
    - a full `ffmpeg -f null -` decode produces zero stderr output,
@@ -108,11 +108,12 @@ system-Python-venv layout from issue #1017 (`Scripts\python.exe` on
 Windows). Pass `--python-bin` instead to point at any other interpreter
 with `gamdl` installed.
 
-Run `--install` to `pip install --upgrade 'gamdl>=3.0,<=3.8.5'` first if
-you need to get onto 3.8.5 before running the checks. That limit is the
-script's own `DEFAULT_GAMDL_SPEC_CEILING`; it has not been raised to follow
-MeedyaDL's 3.9.1, so to test 3.9.1 install it yourself and point
-`--python-bin` at that interpreter.
+Run `--install` to `pip install --upgrade 'gamdl>=3.0,<=3.9.1'` first if
+you need to get onto 3.9.1 before running the checks. That limit is the
+script's `DEFAULT_GAMDL_SPEC_CEILING`, which is read from
+`maximum_tested_version` in `src-tauri/tool-versions.toml` each time the
+script runs (with 3.9.1 built in as a fallback), so it follows MeedyaDL's
+tested version without edits.
 
 The script drives GAMDL 3 only (`python -m gamdl`). GAMDL 4, the opt-in
 trial in Settings > Tools, has a different command line and is not covered.

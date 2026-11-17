@@ -118,7 +118,7 @@ On a single trusted home network you do not need any of these.
 
 ## Check that it works
 
-**Test Connection.** In **Settings > Advanced > Wrapper**, press **Test Connection**. It tries the **Wrapper Account URL** address and waits up to 5 seconds:
+**Test Connection.** In **Settings > Advanced > Wrapper**, press **Test Connection**. It tries the wrapper address you are using and waits up to 5 seconds. With the newer wrapper that is the **Wrapper URL**; with the older one it is the **Wrapper Account URL**:
 
 - **Connected (42ms)** (the number will differ): the wrapper answered.
 - **Connection timed out (5s):** the wrapper may not be running, or the address is wrong.

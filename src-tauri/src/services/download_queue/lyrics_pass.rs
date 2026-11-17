@@ -514,6 +514,7 @@ pub(crate) async fn run_step_1b(
     dl_id: &str,
     settings: &AppSettings,
     metadata: Option<&AlbumMetadata>,
+    urls: &[String],
     primary_files: &[PathBuf],
     fresh_files: &std::collections::HashSet<PathBuf>,
     primary_suffix: Option<&str>,
@@ -623,16 +624,24 @@ pub(crate) async fn run_step_1b(
     };
 
     set_label("Fetching word-level lyrics…");
+    // The country to ask Apple Music about. The saved setting is empty
+    // when Storefront is on Auto-detect, so it is never used as it is.
+    let storefront = lyrics_lookup_storefront(
+        urls,
+        &settings.storefront,
+        crate::services::login_window_service::detect_storefront(),
+    );
     let (asked, stopped_on_sign_in) = ask_each_track(
         to_ask,
         |song_id| {
             let song_id = song_id.to_string();
             let jwt = jwt.clone();
             let token = token.clone();
+            let storefront = storefront.clone();
             async move {
                 apple_music_api::fetch_syllable_lyrics_with_status(
                     &jwt,
-                    &settings.storefront,
+                    &storefront,
                     &song_id,
                     &token,
                     Some(&settings.language),
@@ -1863,6 +1872,42 @@ pub(crate) async fn run_word_lyrics_pass(
         dl_id,
         &word_lyrics_pass_summary(after.saturating_sub(before), end),
     );
+}
+
+/// The country (storefront) code used for the word-by-word lyrics lookup.
+///
+/// Order of choice, the same one the rest of the app uses when it has to
+/// work out a country:
+///
+/// 1. The country in the download's own link (`music.apple.com/gb/...`),
+///    because that is the catalogue the person actually asked for.
+/// 2. The Storefront setting, when it is not empty (it is empty while the
+///    setting is on Auto-detect).
+/// 3. The country of the computer's language settings (`detected`).
+/// 4. `us`, which is always a valid Apple Music country.
+///
+/// Pure (the computer's own country is handed in) so it can be tested
+/// without depending on the machine the tests run on.
+pub(crate) fn lyrics_lookup_storefront(
+    urls: &[String],
+    setting: &str,
+    detected: Option<String>,
+) -> String {
+    if let Some(from_link) = urls
+        .iter()
+        .find_map(|u| crate::services::apple_music_api::parse_apple_music_url(u))
+        .map(|p| p.storefront)
+        .filter(|s| !s.trim().is_empty())
+    {
+        return from_link.to_ascii_lowercase();
+    }
+    let setting = setting.trim();
+    if !setting.is_empty() {
+        return setting.to_ascii_lowercase();
+    }
+    detected
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "us".to_string())
 }
 
 #[cfg(test)]
@@ -3113,5 +3158,20 @@ mod tests {
         let since = Some(std::time::SystemTime::now() - std::time::Duration::from_secs(60));
         let mine = this_downloads_videos(std::slice::from_ref(&video), Some(&before), since);
         assert_eq!(mine, vec![video]);
+    }
+
+    #[test]
+    fn lyrics_storefront_prefers_the_link_then_setting_then_detected_then_us() {
+        let link = vec!["https://music.apple.com/gb/album/x/123".to_string()];
+        assert_eq!(
+            lyrics_lookup_storefront(&link, "de", Some("fr".into())),
+            "gb"
+        );
+        assert_eq!(lyrics_lookup_storefront(&[], "DE", Some("fr".into())), "de");
+        assert_eq!(lyrics_lookup_storefront(&[], "", Some("fr".into())), "fr");
+        assert_eq!(lyrics_lookup_storefront(&[], "  ", None), "us");
+        // A link that is not an Apple Music link gives no country.
+        let other = vec!["https://example.com/x".to_string()];
+        assert_eq!(lyrics_lookup_storefront(&other, "", None), "us");
     }
 }

@@ -39,7 +39,9 @@ never heard of -- a typo, or a translation nobody wired up in the
 Settings language dropdown -- which means nobody can ever actually
 select it and see the page.
 
-This script checks all eight of those things.
+This script checks all eight of those things, plus one more: a link to a
+heading on the same page (`[Setup Guide](#setup-guide)`) whose heading does
+not exist.
 
 Exit code:
   0 -- no findings (or only informational), OR findings without --strict
@@ -53,7 +55,9 @@ from __future__ import annotations
 
 import re
 import sys
+import unicodedata
 from pathlib import Path
+from urllib.parse import unquote
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 HELP_DIR = REPO_ROOT / "help"
@@ -262,6 +266,88 @@ def collect_help_cross_links() -> list[tuple[str, int, str, Path]]:
 
 
 # ---------------------------------------------------------------------------
+# Check 5b: a link to a heading on the same page that does not exist.
+# ---------------------------------------------------------------------------
+#
+# `[Setup Guide](#setup-guide)` jumps to the heading "Setup Guide" on GitHub,
+# and (since headings got ids) inside the app too. If the heading is renamed
+# or the link is mistyped, the link silently does nothing. The target name is
+# worked out the way GitHub does it, and the same rule is in
+# `src/lib/headingAnchors.ts` -- change both together.
+
+
+def github_slug_base(text: str) -> str:
+    """The target name GitHub gives a heading, before repeats are numbered:
+    lower case, drop everything but letters, marks, numbers, underscore,
+    hyphen and space, then turn each space into a hyphen."""
+    text = text.strip().lower()
+    kept = []
+    for ch in text:
+        cat = unicodedata.category(ch)
+        if ch in " -" or cat[0] in "LMN" or cat == "Pc":
+            kept.append(ch)
+    return "".join(kept).replace(" ", "-")
+
+
+def heading_text_to_plain(raw: str) -> str:
+    """The visible words of a heading written in Markdown: link text is
+    kept (its address dropped), code ticks, emphasis stars and HTML tags
+    are removed."""
+    raw = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", raw)
+    raw = re.sub(r"<[^>]+>", "", raw)
+    raw = raw.replace("`", "").replace("*", "")
+    return raw.strip()
+
+
+def collect_heading_anchors(text: str) -> set[str]:
+    """Every heading target name on one page, with repeats numbered
+    (-1, -2) the way GitHub does."""
+    used: dict[str, int] = {}
+    anchors: set[str] = set()
+    for line in strip_fenced_code(text).splitlines():
+        m = re.match(r"^ {0,3}#{1,6}[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$", line)
+        if not m:
+            continue
+        base = github_slug_base(heading_text_to_plain(m.group(1)))
+        result = base
+        while result in used:
+            used[base] = used.get(base, 0) + 1
+            result = f"{base}-{used[base]}"
+        used[result] = 0
+        anchors.add(result)
+    return anchors
+
+
+def find_broken_same_page_anchors(text: str) -> list[tuple[int, str]]:
+    """(line_no, anchor) for every `](#anchor)` link in `text` whose anchor
+    matches no heading in the same text. Code samples are ignored."""
+    scannable = strip_inline_code(strip_fenced_code(text))
+    anchors = collect_heading_anchors(text)
+    broken: list[tuple[int, str]] = []
+    for m in re.finditer(r"\]\(#([^)\s]*)\)", scannable):
+        anchor = m.group(1)
+        try:
+            anchor = unquote(anchor)
+        except Exception:  # pragma: no cover - unquote does not raise
+            pass
+        if anchor.lower() not in anchors:
+            broken.append((line_no_at(scannable, m.start()), anchor))
+    return broken
+
+
+def collect_broken_anchors() -> list[tuple[str, int, str]]:
+    """(rel_path, line_no, anchor) for every broken same-page link in
+    help/**/*.md."""
+    results: list[tuple[str, int, str]] = []
+    for md in sorted(HELP_DIR.rglob("*.md")):
+        rel = str(md.relative_to(REPO_ROOT))
+        text = md.read_text(encoding="utf-8", errors="ignore")
+        for line, anchor in find_broken_same_page_anchors(text):
+            results.append((rel, line, anchor))
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Check 6: GitHub-only emoji shortcodes.
 # ---------------------------------------------------------------------------
 
@@ -357,6 +443,7 @@ def check() -> int:
     manifest = collect_manifest_entries()
     frontend_links = collect_frontend_help_links()
     cross_links = collect_help_cross_links()
+    broken_anchors = collect_broken_anchors()
     emoji_shortcodes = collect_emoji_shortcodes()
     translation_gaps = collect_translation_gaps()
     unknown_language_folders = collect_unknown_language_folders()
@@ -438,6 +525,17 @@ def check() -> int:
             )
         print()
         findings += len(broken_cross_links)
+
+    # 5b. A link to a heading on the same page that does not exist.
+    if broken_anchors:
+        print("### A help page links to a heading on the same page that does not exist\n")
+        for rel, line, anchor in broken_anchors:
+            print(
+                f"  • {rel}:{line} — links to '#{anchor}', but no heading on this page has "
+                f"that name. Fix the link, or the heading it should point at."
+            )
+        print()
+        findings += len(broken_anchors)
 
     # 6. GitHub-only emoji syntax.
     if emoji_shortcodes:

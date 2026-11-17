@@ -207,17 +207,21 @@ impl SongCodec {
     }
 
     /// Returns `true` if this codec requires wrapper authentication for
-    /// reliable per-track availability queries. Atmos (E-AC-3 JOC) and
-    /// Dolby Digital (AC-3) use spatial audio API endpoints that don't
-    /// properly fall back per-track without wrapper auth. When these codecs
-    /// lead a native priority chain (`--song-codec-priority`) and wrapper
-    /// is not enabled, GAMDL may skip tracks instead of trying later codecs.
+    /// reliable per-track availability queries on GAMDL older than 3.8 (and
+    /// on an unknown version). Before 3.8, GAMDL treats lossless (ALAC),
+    /// Atmos (E-AC-3 JOC) and Dolby Digital (AC-3) alike: all three use
+    /// endpoints that don't properly fall back per-track without wrapper
+    /// auth (GAMDL 3.0 to 3.5.2 document them as wrapper-required, 3.7.4 as
+    /// wrapper-recommended). When these codecs lead a native priority chain
+    /// (`--song-codec-priority`) and wrapper is not enabled, GAMDL may skip
+    /// tracks instead of trying later codecs. From 3.8 only ALAC still
+    /// needs it; see [`Self::is_wrapper_dependent_runtime`].
     ///
     /// Used by the gap-fill mechanism in `download_queue.rs` to build a
     /// fallback chain that excludes these codecs for skipped tracks.
     #[must_use]
     pub const fn is_wrapper_dependent(&self) -> bool {
-        matches!(self, Self::Atmos | Self::Ac3)
+        matches!(self, Self::Alac | Self::Atmos | Self::Ac3)
     }
 
     /// Runtime (GAMDL-version-aware) counterpart to [`Self::is_wrapper_dependent`]
@@ -230,7 +234,7 @@ impl SongCodec {
     /// is still wrapper-dependent; on every other detected version
     /// (including an unprobed / unknown one) this falls back to the
     /// conservative, version-agnostic [`Self::is_wrapper_dependent`]
-    /// predicate — `Atmos` and `Ac3`.
+    /// predicate — `Alac`, `Atmos` and `Ac3`.
     ///
     /// Used by `download_queue::build_gapfill_priority_chain()` so a
     /// wrapper-less gap-fill retry doesn't pre-emptively strip Atmos/AC3
@@ -2695,14 +2699,15 @@ mod tests {
     // ----------------------------------------------------------
 
     #[test]
-    fn is_wrapper_dependent_atmos_ac3() {
+    fn is_wrapper_dependent_alac_atmos_ac3() {
+        // Before GAMDL 3.8, lossless is treated exactly like Atmos and AC-3.
+        assert!(SongCodec::Alac.is_wrapper_dependent());
         assert!(SongCodec::Atmos.is_wrapper_dependent());
         assert!(SongCodec::Ac3.is_wrapper_dependent());
     }
 
     #[test]
     fn is_wrapper_dependent_non_experimental() {
-        assert!(!SongCodec::Alac.is_wrapper_dependent());
         assert!(!SongCodec::Aac.is_wrapper_dependent());
         assert!(!SongCodec::AacLegacy.is_wrapper_dependent());
         assert!(!SongCodec::AacBinaural.is_wrapper_dependent());
@@ -2725,7 +2730,7 @@ mod tests {
         crate::services::gamdl_capabilities::set_detected_version(Some("3.7.4".to_string()));
         assert!(SongCodec::Atmos.is_wrapper_dependent_runtime());
         assert!(SongCodec::Ac3.is_wrapper_dependent_runtime());
-        assert!(!SongCodec::Alac.is_wrapper_dependent_runtime());
+        assert!(SongCodec::Alac.is_wrapper_dependent_runtime());
         assert!(!SongCodec::Aac.is_wrapper_dependent_runtime());
         assert!(!SongCodec::AacLegacy.is_wrapper_dependent_runtime());
         crate::services::gamdl_capabilities::set_detected_version(None);
@@ -2756,7 +2761,7 @@ mod tests {
         crate::services::gamdl_capabilities::set_detected_version(None);
         assert!(SongCodec::Atmos.is_wrapper_dependent_runtime());
         assert!(SongCodec::Ac3.is_wrapper_dependent_runtime());
-        assert!(!SongCodec::Alac.is_wrapper_dependent_runtime());
+        assert!(SongCodec::Alac.is_wrapper_dependent_runtime());
     }
 
     #[test]

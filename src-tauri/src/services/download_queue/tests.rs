@@ -4230,7 +4230,8 @@ fn build_gapfill_filters_experimental_codecs() {
     crate::services::gamdl_capabilities::set_detected_version(Some("3.5.2".to_string()));
     let chain = "atmos,ac3,alac,aac-binaural,aac,aac-legacy";
     let result = build_gapfill_priority_chain(chain);
-    assert_eq!(result, Some("alac,aac-binaural,aac,aac-legacy".to_string()));
+    // Before 3.8, ALAC is dropped along with Atmos and AC3.
+    assert_eq!(result, Some("aac-binaural,aac,aac-legacy".to_string()));
     crate::services::gamdl_capabilities::set_detected_version(None);
 }
 
@@ -4238,9 +4239,9 @@ fn build_gapfill_filters_experimental_codecs() {
 fn build_gapfill_preserves_non_experimental() {
     let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
     crate::services::gamdl_capabilities::set_detected_version(Some("3.5.2".to_string()));
-    let chain = "alac,aac,aac-legacy";
+    let chain = "aac-binaural,aac,aac-legacy";
     let result = build_gapfill_priority_chain(chain);
-    assert_eq!(result, Some("alac,aac,aac-legacy".to_string()));
+    assert_eq!(result, Some("aac-binaural,aac,aac-legacy".to_string()));
     crate::services::gamdl_capabilities::set_detected_version(None);
 }
 
@@ -4248,7 +4249,7 @@ fn build_gapfill_preserves_non_experimental() {
 fn build_gapfill_returns_none_when_all_experimental() {
     let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
     crate::services::gamdl_capabilities::set_detected_version(Some("3.5.2".to_string()));
-    let chain = "atmos,ac3";
+    let chain = "atmos,ac3,alac";
     let result = build_gapfill_priority_chain(chain);
     assert_eq!(result, None);
     crate::services::gamdl_capabilities::set_detected_version(None);
@@ -4258,9 +4259,9 @@ fn build_gapfill_returns_none_when_all_experimental() {
 fn build_gapfill_single_non_experimental() {
     let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
     crate::services::gamdl_capabilities::set_detected_version(Some("3.5.2".to_string()));
-    let chain = "atmos,alac";
+    let chain = "atmos,alac,aac";
     let result = build_gapfill_priority_chain(chain);
-    assert_eq!(result, Some("alac".to_string()));
+    assert_eq!(result, Some("aac".to_string()));
     crate::services::gamdl_capabilities::set_detected_version(None);
 }
 
@@ -4462,12 +4463,11 @@ fn v3_codec_skips_drive_gapfill_chain_construction() {
     let skip_count = count_codec_skip_warnings(&warnings);
     assert!(skip_count > 0);
 
-    // Original chain favours Atmos (wrapper-dependent below 3.8),
-    // then ALAC. Gap-fill should drop Atmos and keep ALAC/AAC so the
-    // retry pass can fill the missing tracks with lossless/lossy
-    // fallbacks.
+    // Original chain favours Atmos then ALAC (both wrapper-dependent
+    // below 3.8). Gap-fill drops them and keeps AAC so the retry pass can
+    // fill the missing tracks with a format that works without the wrapper.
     let gap = build_gapfill_priority_chain("atmos,alac,aac").unwrap();
-    assert_eq!(gap, "alac,aac");
+    assert_eq!(gap, "aac");
 
     crate::services::gamdl_capabilities::set_detected_version(None);
 }

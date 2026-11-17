@@ -1378,7 +1378,8 @@ pub enum GamdlFeature {
     /// chain on 3.8+, where they now succeed. Below 3.8 (and on an
     /// unprobed / unknown version) the conservative, version-agnostic
     /// `SongCodec::is_wrapper_dependent()` predicate still applies —
-    /// `Atmos` and `Ac3` are treated as wrapper-dependent.
+    /// `Alac`, `Atmos` and `Ac3` are treated as wrapper-dependent (before 3.8
+    /// GAMDL treats lossless exactly like the other two).
     ///
     /// Deliberately does **not** change `SongCodec::display_name()` — the
     /// `(Experimental)` labels stay unconditional across every GAMDL

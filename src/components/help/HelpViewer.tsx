@@ -84,7 +84,7 @@
 
 // React hooks: useState for active topic and search state, useMemo for
 // memoized filtering and platform detection, useCallback for stable handlers.
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 
 // react-i18next's hook gives us the app's CURRENT display language
 // (i18n.language) -- e.g. "de", "fr-FR", "en" -- which is what decides
@@ -103,6 +103,7 @@ import ReactMarkdown from 'react-markdown';
 import { IconButton, Input, NavListItem, TextButton } from '@/components/common';
 /** Renumbers each help page's headings to fit under the Help screen's title. */
 import { remarkFitHeadings } from '@/lib/markdownHeadings';
+import { rehypeHeadingIds, scrollToHeading } from '@/lib/headingAnchors';
 
 /**
  * remark-gfm -- Remark plugin that adds support for GitHub Flavored
@@ -246,6 +247,9 @@ function HighlightedLabel({ label, query }: { label: string; query: string }) {
 export function HelpViewer() {
   /** Tracks which help topic is currently displayed in the content viewer */
   const [activeTopic, setActiveTopic] = useState<HelpTopicId>('getting-started');
+  // The box the page's text is drawn in. Same-page links look for their
+  // heading inside it only.
+  const proseRef = useRef<HTMLDivElement>(null);
 
   /** Tracks the current search input value for filtering the sidebar topics */
   const [searchQuery, setSearchQuery] = useState('');
@@ -641,13 +645,13 @@ export function HelpViewer() {
             </p>
           )}
 
-          <div className="prose prose-sm dark:prose-invert max-w-none">
+          <div ref={proseRef} className="prose prose-sm dark:prose-invert max-w-none">
             <ReactMarkdown
               // Each help page starts with "# Title"; under the Help
               // screen's own <h1> that becomes an <h2>, and so on down,
               // with no level skipped (see lib/markdownHeadings.ts).
               remarkPlugins={[remarkGfm, [remarkFitHeadings, { top: 2 }]]}
-              rehypePlugins={[rehypeRaw, [rehypeSanitize, helpSanitizeSchema]]}
+              rehypePlugins={[rehypeRaw, [rehypeSanitize, helpSanitizeSchema], rehypeHeadingIds]}
               components={{
                 // Custom link handler. Help pages carry three different
                 // kinds of link, and each needs different handling inside
@@ -655,10 +659,13 @@ export function HelpViewer() {
                 // back on -- a navigation that "fails" just leaves the
                 // user staring at a blank window):
                 //
-                //  1. `#topic-id` -- an anchor naming another help topic
-                //     by id. Handled within the viewer: switches the
-                //     active topic instead of scrolling (there's nothing
-                //     to scroll to; the target topic isn't on screen).
+                //  1. `#something` -- first looked up as a heading on THIS
+                //     page (headings carry GitHub-style ids, see
+                //     lib/headingAnchors.ts) and scrolled to if found,
+                //     which is what the same link does on GitHub.
+                //     Otherwise it names another help topic by id and
+                //     switches the active topic instead of scrolling
+                //     (the target topic isn't on screen).
                 //  2. `some-page.md` / `./some-page.md`, optionally with
                 //     a `#fragment` -- a relative link from one help page
                 //     to another, written the way it needs to be for the
@@ -690,10 +697,17 @@ export function HelpViewer() {
                     href={href}
                     onClick={(e) => {
                       if (!href) return;
-                      // 1. Internal help topic anchor (e.g., #cookie-management)
+                      // 1. Same-page heading, else internal help topic
+                      // (e.g., #setup-guide, #cookie-management)
                       if (href.startsWith('#')) {
                         e.preventDefault();
-                        const topicId = href.slice(1);
+                        let topicId = href.slice(1);
+                        try {
+                          topicId = decodeURIComponent(topicId);
+                        } catch {
+                          // A malformed escape is used as written.
+                        }
+                        if (scrollToHeading(proseRef.current, topicId)) return;
                         const target = HELP_TOPICS.find((t) => t.id === topicId);
                         if (target) {
                           setActiveTopic(target.id);

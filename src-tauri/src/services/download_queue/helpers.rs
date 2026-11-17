@@ -553,7 +553,7 @@ pub(crate) fn annotate_unavailable_format_line(line: &str, requested_formats: &[
 /// wrapper authentication for per-track availability.
 ///
 /// Version-aware (#963, #1002): below GAMDL 3.8 this strips Atmos and
-/// AC3, same as always. On a detected `>= 3.8` install (where GAMDL's
+/// AC3 and ALAC (before 3.8 GAMDL treats lossless like them). On a detected `>= 3.8` install (where GAMDL's
 /// `/v1/play/assets` endpoint unlocks every non-web codec except ALAC
 /// for wrapper-less downloads) only ALAC is stripped — see
 /// `SongCodec::is_wrapper_dependent_runtime()`.

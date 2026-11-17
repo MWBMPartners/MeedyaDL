@@ -130,6 +130,7 @@ import {
   TextButton,
 } from '@/components/common';
 import { deriveWrapperDecryptAddress } from '@/lib/wrapperDecryptAddress';
+import { wrapperTestAddress } from '@/lib/wrapperTestAddress';
 import { GamdlFourNote } from '@/components/settings/GamdlFourNote';
 
 // TypeScript union types for download and remux mode values.
@@ -459,11 +460,20 @@ export function AdvancedTab() {
    */
   const drmBackendIsStale = !gamdlCaps.play_ready_drm && drmBackend.value === 'playready';
 
-  // Reset test result when the wrapper URL changes
+  // The address the "Test Connection" button tries: the one for the
+  // wrapper kind in use (the newer wrapper's single URL on GAMDL 3.6+,
+  // the account URL before that).
+  const testAddress = wrapperTestAddress(
+    gamdlCaps.wrapper_v2,
+    wrapperAccountUrl.value,
+    wrapperUrl.value
+  );
+
+  // Reset test result when the tested address changes
   useEffect(() => {
     setTestState('idle');
     setTestResult(null);
-  }, [wrapperAccountUrl.value]);
+  }, [testAddress]);
 
   // Check for stored MusicKit private key on mount
   useEffect(() => {
@@ -498,10 +508,10 @@ export function AdvancedTab() {
 
   /** Handles the "Test Connection" button click */
   const handleTestConnection = async () => {
-    if (!wrapperAccountUrl.value) return;
+    if (!testAddress) return;
     setTestState('testing');
     try {
-      const result = await testWrapperConnection(wrapperAccountUrl.value);
+      const result = await testWrapperConnection(testAddress);
       setTestResult(result);
       setTestState(result.reachable ? 'success' : 'error');
     } catch {
@@ -963,7 +973,7 @@ export function AdvancedTab() {
                 variant="secondary"
                 size="sm"
                 onClick={handleTestConnection}
-                disabled={testState === 'testing' || !wrapperAccountUrl.value}
+                disabled={testState === 'testing' || !testAddress}
               >
                 {testState === 'testing' ? 'Testing…' : 'Test Connection'}
               </Button>

@@ -986,7 +986,9 @@ pub struct WrapperTestResult {
 /// something is listening on the specified address/port.
 ///
 /// # Arguments
-/// * `url` - The wrapper account URL to test (e.g., `"http://192.168.3.179:30020"`)
+/// * `url` - The wrapper address in use: the account URL on the older wrapper
+///   (e.g., `"http://192.168.3.179:30020"`) or the single wrapper URL on the
+///   newer one (GAMDL 3.6+, e.g., `"http://127.0.0.1"`). The page picks which.
 ///
 /// # Returns
 /// * `Ok(WrapperTestResult)` - Connection test completed (may indicate failure via `reachable: false`)
