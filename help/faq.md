@@ -212,7 +212,7 @@ MeedyaDL does not include a built-in metadata editor. If you need to modify meta
 
 ### What is GAMDL?
 
-GAMDL is a command-line Apple Music download tool created by glomatico. It does the actual downloading, and MeedyaDL provides a friendly graphical interface on top of GAMDL's capabilities. GAMDL is installed automatically during MeedyaDL's first-run setup, so you do not need to install it separately. MeedyaDL recommends GAMDL 3.9.1. GAMDL 4 can be tried on purpose, but it has not been tested on real downloads yet. See [Trying GAMDL 4](tools.md#trying-gamdl-4).
+GAMDL is a command-line Apple Music download tool created by glomatico. It does the actual downloading, and MeedyaDL provides a friendly graphical interface on top of GAMDL's capabilities. GAMDL is installed automatically during MeedyaDL's first-run setup, so you do not need to install it separately. MeedyaDL recommends GAMDL 3.9.1 (an older version on some ARM computers). GAMDL 4 can be tried on purpose, but it has not been tested on real downloads yet. See [Trying GAMDL 4](tools.md#trying-gamdl-4).
 
 ### Can I use MeedyaDL and the GAMDL CLI at the same time?
 

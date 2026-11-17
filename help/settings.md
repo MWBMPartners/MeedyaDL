@@ -58,7 +58,7 @@ Reorder the audio codec and video codec fallback chains using the up/down arrow 
 
 ## Tools
 
-- **Core Dependencies** — Status, install, and update controls for Python and GAMDL, including **GAMDL Version Management**: which GAMDL version is installed, whether it is a tested one, upgrading, and installing a specific version. MeedyaDL recommends GAMDL 3.9.1. Releases with known problems are refused, and GAMDL 4 can be tried on purpose (see [Trying GAMDL 4](tools.md#trying-gamdl-4)).
+- **Core Dependencies** — Status, install, and update controls for Python and GAMDL, including **GAMDL Version Management**: which GAMDL version is installed, whether it is a tested one, upgrading, and installing a specific version. MeedyaDL recommends GAMDL 3.9.1 (an older version on some ARM computers). Releases with known problems are refused, and GAMDL 4 can be tried on purpose (see [Trying GAMDL 4](tools.md#trying-gamdl-4)).
 - **External Tools** — The five required tools (FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo), each with status, install, and a **Your Own Copy** option (open it with the arrow on the tool's right) if you'd rather point MeedyaDL at a copy you installed yourself.
 - **Directories** — The temporary working directory GAMDL uses during a download (default: your OS temp folder plus `MeedyaDL`).
 - **Automatic Snapshots** — Snapshots of your settings, queue and download history, kept on this computer. MeedyaDL takes one automatically each time it closes, and you can press **Create snapshot now** at any time; only the 10 most recent are kept. Restoring a snapshot replaces your current settings, queue and history, and deleting one cannot be undone — both ask you to confirm first.

@@ -23,7 +23,7 @@ If you turn on **Download Artist Promo Video**, you also get `ArtistSpotlightCov
 
 Not every album has animated art. It is mostly found on newer, popular albums.
 
-**Download Animated Cover Art** and **Download Artist Promo Video** are both on by default. They do nothing until your Apple Music developer details are filled in (see [Setup Guide](#setup-guide)). **Hide Animated Artwork Files** is off by default.
+**Download Animated Cover Art** and **Download Artist Promo Video** are both on by default. They need your Apple Music developer details to work reliably (see [Setup Guide](#setup-guide)). **Hide Animated Artwork Files** is off by default.
 
 <details>
 <summary>More detail: the video files</summary>

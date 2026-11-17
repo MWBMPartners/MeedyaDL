@@ -61,7 +61,7 @@ Enhanced LRC adds a time before every word. Players that support it can highligh
 - Songs that only have line-by-line timing get ordinary LRC instead.
 - It is on by default. Turn it on or off in **Settings > Lyrics > Enhanced Lyrics (Word-by-Word Sync)**.
 - While it is on, TTML is kept as the main format, because the word timing comes from it. You can still tick LRC and SRT as extra formats.
-- Word-by-word lyrics are looked up first by MeedyaDL itself (this needs your Apple Music developer details, see [Animated Artwork](animated-artwork.md), and your sign-in). If that is not possible for a song, and you are using GAMDL 4.0.2 or later (see [Trying GAMDL 4](tools.md#trying-gamdl-4)), the word-by-word file can come from GAMDL instead.
+- Word-by-word lyrics are looked up first by MeedyaDL itself (your Apple Music developer details make this work reliably, see [Animated Artwork](animated-artwork.md#setup-guide)). If that is not possible for a song, and you are using GAMDL 4.0.2 or later (see [Trying GAMDL 4](tools.md#trying-gamdl-4)), the word-by-word file can come from GAMDL instead.
 - The order is: word-by-word lyrics first, then the other lyric files made from them, and file renaming last.
 
 **Test word-level lyrics connection.** This button, next to the toggle, checks whether word-by-word lyrics can be fetched for you right now, without waiting for a real download.
@@ -161,7 +161,7 @@ These are all in **Settings > Lyrics** and are off unless noted:
 
 ### Which songs get lyric files
 
-Lyric and subtitle files are made only for the songs and videos of the download that just ran, including any in disc folders. Older songs that happen to be in the same folder are not converted, embedded or changed.
+Lyric and subtitle files are made only for the songs and videos of the download that just ran, including any in disc folders. Older songs that happen to be in the same folder are not converted or embedded, and their lyric files are left alone.
 
 ### Where lyric files go
 

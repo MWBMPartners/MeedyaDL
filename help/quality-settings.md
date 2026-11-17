@@ -144,11 +144,11 @@ Companion downloads get you more than one format of the same music in one go. Yo
 | **Atmos → All Formats (AC3 + ALAC + AAC)** | Atmos also gets a copy in every other format (AC3, ALAC, AAC). |
 | **Custom…** | You pick exactly which formats to get as extra copies, using tick boxes. |
 
-Extra copies are made after the main download has finished its lyrics, tags and file names, and before the next item in the queue starts. If a format is not offered for a track, it is quietly skipped, and your main download is not affected.
+Extra copies are made after the main download's lyrics and file names are finished, and before the next item in the queue starts. If a format is not offered for a track, it is skipped (the Activity page says so), and your main download is not affected.
 
 - **Extra copies never replace a file.** If a file with the same name is already in the folder, that copy is skipped and one line on the **Activity** page says so. This also means downloading an album again does not refresh extra copies that are already there.
 - **Mixed albums.** If some tracks of the main download already came back in a format, only the other tracks are fetched in that format.
-- **Only this download is touched.** Renaming and tagging apply only to the files this download made. Older files in the same folder are left alone, and one format's details never end up in another format's files.
+- **Only this download is renamed.** Renaming applies only to the files this download made, and each extra copy's format details are written only to the copies in that format. Older files in the same folder keep their names.
 - **Lyrics.** Each extra copy gets the same lyric files as the main download (see [Lyrics and Metadata](lyrics-and-metadata.md#extra-format-versions-of-the-same-song)).
 
 ### File Names

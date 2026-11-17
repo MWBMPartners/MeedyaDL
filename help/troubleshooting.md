@@ -176,7 +176,7 @@ If you told MeedyaDL to use a Python already on your computer, and you later upg
 GAMDL 4 has not been tested on real downloads yet, so problems are possible.
 
 - **A message about lyrics:** **Synced Lyrics Only** (Settings > Lyrics) does not work with GAMDL 4. Turn it off.
-- **Which version:** use GAMDL 4.0.2. Versions 4.0.0 and 4.0.1 are marked as having known problems in **Settings > Tools**, and MeedyaDL will not install them.
+- **Which version:** use GAMDL 4.0.2 or newer. Versions 4.0.0 and 4.0.1 are marked as having known problems in **Settings > Tools**, and MeedyaDL will not install them.
 - **Anything else:** Go back to GAMDL 3.9.1 in **Settings > Tools > GAMDL Version Management**, and please report what happened. See [Trying GAMDL 4](tools.md#trying-gamdl-4).
 
 #### "GAMDL backend not found"
@@ -242,7 +242,7 @@ Before each download, MeedyaDL checks all of them and shows a yellow message tha
 
 - **The wrapper must accept connections from the network,** not only from its own device. Many installs listen only on `127.0.0.1`. Change its settings, or port forwarding if it runs in Docker, so other devices can reach it.
 - **A firewall may be blocking the ports.** On Linux, something like `sudo ufw allow 30020/tcp` (and the same for `20020` and `10020`) opens them.
-- **Forgetting the playlist address.** If the account address points at the other device but the Wrapper m3u8 Address still says `127.0.0.1`, details load but downloads fail partway through.
+- **Forgetting the Wrapper m3u8 Address.** If the account address points at the other device but the Wrapper m3u8 Address still says `127.0.0.1`, details load but downloads fail partway through.
 - **Three free ports are needed** on that device.
 - **Quick alternative:** you can leave MeedyaDL's settings alone and forward the three ports with SSH. From a terminal on the computer running MeedyaDL:
 
