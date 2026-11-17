@@ -140,3 +140,6 @@ __pycache__/
 /verdict.json
 /MIGRATION.md
 /.dev-team/autopilot.json
+
+# Temporary git worktrees made by Claude Code agents (never committed).
+.claude/worktrees/
