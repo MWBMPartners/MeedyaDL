@@ -10,7 +10,7 @@ against the baselines pixel by pixel. Images that differ are saved to
 Screenshots go in `tests/visual-regression/screenshots/` and baselines in
 `tests/visual-regression/baselines/`. `capture` creates the folder it writes
 to (`screenshots/`, or `baselines/` with `--baseline`). `compare` creates
-`diffs/` and saves an image there for each screen whose pixels differ; a
+`diffs/` and saves an image there for each screen where more than 0.1% of the pixels differ; a
 missing screenshot or a size mismatch is reported as a failure without an
 image.
 
