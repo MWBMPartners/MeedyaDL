@@ -8173,3 +8173,57 @@ fn delete_and_clear_end_the_stuck_run_of_removed_items() {
     q.clear_all();
     assert!(!q.has_live_stalled_runs(), "clear_all ends the stuck run");
 }
+
+/// Retrying an item whose stuck run is still going ends that run's "still
+/// running" entry, so the old run cannot hold "Queue finished" back (#1432).
+#[test]
+fn retry_ends_the_old_stuck_run() {
+    let mut q = DownloadQueue::new();
+    let _id = enqueue_one(&mut q);
+    let a = q.next_pending().expect("starts").attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert!(q.has_live_stalled_runs());
+    assert!(q.retry(&a.id, &AppSettings::default()));
+    assert!(!q.has_live_stalled_runs(), "the old run no longer counts");
+}
+
+/// Cancelling an item with a stuck run ends its entry as well.
+#[test]
+fn cancel_ends_the_stuck_run() {
+    let mut q = DownloadQueue::new();
+    let _id = enqueue_one(&mut q);
+    let a = q.next_pending().expect("starts").attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    let _ = q.cancel(&a.id);
+    assert!(!q.has_live_stalled_runs());
+}
+
+/// Every combination of the drain decision (#1432).
+#[test]
+fn drain_decision_table() {
+    use super::processing::{decide_drain, DrainAction};
+    for ran in [false, true] {
+        for aborted in [false, true] {
+            assert_eq!(decide_drain(false, ran, aborted), DrainAction::NotIdle);
+        }
+    }
+    assert_eq!(decide_drain(true, false, false), DrainAction::NothingRan);
+    assert_eq!(decide_drain(true, false, true), DrainAction::NothingRan);
+    assert_eq!(decide_drain(true, true, true), DrainAction::Aborted);
+    assert_eq!(decide_drain(true, true, false), DrainAction::Finished);
+}
+
+/// The stop commands only ask the queue to finish; they never run the
+/// queue's start path (and so its pre-download checks) (#1432).
+#[test]
+fn stop_commands_do_not_call_process_queue() {
+    let src = include_str!("../../commands/gamdl.rs");
+    let start = src
+        .find("fn kick_queue_after_stop")
+        .expect("kick fn exists");
+    let body = &src[start..];
+    let end = body.find("\n}\n").expect("fn ends");
+    let body = &body[..end];
+    assert!(!body.contains("process_queue"));
+    assert!(body.contains("finish_queue_if_drained"));
+}

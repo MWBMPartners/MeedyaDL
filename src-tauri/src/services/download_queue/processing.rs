@@ -11,6 +11,129 @@ use super::*;
 
 // ============================================================
 
+/// What the queue does when it looks at itself after work has stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DrainAction {
+    /// Still busy: nothing is consumed and nothing is announced.
+    NotIdle,
+    /// Quiet, but nothing ran since the last time: do nothing (#1169).
+    NothingRan,
+    /// Quiet after an Abort: no "Queue finished", no after-queue action.
+    Aborted,
+    /// Quiet after real work: announce it and run the after-queue action.
+    Finished,
+}
+
+/// Decides what a drain does from the facts read under the queue lock.
+/// Pure, so every combination can be tested.
+#[must_use]
+pub(crate) fn decide_drain(idle: bool, ran: bool, was_aborted: bool) -> DrainAction {
+    if !idle {
+        DrainAction::NotIdle
+    } else if !ran {
+        DrainAction::NothingRan
+    } else if was_aborted {
+        DrainAction::Aborted
+    } else {
+        DrainAction::Finished
+    }
+}
+
+/// Finishes the queue if it has gone quiet: "Queue finished", the stalled-run
+/// lines and the after-queue action, each once. It never checks the internet,
+/// the output folder or cookies, and never starts anything, so it is safe to
+/// call straight after a Cancel, Delete, Clear or Abort (#1432). The normal
+/// queue loop uses the same function when it finds nothing left to start.
+pub(crate) async fn finish_queue_if_drained(app: &AppHandle, queue: &QueueHandle) {
+    let app = app.clone();
+    let (is_idle, was_aborted, ran, still_running_stalled) = {
+        let mut q = queue.lock().await;
+        let idle = q.is_idle();
+        // Only consume the record when the queue has actually gone
+        // quiet.
+        //
+        // This function is also reached while a download is still
+        // running — another request arrives, the concurrency limit is
+        // already met, and nothing is handed out. Clearing the record
+        // then would wipe the fact that the queue HAD been busy, and
+        // the last item finishing would look like nothing had ever
+        // run. Anyone who set "shut down when the downloads are done"
+        // would find it silently stopped happening.
+        //
+        // Consuming it only when idle keeps the two cases apart: the
+        // queue was never busy (nothing to act on) versus the queue
+        // was busy and has now finished (act on it).
+        let ran = if idle {
+            q.take_ran_since_drain()
+        } else {
+            false
+        };
+        // Runs marked stuck over an hour ago that are still going
+        // no longer hold the queue back (#1432, STALLED_RUN_WAIT).
+        // Noted now, as this queue run ends, so each is named once
+        // and its later result is not counted in the next run.
+        let still_running_stalled = if idle && ran {
+            q.summarise_live_stalled_runs()
+        } else {
+            Vec::new()
+        };
+        // The abort record is taken the same way (#1432 review): only
+        // once the queue is really quiet. A stalled run that is still
+        // going keeps the queue busy; taking the record then would
+        // forget the Abort, and the queue going quiet later would fire
+        // "Queue finished" and the after-queue action (which may shut
+        // the computer down) straight after the person aborted.
+        let was_aborted = if idle {
+            q.take_recently_aborted()
+        } else {
+            false
+        };
+        (idle, was_aborted, ran, still_running_stalled)
+    };
+    // One plain line per download that was marked stuck and was
+    // still running when the queue finished (#1432), written
+    // before any after-queue action (which may be a shut-down).
+    // Not after an abort: the person stopped the queue themselves.
+    for name in still_running_stalled.iter().filter(|_| !was_aborted) {
+        emit_app_log(
+            &app,
+            &format!(
+                "{name}: this download was marked as stuck and was still running \
+                     when the queue finished. MeedyaDL waited an hour for it, then \
+                     carried on."
+            ),
+        );
+    }
+    match decide_drain(is_idle, ran, was_aborted) {
+        DrainAction::NotIdle => {}
+        DrainAction::NothingRan => {
+            // Nothing ran, so nothing drained (#1169).
+            //
+            // The after-queue action is what happens when downloads
+            // finish, and the user can set it to shut down or restart
+            // their computer. It used to fire whenever the queue was
+            // found idle, including when it had never been busy. So
+            // pressing Start Queue on an empty queue could shut the
+            // machine down, which reads as the app crashing it.
+            log::debug!("Queue idle but nothing ran — not firing the post-queue action");
+        }
+        DrainAction::Aborted => {
+            log::info!("Queue idle after abort — suppressing post-queue action (#620)");
+            emit_app_log(&app, "Queue drained by abort — skipping post-queue action");
+            // The counts belong to a run that was stopped, not
+            // finished; the next run starts from zero (#1431).
+            crate::services::notification_service::reset_queue_run_counts();
+        }
+        DrainAction::Finished => {
+            // "Queue finished: 5 downloaded, 1 failed" -- by the
+            // one notification rule, before any after-queue action
+            // (which may be a shut-down) runs (#1431).
+            crate::services::notification_service::notify_queue_finished(&app);
+            execute_after_queue_action(&app);
+        }
+    }
+}
+
 /// Processes the next queued download if a slot is available.
 ///
 /// This function is called after enqueueing a new item, after a download
@@ -334,93 +457,7 @@ pub fn process_queue(
         // case `take_recently_aborted` returns `true` and we suppress the
         // post-queue action this time around.
         let Some(started) = pending else {
-            let (is_idle, was_aborted, ran, still_running_stalled) = {
-                let mut q = queue.lock().await;
-                let idle = q.is_idle();
-                // Only consume the record when the queue has actually gone
-                // quiet.
-                //
-                // This function is also reached while a download is still
-                // running — another request arrives, the concurrency limit is
-                // already met, and nothing is handed out. Clearing the record
-                // then would wipe the fact that the queue HAD been busy, and
-                // the last item finishing would look like nothing had ever
-                // run. Anyone who set "shut down when the downloads are done"
-                // would find it silently stopped happening.
-                //
-                // Consuming it only when idle keeps the two cases apart: the
-                // queue was never busy (nothing to act on) versus the queue
-                // was busy and has now finished (act on it).
-                let ran = if idle {
-                    q.take_ran_since_drain()
-                } else {
-                    false
-                };
-                // Runs marked stuck over an hour ago that are still going
-                // no longer hold the queue back (#1432, STALLED_RUN_WAIT).
-                // Noted now, as this queue run ends, so each is named once
-                // and its later result is not counted in the next run.
-                let still_running_stalled = if idle && ran {
-                    q.summarise_live_stalled_runs()
-                } else {
-                    Vec::new()
-                };
-                // The abort record is taken the same way (#1432 review): only
-                // once the queue is really quiet. A stalled run that is still
-                // going keeps the queue busy; taking the record then would
-                // forget the Abort, and the queue going quiet later would fire
-                // "Queue finished" and the after-queue action (which may shut
-                // the computer down) straight after the person aborted.
-                let was_aborted = if idle {
-                    q.take_recently_aborted()
-                } else {
-                    false
-                };
-                (idle, was_aborted, ran, still_running_stalled)
-            };
-            // One plain line per download that was marked stuck and was
-            // still running when the queue finished (#1432), written
-            // before any after-queue action (which may be a shut-down).
-            // Not after an abort: the person stopped the queue themselves.
-            for name in still_running_stalled.iter().filter(|_| !was_aborted) {
-                emit_app_log(
-                    &app,
-                    &format!(
-                        "{name}: this download was marked as stuck and was still running \
-                         when the queue finished. MeedyaDL waited an hour for it, then \
-                         carried on."
-                    ),
-                );
-            }
-            if is_idle && !ran {
-                // Nothing ran, so nothing drained (#1169).
-                //
-                // The after-queue action is what happens when downloads
-                // finish, and the user can set it to shut down or restart
-                // their computer. It used to fire whenever the queue was
-                // found idle — including when it had never been busy. So
-                // pressing Start Queue on an empty queue could shut the
-                // machine down, which reads as the app crashing it.
-                //
-                // The people at risk are exactly those who chose "shut down
-                // when the downloads are done" for an unattended overnight
-                // run, with nobody watching to see it go wrong.
-                log::debug!("Queue idle but nothing ran — not firing the post-queue action");
-            } else if is_idle {
-                if was_aborted {
-                    log::info!("Queue idle after abort — suppressing post-queue action (#620)");
-                    emit_app_log(&app, "Queue drained by abort — skipping post-queue action");
-                    // The counts belong to a run that was stopped, not
-                    // finished; the next run starts from zero (#1431).
-                    crate::services::notification_service::reset_queue_run_counts();
-                } else {
-                    // "Queue finished: 5 downloaded, 1 failed" -- by the
-                    // one notification rule, before any after-queue action
-                    // (which may be a shut-down) runs (#1431).
-                    crate::services::notification_service::notify_queue_finished(&app);
-                    execute_after_queue_action(&app);
-                }
-            }
+            finish_queue_if_drained(&app, &queue).await;
             return;
         };
         let StartedAttempt {

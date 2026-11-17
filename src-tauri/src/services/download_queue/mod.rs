@@ -252,6 +252,7 @@ pub(crate) use progress_stages::{
 // currently-callerless `clear_queue_file`) tripping dead_code.
 pub use notifications::test_desktop_notification;
 pub use persistence::{clear_queue_file, load_queue_from_disk, save_queue_to_disk};
+pub(crate) use processing::finish_queue_if_drained;
 pub use processing::process_queue;
 
 // ============================================================
@@ -418,7 +419,17 @@ fn take_attempt_number(next: &mut u64) -> u64 {
 /// Gives an item a fresh attempt number and forgets any stall mark (#1432).
 /// Called whenever the item is put back in the queue or cancelled, so the
 /// attempt that was running for it is retired at once.
-fn retire_running_attempt(item: &mut QueueItem, next: &mut u64) {
+fn retire_running_attempt(
+    item: &mut QueueItem,
+    next: &mut u64,
+    live_stalled: &mut Vec<LiveStalledRun>,
+) {
+    // An attempt marked stuck may still be running. Once it is retired (for
+    // any reason) it no longer counts as work the queue must wait for, so
+    // its "still running" entry ends here too (#1432 review).
+    if let Some(n) = item.stalled_attempt {
+        live_stalled.retain(|r| r.number != n);
+    }
     item.attempt = take_attempt_number(next);
     item.stalled_attempt = None;
     item.stalled_run_saved_files = false;
@@ -453,6 +464,7 @@ fn reset_for_fresh_run(
     settings: &AppSettings,
     max_network_retries: u32,
     next_attempt: &mut u64,
+    live_stalled: &mut Vec<LiveStalledRun>,
 ) {
     // Re-merge options from the original request with current settings.
     // This picks up any settings changes the user made since the original
@@ -486,7 +498,7 @@ fn reset_for_fresh_run(
         || settings.default_song_codec.to_cli_string().to_string(),
         |c| c.to_cli_string().to_string(),
     ));
-    retire_running_attempt(item, next_attempt);
+    retire_running_attempt(item, next_attempt, live_stalled);
 }
 
 /// Whether an item is part-way through a run (downloading or tidying up).
@@ -1196,7 +1208,7 @@ impl DownloadQueue {
         // stays failed, as the stall check left it.
         if let Some(number) = self.live_stuck_run_of(download_id) {
             if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
-                retire_running_attempt(item, &mut self.next_attempt);
+                retire_running_attempt(item, &mut self.next_attempt, &mut self.live_stalled_runs);
             }
             self.end_live_stalled_run(number);
             log::info!("Download {download_id}: stopped its run that was marked as stuck");
@@ -1208,7 +1220,11 @@ impl DownloadQueue {
                     item.status.state = DownloadState::Cancelled;
                     // A new attempt number, so nothing from the cancelled
                     // run can act on the item any more (#1432).
-                    retire_running_attempt(item, &mut self.next_attempt);
+                    retire_running_attempt(
+                        item,
+                        &mut self.next_attempt,
+                        &mut self.live_stalled_runs,
+                    );
                     // #895: evict counter on terminal transition.
                     crate::utils::activity_log::evict_activity_counter(download_id);
                     log::info!("Download {download_id} cancelled (was queued)");
@@ -1219,7 +1235,11 @@ impl DownloadQueue {
                     // Retire the running attempt at once (#1432): its run
                     // sees the number change within a quarter of a second,
                     // stops, and gives back its own slot (only its own).
-                    retire_running_attempt(item, &mut self.next_attempt);
+                    retire_running_attempt(
+                        item,
+                        &mut self.next_attempt,
+                        &mut self.live_stalled_runs,
+                    );
                     // #895: evict counter on terminal transition.
                     crate::utils::activity_log::evict_activity_counter(download_id);
                     log::info!("Download {download_id} marked for cancellation");
@@ -1404,19 +1424,31 @@ impl DownloadQueue {
                 DownloadState::Queued => {
                     item.status.state = DownloadState::Cancelled;
                     // Same as `cancel`: retire the attempt (#1432).
-                    retire_running_attempt(item, &mut self.next_attempt);
+                    retire_running_attempt(
+                        item,
+                        &mut self.next_attempt,
+                        &mut self.live_stalled_runs,
+                    );
                     summary.queued_cancelled += 1;
                     ids_to_evict.push(item.status.id.clone());
                 }
                 DownloadState::Downloading => {
                     item.status.state = DownloadState::Cancelled;
-                    retire_running_attempt(item, &mut self.next_attempt);
+                    retire_running_attempt(
+                        item,
+                        &mut self.next_attempt,
+                        &mut self.live_stalled_runs,
+                    );
                     summary.downloading_stopped += 1;
                     ids_to_evict.push(item.status.id.clone());
                 }
                 DownloadState::Processing => {
                     item.status.state = DownloadState::Cancelled;
-                    retire_running_attempt(item, &mut self.next_attempt);
+                    retire_running_attempt(
+                        item,
+                        &mut self.next_attempt,
+                        &mut self.live_stalled_runs,
+                    );
                     summary.processing_stopped += 1;
                     ids_to_evict.push(item.status.id.clone());
                 }
@@ -1432,7 +1464,11 @@ impl DownloadQueue {
                     // item. The item stays failed (already counted and in
                     // History) and is not counted in the summary.
                     stuck_runs.extend(item.stalled_attempt);
-                    retire_running_attempt(item, &mut self.next_attempt);
+                    retire_running_attempt(
+                        item,
+                        &mut self.next_attempt,
+                        &mut self.live_stalled_runs,
+                    );
                 }
                 DownloadState::Complete | DownloadState::Cancelled | DownloadState::Error => {
                     // Terminal — leave alone.
@@ -1978,7 +2014,7 @@ impl DownloadQueue {
             // Reset the item to Queued so process_queue() will start it again,
             // under a new attempt number (#1432).
             item.status.state = DownloadState::Queued;
-            retire_running_attempt(item, &mut self.next_attempt);
+            retire_running_attempt(item, &mut self.next_attempt, &mut self.live_stalled_runs);
             item.status.error = None;
             item.status.progress = 0.0;
             item.merged_options = new_options.clone();
@@ -2058,7 +2094,7 @@ impl DownloadQueue {
             // Reset the item to Queued so process_queue() will start it again,
             // under a new attempt number (#1432).
             item.status.state = DownloadState::Queued;
-            retire_running_attempt(item, &mut self.next_attempt);
+            retire_running_attempt(item, &mut self.next_attempt, &mut self.live_stalled_runs);
             item.status.error = None;
             item.status.progress = 0.0;
 
@@ -2095,7 +2131,7 @@ impl DownloadQueue {
             if item.network_retries_left > 0 {
                 item.network_retries_left -= 1;
                 item.status.state = DownloadState::Queued;
-                retire_running_attempt(item, &mut self.next_attempt);
+                retire_running_attempt(item, &mut self.next_attempt, &mut self.live_stalled_runs);
                 item.status.error = None;
                 item.status.progress = 0.0;
                 // Total attempts = initial try + max retries.
@@ -2206,7 +2242,7 @@ impl DownloadQueue {
         item.request.urls = new_urls;
         item.storefront_fallback_attempted = true;
         item.status.state = DownloadState::Queued;
-        retire_running_attempt(item, &mut self.next_attempt);
+        retire_running_attempt(item, &mut self.next_attempt, &mut self.live_stalled_runs);
         item.status.error = None;
         item.status.progress = 0.0;
 
@@ -2414,7 +2450,7 @@ impl DownloadQueue {
         // Transition to Downloading under a new attempt number, which takes
         // the slot (#1432).
         item.status.state = DownloadState::Downloading;
-        retire_running_attempt(item, &mut self.next_attempt);
+        retire_running_attempt(item, &mut self.next_attempt, &mut self.live_stalled_runs);
         let attempt = Attempt {
             id: item.status.id.clone(),
             number: item.attempt,
@@ -2820,7 +2856,13 @@ impl DownloadQueue {
         }) else {
             return false;
         };
-        reset_for_fresh_run(item, settings, max, &mut self.next_attempt);
+        reset_for_fresh_run(
+            item,
+            settings,
+            max,
+            &mut self.next_attempt,
+            &mut self.live_stalled_runs,
+        );
         // Remember that this one was queued by MeedyaDL, not the person, and
         // that the stall's failure was already counted.
         item.auto_retried_after_stall = true;
@@ -2984,6 +3026,7 @@ impl DownloadQueue {
                     settings,
                     self.max_network_retries,
                     &mut self.next_attempt,
+                    &mut self.live_stalled_runs,
                 );
                 // The person's own Retry starts a new run of their own: it may
                 // again be retried once automatically after a stall, and any
@@ -3071,7 +3114,7 @@ impl DownloadQueue {
                 ));
                 // A new attempt number (#1432): the run that failed can no
                 // longer change the re-queued item.
-                retire_running_attempt(item, &mut self.next_attempt);
+                retire_running_attempt(item, &mut self.next_attempt, &mut self.live_stalled_runs);
                 log::info!("Download {download_id} reset for retry without wrapper");
                 return true;
             }
