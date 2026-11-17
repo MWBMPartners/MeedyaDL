@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!--
+  Copyright (c) 2024-2026 MeedyaSuite
+  Licensed under the MIT License. See LICENSE file in the project root.
+
+  Windows application manifest, embedded by build.rs into EVERY program
+  this package links on Windows: the app itself AND the test programs.
+
+  It asks Windows for version 6 of the Common Controls library. Parts of
+  Tauri (menus, dialogs) call functions that only exist in version 6;
+  without this manifest Windows loads the old version 5, cannot find
+  those functions, and refuses to start the program
+  (STATUS_ENTRYPOINT_NOT_FOUND, 0xc0000139).
+
+  Tauri's own default manifest has exactly this content, but Tauri only
+  puts it into the app, never into `cargo test` programs, so a test that
+  happens to reach that code stopped the whole Windows test run. See the
+  comment in build.rs.
+-->
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity
+        type="win32"
+        name="Microsoft.Windows.Common-Controls"
+        version="6.0.0.0"
+        processorArchitecture="*"
+        publicKeyToken="6595b64144ccf1df"
+        language="*"
+      />
+    </dependentAssembly>
+  </dependency>
+</assembly>
