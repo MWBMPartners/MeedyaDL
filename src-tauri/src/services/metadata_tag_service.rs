@@ -1751,7 +1751,10 @@ pub(crate) fn apply_album_layer(
             song_id
                 .as_deref()
                 .and_then(|id| stamp.track_with_song_id(id))
-        } else if single_album_download {
+        } else if single_album_download && song_id.is_none() {
+            // Disc and track only when the file has no song number, as
+            // `DownloadStamps::pick` does: a number no song has is never
+            // matched to a different song by position.
             track_num.and_then(|t| {
                 stamp
                     .tracks
@@ -4962,6 +4965,28 @@ mod tests {
         assert_eq!(
             ids_of(&fresh, tag_registry::APPLE_MUSIC_SONG_ID_TAG),
             ["100"]
+        );
+    }
+
+    #[test]
+    fn unknown_song_number_gets_no_song_ids() {
+        let albums = vec![fixture_album(
+            "1",
+            "A",
+            "X",
+            Some("2024-03-15T07:12:45Z"),
+            "L",
+            &[("100", 1, 1)],
+        )];
+        // cnID 999 is in no track of the album; disc 1 track 1 would match song 100.
+        let mut tag = fixture_tag(Some(999), "A", "X", 1, 1);
+        apply_album_layer(&mut tag, &albums, true, true);
+        assert_eq!(ids_of(&tag, tag_registry::APPLE_MUSIC_ALBUM_ID_TAG), ["1"]);
+        assert!(ids_of(&tag, tag_registry::APPLE_MUSIC_SONG_ID_TAG).is_empty());
+        assert!(ids_of(&tag, tag_registry::APPLE_MUSIC_FORMER_SONG_IDS_TAG).is_empty());
+        assert_eq!(
+            last_modified_of(&tag).as_deref(),
+            Some("2024-03-15T07:12:45Z")
         );
     }
 

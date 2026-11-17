@@ -231,7 +231,7 @@ This is MeedyaDL's own group. **Every** album-level and track-level tag above is
 | `MeedyaMeta:AppleMusicAlbumId` | The album's current Apple Music number, as Apple Music gave it when the file was downloaded. Written into the same files as the last-updated date, each from its own album. |
 | `MeedyaMeta:AppleMusicFormerAlbumIds` | The numbers the album had before, several values in one tag. Kept and added to on each download, never removed: if the album's number changes, the old one moves here. Appears only once Apple Music has sent an earlier number or the album's number has changed. |
 | `MeedyaMeta:AppleMusicSongId` | The song's current Apple Music number. It holds the same value as `MeedyaMeta:AppleSongID`, which is still written as before. Written only when the song is known. |
-| `MeedyaMeta:AppleMusicFormerSongIds` | The numbers the song had before, kept and added to on each download, never removed. Appears only when Apple Music sends an earlier number for the song. |
+| `MeedyaMeta:AppleMusicFormerSongIds` | The numbers the song had before, kept and added to on each download, never removed. Appears when Apple Music sends an earlier number for the song, or when the song's number changes (the old number then moves here). |
 | `MeedyaMeta:SpatialAudioCodec` | The Atmos or spatial format, worked out from the audio file |
 | `MeedyaMeta:<Service>Url` (for example `MeedyaMeta:SpotifyUrl`, `MeedyaMeta:TidalUrl`, `MeedyaMeta:YoutubeMusicUrl`) | Where the album can be found on another music service, one tag for each service that has a match. Written only when you turn on the song.link links option in **Settings > Metadata** and have an access key. |
 
