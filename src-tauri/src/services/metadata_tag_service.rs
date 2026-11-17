@@ -113,15 +113,24 @@ pub(crate) const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 ///   Individual file failures are logged at debug level but do not stop
 ///   processing of remaining files.
 ///
+/// `last_modified_date` is the date Apple Music last updated the album, when
+/// known. It is written, in the same pass, as
+/// `MeedyaMeta:LastModified` to every file this call tags (see
+/// [`write_source_last_modified`]); `None` writes nothing.
+///
 /// Takes no write lock itself. Callers hold the app-wide lock
 /// (`utils::file_locks::global()`) for each file they hand it; the
 /// extra-format task calls it with one file at a time for that reason.
-pub fn apply_codec_metadata_tags(output_path: &str, codec: &SongCodec) -> Result<usize, String> {
+pub fn apply_codec_metadata_tags(
+    output_path: &str,
+    codec: &SongCodec,
+    last_modified_date: Option<&str>,
+) -> Result<usize, String> {
     // Codec-specific tags: ALAC, Atmos, AC3, Binaural, Downmix.
     // For non-binaural/downmix codecs (AAC Legacy, AAC, etc.), we still need
     // to clear any inherited isBinaural/isDownmix tags that GAMDL's
     // --fetch-extra-tags may have written from the Apple Music API's audioTraits.
-    let tag_writer: Box<dyn Fn(&mut Tag)> = match codec {
+    let format_writer: Box<dyn Fn(&mut Tag)> = match codec {
         SongCodec::Alac => Box::new(|tag: &mut Tag| {
             write_lossless_tags(tag);
             clear_binaural_downmix_tags(tag);
@@ -137,6 +146,12 @@ pub fn apply_codec_metadata_tags(output_path: &str, codec: &SongCodec) -> Result
         SongCodec::AacBinaural | SongCodec::AacHeBinaural => Box::new(write_binaural_tags),
         SongCodec::AacDownmix | SongCodec::AacHeDownmix => Box::new(write_downmix_tags),
         _ => Box::new(clear_binaural_downmix_tags),
+    };
+    // The format tags and (when known) the album's last-updated date go out
+    // together, in the one write per file.
+    let tag_writer = |tag: &mut Tag| {
+        format_writer(tag);
+        write_source_last_modified(tag, last_modified_date);
     };
 
     let path = Path::new(output_path);
@@ -349,6 +364,12 @@ fn is_m4a(path: &Path) -> bool {
 /// * `urls` - Apple Music URL(s) from the download request
 /// * `pre_fetched_metadata` - Pre-fetched API metadata to reuse (avoids
 ///   duplicate API calls when called from companion downloads)
+/// * `date_stamp_files` - The files this download itself wrote (judged before
+///   any tag was rewritten). Only these get the album's last-updated date
+///   (`MeedyaMeta:LastModified`, #1444). A file already in the
+///   folder from an earlier download holds an older version of the album, so
+///   it must not be marked as current. An empty set (for example when the
+///   start time could not be read) writes the date nowhere.
 ///
 /// # Errors
 ///
@@ -371,6 +392,7 @@ pub async fn apply_enriched_metadata_tags(
     is_library: bool,
     deferred_primary_files: Option<&[PathBuf]>,
     in_flight_writes: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
+    date_stamp_files: &std::collections::HashSet<PathBuf>,
 ) -> Result<EnrichedTagsResult, String> {
     // Collect the M4A files to tag. When the renames are deferred, only the
     // primary download's own files are tagged: by the time this runs the
@@ -474,6 +496,7 @@ pub async fn apply_enriched_metadata_tags(
             album_metadata.as_ref(),
             event_context,
             in_flight_writes,
+            stamps_last_modified(file_path, date_stamp_files),
         )
         .await
         {
@@ -778,6 +801,7 @@ async fn enrich_single_file(
     album_metadata: Option<&AlbumMetadata>,
     event_context: Option<(&tauri::AppHandle, &str)>,
     in_flight_writes: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
+    stamp_last_modified: bool,
 ) -> Result<(SongCodec, bool), String> {
     // Try MediaInfo first (more accurate for Atmos/AC3 detection), then ffprobe as fallback.
     let mediainfo_result = if let Some(mi_path) = mediainfo_path {
@@ -1091,6 +1115,13 @@ async fn enrich_single_file(
                     matched_track.map(|t| &t.raw_json),
                 );
 
+                // The date Apple Music last updated the album (#1444), only
+                // for files this download wrote. Inside the album-match
+                // guard, and in the same single write as the rest.
+                if stamp_last_modified {
+                    write_source_last_modified(&mut tag, metadata.last_modified_date.as_deref());
+                }
+
                 // Correct the STANDARD album-artist (`aART`) atom from the
                 // catalog's full album-artist string (#326). GAMDL tags `aART`
                 // with only the FIRST artist on multi-artist albums ("Drake"
@@ -1157,6 +1188,53 @@ async fn enrich_single_file(
 // ============================================================
 // Internal: Tag Writing Helpers
 // ============================================================
+
+/// Whether Step 1 writes the album's last-updated date to this file: only
+/// when the file is one this download wrote (`fresh`, judged before any tag
+/// was rewritten). See [`apply_enriched_metadata_tags`] (#1444).
+pub(crate) fn stamps_last_modified(
+    path: &Path,
+    fresh: &std::collections::HashSet<PathBuf>,
+) -> bool {
+    fresh.contains(path)
+}
+
+/// Turns the date a service sent for "last updated" into the form the file
+/// carries: UTC, `YYYY-MM-DDTHH:MM:SSZ` (ISO 8601 / RFC 3339), for example
+/// `2026-11-17T04:12:35Z`. A date with an offset is converted to UTC,
+/// fractional seconds are dropped, and a date with no time becomes midnight
+/// UTC. Anything else returns `None`, so nothing is written (#1444).
+pub(crate) fn normalise_last_modified(raw: &str) -> Option<String> {
+    let raw = raw.trim();
+    let utc = match chrono::DateTime::parse_from_rfc3339(raw) {
+        Ok(dt) => dt.with_timezone(&chrono::Utc),
+        Err(_) => chrono::NaiveDate::parse_from_str(raw, "%Y-%m-%d")
+            .ok()?
+            .and_hms_opt(0, 0, 0)?
+            .and_utc(),
+    };
+    Some(utc.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+}
+
+/// Writes the date the service the file came from last updated the release,
+/// as `MeedyaMeta:LastModified`, in UTC (see [`normalise_last_modified`],
+/// #1444). Writes nothing, and leaves any date the file already has alone,
+/// when the service sent no date or one that cannot be read (logged at debug
+/// level). Does not read or write the file and takes no lock: the caller
+/// holds the file's write lock.
+pub(crate) fn write_source_last_modified(tag: &mut Tag, date: Option<&str>) {
+    let Some(raw) = date.map(str::trim).filter(|d| !d.is_empty()) else {
+        return;
+    };
+    let Some(value) = normalise_last_modified(raw) else {
+        log::debug!("Last-updated date not written: cannot read \"{raw}\" as a date");
+        return;
+    };
+    tag.set_data(
+        FreeformIdent::new_static(MEEDYADL_NAMESPACE, tag_registry::SOURCE_LAST_MODIFIED_TAG),
+        Data::Utf8(value),
+    );
+}
 
 /// Write always-on local tags that don't require any API calls.
 ///
@@ -2911,6 +2989,104 @@ pub(crate) mod test_support {
 
 #[cfg(test)]
 mod tests {
+
+    // ---- Apple Music's last-updated date (#1444) ----
+
+    fn last_modified_of(tag: &Tag) -> Option<String> {
+        tag.strings_of(&FreeformIdent::new_static(
+            MEEDYADL_NAMESPACE,
+            tag_registry::SOURCE_LAST_MODIFIED_TAG,
+        ))
+        .next()
+        .map(str::to_string)
+    }
+
+    #[test]
+    fn last_modified_date_is_written_in_utc() {
+        let mut tag = Tag::default();
+        write_source_last_modified(&mut tag, Some(" 2024-03-15T09:12:45+02:00 "));
+        assert_eq!(
+            last_modified_of(&tag).as_deref(),
+            Some("2024-03-15T07:12:45Z")
+        );
+    }
+
+    #[test]
+    fn last_modified_is_normalised_to_utc() {
+        let n = normalise_last_modified;
+        assert_eq!(
+            n("2026-11-17T04:12:35Z").as_deref(),
+            Some("2026-11-17T04:12:35Z")
+        );
+        assert_eq!(
+            n("2026-11-17T05:12:35+01:00").as_deref(),
+            Some("2026-11-17T04:12:35Z")
+        );
+        assert_eq!(
+            n("2026-11-16T23:30:00-05:00").as_deref(),
+            Some("2026-11-17T04:30:00Z")
+        );
+        assert_eq!(
+            n("2026-11-17T04:12:35.987Z").as_deref(),
+            Some("2026-11-17T04:12:35Z")
+        );
+        assert_eq!(n("2026-11-17").as_deref(), Some("2026-11-17T00:00:00Z"));
+        assert_eq!(n(" 2026-11-17 ").as_deref(), Some("2026-11-17T00:00:00Z"));
+        assert_eq!(n("garbage"), None);
+        assert_eq!(n("2026-13-45"), None);
+        assert_eq!(n(""), None);
+    }
+
+    #[test]
+    fn no_last_modified_date_writes_nothing() {
+        for date in [None, Some(""), Some("   "), Some("not a date")] {
+            let mut tag = Tag::default();
+            write_source_last_modified(&mut tag, date);
+            assert_eq!(last_modified_of(&tag), None);
+        }
+    }
+
+    #[test]
+    fn registry_walk_does_not_write_former_ids() {
+        let mut tag = Tag::default();
+        let album = serde_json::json!({
+            "attributes": {"name": "X", "lastModifiedDate": "2024-03-15T07:12:45Z"},
+            "meta": {"formerIds": ["123"]}
+        });
+        write_tags_from_registry(&mut tag, &TAG_REGISTRY, &album, None);
+        let wrong = FreeformIdent::new_static(MEEDYADL_NAMESPACE, "AppleLastModified");
+        assert!(tag.strings_of(&wrong).next().is_none());
+        assert_eq!(last_modified_of(&tag), None);
+    }
+
+    #[test]
+    fn codec_tagging_writes_the_date_with_the_format_tag_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let with = dir.path().join("a.m4a");
+        let without = dir.path().join("b.m4a");
+        test_support::minimal_m4a(&with, 1, 1, false);
+        test_support::minimal_m4a(&without, 1, 1, false);
+        let spatial = FreeformIdent::new_static(MEEDYADL_NAMESPACE, "SpatialType");
+
+        let n = apply_codec_metadata_tags(
+            &with.to_string_lossy(),
+            &SongCodec::Atmos,
+            Some("2024-03-15T07:12:45Z"),
+        )
+        .unwrap();
+        assert_eq!(n, 1);
+        let tag = Tag::read_from_path(&with).unwrap();
+        assert_eq!(
+            last_modified_of(&tag).as_deref(),
+            Some("2024-03-15T07:12:45Z")
+        );
+        assert!(tag.strings_of(&spatial).next().is_some());
+
+        apply_codec_metadata_tags(&without.to_string_lossy(), &SongCodec::Atmos, None).unwrap();
+        let tag = Tag::read_from_path(&without).unwrap();
+        assert_eq!(last_modified_of(&tag), None);
+        assert!(tag.strings_of(&spatial).next().is_some());
+    }
     use super::*;
 
     // ----------------------------------------------------------

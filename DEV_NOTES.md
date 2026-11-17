@@ -2164,7 +2164,7 @@ When a user re-downloads an album they have previously downloaded, MeedyaDL can 
 
 3. **Manifest storage**: When `write_manifest()` runs (`download_queue/helpers.rs`), the `lastModifiedDate` is persisted as `ManifestSource.last_modified_date` in the `.meedyadl` JSON manifest file. This allows future downloads to compare the stored date against a fresh API response.
 
-4. **Not written into the music files**: The `lastModifiedDate` is recorded only in the album's manifest (step 3) and the download index. No tag is written for it into M4A files.
+4. **Written into the music files (#1444)**: The date is also written as the service-neutral tag `MeedyaMeta:LastModified` (name in `SOURCE_LAST_MODIFIED_TAG`, `models/tag_registry.rs`), normalised to UTC `YYYY-MM-DDTHH:MM:SSZ` by `normalise_last_modified()` (an unreadable date writes nothing). It goes on every `.m4a` this download wrote (Step 1, files judged fresh at the snapshot, never older files left in the folder) and on its extra-format copies (through the companion gate). The update check still reads the manifest. The shared MeedyaSuite-core list's `last_modified_date` entry reads `meta.formerIds` (wrong field) and is set aside when the registry loads (`NOT_USED_FROM_SHARED_REGISTRY`); a tripwire test fails when core changes it.
 
 ### Setting
 
@@ -2196,7 +2196,8 @@ When disabled, the pre-download history check is skipped entirely.
 | `src-tauri/src/services/download_queue/helpers.rs` | `last_modified_date` passed to `write_manifest()` |
 | `src-tauri/src/models/manifest.rs` | `ManifestSource.last_modified_date` field |
 | `src-tauri/src/models/settings.rs` | `smart_redownload_detection` setting |
-| `src-tauri/tags.toml` | `[album.last_modified_date]` tag definition |
+| `src-tauri/src/services/metadata_tag_service.rs` | `normalise_last_modified()`, `write_source_last_modified()` |
+| `src-tauri/src/models/tag_registry.rs` | `SOURCE_LAST_MODIFIED_TAG`; the shared entry set aside |
 | `src/components/download/DownloadForm.tsx` | Frontend integration (history check + info toast) |
 | `src/lib/tauri-commands.ts` | `checkRedownloadStatus()` IPC wrapper |
 | `src/components/settings/tabs/GeneralTab.tsx` | Settings toggle UI |

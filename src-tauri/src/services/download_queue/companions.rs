@@ -870,13 +870,16 @@ pub(crate) fn tier_files_outside(
 /// (see [`tier_new_m4a`]), each under the app-wide write lock. Files outside
 /// every folder in `within` are left out (an empty list leaves out
 /// everything); see [`tier_files_outside`]. Returns how many files were
-/// tagged. Failures are only logged.
+/// tagged. Failures are only logged. `last_modified_date` (the date Apple
+/// Music last updated the album, when known) is written into the same pass
+/// as `MeedyaMeta:LastModified`, to the added files only (#1444).
 pub(crate) async fn tag_tier_additions(
     before: &std::collections::BTreeSet<std::path::PathBuf>,
     after: &std::collections::BTreeSet<std::path::PathBuf>,
     within: &[&std::path::Path],
     codec: &SongCodec,
     dl_id: &str,
+    last_modified_date: Option<&str>,
 ) -> usize {
     let mut tagged = 0usize;
     for new_file in tier_new_m4a(before, after) {
@@ -887,6 +890,7 @@ pub(crate) async fn tag_tier_additions(
         match super::metadata_tag_service::apply_codec_metadata_tags(
             &new_file.to_string_lossy(),
             codec,
+            last_modified_date,
         ) {
             Ok(count) => tagged += count,
             Err(e) => {
@@ -3180,6 +3184,7 @@ pub(crate) fn spawn_companion_downloads(
             let mut album_tracks: Vec<(u32, u32, String)> = Vec::new();
             let mut companion_album_dir: Option<std::path::PathBuf> = None;
             let mut gate_album_name: Option<String> = None;
+            let mut gate_last_modified: Option<String> = None;
             let mut unplaceable: Vec<SongCodec> = Vec::new();
             let mut lyricsfile_artist: Option<String> = None;
             let mut lyricsfile_default_title: Option<String> = None;
@@ -3220,7 +3225,8 @@ pub(crate) fn spawn_companion_downloads(
                 primary_tracks.clone_from(&state.primary_tracks);
                 album_tracks.clone_from(&state.album_tracks);
                 companion_album_dir = state.album_dir.as_deref().map(std::path::PathBuf::from);
-                gate_album_name.clone_from(&state.album_name);
+                gate_album_name.clone_from(&state.album.name);
+                gate_last_modified.clone_from(&state.album.last_modified_date);
                 unplaceable.clone_from(&state.unplaceable);
                 lyricsfile_artist.clone_from(&state.lyricsfile_artist);
                 lyricsfile_default_title.clone_from(&state.lyricsfile_default_title);
@@ -3926,6 +3932,7 @@ pub(crate) fn spawn_companion_downloads(
                                     &within,
                                     codec,
                                     &comp_dl_id,
+                                    gate_last_modified.as_deref(),
                                 )
                                 .await;
                                 if tagged > 0 {

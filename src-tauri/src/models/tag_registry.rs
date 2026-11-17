@@ -10,6 +10,12 @@
 // (`DEFAULT_REGISTRY`), NOT this project's `src-tauri/tags.toml`, which no
 // code reads and whose names differ (see #1444).
 //
+// One entry of that shared list is set aside on purpose: `last_modified_date`.
+// The pinned version of the shared list reads Apple's list of an album's old
+// IDs (`meta.formerIds`) where the date belongs. MeedyaDL writes the real date
+// itself, as `MeedyaMeta:LastModified`, and only into files the
+// current download wrote (see `NOT_USED_FROM_SHARED_REGISTRY`, #1444).
+//
 // ## Migration Notes
 //
 // Previously this module contained ~560 lines of custom TOML parsing, JSON
@@ -33,6 +39,22 @@ pub const ITUNES_NAMESPACE: &str = "com.apple.iTunes";
 
 /// MeedyaDL-branded freeform atom namespace.
 pub const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
+
+/// The name (inside the `MeedyaMeta` group) of the tag that holds the date the
+/// service the file came from last updated the album (#1444). One name, used
+/// everywhere, and service-neutral: other services and other MeedyaSuite apps
+/// use the same tag.
+pub const SOURCE_LAST_MODIFIED_TAG: &str = "LastModified";
+
+/// Entries of the shared MeedyaSuite-core list that MeedyaDL does not use,
+/// because the pinned version reads the wrong field. `last_modified_date`
+/// there reads `meta.formerIds` (Apple's list of an album's old IDs), not the
+/// date. MeedyaDL writes the real date itself as
+/// `MeedyaMeta:LastModified` (#1444), and only into files the
+/// current download wrote, which the shared list cannot do (it would stamp
+/// every file in the folder whose album matches). Even after the shared list
+/// is fixed, keep this entry set aside unless that freshness rule is dropped.
+const NOT_USED_FROM_SHARED_REGISTRY: &[&str] = &["last_modified_date"];
 
 /// Tag definition with ID included for backward compatibility.
 #[derive(Debug, Clone)]
@@ -67,6 +89,7 @@ pub fn load_tag_registry() -> TagRegistry {
     let album_tags = core_registry
         .album_tags
         .iter()
+        .filter(|(id, _)| !NOT_USED_FROM_SHARED_REGISTRY.contains(&id.as_str()))
         .map(|(id, def)| convert_core_definition(id, def))
         .collect();
 
@@ -190,5 +213,43 @@ mod tests {
         let paths = all_known_paths(&registry);
         assert!(paths.iter().any(|(scope, _, _)| scope == "album"));
         assert!(paths.iter().any(|(scope, _, _)| scope == "track"));
+    }
+
+    #[test]
+    fn the_wrong_last_modified_entry_is_not_loaded() {
+        let registry = load_tag_registry();
+        assert!(
+            !registry
+                .album_tags
+                .iter()
+                .any(|d| d.id == "last_modified_date"),
+            "the shared last_modified_date entry must be set aside (#1444)"
+        );
+        assert!(
+            !registry
+                .album_tags
+                .iter()
+                .chain(registry.track_tags.iter())
+                .any(|d| d.atoms.iter().any(|a| a.name == "AppleLastModified")),
+            "no tag named AppleLastModified may be loaded (#1444)"
+        );
+    }
+
+    /// Fails when MeedyaSuite-core changes the entry, so the set-aside gets
+    /// looked at again instead of staying for ever.
+    #[test]
+    fn tripwire_shared_registry_still_reads_the_wrong_field() {
+        let core = &*meedya_core::metadata::tag_registry::DEFAULT_REGISTRY;
+        let entry = core
+            .album_tags
+            .iter()
+            .find(|(id, _)| id == "last_modified_date")
+            .map(|(_, def)| def)
+            .expect("MeedyaSuite-core no longer has last_modified_date: see #1444");
+        assert_eq!(
+            entry.json_path, "meta.formerIds",
+            "MeedyaSuite-core has changed this entry: see #1444 and revisit \
+             NOT_USED_FROM_SHARED_REGISTRY"
+        );
     }
 }

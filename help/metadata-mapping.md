@@ -227,6 +227,7 @@ This is MeedyaDL's own group. **Every** album-level and track-level tag above is
 |---|---|
 | `MeedyaMeta:AppleAudioTraits` | The track's audio traits, for example `["atmos","lossless","lossy-stereo"]` |
 | `MeedyaMeta:SourceStore` | Where the file came from. Always "Apple Music". (Also written as `com.apple.iTunes:SourceStore`.) |
+| `MeedyaMeta:LastModified` | The date the service last updated this release, as it stood when the file was downloaded, in UTC (for example `2026-11-17T04:12:35Z`). Written into the music files MeedyaDL downloads, not into older files already in the folder. MeedyaDL's own update check uses the album's download record, not this tag. |
 | `MeedyaMeta:SpatialAudioCodec` | The Atmos or spatial format, worked out from the audio file |
 | `MeedyaMeta:<Service>Url` (for example `MeedyaMeta:SpotifyUrl`, `MeedyaMeta:TidalUrl`, `MeedyaMeta:YoutubeMusicUrl`) | Where the album can be found on another music service, one tag for each service that has a match. Written only when you turn on the song.link links option in **Settings > Metadata** and have an access key. |
 

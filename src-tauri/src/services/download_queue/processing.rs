@@ -2572,6 +2572,7 @@ pub fn process_queue(
                                     is_library || album_metadata.is_none(),
                                     Some(&primary_files),
                                     Some(&enrich_in_flight),
+                                    &fresh_files,
                                 )
                                 .await
                                 {
@@ -3506,7 +3507,13 @@ pub fn process_queue(
                                 split.tracks,
                                 album_tracks,
                                 split.unplaceable,
-                                album_metadata.as_ref().and_then(|m| m.album_name.clone()),
+                                album_metadata
+                                    .as_ref()
+                                    .map(|m| super::lyrics_pass::GateAlbumFacts {
+                                        name: m.album_name.clone(),
+                                        last_modified_date: m.last_modified_date.clone(),
+                                    })
+                                    .unwrap_or_default(),
                             );
 
                             emit_download_log(

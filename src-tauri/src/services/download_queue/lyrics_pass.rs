@@ -880,9 +880,9 @@ pub(crate) struct CompanionGateState {
     /// The album's tracks from Apple Music: disc, track, song ID — to build
     /// per-track song links.
     pub album_tracks: Vec<(u32, u32, String)>,
-    /// The album's name from Apple Music, to tell its existing copies from
-    /// another release's when a file has no song ID.
-    pub album_name: Option<String>,
+    /// What Apple Music said about the album itself: its name and the date
+    /// it was last updated.
+    pub album: GateAlbumFacts,
     /// The format of each of this download's primary files whose disc or
     /// track number could not be read: they cannot be requested on their
     /// own, and are counted in the "left without an extra copy" line.
@@ -894,6 +894,18 @@ pub(crate) struct CompanionGateState {
     /// The song title the main download's Lyricsfile step falls back to
     /// (the album's first song), likewise.
     pub lyricsfile_default_title: Option<String>,
+}
+
+/// Facts about the album, taken from Apple Music and handed to the
+/// extra-format task through the gate.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub(crate) struct GateAlbumFacts {
+    /// The album's name, to tell its existing copies from another release's
+    /// when a file has no song ID.
+    pub name: Option<String>,
+    /// The date Apple Music last updated the album, as Apple sent it. Written
+    /// into each new extra-format copy (#1444).
+    pub last_modified_date: Option<String>,
 }
 
 /// Enrichment's end of the gate. Dropping it — an early return, a panic,
@@ -934,7 +946,7 @@ impl CompanionGate {
         primary_tracks: Vec<(SongCodec, u32, u32)>,
         album_tracks: Vec<(u32, u32, String)>,
         unplaceable: Vec<SongCodec>,
-        album_name: Option<String>,
+        album: GateAlbumFacts,
     ) {
         self.0.send_modify(|s| {
             s.renames_done = renames_done;
@@ -942,7 +954,7 @@ impl CompanionGate {
             s.primary_tracks = primary_tracks;
             s.album_tracks = album_tracks;
             s.unplaceable = unplaceable;
-            s.album_name = album_name;
+            s.album = album;
         });
         // `Drop` sets `released`.
     }
@@ -2490,7 +2502,10 @@ mod tests {
             vec![(SongCodec::Alac, 1, 1)],
             vec![(1, 1, "100".to_string())],
             vec![SongCodec::Aac],
-            Some("Album".to_string()),
+            GateAlbumFacts {
+                name: Some("Album".to_string()),
+                last_modified_date: Some("2024-03-15T07:12:45Z".to_string()),
+            },
         );
         let state = waiting.await.unwrap().unwrap();
         assert!(state.released);
@@ -2498,6 +2513,11 @@ mod tests {
         assert_eq!(state.primary_codecs, vec![SongCodec::Alac]);
         assert_eq!(state.primary_tracks, vec![(SongCodec::Alac, 1, 1)]);
         assert_eq!(state.album_tracks, vec![(1, 1, "100".to_string())]);
+        assert_eq!(state.album.name.as_deref(), Some("Album"));
+        assert_eq!(
+            state.album.last_modified_date.as_deref(),
+            Some("2024-03-15T07:12:45Z")
+        );
         assert_eq!(state.unplaceable, vec![SongCodec::Aac]);
         assert_eq!(state.lyricsfile_artist.as_deref(), Some("Artist"));
         assert_eq!(state.lyricsfile_default_title.as_deref(), Some("First"));

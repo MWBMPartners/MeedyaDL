@@ -6101,6 +6101,7 @@ async fn a_tiers_format_tags_reach_only_that_tiers_new_files() {
         &[dir.path()],
         &SongCodec::Alac,
         "test",
+        Some("2024-03-15T07:12:45Z"),
     )
     .await;
 
@@ -6119,6 +6120,51 @@ async fn a_tiers_format_tags_reach_only_that_tiers_new_files() {
         std::fs::read(&new_copy).unwrap(),
         copy_bytes,
         "the new copy was not tagged"
+    );
+    // The new copy carries the album's last-updated date (#1444); the older
+    // file, whose bytes did not change, cannot.
+    let date_of = |p: &std::path::Path| {
+        let tag = mp4ameta::Tag::read_from_path(p).unwrap();
+        let ident = mp4ameta::FreeformIdent::new_static(
+            "MeedyaMeta",
+            crate::models::tag_registry::SOURCE_LAST_MODIFIED_TAG,
+        );
+        let found = tag.strings_of(&ident).next().map(str::to_string);
+        found
+    };
+    assert_eq!(date_of(&new_copy).as_deref(), Some("2024-03-15T07:12:45Z"));
+    assert_eq!(date_of(&older), None);
+}
+
+/// Step 1's date stamp goes only to files this download wrote, and the call
+/// site hands it the snapshot judgement, never "every album-matched file".
+#[test]
+fn the_last_updated_date_is_stamped_on_this_downloads_files_only() {
+    use crate::services::metadata_tag_service::stamps_last_modified;
+    let fresh: std::collections::HashSet<std::path::PathBuf> =
+        [std::path::PathBuf::from("a/01.m4a")].into_iter().collect();
+    assert!(stamps_last_modified(
+        std::path::Path::new("a/01.m4a"),
+        &fresh
+    ));
+    assert!(!stamps_last_modified(
+        std::path::Path::new("a/02.m4a"),
+        &fresh
+    ));
+    assert!(!stamps_last_modified(
+        std::path::Path::new("a/01.m4a"),
+        &std::collections::HashSet::new()
+    ));
+
+    let processing = include_str!("processing.rs");
+    let call = processing
+        .split("apply_enriched_metadata_tags(")
+        .nth(1)
+        .expect("the Step 1 call site");
+    let call = &call[..call.find(".await").unwrap()];
+    assert!(
+        call.contains("&fresh_files"),
+        "Step 1 must pass the files this download wrote"
     );
 }
 
@@ -6145,6 +6191,7 @@ async fn a_tier_does_not_tag_new_files_outside_the_album_folder() {
         &[album.as_path()],
         &SongCodec::Alac,
         "test",
+        None,
     )
     .await;
     assert_eq!(tagged, 1);
@@ -6385,6 +6432,7 @@ async fn copies_in_the_renamed_folder_and_its_disc_folders_are_tagged() {
         &[folder.as_path()],
         &SongCodec::Alac,
         "test",
+        None,
     )
     .await;
     assert_eq!(tagged, 2);
@@ -6412,6 +6460,7 @@ async fn with_no_known_folder_the_before_after_set_is_tagged() {
         &[folder.as_path()],
         &SongCodec::Alac,
         "test",
+        None,
     )
     .await;
     assert_eq!(tagged, 1);
@@ -6455,9 +6504,15 @@ async fn copies_in_the_predicted_folder_outside_the_recorded_one_are_tagged() {
     );
     assert_eq!(folders, vec![recorded.clone(), predicted.clone()]);
     let within: Vec<&std::path::Path> = folders.iter().map(|p| p.as_path()).collect();
-    let tagged =
-        super::companions::tag_tier_additions(&before, &after, &within, &SongCodec::Alac, "test")
-            .await;
+    let tagged = super::companions::tag_tier_additions(
+        &before,
+        &after,
+        &within,
+        &SongCodec::Alac,
+        "test",
+        None,
+    )
+    .await;
     assert_eq!(tagged, 2);
     assert_ne!(std::fs::read(&a).unwrap(), a0);
     assert_ne!(std::fs::read(&b).unwrap(), b0);
