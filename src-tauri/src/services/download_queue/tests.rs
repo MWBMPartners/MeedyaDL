@@ -6101,6 +6101,7 @@ async fn a_tiers_format_tags_reach_only_that_tiers_new_files() {
         albums: vec![crate::services::metadata_tag_service::AlbumStamp {
             last_modified_date: Some("2024-03-15T07:12:45Z".to_string()),
             tracks: Vec::new(),
+            ..Default::default()
         }],
         single_album_download: true,
     };
@@ -6390,6 +6391,8 @@ fn the_write_functions_never_take_the_lock() {
         (tag_service, "pub(crate) fn apply_codec_metadata_tags("),
         (tag_service, "pub(crate) fn apply_album_layer("),
         (tag_service, "pub(crate) fn write_album_stamp("),
+        (tag_service, "pub(crate) fn write_apple_music_ids("),
+        (tag_service, "fn write_id_pair("),
         (tag_service, "pub(crate) fn song_id_of_path("),
         (
             include_str!("lyrics_pass.rs"),
@@ -6888,6 +6891,7 @@ async fn copies_in_other_album_folders_get_their_albums_stamps() {
             disc: 1,
             track: 1,
         }],
+        ..Default::default()
     };
     let stamps = DownloadStamps {
         albums: vec![

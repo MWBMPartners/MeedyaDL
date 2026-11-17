@@ -1475,6 +1475,11 @@ pub(crate) struct StampTrack {
 /// updated it, and the songs it holds (to tell a file's song).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct AlbumStamp {
+    /// Apple Music's CURRENT number for the album (from the album answer's
+    /// own `id`, which can differ from the number that was asked for).
+    pub album_id: String,
+    /// Earlier numbers Apple Music gave the same album (`meta.formerIds`).
+    pub former_album_ids: Vec<String>,
     /// The date the service last updated the album, as it sent it.
     pub last_modified_date: Option<String>,
     /// The album's songs.
@@ -1484,7 +1489,19 @@ pub(crate) struct AlbumStamp {
 impl AlbumStamp {
     /// Takes the stamp facts from an album's details.
     pub(crate) fn from_metadata(m: &AlbumMetadata) -> Self {
+        let album_id = m
+            .raw_json
+            .get("id")
+            .and_then(|v| match v {
+                serde_json::Value::String(s) => Some(s.trim().to_string()),
+                serde_json::Value::Number(n) => Some(n.to_string()),
+                _ => None,
+            })
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| m.album_id.trim().to_string());
         Self {
+            album_id,
+            former_album_ids: former_ids_from_json(&m.raw_json),
             last_modified_date: m.last_modified_date.clone(),
             tracks: m
                 .tracks
@@ -1591,19 +1608,95 @@ impl DownloadStamps {
     }
 }
 
+/// Joins the earlier numbers a file already holds with the ones Apple Music
+/// sends now, never losing one (#1447). Order: the file's earlier numbers,
+/// then the file's old current number if it differs from the new current
+/// one, then the newly sent earlier numbers. Values are trimmed, empty ones
+/// dropped, repeats removed (first kept), and the new current number is
+/// never listed as earlier.
+pub(crate) fn merge_former_ids(
+    old_current: Option<&str>,
+    old_former: &[String],
+    new_current: &str,
+    new_former: &[String],
+) -> Vec<String> {
+    let new_current = new_current.trim();
+    let mut out: Vec<String> = Vec::new();
+    let candidates = old_former
+        .iter()
+        .map(String::as_str)
+        .chain(old_current)
+        .chain(new_former.iter().map(String::as_str));
+    for id in candidates {
+        let id = id.trim();
+        if id.is_empty() || id == new_current || out.iter().any(|o| o == id) {
+            continue;
+        }
+        out.push(id.to_string());
+    }
+    out
+}
+
+/// Writes one current number and its earlier numbers (one atom holding
+/// several values), keeping every earlier number the file already has. Never
+/// removes an atom. Writes nothing when `current` is empty.
+fn write_id_pair(
+    tag: &mut Tag,
+    current_name: &'static str,
+    former_name: &'static str,
+    current: &str,
+    new_former: &[String],
+) {
+    let current = current.trim();
+    if current.is_empty() {
+        return;
+    }
+    let current_ident = FreeformIdent::new_static(MEEDYADL_NAMESPACE, current_name);
+    let former_ident = FreeformIdent::new_static(MEEDYADL_NAMESPACE, former_name);
+    let old_current = tag.strings_of(&current_ident).next().map(str::to_string);
+    let old_former: Vec<String> = tag.strings_of(&former_ident).map(str::to_string).collect();
+    let merged = merge_former_ids(old_current.as_deref(), &old_former, current, new_former);
+    tag.set_data(current_ident, Data::Utf8(current.to_string()));
+    if !merged.is_empty() {
+        tag.set_all_data(former_ident, merged.into_iter().map(Data::Utf8));
+    }
+}
+
+/// Writes Apple Music's current and earlier numbers for the album and, when
+/// the song is known, for the song (#1447). Takes no lock.
+pub(crate) fn write_apple_music_ids(tag: &mut Tag, album: &AlbumStamp, track: Option<&StampTrack>) {
+    write_id_pair(
+        tag,
+        tag_registry::APPLE_MUSIC_ALBUM_ID_TAG,
+        tag_registry::APPLE_MUSIC_FORMER_ALBUM_IDS_TAG,
+        &album.album_id,
+        &album.former_album_ids,
+    );
+    if let Some(t) = track {
+        write_id_pair(
+            tag,
+            tag_registry::APPLE_MUSIC_SONG_ID_TAG,
+            tag_registry::APPLE_MUSIC_FORMER_SONG_IDS_TAG,
+            &t.song_id,
+            &t.former_song_ids,
+        );
+    }
+}
+
 /// Writes what an album stamps on one of its files, in the file's one
-/// write: today the date Apple Music last updated the album, when
-/// `write_date` is true. `_track` is the song the file holds, when known;
-/// nothing is written from it yet. Takes no lock: the caller holds the
-/// file's write lock.
+/// write, when `write_date` is true: the date Apple Music last updated the
+/// album and Apple Music's current and earlier numbers for the album and (when
+/// `track` is known) the song. Takes no lock: the caller holds the file's
+/// write lock, and decides which files are stamped at all.
 pub(crate) fn write_album_stamp(
     tag: &mut Tag,
     album: &AlbumStamp,
-    _track: Option<&StampTrack>,
+    track: Option<&StampTrack>,
     write_date: bool,
 ) {
     if write_date {
         write_source_last_modified(tag, album.last_modified_date.as_deref());
+        write_apple_music_ids(tag, album, track);
     }
 }
 
@@ -3685,6 +3778,7 @@ mod tests {
             albums: vec![AlbumStamp {
                 last_modified_date: Some("2024-03-15T07:12:45Z".to_string()),
                 tracks: Vec::new(),
+                ..Default::default()
             }],
             single_album_download: true,
         };
@@ -4743,6 +4837,162 @@ mod tests {
             );
         }
         tag
+    }
+
+    // ---- Apple Music's current and earlier numbers (#1447) ----
+
+    fn ids_of(tag: &Tag, name: &'static str) -> Vec<String> {
+        tag.strings_of(&FreeformIdent::new_static(MEEDYADL_NAMESPACE, name))
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn id_stamp(current: &str, former: &[&str], song: Option<(&str, &[&str])>) -> AlbumStamp {
+        AlbumStamp {
+            album_id: current.to_string(),
+            former_album_ids: former.iter().map(|s| s.to_string()).collect(),
+            last_modified_date: Some("2024-03-15T07:12:45Z".to_string()),
+            tracks: song
+                .map(|(id, f)| StampTrack {
+                    song_id: id.to_string(),
+                    former_song_ids: f.iter().map(|s| s.to_string()).collect(),
+                    disc: 1,
+                    track: 1,
+                })
+                .into_iter()
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn merge_former_ids_rules() {
+        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        // Order: old earlier, old current, new earlier.
+        assert_eq!(
+            merge_former_ids(Some("9"), &v(&["1"]), "2", &v(&["8"])),
+            v(&["1", "9", "8"])
+        );
+        // Same current: not listed; repeats dropped (first kept); blanks and
+        // spaces trimmed away; the new current is never listed as earlier.
+        assert_eq!(
+            merge_former_ids(Some("2"), &v(&[" 1 ", "", "2"]), "2", &v(&["1", "3", " "])),
+            v(&["1", "3"])
+        );
+        assert!(merge_former_ids(None, &[], "2", &[]).is_empty());
+        assert_eq!(
+            merge_former_ids(Some(" "), &[], "2", &[]),
+            Vec::<String>::new()
+        );
+    }
+
+    #[test]
+    fn apple_music_ids_survive_two_writes_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.m4a");
+        test_support::minimal_m4a(&path, 1, 1, false);
+        let write = |stamp: &AlbumStamp| {
+            let mut tag = Tag::read_from_path(&path).unwrap();
+            write_album_stamp(&mut tag, stamp, stamp.tracks.first(), true);
+            tag.write_to_path(&path).unwrap();
+        };
+        write(&id_stamp("9", &["1"], Some(("500", &["400"]))));
+        // Apple Music moves on: new current number 2 with earlier number 8.
+        write(&id_stamp("2", &["8"], Some(("501", &[]))));
+        let tag = Tag::read_from_path(&path).unwrap();
+        assert_eq!(ids_of(&tag, tag_registry::APPLE_MUSIC_ALBUM_ID_TAG), ["2"]);
+        assert_eq!(
+            ids_of(&tag, tag_registry::APPLE_MUSIC_FORMER_ALBUM_IDS_TAG),
+            ["1", "9", "8"]
+        );
+        assert_eq!(ids_of(&tag, tag_registry::APPLE_MUSIC_SONG_ID_TAG), ["501"]);
+        assert_eq!(
+            ids_of(&tag, tag_registry::APPLE_MUSIC_FORMER_SONG_IDS_TAG),
+            ["400", "500"]
+        );
+    }
+
+    #[test]
+    fn stamp_reads_ids_from_json() {
+        let mut album = fixture_album("OLD", "X", "Y", None, "L", &[("100", 1, 1)]);
+        album.raw_json = serde_json::json!({
+            "id": 777,
+            "meta": {"formerIds": ["55", 66, " ", ""]}
+        });
+        album.tracks[0].raw_json = serde_json::json!({"meta": {"formerIds": ["99"]}});
+        let stamp = AlbumStamp::from_metadata(&album);
+        assert_eq!(stamp.album_id, "777", "the answer's own id wins");
+        assert_eq!(stamp.former_album_ids, ["55", "66"]);
+        assert_eq!(stamp.tracks[0].former_song_ids, ["99"]);
+        // No id in the answer: fall back to the requested one; no meta: none.
+        album.raw_json = serde_json::json!({"attributes": {}});
+        let stamp = AlbumStamp::from_metadata(&album);
+        assert_eq!(stamp.album_id, "OLD");
+        assert!(stamp.former_album_ids.is_empty());
+    }
+
+    #[test]
+    fn song_ids_only_with_a_known_track() {
+        let mut tag = Tag::default();
+        write_apple_music_ids(&mut tag, &id_stamp("2", &[], Some(("5", &[]))), None);
+        assert_eq!(ids_of(&tag, tag_registry::APPLE_MUSIC_ALBUM_ID_TAG), ["2"]);
+        assert!(ids_of(&tag, tag_registry::APPLE_MUSIC_SONG_ID_TAG).is_empty());
+        assert!(ids_of(&tag, tag_registry::APPLE_MUSIC_FORMER_ALBUM_IDS_TAG).is_empty());
+    }
+
+    #[test]
+    fn older_files_get_no_ids() {
+        let albums = vec![fixture_album(
+            "1",
+            "A",
+            "X",
+            Some("2024-03-15T07:12:45Z"),
+            "L",
+            &[("100", 1, 1)],
+        )];
+        let mut tag = fixture_tag(Some(100), "A", "X", 1, 1);
+        apply_album_layer(&mut tag, &albums, false, true);
+        assert!(ids_of(&tag, tag_registry::APPLE_MUSIC_ALBUM_ID_TAG).is_empty());
+        assert!(ids_of(&tag, tag_registry::APPLE_MUSIC_SONG_ID_TAG).is_empty());
+        let mut fresh = fixture_tag(Some(100), "A", "X", 1, 1);
+        apply_album_layer(&mut fresh, &albums, true, true);
+        assert_eq!(
+            ids_of(&fresh, tag_registry::APPLE_MUSIC_ALBUM_ID_TAG),
+            ["1"]
+        );
+        assert_eq!(
+            ids_of(&fresh, tag_registry::APPLE_MUSIC_SONG_ID_TAG),
+            ["100"]
+        );
+    }
+
+    #[test]
+    fn codec_tagging_writes_ids_on_copies() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.m4a");
+        test_support::minimal_m4a(&path, 1, 1, false);
+        let mut tag = Tag::read_from_path(&path).unwrap();
+        tag.set_data(
+            mp4ameta::Fourcc(*b"cnID"),
+            Data::BeSigned(500u32.to_be_bytes().to_vec()),
+        );
+        tag.write_to_path(&path).unwrap();
+        let stamps = DownloadStamps {
+            albums: vec![id_stamp("2", &["1"], Some(("500", &["400"])))],
+            single_album_download: true,
+        };
+        apply_codec_metadata_tags(&path.to_string_lossy(), &SongCodec::Alac, Some(&stamps))
+            .unwrap();
+        let tag = Tag::read_from_path(&path).unwrap();
+        assert_eq!(ids_of(&tag, tag_registry::APPLE_MUSIC_ALBUM_ID_TAG), ["2"]);
+        assert_eq!(
+            ids_of(&tag, tag_registry::APPLE_MUSIC_FORMER_ALBUM_IDS_TAG),
+            ["1"]
+        );
+        assert_eq!(ids_of(&tag, tag_registry::APPLE_MUSIC_SONG_ID_TAG), ["500"]);
+        assert_eq!(
+            ids_of(&tag, tag_registry::APPLE_MUSIC_FORMER_SONG_IDS_TAG),
+            ["400"]
+        );
     }
 
     fn label_of(tag: &Tag) -> Option<String> {

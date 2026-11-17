@@ -46,6 +46,21 @@ pub const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
 /// use the same tag.
 pub const SOURCE_LAST_MODIFIED_TAG: &str = "LastModified";
 
+/// Apple Music's CURRENT number for the album (#1447), from the album answer's
+/// own `id`. `MeedyaMeta` group.
+pub const APPLE_MUSIC_ALBUM_ID_TAG: &str = "AppleMusicAlbumId";
+
+/// The numbers the album had before (`meta.formerIds`), several values in one
+/// atom, kept and added to on each download, never removed (#1447).
+pub const APPLE_MUSIC_FORMER_ALBUM_IDS_TAG: &str = "AppleMusicFormerAlbumIds";
+
+/// Apple Music's current number for the song (#1447). Carries the same value
+/// as the shared `AppleSongID` tag, which stays.
+pub const APPLE_MUSIC_SONG_ID_TAG: &str = "AppleMusicSongId";
+
+/// The numbers the song had before, written only when Apple Music sends them (#1447).
+pub const APPLE_MUSIC_FORMER_SONG_IDS_TAG: &str = "AppleMusicFormerSongIds";
+
 /// The name (inside the `com.apple.iTunes` group) of the second tag that
 /// holds the same date, so apps that read the iTunes-style album tags find it
 /// too. It always carries exactly the same value as `MeedyaMeta:LastModified`
@@ -252,6 +267,24 @@ mod tests {
                         || (a.namespace == MEEDYADL_NAMESPACE && a.name == SOURCE_LAST_MODIFIED_TAG)
                 })),
             "no shared entry may write the last-updated tags (#1444)"
+        );
+        // Nor the four Apple Music number tags (#1447), compared ignoring case.
+        let ours = [
+            APPLE_MUSIC_ALBUM_ID_TAG,
+            APPLE_MUSIC_FORMER_ALBUM_IDS_TAG,
+            APPLE_MUSIC_SONG_ID_TAG,
+            APPLE_MUSIC_FORMER_SONG_IDS_TAG,
+        ];
+        assert!(
+            !registry
+                .album_tags
+                .iter()
+                .chain(registry.track_tags.iter())
+                .any(|d| d.atoms.iter().any(|a| {
+                    a.namespace.eq_ignore_ascii_case(MEEDYADL_NAMESPACE)
+                        && ours.iter().any(|o| a.name.eq_ignore_ascii_case(o))
+                })),
+            "no shared entry may write the Apple Music number tags (#1447)"
         );
     }
 

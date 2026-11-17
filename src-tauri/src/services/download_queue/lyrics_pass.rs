@@ -2917,6 +2917,7 @@ mod tests {
                     albums: vec![crate::services::metadata_tag_service::AlbumStamp {
                         last_modified_date: Some("2024-03-15T07:12:45Z".to_string()),
                         tracks: Vec::new(),
+                        ..Default::default()
                     }],
                     single_album_download: true,
                 },
