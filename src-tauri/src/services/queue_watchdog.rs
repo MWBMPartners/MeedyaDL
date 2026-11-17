@@ -183,6 +183,7 @@ pub fn spawn_queue_watchdog(
             }
             poll_once(&app, &queue, &mut tracked).await;
             sweep_orphaned_slots(&app, &queue, &mut orphans_seen, Instant::now()).await;
+            start_queue_when_stalled_wait_ends(&app, &queue, Instant::now()).await;
         }
     });
 }
@@ -422,6 +423,25 @@ async fn sweep_orphaned_slots(
             app,
             "An earlier download run that was cancelled or retried never let go of the queue. It has been released so the queue can carry on.",
         );
+        crate::services::download_queue::process_queue(app.clone(), queue.clone()).await;
+    }
+}
+
+/// Starts the queue once when a run marked stuck has been left going for
+/// `STALLED_RUN_WAIT` (one hour) (#1432, maintainer decision 17 Nov 2026).
+/// From then on that run no longer keeps the queue from being idle, but
+/// nothing else would start the queue to notice: if nothing else is queued
+/// or running, this is what makes "Queue finished" and the after-queue
+/// action happen. They still happen once only -- `process_queue` fires them
+/// only when a download ran since the queue last went quiet.
+async fn start_queue_when_stalled_wait_ends(
+    app: &AppHandle,
+    queue: &Arc<Mutex<DownloadQueue>>,
+    now: Instant,
+) {
+    let ran_out = queue.lock().await.stalled_waits_just_ran_out(now);
+    if ran_out {
+        log::info!("watchdog: a stuck download's one-hour wait ran out; checking the queue");
         crate::services::download_queue::process_queue(app.clone(), queue.clone()).await;
     }
 }

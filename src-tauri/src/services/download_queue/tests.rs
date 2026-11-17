@@ -2709,6 +2709,141 @@ fn queue_is_not_idle_while_a_stalled_run_is_still_going() {
     assert!(!q.end_live_stalled_run(a.number));
 }
 
+/// Decision A (17 Nov 2026): a stalled run that is still going holds the
+/// queue back for one hour only. The hour is checked against a given
+/// moment, so nothing sleeps.
+#[test]
+fn stalled_run_stops_holding_the_queue_back_after_one_hour() {
+    use std::time::{Duration, Instant};
+    let base = Instant::now();
+    assert!(!stalled_wait_over(base, base));
+    assert!(!stalled_wait_over(
+        base,
+        base + STALLED_RUN_WAIT - Duration::from_secs(1)
+    ));
+    assert!(stalled_wait_over(base, base + STALLED_RUN_WAIT));
+    // A clock that seems to go backwards never counts as "over".
+    assert!(!stalled_wait_over(base + Duration::from_secs(5), base));
+    assert_eq!(STALLED_RUN_WAIT, Duration::from_secs(3600));
+
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    let marked = Instant::now();
+    let after_hour = marked + STALLED_RUN_WAIT + Duration::from_secs(1);
+    assert!(!q.is_idle_at(marked), "within the hour it still holds");
+    assert!(!q.stalled_waits_just_ran_out(marked));
+    assert!(
+        q.is_idle_at(after_hour),
+        "after the hour it no longer holds"
+    );
+    // The watchdog starts the queue once for it, not every tick.
+    assert!(q.stalled_waits_just_ran_out(after_hour));
+    assert!(!q.stalled_waits_just_ran_out(after_hour));
+
+    // The queue finishing names it once.
+    let names = q.summarise_live_stalled_runs();
+    assert_eq!(names.len(), 1);
+    assert!(q.summarise_live_stalled_runs().is_empty(), "named once");
+
+    // Something else queued still keeps the queue busy after the hour.
+    let _ = enqueue_one(&mut q);
+    assert!(!q.is_idle_at(after_hour));
+}
+
+/// Decision A: when the queue already finished (and counted the stall's
+/// failure) before the stalled run ended, its once-only retry still
+/// happens, but the retry's result does not take back a failure from the
+/// next queue run's counts.
+#[test]
+fn late_retry_after_the_queue_finished_keeps_the_next_runs_counts() {
+    let settings = AppSettings::default();
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a1 = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a1, "stalled"));
+    assert_eq!(q.summarise_live_stalled_runs().len(), 1);
+    assert_eq!(
+        q.on_late_finish(&a1, EndedOutside::StoppedAsStuck, true, &settings),
+        LateFinish::QueuedAgain
+    );
+    let a2 = q.next_pending().unwrap().attempt;
+    assert!(
+        !q.take_stall_failure_to_withdraw(&a2),
+        "the earlier summary already had that failure"
+    );
+}
+
+/// Decision B (17 Nov 2026): a Spotify run marked stuck that finishes
+/// cleanly with new files makes the item Complete; anything less leaves it
+/// failed. Never queued again.
+#[test]
+fn stalled_spotify_run_completes_only_when_it_really_finished() {
+    assert!(spotify_late_run_finished(true, 3));
+    assert!(!spotify_late_run_finished(true, 0));
+    assert!(!spotify_late_run_finished(false, 3));
+
+    // Finished: Complete, counted once, not queued again.
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert_eq!(
+        q.finish_stalled_spotify_run(&a, true),
+        SpotifyLateFinish::Completed { summarised: false }
+    );
+    let status = &q.get_status()[0];
+    assert_eq!(status.state, DownloadState::Complete);
+    assert!(status.error.is_none());
+    assert!(q.next_pending().is_none(), "no automatic retry");
+    assert!(!q.has_live_stalled_runs());
+    assert!(q.is_idle());
+    // Only once.
+    assert_eq!(
+        q.finish_stalled_spotify_run(&a, true),
+        SpotifyLateFinish::Nothing
+    );
+
+    // Not finished: stays failed, no retry.
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert_eq!(
+        q.finish_stalled_spotify_run(&a, false),
+        SpotifyLateFinish::Nothing
+    );
+    assert_eq!(q.get_status()[0].state, DownloadState::Error);
+    assert!(q.next_pending().is_none());
+    assert!(q.is_idle());
+
+    // Already in a "Queue finished" summary: completes, but says so, so
+    // the next run's counts are left alone.
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    let _ = q.summarise_live_stalled_runs();
+    assert_eq!(
+        q.finish_stalled_spotify_run(&a, true),
+        SpotifyLateFinish::Completed { summarised: true }
+    );
+
+    // Retried by the person meanwhile: the old run changes nothing.
+    let settings = AppSettings::default();
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert!(q.retry(&id, &settings));
+    assert_eq!(
+        q.finish_stalled_spotify_run(&a, true),
+        SpotifyLateFinish::Nothing
+    );
+    assert_eq!(q.get_status()[0].state, DownloadState::Queued);
+}
+
 /// Finding 5: the stall's counted failure is taken back once, when the
 /// automatic retry's own result is counted, so the item counts once.
 #[test]
@@ -2783,7 +2918,7 @@ fn late_finish_callers_pass_the_real_outcome() {
     let src = include_str!("processing.rs");
     assert!(src.contains("tidying_up_finished("));
     assert!(src.contains("let saved_files = q.stalled_run_saved_files(&attempt);"));
-    assert!(src.contains("let finished = result.is_ok() && new_files > 0;"));
+    assert!(src.contains("let finished = spotify_late_run_finished(result.is_ok(), new_files);"));
 }
 
 /// Test 13 (sweep, queue half): a slot held by an attempt that is no

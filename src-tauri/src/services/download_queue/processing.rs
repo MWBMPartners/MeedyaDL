@@ -334,7 +334,7 @@ pub fn process_queue(
         // case `take_recently_aborted` returns `true` and we suppress the
         // post-queue action this time around.
         let Some(started) = pending else {
-            let (is_idle, was_aborted, ran) = {
+            let (is_idle, was_aborted, ran, still_running_stalled) = {
                 let mut q = queue.lock().await;
                 let idle = q.is_idle();
                 // Only consume the record when the queue has actually gone
@@ -356,8 +356,31 @@ pub fn process_queue(
                 } else {
                     false
                 };
-                (idle, q.take_recently_aborted(), ran)
+                // Runs marked stuck over an hour ago that are still going
+                // no longer hold the queue back (#1432, STALLED_RUN_WAIT).
+                // Noted now, as this queue run ends, so each is named once
+                // and its later result is not counted in the next run.
+                let still_running_stalled = if idle && ran {
+                    q.summarise_live_stalled_runs()
+                } else {
+                    Vec::new()
+                };
+                (idle, q.take_recently_aborted(), ran, still_running_stalled)
             };
+            // One plain line per download that was marked stuck and was
+            // still running when the queue finished (#1432), written
+            // before any after-queue action (which may be a shut-down).
+            // Not after an abort: the person stopped the queue themselves.
+            for name in still_running_stalled.iter().filter(|_| !was_aborted) {
+                emit_app_log(
+                    &app,
+                    &format!(
+                        "{name}: this download was marked as stuck and was still running \
+                         when the queue finished. MeedyaDL waited an hour for it, then \
+                         carried on."
+                    ),
+                );
+            }
             if is_idle && !ran {
                 // Nothing ran, so nothing drained (#1169).
                 //
@@ -6664,17 +6687,63 @@ pub(crate) async fn run_spotify_dispatch_arm(
 
         // The item may have ended from outside this attempt while votify
         // ran (#1432 review): cancelled, retried, removed, or marked failed
-        // as stuck. Then leave it as it is -- no daily-cap count and no
-        // manifest from a run that is no longer the item's -- and, the same
-        // as a GAMDL run, if the stall check had marked this run failed and
-        // it finished cleanly with files saved, say so once and queue it
-        // again once (maintainer decision 3).
+        // as stuck. Cancelled, retried or removed: leave it as it is -- no
+        // daily-cap count and no manifest from a run that is no longer the
+        // item's.
+        //
+        // Marked failed as stuck: Spotify is never retried automatically
+        // (maintainer decision B, 17 Nov 2026) -- there is no tidying-up to
+        // redo. If the run finished cleanly with new files, the download
+        // really happened, so the item becomes Complete and gets what a
+        // normal Spotify completion gets (once); otherwise it stays failed.
         {
             let mut q = queue_clone.lock().await;
             if let Some(ended) = stop_if_ended_outside(&mut q, &attempt) {
+                let finished = spotify_late_run_finished(result.is_ok(), new_files);
+                if ended == EndedOutside::StoppedAsStuck {
+                    let outcome = q.finish_stalled_spotify_run(&attempt, finished);
+                    if let SpotifyLateFinish::Completed { summarised } = outcome {
+                        // Counted once in the queue summary: the stall's
+                        // failure is taken back and this counts as
+                        // downloaded -- unless a "Queue finished" summary
+                        // already went out with the failure in it, in which
+                        // case the next run's counts are left alone.
+                        if !summarised {
+                            crate::services::notification_service::withdraw_counted_failure();
+                            crate::services::notification_service::count_result(
+                                crate::services::notification_service::NotifyKind::DownloadComplete,
+                            );
+                        }
+                    }
+                    let history = matches!(outcome, SpotifyLateFinish::Completed { .. })
+                        .then(|| late_spotify_history_entry(&q, &attempt))
+                        .flatten();
+                    drop(q);
+                    guard.disarm();
+                    if matches!(outcome, SpotifyLateFinish::Completed { .. }) {
+                        emit_download_log(&app_clone, &dl_id, SPOTIFY_LATE_FINISH_LINE);
+                        record_spotify_daily_cap(&app_clone, &dl_id, &settings, new_files);
+                        write_spotify_manifest_best_effort(
+                            &app_clone,
+                            &dl_id,
+                            &urls,
+                            &output_path,
+                            &settings,
+                            &download_started_at,
+                        );
+                        // Replaces the "failed" History row the stall check
+                        // wrote (History keeps one row per link).
+                        if let Some(entry) = history {
+                            history_service::save_history_entry(&app_clone, entry);
+                        }
+                        notify_item_complete(&app_clone, &queue_clone, &dl_id).await;
+                    }
+                    save_queue_to_disk(&app_clone, &queue_clone).await;
+                    process_queue(app_clone, queue_clone).await;
+                    return;
+                }
                 drop(q);
                 guard.disarm();
-                let finished = result.is_ok() && new_files > 0;
                 finish_ended_outside(&app_clone, &queue_clone, &attempt, ended, finished).await;
                 return;
             }
@@ -6719,42 +6788,8 @@ pub(crate) async fn run_spotify_dispatch_arm(
                     );
 
                     // Increment the daily-cap counter by the actual
-                    // landed-file count. The cap-check at IPC gate
-                    // ran ONCE per batch and can be overshot by
-                    // hundreds of tracks on a near-cap dispatch
-                    // (critique amendment 3 — known limitation; rich
-                    // per-track instrumentation lands in M9-8).
-                    let cap = settings
-                        .service_settings
-                        .spotify
-                        .anti_ban
-                        .daily_download_cap;
-                    let new_files_u32 = u32::try_from(new_files).unwrap_or(u32::MAX);
-                    match crate::services::spotify_anti_ban::increment_counter(
-                        &app_clone,
-                        new_files_u32,
-                    ) {
-                        Ok(counter) => {
-                            if cap != 0 && counter.count > cap {
-                                log::warn!(
-                                    "Spotify daily-cap overshoot: counter={} cap={cap} (M9-8 will add per-track cap enforcement)",
-                                    counter.count
-                                );
-                                emit_download_log(
-                                    &app_clone,
-                                    &dl_id,
-                                    &format!(
-                                        "⚠ Daily cap exceeded ({}/{cap}) — \
-                                         next Spotify download will be blocked until midnight",
-                                        counter.count
-                                    ),
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            log::warn!("Failed to persist daily-cap counter: {e}");
-                        }
-                    }
+                    // landed-file count.
+                    record_spotify_daily_cap(&app_clone, &dl_id, &settings, new_files);
 
                     // Best-effort manifest write so Library Scan sees
                     // the album. We can only resolve the album_dir
@@ -6879,6 +6914,77 @@ pub(crate) async fn spotify_arm_terminate_error(
     tokio::spawn(async move {
         process_queue(app_clone, queue_clone).await;
     });
+}
+
+/// What the activity log says when a Spotify download that was marked
+/// failed as stuck finishes after all (#1432, maintainer decision B).
+pub(crate) const SPOTIFY_LATE_FINISH_LINE: &str = "This Spotify download had been marked as \
+     stuck, but it finished after all and its files are on disk. It is now marked as complete.";
+
+/// Adds a Spotify download's new files to the daily-cap count, warning in
+/// the activity log when the cap is now exceeded. The cap-check at the IPC
+/// gate ran ONCE per batch and can be overshot by hundreds of tracks on a
+/// near-cap dispatch (critique amendment 3 — known limitation; rich
+/// per-track instrumentation lands in M9-8).
+fn record_spotify_daily_cap(
+    app: &AppHandle,
+    dl_id: &str,
+    settings: &crate::models::settings::AppSettings,
+    new_files: usize,
+) {
+    let cap = settings
+        .service_settings
+        .spotify
+        .anti_ban
+        .daily_download_cap;
+    let new_files_u32 = u32::try_from(new_files).unwrap_or(u32::MAX);
+    match crate::services::spotify_anti_ban::increment_counter(app, new_files_u32) {
+        Ok(counter) => {
+            if cap != 0 && counter.count > cap {
+                log::warn!(
+                    "Spotify daily-cap overshoot: counter={} cap={cap} (M9-8 will add per-track cap enforcement)",
+                    counter.count
+                );
+                emit_download_log(
+                    app,
+                    dl_id,
+                    &format!(
+                        "⚠ Daily cap exceeded ({}/{cap}) — \
+                         next Spotify download will be blocked until midnight",
+                        counter.count
+                    ),
+                );
+            }
+        }
+        Err(e) => {
+            log::warn!("Failed to persist daily-cap counter: {e}");
+        }
+    }
+}
+
+/// The History "success" row for a Spotify download that finished after
+/// being marked stuck (#1432). A normal Spotify completion writes no
+/// History row, but the stall check wrote a "failed" one for this link;
+/// this replaces it, so History does not say a completed download failed.
+/// `None` if the item is gone.
+fn late_spotify_history_entry(
+    q: &DownloadQueue,
+    attempt: &Attempt,
+) -> Option<history_service::HistoryEntry> {
+    let status = q.get_status().into_iter().find(|s| s.id == attempt.id)?;
+    Some(history_service::HistoryEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        url: status.urls.first().cloned().unwrap_or_default(),
+        title: None,
+        artist: status.artist_name.clone(),
+        album: status.album_name.clone(),
+        codec: None,
+        file_path: status.output_path.clone(),
+        started_at: status.created_at.clone(),
+        completed_at: crate::utils::time_compat::now_rfc3339(),
+        status: "success".to_string(),
+        error_message: None,
+    })
 }
 
 /// Best-effort manifest write for a Spotify item.

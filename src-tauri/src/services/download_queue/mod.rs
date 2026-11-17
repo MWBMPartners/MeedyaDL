@@ -707,7 +707,77 @@ pub struct DownloadQueue {
     /// is taken off when it ends ([`DownloadQueue::on_late_finish`], or its
     /// slot guard if its task ends some other way); the queue is then
     /// started again, so the action fires once, properly.
-    live_stalled_runs: Vec<u64>,
+    ///
+    /// The wait is not for ever (maintainer decision, 17 Nov 2026): once a
+    /// run has been marked stuck for [`STALLED_RUN_WAIT`], it no longer
+    /// holds the queue back, so an unattended overnight queue still ends
+    /// (and still shuts the computer down, if that was asked for).
+    live_stalled_runs: Vec<LiveStalledRun>,
+}
+
+/// How long a run the stall check marked failed, but which is still going,
+/// may hold back "Queue finished" and the after-queue action (#1432,
+/// maintainer decision 17 Nov 2026): one hour from when it was marked stuck.
+///
+/// Long enough for a slow run that is really still working to end and
+/// queue its one retry inside the same queue run; short enough that a run
+/// that hangs for good cannot stop an overnight queue from ever finishing
+/// (and so stop a chosen shut-down or restart from ever happening). After
+/// the hour the queue finishes as normal, with one activity-log line
+/// naming the download that was still running.
+pub(crate) const STALLED_RUN_WAIT: std::time::Duration = std::time::Duration::from_secs(60 * 60);
+
+/// One run the stall check marked failed that has not ended yet (#1432).
+#[derive(Debug, Clone)]
+pub(crate) struct LiveStalledRun {
+    /// The attempt number of the run.
+    number: u64,
+    /// The item it belongs to, to name it in the activity log.
+    id: String,
+    /// When the stall check marked it failed.
+    since: std::time::Instant,
+    /// The watchdog has already started the queue once because this run's
+    /// wait ran out, so it does not do it again every tick.
+    nudged: bool,
+    /// A "Queue finished" summary (or an abort) has already gone out while
+    /// this run was still going, so its stall failure was in that summary.
+    /// Its later result must not change the next queue run's counts.
+    summarised: bool,
+}
+
+/// Has a stalled run's wait of [`STALLED_RUN_WAIT`] run out at `now`, for a
+/// run marked stuck at `since`? Pure, so the hour is tested without waiting.
+#[must_use]
+pub(crate) fn stalled_wait_over(since: std::time::Instant, now: std::time::Instant) -> bool {
+    now.saturating_duration_since(since) >= STALLED_RUN_WAIT
+}
+
+/// What happens when a Spotify run the stall check marked failed comes to
+/// an end (#1432, maintainer decision 17 Nov 2026). Decided under the lock
+/// by [`DownloadQueue::finish_stalled_spotify_run`]. Spotify items are never
+/// retried automatically after a stall: there is no tidying-up to redo, so
+/// a run that really finished simply makes the item complete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SpotifyLateFinish {
+    /// Nothing changes: the run did not finish cleanly with new files, or
+    /// the item is no longer this run's (retried or removed). It stays
+    /// failed.
+    Nothing,
+    /// The run finished after all; the item is now Complete. `summarised`:
+    /// a "Queue finished" summary already counted it as failed, so it is
+    /// not counted again.
+    Completed {
+        /// See [`LiveStalledRun::summarised`].
+        summarised: bool,
+    },
+}
+
+/// Does a Spotify run that the stall check marked failed count as
+/// "finished after all" (#1432)? Only when votify ended cleanly AND at
+/// least one new audio file landed. Pure, for tests.
+#[must_use]
+pub(crate) const fn spotify_late_run_finished(clean_exit: bool, new_files: usize) -> bool {
+    clean_exit && new_files > 0
 }
 
 /// Thread-safe handle to the download queue, stored as Tauri managed state.
@@ -2408,9 +2478,20 @@ impl DownloadQueue {
         item.stalled_run_saved_files = item.status.output_path.is_some();
         crate::utils::activity_log::evict_activity_counter(&attempt.id);
         self.release_slot(attempt);
-        // The run is left going; until it ends, the queue is not idle.
-        if !self.live_stalled_runs.contains(&attempt.number) {
-            self.live_stalled_runs.push(attempt.number);
+        // The run is left going; until it ends (or STALLED_RUN_WAIT
+        // passes), the queue is not idle.
+        if !self
+            .live_stalled_runs
+            .iter()
+            .any(|r| r.number == attempt.number)
+        {
+            self.live_stalled_runs.push(LiveStalledRun {
+                number: attempt.number,
+                id: attempt.id.clone(),
+                since: std::time::Instant::now(),
+                nudged: false,
+                summarised: false,
+            });
         }
         true
     }
@@ -2430,12 +2511,93 @@ impl DownloadQueue {
     /// Takes a stalled run off the "still running" list (#1432 review).
     /// Returns whether it was there. Safe to call more than once.
     pub(crate) fn end_live_stalled_run(&mut self, number: u64) -> bool {
-        if let Some(pos) = self.live_stalled_runs.iter().position(|n| *n == number) {
-            self.live_stalled_runs.remove(pos);
-            true
-        } else {
-            false
+        self.take_live_stalled_run(number).is_some()
+    }
+
+    /// Takes a stalled run off the "still running" list and hands it back,
+    /// so the caller can see whether a queue summary already counted it.
+    fn take_live_stalled_run(&mut self, number: u64) -> Option<LiveStalledRun> {
+        let pos = self
+            .live_stalled_runs
+            .iter()
+            .position(|r| r.number == number)?;
+        Some(self.live_stalled_runs.remove(pos))
+    }
+
+    /// The watchdog's check (#1432): has the one-hour wait of any stalled
+    /// run that is still going run out at `now`, and the queue not been
+    /// started for it yet? Marks those runs so this is `true` once per run.
+    /// When `true`, the caller starts the queue, so that -- if nothing else
+    /// is queued or running -- "Queue finished" and the after-queue action
+    /// happen now rather than waiting for something else to start it.
+    pub(crate) fn stalled_waits_just_ran_out(&mut self, now: std::time::Instant) -> bool {
+        let mut any = false;
+        for run in &mut self.live_stalled_runs {
+            if !run.nudged && stalled_wait_over(run.since, now) {
+                run.nudged = true;
+                any = true;
+            }
         }
+        any
+    }
+
+    /// Called when the queue finishes (or is aborted) while stalled runs
+    /// are still going -- which is only possible once their hour has run
+    /// out (#1432). Marks each as already counted in that summary, so a
+    /// later result does not change the next run's counts, and returns the
+    /// names of those not reported before, for one activity-log line each.
+    pub(crate) fn summarise_live_stalled_runs(&mut self) -> Vec<String> {
+        let mut names = Vec::new();
+        for run in &mut self.live_stalled_runs {
+            if run.summarised {
+                continue;
+            }
+            run.summarised = true;
+            let name = self
+                .items
+                .iter()
+                .find(|i| i.status.id == run.id)
+                .map_or_else(|| run.id.clone(), |i| format_content_label(&i.status));
+            names.push(name);
+        }
+        names
+    }
+
+    /// Ends a Spotify run the stall check marked failed (#1432, maintainer
+    /// decision 17 Nov 2026: no automatic retry for Spotify). One step
+    /// under the lock: the run comes off the "still running" list, and if
+    /// it `finished` ([`spotify_late_run_finished`]) while still the item's
+    /// latest attempt and the item is still in the Error state the stall
+    /// check set, the item becomes Complete. Otherwise it stays failed.
+    pub(crate) fn finish_stalled_spotify_run(
+        &mut self,
+        attempt: &Attempt,
+        finished: bool,
+    ) -> SpotifyLateFinish {
+        let summarised = self
+            .take_live_stalled_run(attempt.number)
+            .is_some_and(|r| r.summarised);
+        if !finished {
+            return SpotifyLateFinish::Nothing;
+        }
+        let Some(item) = self.items.iter_mut().find(|i| {
+            i.status.id == attempt.id
+                && i.attempt == attempt.number
+                && i.stalled_attempt == Some(attempt.number)
+                && i.status.state == DownloadState::Error
+        }) else {
+            return SpotifyLateFinish::Nothing;
+        };
+        item.status.state = DownloadState::Complete;
+        item.status.error = None;
+        item.status.progress = 100.0;
+        item.status.processing_label = None;
+        item.status.speed = None;
+        item.status.eta = None;
+        // No longer "stopped as stuck": it finished.
+        item.stalled_attempt = None;
+        item.stalled_run_saved_files = false;
+        SpotifyLateFinish::Completed { summarised }
     }
 
     /// Is a run the stall check marked failed still going (#1432 review)?
@@ -2467,11 +2629,21 @@ impl DownloadQueue {
         finished: bool,
         settings: &AppSettings,
     ) -> LateFinish {
-        self.end_live_stalled_run(attempt.number);
+        let summarised = self
+            .take_live_stalled_run(attempt.number)
+            .is_some_and(|r| r.summarised);
         if ended != EndedOutside::StoppedAsStuck || !finished {
             return LateFinish::Nothing;
         }
         if self.retry_after_late_finish(attempt, settings) {
+            if summarised {
+                // A "Queue finished" summary already counted the stall's
+                // failure; the retry belongs to the next queue run, so its
+                // result must not take back a failure from that run.
+                if let Some(item) = self.items.iter_mut().find(|i| i.status.id == attempt.id) {
+                    item.stall_failure_to_withdraw = false;
+                }
+            }
             return LateFinish::QueuedAgain;
         }
         // Not queued: either the person has since retried or removed it
@@ -2568,10 +2740,23 @@ impl DownloadQueue {
     /// Used to trigger after-queue actions.
     #[must_use]
     pub fn is_idle(&self) -> bool {
-        // A run the stall check marked failed but left going still counts
-        // as work (#1432 review): it may queue its one retry when it ends.
+        self.is_idle_at(std::time::Instant::now())
+    }
+
+    /// [`Self::is_idle`] at a given moment, so the one-hour wait is tested
+    /// without waiting.
+    ///
+    /// A run the stall check marked failed but left going still counts as
+    /// work (#1432 review): it may queue its one retry when it ends. But
+    /// only for [`STALLED_RUN_WAIT`] after it was marked stuck (maintainer
+    /// decision, 17 Nov 2026); after that it no longer holds the queue back.
+    #[must_use]
+    pub(crate) fn is_idle_at(&self, now: std::time::Instant) -> bool {
         self.active.is_empty()
-            && self.live_stalled_runs.is_empty()
+            && self
+                .live_stalled_runs
+                .iter()
+                .all(|r| stalled_wait_over(r.since, now))
             && !self
                 .items
                 .iter()
