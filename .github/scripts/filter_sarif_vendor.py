@@ -20,20 +20,29 @@ uploaded is the dependable way to leave it out.
 
 What it does
 ------------
-For every .sarif file in the folder given, it removes each result whose
-locations ALL point under src-tauri/vendor/ (main and related locations,
-every step of its data-flow paths, and stack frames). A result that also
-points at our own code anywhere is kept, so nothing in our own code can be hidden this way.
+For every .sarif file in the folder given, it removes each result that
+points into src-tauri/vendor/ and nowhere in our own code. It looks at
+every location a result has (main and related locations, every step of its
+data-flow paths, and stack frames). A location outside the checkout (the
+downloaded-packages cache, where CodeQL reads the encryption libraries the
+vendored code calls) counts as third-party too: the first run of this
+filter removed nothing because each alert's path ended inside such a
+library. A result that also points at our own code anywhere is kept, so
+nothing in our own code can be hidden this way, and so is a location whose
+path cannot be read.
 Every other result, and every other part of the report, is left exactly as
 it was. It prints how many results it removed from each file.
 
-Usage: filter_sarif_vendor.py <folder with .sarif files>
+Usage: filter_sarif_vendor.py <folder with .sarif files> [checkout folder]
+(the checkout folder defaults to the current folder)
 """
 
 from __future__ import annotations
 
 import json
+import os
 import sys
+from urllib.parse import unquote, urlparse
 from pathlib import Path
 
 # The one folder whose results are dropped. Paths in a CodeQL report are
@@ -76,33 +85,74 @@ def result_paths(result: dict) -> list[str]:
     return ["" if p is None else p for p in found]
 
 
-def is_vendor_only(result: dict) -> bool:
-    """True when the result points somewhere, and only into the vendor folder."""
-    paths = result_paths(result)
-    if not paths:
-        # A result with no file location is never ours to drop.
-        return False
-    return all(p.removeprefix("./").startswith(VENDOR_PREFIX) for p in paths)
+def classify(path: str, checkout: str) -> str:
+    """"vendor", "outside" (not part of the checkout at all) or "ours".
+
+    Anything that cannot be placed with certainty is "ours", so it keeps the
+    result: an unreadable path, a path that climbs out with "..", or an
+    address of a kind this script does not know.
+    """
+    if not path:
+        return "ours"
+    if "://" in path or path.startswith("file:"):
+        parsed = urlparse(path)
+        if parsed.scheme != "file":
+            return "ours"
+        path = unquote(parsed.path)
+    path = path.replace("\\", "/")
+    is_absolute = path.startswith("/") or (len(path) > 2 and path[1] == ":")
+    if is_absolute:
+        root = checkout.replace("\\", "/").rstrip("/") + "/"
+        if not path.startswith(root):
+            return "outside"
+        path = path[len(root):]
+    parts = path.removeprefix("./").split("/")
+    if ".." in parts:
+        return "ours"
+    if "/".join(parts).startswith(VENDOR_PREFIX):
+        return "vendor"
+    return "ours"
 
 
-def filter_report(report: dict) -> int:
-    """Remove vendor-only results from a parsed report; returns how many."""
+def is_vendor_only(result: dict, checkout: str = "") -> bool:
+    """True when the result points into the vendor folder and never at our code."""
+    kinds = [classify(p, checkout or os.getcwd()) for p in result_paths(result)]
+    # A result with no file location is never ours to drop, and one that
+    # only points outside the checkout is not about the vendor folder.
+    return "vendor" in kinds and "ours" not in kinds
+
+
+def filter_report(report: dict, checkout: str = "") -> int:
+    """Remove vendor-only results from a parsed report; returns how many.
+
+    Prints the paths of any result whose main location is in the vendor
+    folder but which is kept, so a run that removes less than expected
+    shows why.
+    """
     removed = 0
     for run in report.get("runs") or []:
         results = run.get("results")
         if not isinstance(results, list):
             continue
-        kept = [r for r in results if not is_vendor_only(r)]
+        kept = []
+        for r in results:
+            if is_vendor_only(r, checkout):
+                continue
+            kept.append(r)
+            main_paths = [_uri(loc) or "" for loc in r.get("locations") or []]
+            if any(classify(p, checkout or os.getcwd()) == "vendor" for p in main_paths):
+                print(f"  kept {r.get('ruleId')}: {sorted(set(result_paths(r)))}")
         removed += len(results) - len(kept)
         run["results"] = kept
     return removed
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
-        print("usage: filter_sarif_vendor.py <folder with .sarif files>")
+    if len(argv) not in (2, 3):
+        print("usage: filter_sarif_vendor.py <folder with .sarif files> [checkout folder]")
         return 2
     folder = Path(argv[1])
+    checkout = os.path.abspath(argv[2] if len(argv) == 3 else os.getcwd())
     files = sorted(folder.glob("*.sarif"))
     if not files:
         # Fail loudly: an empty folder would mean nothing gets uploaded.
@@ -110,7 +160,7 @@ def main(argv: list[str]) -> int:
         return 1
     for path in files:
         report = json.loads(path.read_text(encoding="utf-8"))
-        removed = filter_report(report)
+        removed = filter_report(report, checkout)
         path.write_text(json.dumps(report), encoding="utf-8")
         print(f"{path.name}: removed {removed} result(s) inside {VENDOR_PREFIX}")
     return 0
