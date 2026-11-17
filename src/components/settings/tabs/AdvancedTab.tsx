@@ -1623,15 +1623,18 @@ function IntegrityScanSection() {
  */
 function DevToolsSection() {
   // Per-field bindings for the two MusicKit fields read by this
-  // section. `loadSettings` retained because the deactivate flow
-  // needs to refresh the entire settings snapshot from disk.
+  // section.
   const musickitTeamId = useSettingsField('musickit_team_id');
   const musickitKeyId = useSettingsField('musickit_key_id');
   // GAMDL --log-level binding (#768). Lives in Dev Tools only; default
   // INFO matches GAMDL's compiled-in level so this is a no-op for
   // every user who never opens this panel.
   const gamdlLogLevel = useSettingsField('gamdl_log_level');
-  const loadSettings = useSettingsStore((s) => s.loadSettings);
+  // Deactivating writes only `dev_access_enabled = false` to disk, so only
+  // that one field is updated here (`syncSaved`). Reloading every setting
+  // from disk, as this used to do, threw away any unsaved change made
+  // anywhere on the Settings screen (#1439).
+  const syncSaved = useSettingsStore((s) => s.syncSaved);
 
   const [webplayerStatus, setWebplayerStatus] = useState<boolean | null>(null);
 
@@ -1653,7 +1656,7 @@ function DevToolsSection() {
 
   const handleDeactivate = async () => {
     await deactivateDevAccess();
-    loadSettings();
+    syncSaved({ dev_access_enabled: false });
   };
 
   return (

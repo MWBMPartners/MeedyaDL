@@ -150,12 +150,20 @@ export function TemplateBuilder({
   // Generate a deterministic id from the label for accessibility
   // Turns the label into an id so the <label> can point at the raw-mode input.
   const builderId = `template-${label.toLowerCase().replace(/\s+/g, '-')}`;
+  // The label's own id, so the visual (chip) editor can name itself after it.
+  // In visual mode there is no single input for `htmlFor` to point at, so
+  // the chip area is a labelled group instead (#1439).
+  const labelId = `${builderId}-label`;
 
   return (
     <div className="space-y-1.5">
       {/* ---- Label row ---- */}
       <div className="flex items-center gap-1.5">
-        <label htmlFor={builderId} className="text-sm font-medium text-content-primary">
+        <label
+          id={labelId}
+          htmlFor={rawMode ? builderId : undefined}
+          className="text-sm font-medium text-content-primary"
+        >
           {label}
         </label>
         <button
@@ -184,6 +192,8 @@ export function TemplateBuilder({
         /* Visual chip builder mode */
         <div className="relative">
           <div
+            role="group"
+            aria-labelledby={labelId}
             className="flex flex-wrap items-center gap-1.5 min-h-[38px] px-3 py-2
               rounded-platform border border-border bg-surface-secondary"
           >

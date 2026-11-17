@@ -387,6 +387,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
              * @see https://lucide.dev/icons/x -- Lucide X icon
              */}
             <button
+              type="button"
               onClick={onClose}
               className="p-1 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-surface-secondary transition-colors"
               aria-label={t('common.close')}

@@ -518,4 +518,13 @@ describe('Modal', () => {
       Number((screen.getByText(title).closest('.fixed') as HTMLElement).style.zIndex);
     expect(layerOf('C')).toBeGreaterThan(layerOf('B'));
   });
+
+  it('gives the close button type="button" so it never submits a surrounding form (#1439)', () => {
+    render(
+      <Modal open onClose={() => {}} title="T">
+        <p>body</p>
+      </Modal>
+    );
+    expect(screen.getByLabelText(/close/i)).toHaveAttribute('type', 'button');
+  });
 });
