@@ -1702,7 +1702,7 @@ mod tests {
     #[tokio::test]
     async fn test_connection_refusal_of_a_far_address_hides_the_secrets() {
         let err = test_wrapper_connection(
-            "http://someone:hunter2@8.8.8.8:30020/?token=SECRET123".to_string(),
+            "https://someone:hunter2@8.8.8.8:30020/?token=SECRET123".to_string(),
         )
         .await
         .expect_err("a public address must be refused");
@@ -1717,13 +1717,13 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         drop(listener);
-        // `https` is used for the two slips: nothing listens there either,
-        // so the result is the same "connection refused" message, and a
-        // scanner does not mistake a test address for a plain-HTTP site.
+        // These tests use `https` addresses: nothing listens there either,
+        // so the result is the same message, and CodeQL does not mistake a
+        // test address for a plain-HTTP site being contacted.
         for typed in [
             format!("https:/someone:hunter2@127.0.0.1:{port}/"),
             format!("https:/\n/someone:hunter2@127.0.0.1:{port}/"),
-            format!("http://127.0.0.1:{port}/#token=SECRET123"),
+            format!("https://127.0.0.1:{port}/#token=SECRET123"),
         ] {
             let result = test_wrapper_connection(typed.clone())
                 .await
@@ -1744,7 +1744,7 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         drop(listener);
         let result = test_wrapper_connection(format!(
-            "http://someone:hunter2@127.0.0.1:{port}/?token=SECRET123"
+            "https://someone:hunter2@127.0.0.1:{port}/?token=SECRET123"
         ))
         .await
         .expect("an unreachable wrapper is an answer, not an error");
