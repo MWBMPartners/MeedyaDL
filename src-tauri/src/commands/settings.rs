@@ -2401,9 +2401,12 @@ mod tests {
     fn assert_nothing_secret_in(changes: &[String], secrets: &[&str]) {
         for line in changes {
             for secret in secrets {
+                // The failure message names neither the secret nor the line,
+                // so a failing test cannot print a secret either (CodeQL:
+                // cleartext logging).
                 assert!(
                     !line.contains(secret),
-                    "`{secret}` was written into the activity log: {line}"
+                    "a secret was written into the activity log"
                 );
             }
         }
