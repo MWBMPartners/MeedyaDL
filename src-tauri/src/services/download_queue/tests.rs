@@ -6163,8 +6163,17 @@ fn the_last_updated_date_is_stamped_on_this_downloads_files_only() {
         .expect("the Step 1 call site");
     let call = &call[..call.find(".await").unwrap()];
     assert!(
-        call.contains("&fresh_files"),
+        call.contains("&date_stamp_files"),
         "Step 1 must pass the files this download wrote"
+    );
+    // ...and those are this download's fresh files, only when every link is
+    // in one album.
+    assert!(
+        {
+            let flat: String = processing.split_whitespace().collect();
+            flat.contains("letdate_stamp_files=ifsuper::lyrics_pass::links_share_one_album(&enrich_urls){fresh_files.clone()}")
+        },
+        "Step 1's date files must be the fresh files, gated on one album"
     );
 }
 

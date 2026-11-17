@@ -2556,6 +2556,19 @@ pub fn process_queue(
                             &enrich_dl_id,
                             "Enriching metadata (codec tags, source tags, channel detection, Apple Music API)...",
                         );
+                            // The album's last-updated date goes on this
+                            // download's files only when every link is in that
+                            // one album: the album details come from the first
+                            // album link, so a download spanning several albums
+                            // (a playlist or artist item turned into song
+                            // links) must not stamp its date on the others'
+                            // songs (#1444).
+                            let date_stamp_files =
+                                if super::lyrics_pass::links_share_one_album(&enrich_urls) {
+                                    fresh_files.clone()
+                                } else {
+                                    std::collections::HashSet::new()
+                                };
                             let (file_codecs, album_matched_files) = if let Some(ref codec) = codec
                             {
                                 match super::metadata_tag_service::apply_enriched_metadata_tags(
@@ -2572,7 +2585,7 @@ pub fn process_queue(
                                     is_library || album_metadata.is_none(),
                                     Some(&primary_files),
                                     Some(&enrich_in_flight),
-                                    &fresh_files,
+                                    &date_stamp_files,
                                 )
                                 .await
                                 {

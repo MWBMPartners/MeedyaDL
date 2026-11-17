@@ -921,7 +921,9 @@ pub(crate) fn links_share_one_album(urls: &[String]) -> bool {
         let Some(parsed) = crate::services::apple_music_api::parse_apple_music_url(url) else {
             return false;
         };
-        if parsed.album_id.is_empty() {
+        // Only album links (with or without `?i=` for one song) count: a
+        // music-video link carries its own ID in `album_id`.
+        if parsed.content_type != "album" || parsed.album_id.is_empty() {
             return false;
         }
         match &first {
@@ -1518,6 +1520,8 @@ mod tests {
         assert!(!links_share_one_album(&[a_song, b_song]));
         assert!(!links_share_one_album(&[]));
         assert!(!links_share_one_album(&["not a link".to_string()]));
+        let video = "https://music.apple.com/us/music-video/v/5555555555".to_string();
+        assert!(!links_share_one_album(std::slice::from_ref(&video)));
     }
     use super::*;
 
