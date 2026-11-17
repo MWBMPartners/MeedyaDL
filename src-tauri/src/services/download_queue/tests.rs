@@ -483,7 +483,7 @@ fn retry_clears_mv_companion_count() {
     if let Some(item) = queue.items.iter_mut().find(|i| i.status.id == id) {
         item.status.mv_companion_count = Some(7);
     }
-    queue.set_error(&id, "Some failure");
+    queue.set_error(&queue.attempt_of(&id), "Some failure");
 
     // Retry should reset the count so the next enrichment writes a
     // fresh value.
@@ -721,7 +721,8 @@ fn new_creates_empty_queue() {
     let queue = DownloadQueue::new();
     assert!(queue.items.is_empty(), "New queue should have no items");
     assert_eq!(
-        queue.active_count, 0,
+        queue.active_len(),
+        0,
         "New queue should have zero active count"
     );
     assert_eq!(
@@ -739,7 +740,7 @@ fn new_creates_empty_queue() {
 fn default_delegates_to_new() {
     let queue = DownloadQueue::default();
     assert!(queue.items.is_empty());
-    assert_eq!(queue.active_count, 0);
+    assert_eq!(queue.active_len(), 0);
     assert_eq!(queue.max_concurrent, 1);
 }
 
@@ -796,7 +797,7 @@ fn enqueue_removes_terminal_duplicate_attempt() {
         ..Default::default()
     };
     let old_id = queue.enqueue(old_request, &settings);
-    queue.set_error(&old_id, "failed once");
+    queue.set_error(&queue.attempt_of(&old_id), "failed once");
 
     let new_request = DownloadRequest {
         urls: vec!["https://Music.Apple.Com/us/album/test/123/".to_string()],
@@ -1026,25 +1027,25 @@ fn enqueue_sets_network_retries_from_queue_config() {
 
     // Exhaust all 3 retries
     assert!(
-        queue.try_network_retry(&id).is_some(),
+        queue.try_network_retry(&queue.attempt_of(&id)).is_some(),
         "Should succeed on retry 1 of 3"
     );
     // Need to set back to Error/Queued for next retry test, but try_network_retry
     // itself resets to Queued. We need to simulate re-error.
     // Actually try_network_retry sets to Queued. Let's set back to error.
-    queue.set_error(&id, "network error");
+    queue.set_error(&queue.attempt_of(&id), "network error");
     assert!(
-        queue.try_network_retry(&id).is_some(),
+        queue.try_network_retry(&queue.attempt_of(&id)).is_some(),
         "Should succeed on retry 2 of 3"
     );
-    queue.set_error(&id, "network error");
+    queue.set_error(&queue.attempt_of(&id), "network error");
     assert!(
-        queue.try_network_retry(&id).is_some(),
+        queue.try_network_retry(&queue.attempt_of(&id)).is_some(),
         "Should succeed on retry 3 of 3"
     );
-    queue.set_error(&id, "network error");
+    queue.set_error(&queue.attempt_of(&id), "network error");
     assert!(
-        queue.try_network_retry(&id).is_none(),
+        queue.try_network_retry(&queue.attempt_of(&id)).is_none(),
         "Should fail after 3 retries exhausted"
     );
 }
@@ -1118,9 +1119,9 @@ fn get_counts_various_states() {
     // Set ids[1] to Downloading via next_pending
     let _ = queue.next_pending(); // ids[0] becomes Downloading
                                   // Set ids[2] to Complete
-    queue.set_complete(&ids[2]);
+    queue.set_complete(&queue.attempt_of(&ids[2]));
     // Set ids[3] to Error
-    queue.set_error(&ids[3], "test error");
+    queue.set_error(&queue.attempt_of(&ids[3]), "test error");
     // ids[4] stays Queued
 
     // ids[0]=Downloading, ids[1]=Queued, ids[2]=Complete, ids[3]=Error, ids[4]=Queued
@@ -1169,26 +1170,31 @@ fn cancel_queued_item() {
 }
 
 /// Verifies that cancelling a Downloading item sets its state to Cancelled
-/// and returns true. The active_count is NOT decremented here; that happens
-/// when the running task detects cancellation and calls on_task_finished().
+/// and returns true. The slot is NOT released here; that happens when the
+/// running attempt notices it should stop and releases its own slot.
 #[test]
 fn cancel_downloading_item() {
     let mut queue = DownloadQueue::new();
     let _id = enqueue_one(&mut queue);
 
     // Move to Downloading state via next_pending
-    let (dl_id, _, _, _) = queue.next_pending().expect("Should have a pending item");
-    assert_eq!(queue.active_count, 1);
+    let dl_id = queue
+        .next_pending()
+        .expect("Should have a pending item")
+        .attempt
+        .id;
+    assert_eq!(queue.active_len(), 1);
 
     let result = queue.cancel(&dl_id);
     assert!(result, "cancel() should return true for Downloading items");
 
     let statuses = queue.get_status();
     assert_eq!(statuses[0].state, DownloadState::Cancelled);
-    // active_count is NOT decremented by cancel() -- that's the task's job
+    // active_len() is NOT decremented by cancel() -- that's the task's job
     assert_eq!(
-        queue.active_count, 1,
-        "active_count should not be decremented by cancel()"
+        queue.active_len(),
+        1,
+        "active_len() should not be decremented by cancel()"
     );
 }
 
@@ -1208,69 +1214,108 @@ fn cancel_processing_item() {
 }
 
 // ----------------------------------------------------------
-// ActiveSlotGuard — RAII slot-release on Drop (#706)
+// ActiveSlotGuard — RAII slot-release on Drop (#706, #1432)
 // ----------------------------------------------------------
 
 /// Disarming the guard before Drop must NOT release the slot.
-/// This is the happy path: the completion task explicitly calls
-/// `q.on_task_finished()` and then `disarm()`, so the slot release
-/// is performed exactly once (by the explicit call).
+/// This is the happy path: the task releases its slot by hand and then
+/// calls `disarm()`, so the guard has nothing left to do.
 #[tokio::test]
 async fn active_slot_guard_disarm_does_not_release() {
     let handle = new_queue_handle();
-    {
+    let attempt = {
         let mut q = handle.lock().await;
-        q.active_count = 1; // pretend next_pending() handed out a slot
-    }
-    let guard = ActiveSlotGuard::new(handle.clone());
+        enqueue_one(&mut q);
+        q.next_pending().unwrap().attempt
+    };
+    let guard = ActiveSlotGuard::new(handle.clone(), attempt);
     guard.disarm();
+    for _ in 0..4 {
+        tokio::task::yield_now().await;
+    }
     // Drop has now run on the disarmed guard. Slot must still be held.
     let q = handle.lock().await;
     assert_eq!(
-        q.active_count, 1,
+        q.active_len(),
+        1,
         "disarmed guard must not release the slot"
     );
 }
 
-/// Dropping an armed guard must release the slot — even though Drop
-/// is synchronous and the queue lock is async. The guard fires a
-/// fire-and-forget `tokio::spawn`; we then yield long enough for
-/// the spawned release task to acquire the lock and run.
+/// Dropping an armed guard must release its attempt's slot — even though
+/// Drop is synchronous and the queue lock is async. The guard fires a
+/// fire-and-forget task; we then yield long enough for it to run.
 #[tokio::test]
 async fn active_slot_guard_drop_releases_slot() {
     let handle = new_queue_handle();
-    {
+    let attempt = {
         let mut q = handle.lock().await;
-        q.active_count = 1;
-    }
+        enqueue_one(&mut q);
+        q.next_pending().unwrap().attempt
+    };
     {
-        let _guard = ActiveSlotGuard::new(handle.clone());
+        let _guard = ActiveSlotGuard::new(handle.clone(), attempt);
         // _guard goes out of scope here → Drop fires.
     }
-    // Yield the runtime so the fire-and-forget release task can run.
-    // Two yields cover: (1) Drop's tokio::spawn registering the task,
-    // (2) the task acquiring the lock and running on_task_finished().
     for _ in 0..4 {
         tokio::task::yield_now().await;
     }
     let q = handle.lock().await;
     assert_eq!(
-        q.active_count, 0,
+        q.active_len(),
+        0,
         "Drop on armed guard must release the slot"
     );
 }
 
-/// Confirms `on_task_finished()` saturates at 0 — so even if a
-/// double-release ever slips through (explicit call + an armed
-/// guard's Drop), `active_count` cannot underflow into a giant
-/// usize that would permanently jam `next_pending()`.
+/// #1432 test 11: a guard dropped late -- after its attempt already gave
+/// the slot back by hand and the next item started -- must not free the
+/// next item's slot. (The old guard just took one off a counter.)
+#[tokio::test]
+async fn guard_drop_releases_only_its_own_attempt() {
+    let handle = new_queue_handle();
+    let first = {
+        let mut q = handle.lock().await;
+        enqueue_n(&mut q, 2);
+        q.next_pending().unwrap().attempt
+    };
+    let guard = ActiveSlotGuard::new(handle.clone(), first.clone());
+    let next = {
+        let mut q = handle.lock().await;
+        assert!(q.set_complete(&first));
+        assert!(q.release_slot(&first));
+        q.next_pending().expect("the next item starts").attempt
+    };
+    drop(guard);
+    for _ in 0..4 {
+        tokio::task::yield_now().await;
+    }
+    let mut q = handle.lock().await;
+    assert_eq!(q.active_len(), 1, "the next item keeps its slot");
+    assert!(
+        q.release_slot(&next),
+        "and it is still the next item's slot"
+    );
+}
+
+/// Releasing a slot twice, or releasing when nothing is held, is safe and
+/// never goes below zero (#1432 test 2, double release by one attempt).
 #[test]
-fn on_task_finished_saturates_at_zero() {
+fn release_is_per_attempt_and_idempotent() {
     let mut q = DownloadQueue::new();
-    assert_eq!(q.active_count, 0);
-    q.on_task_finished();
-    q.on_task_finished();
-    assert_eq!(q.active_count, 0, "must not underflow past zero");
+    enqueue_n(&mut q, 3);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.release_slot(&a));
+    assert!(!q.release_slot(&a), "a second release frees nothing");
+    let b = q.next_pending().unwrap().attempt;
+    assert!(!q.release_slot(&a), "A cannot free B's slot");
+    assert_eq!(q.active_len(), 1);
+    assert!(
+        q.next_pending().is_none(),
+        "C waits: B still holds the slot"
+    );
+    assert!(q.release_slot(&b));
+    assert_eq!(q.active_len(), 0);
 }
 
 /// Verifies that cancel() returns false for items already in a terminal
@@ -1280,8 +1325,8 @@ fn cancel_returns_false_for_terminal_states() {
     let mut queue = DownloadQueue::new();
     let ids = enqueue_n(&mut queue, 3);
 
-    queue.set_complete(&ids[0]);
-    queue.set_error(&ids[1], "some error");
+    queue.set_complete(&queue.attempt_of(&ids[0]));
+    queue.set_error(&queue.attempt_of(&ids[1]), "some error");
     queue.cancel(&ids[2]); // First cancel succeeds
 
     assert!(
@@ -1322,9 +1367,9 @@ fn clear_finished_removes_terminal_keeps_active() {
     // ids[1] = Downloading (keep)
     queue.update_item_state(&ids[1], DownloadState::Downloading);
     // ids[2] = Complete (remove)
-    queue.set_complete(&ids[2]);
+    queue.set_complete(&queue.attempt_of(&ids[2]));
     // ids[3] = Error (keep — errored items persist for review)
-    queue.set_error(&ids[3], "error msg");
+    queue.set_error(&queue.attempt_of(&ids[3]), "error msg");
     // ids[4] = Cancelled (remove)
     queue.cancel(&ids[4]);
 
@@ -1351,9 +1396,9 @@ fn abort_all_counts_per_state_and_preserves_terminal_items() {
     // ids[2] = Processing (→ cancelled, processing_stopped)
     queue.update_item_state(&ids[2], DownloadState::Processing);
     // ids[3] = Complete — terminal, must not be touched
-    queue.set_complete(&ids[3]);
+    queue.set_complete(&queue.attempt_of(&ids[3]));
     // ids[4] = Error — terminal, must not be touched
-    queue.set_error(&ids[4], "whatever");
+    queue.set_error(&queue.attempt_of(&ids[4]), "whatever");
     // ids[5] = already Cancelled — terminal, must not be counted twice
     queue.cancel(&ids[5]);
 
@@ -1426,8 +1471,8 @@ fn abort_all_arms_post_queue_action_suppression() {
 fn abort_all_with_only_terminal_items_is_no_op() {
     let mut queue = DownloadQueue::new();
     let ids = enqueue_n(&mut queue, 3);
-    queue.set_complete(&ids[0]);
-    queue.set_error(&ids[1], "err");
+    queue.set_complete(&queue.attempt_of(&ids[0]));
+    queue.set_error(&queue.attempt_of(&ids[1]), "err");
     queue.cancel(&ids[2]);
 
     let summary = queue.abort_all();
@@ -1475,7 +1520,7 @@ fn next_pending_empty_queue() {
 }
 
 /// Verifies that next_pending() returns the first Queued item, transitions
-/// it to Downloading, and increments active_count.
+/// it to Downloading, and increments active_len().
 #[test]
 fn next_pending_returns_first_queued_item() {
     let mut queue = DownloadQueue::new();
@@ -1484,12 +1529,14 @@ fn next_pending_returns_first_queued_item() {
     let result = queue.next_pending();
     assert!(result.is_some(), "Should return Some for non-empty queue");
 
-    let (dl_id, urls, _options, _service) = result.unwrap();
+    let started = result.unwrap();
+    let (dl_id, urls) = (started.attempt.id, started.urls);
     assert_eq!(dl_id, ids[0], "Should return the first queued item");
     assert_eq!(urls.len(), 1, "Should include the URLs from the request");
     assert_eq!(
-        queue.active_count, 1,
-        "active_count should be incremented to 1"
+        queue.active_len(),
+        1,
+        "active_len() should be incremented to 1"
     );
 
     // Verify the item's state changed to Downloading
@@ -1510,11 +1557,11 @@ fn next_pending_respects_max_concurrent() {
     let mut queue = DownloadQueue::new();
     let _ = enqueue_n(&mut queue, 3);
 
-    // First call succeeds (active_count goes from 0 to 1)
+    // First call succeeds (active_len() goes from 0 to 1)
     let first = queue.next_pending();
     assert!(first.is_some(), "First next_pending should succeed");
 
-    // Second call should return None (active_count == max_concurrent == 1)
+    // Second call should return None (active_len() == max_concurrent == 1)
     let second = queue.next_pending();
     assert!(
         second.is_none(),
@@ -1530,14 +1577,14 @@ fn next_pending_skips_non_queued_items() {
     let ids = enqueue_n(&mut queue, 3);
 
     // Set first item to Complete (not Queued)
-    queue.set_complete(&ids[0]);
+    queue.set_complete(&queue.attempt_of(&ids[0]));
     // Set second item to Error
-    queue.set_error(&ids[1], "error");
+    queue.set_error(&queue.attempt_of(&ids[1]), "error");
 
     // next_pending should skip ids[0] and ids[1], returning ids[2]
     let result = queue.next_pending();
     assert!(result.is_some());
-    let (dl_id, _, _, _) = result.unwrap();
+    let dl_id = result.unwrap().attempt.id;
     assert_eq!(
         dl_id, ids[2],
         "Should return the first Queued item, skipping terminal items"
@@ -1557,13 +1604,12 @@ fn pause_blocks_next_pending_from_pulling_new_item() {
     let _ids = enqueue_n(&mut queue, 3);
 
     // Sanity: pulling works before pause.
-    assert!(
-        queue.next_pending().is_some(),
-        "next_pending should return a queued item before pause"
-    );
+    let started = queue
+        .next_pending()
+        .expect("next_pending should return a queued item before pause");
     // Release the slot so the next assertion can isolate pause from
     // the concurrent-limit gate.
-    queue.on_task_finished();
+    queue.release_slot(&started.attempt);
 
     let was_paused = queue.pause();
     assert!(
@@ -1632,7 +1678,7 @@ fn pause_does_not_change_state_of_running_items() {
     // Pull the first item — it transitions to Downloading.
     let pulled = queue.next_pending();
     assert!(pulled.is_some());
-    let (running_id, _, _, _) = pulled.unwrap();
+    let running_id = pulled.unwrap().attempt.id;
 
     let before_state = queue
         .get_status()
@@ -1680,7 +1726,10 @@ fn next_pending_returns_merged_options() {
     let request = test_request_with_codec_override(SongCodec::AacHe);
     let _id = queue.enqueue(request, &settings);
 
-    let (_, _, options, _) = queue.next_pending().expect("Should return pending item");
+    let options = queue
+        .next_pending()
+        .expect("Should return pending item")
+        .options;
     assert_eq!(
         options.song_codec,
         Some(SongCodec::AacHe),
@@ -1689,50 +1738,41 @@ fn next_pending_returns_merged_options() {
 }
 
 // ==========================================================
-// 8. on_task_finished() tests
+// 8. release_slot() tests (replaced on_task_finished(), #1432)
 // ==========================================================
 
-/// Verifies that on_task_finished() decrements active_count.
+/// Verifies that release_slot() gives back the attempt's slot.
 #[test]
-fn on_task_finished_decrements_active_count() {
+fn release_slot_frees_the_attempts_slot() {
     let mut queue = DownloadQueue::new();
     let _ = enqueue_one(&mut queue);
-    let _ = queue.next_pending(); // active_count = 1
+    let attempt = queue.next_pending().unwrap().attempt;
 
-    assert_eq!(queue.active_count, 1);
-    queue.on_task_finished();
-    assert_eq!(
-        queue.active_count, 0,
-        "active_count should be 0 after on_task_finished"
-    );
+    assert_eq!(queue.active_len(), 1);
+    assert!(queue.release_slot(&attempt));
+    assert_eq!(queue.active_len(), 0, "the slot is free after release_slot");
 }
 
-/// Verifies that on_task_finished() does not underflow below zero.
-/// Calling it when active_count is already 0 should be a no-op.
+/// Verifies that releasing with nothing held does nothing.
 #[test]
-fn on_task_finished_does_not_underflow() {
+fn release_slot_with_nothing_held_is_safe() {
     let mut queue = DownloadQueue::new();
-    assert_eq!(queue.active_count, 0);
-
-    queue.on_task_finished();
-    assert_eq!(queue.active_count, 0, "active_count should not go below 0");
-
-    // Call it multiple times to be sure
-    queue.on_task_finished();
-    queue.on_task_finished();
-    assert_eq!(queue.active_count, 0);
+    let ids = enqueue_n(&mut queue, 1);
+    let attempt = queue.attempt_of(&ids[0]);
+    assert!(!queue.release_slot(&attempt));
+    assert!(!queue.release_slot(&attempt));
+    assert_eq!(queue.active_len(), 0);
 }
 
-/// Verifies that after on_task_finished(), the queue can start new items
+/// Verifies that after release_slot(), the queue can start new items
 /// since a concurrent slot has been freed.
 #[test]
-fn on_task_finished_frees_slot_for_next_pending() {
+fn release_slot_frees_slot_for_next_pending() {
     let mut queue = DownloadQueue::new();
     let ids = enqueue_n(&mut queue, 2);
 
     // Start first item
-    let first = queue.next_pending();
-    assert!(first.is_some());
+    let first = queue.next_pending().expect("first starts");
     // Verify second item can't start yet
     assert!(
         queue.next_pending().is_none(),
@@ -1740,16 +1780,13 @@ fn on_task_finished_frees_slot_for_next_pending() {
     );
 
     // Finish first task
-    queue.on_task_finished();
+    queue.release_slot(&first.attempt);
 
     // Now second item should be startable
-    let second = queue.next_pending();
-    assert!(
-        second.is_some(),
-        "Should be able to start next item after finishing"
-    );
-    let (dl_id, _, _, _) = second.unwrap();
-    assert_eq!(dl_id, ids[1]);
+    let second = queue
+        .next_pending()
+        .expect("Should be able to start next item after finishing");
+    assert_eq!(second.attempt.id, ids[1]);
 }
 
 // ==========================================================
@@ -1790,14 +1827,14 @@ fn is_cancelled_returns_false_for_non_cancelled() {
     );
 
     // ids[2] = Complete
-    queue.set_complete(&ids[2]);
+    queue.set_complete(&queue.attempt_of(&ids[2]));
     assert!(
         !queue.is_cancelled(&ids[2]),
         "Complete item should not be cancelled"
     );
 
     // ids[3] = Error
-    queue.set_error(&ids[3], "error");
+    queue.set_error(&queue.attempt_of(&ids[3]), "error");
     assert!(
         !queue.is_cancelled(&ids[3]),
         "Error item should not be cancelled"
@@ -1830,7 +1867,7 @@ fn update_item_progress_download_progress() {
         speed: "2.5MiB/s".to_string(),
         eta: "00:30".to_string(),
     };
-    queue.update_item_progress(&id, &event);
+    queue.update_item_progress(&queue.attempt_of(&id), &event);
 
     let statuses = queue.get_status();
     let s = &statuses[0];
@@ -1854,7 +1891,7 @@ fn update_item_progress_track_info_with_artist() {
         track_number: None,
         track_total: None,
     };
-    queue.update_item_progress(&id, &event);
+    queue.update_item_progress(&queue.attempt_of(&id), &event);
 
     let statuses = queue.get_status();
     assert_eq!(
@@ -1880,7 +1917,7 @@ fn update_item_progress_track_info_sets_counter_fields() {
         track_number: Some(3),
         track_total: Some(12),
     };
-    queue.update_item_progress(&id, &event);
+    queue.update_item_progress(&queue.attempt_of(&id), &event);
 
     let statuses = queue.get_status();
     assert_eq!(statuses[0].completed_tracks, Some(3));
@@ -1903,7 +1940,7 @@ fn update_item_progress_track_info_propagates_single_song_counter() {
         track_number: Some(1),
         track_total: Some(1),
     };
-    queue.update_item_progress(&id, &event);
+    queue.update_item_progress(&queue.attempt_of(&id), &event);
 
     let statuses = queue.get_status();
     assert_eq!(statuses[0].completed_tracks, Some(1));
@@ -1923,7 +1960,7 @@ fn update_item_progress_track_info_without_artist() {
         track_number: None,
         track_total: None,
     };
-    queue.update_item_progress(&id, &event);
+    queue.update_item_progress(&queue.attempt_of(&id), &event);
 
     let statuses = queue.get_status();
     assert_eq!(
@@ -1942,7 +1979,7 @@ fn update_item_progress_processing_step() {
     let event = GamdlOutputEvent::ProcessingStep {
         step: "Remuxing to M4A".to_string(),
     };
-    queue.update_item_progress(&id, &event);
+    queue.update_item_progress(&queue.attempt_of(&id), &event);
 
     let statuses = queue.get_status();
     assert_eq!(
@@ -1961,7 +1998,7 @@ fn update_item_progress_complete() {
     let event = GamdlOutputEvent::Complete {
         path: "/output/song.m4a".to_string(),
     };
-    queue.update_item_progress(&id, &event);
+    queue.update_item_progress(&queue.attempt_of(&id), &event);
 
     let statuses = queue.get_status();
     assert_eq!(
@@ -1984,7 +2021,7 @@ fn update_item_progress_error() {
     let event = GamdlOutputEvent::Error {
         message: "Codec not available".to_string(),
     };
-    queue.update_item_progress(&id, &event);
+    queue.update_item_progress(&queue.attempt_of(&id), &event);
 
     let statuses = queue.get_status();
     assert_eq!(
@@ -2010,7 +2047,7 @@ fn update_item_progress_unknown_event_is_no_op() {
     let event = GamdlOutputEvent::Unknown {
         raw: "some random output".to_string(),
     };
-    queue.update_item_progress(&id, &event);
+    queue.update_item_progress(&queue.attempt_of(&id), &event);
 
     let statuses = queue.get_status();
     assert_eq!(
@@ -2037,7 +2074,7 @@ fn update_item_progress_nonexistent_id_is_safe() {
         eta: "00:10".to_string(),
     };
     // Should not panic
-    queue.update_item_progress("nonexistent-id", &event);
+    queue.update_item_progress(&queue.attempt_of("nonexistent-id"), &event);
 
     // Original item should be unchanged
     let statuses = queue.get_status();
@@ -2055,7 +2092,7 @@ fn set_error_sets_state_and_message() {
     let mut queue = DownloadQueue::new();
     let id = enqueue_one(&mut queue);
 
-    queue.set_error(&id, "Network timeout occurred");
+    queue.set_error(&queue.attempt_of(&id), "Network timeout occurred");
 
     let statuses = queue.get_status();
     assert_eq!(statuses[0].state, DownloadState::Error);
@@ -2070,7 +2107,7 @@ fn set_error_sets_state_and_message() {
 fn set_error_nonexistent_id_is_safe() {
     let mut queue = DownloadQueue::new();
     // Should not panic
-    queue.set_error("nonexistent", "some error");
+    queue.set_error(&queue.attempt_of("nonexistent"), "some error");
 }
 
 /// Verifies that set_complete() sets the state to Complete and progress
@@ -2080,7 +2117,7 @@ fn set_complete_sets_state_and_progress() {
     let mut queue = DownloadQueue::new();
     let id = enqueue_one(&mut queue);
 
-    queue.set_complete(&id);
+    queue.set_complete(&queue.attempt_of(&id));
 
     let statuses = queue.get_status();
     assert_eq!(statuses[0].state, DownloadState::Complete);
@@ -2095,7 +2132,7 @@ fn set_complete_sets_state_and_progress() {
 fn set_complete_nonexistent_id_is_safe() {
     let mut queue = DownloadQueue::new();
     // Should not panic
-    queue.set_complete("nonexistent");
+    queue.set_complete(&queue.attempt_of("nonexistent"));
 }
 
 /// Verifies that set_complete() refuses to overwrite a terminal Error
@@ -2111,8 +2148,8 @@ fn set_complete_does_not_revive_errored_item() {
     let mut queue = DownloadQueue::new();
     let id = enqueue_one(&mut queue);
 
-    queue.set_error(&id, "primary download failed");
-    queue.set_complete(&id); // Late completion-task pass — must be a no-op.
+    queue.set_error(&queue.attempt_of(&id), "primary download failed");
+    queue.set_complete(&queue.attempt_of(&id)); // Late completion-task pass — must be a no-op.
 
     let statuses = queue.get_status();
     assert_eq!(
@@ -2135,146 +2172,542 @@ fn set_complete_does_not_revive_errored_item() {
 fn terminal_changes_are_reported_once() {
     let mut queue = DownloadQueue::new();
     let id = enqueue_one(&mut queue);
-    assert!(queue.set_error(&id, "stalled"), "first failure is a change");
     assert!(
-        !queue.set_error(&id, "errored again"),
+        queue.set_error(&queue.attempt_of(&id), "stalled"),
+        "first failure is a change"
+    );
+    assert!(
+        !queue.set_error(&queue.attempt_of(&id), "errored again"),
         "Error -> Error is not"
     );
     assert!(
-        !queue.set_complete(&id),
+        !queue.set_complete(&queue.attempt_of(&id)),
         "a failed item does not now finish"
     );
 
     let done = enqueue_one(&mut queue);
-    assert!(queue.set_complete(&done));
+    assert!(queue.set_complete(&queue.attempt_of(&done)));
     assert!(
-        !queue.set_complete(&done),
+        !queue.set_complete(&queue.attempt_of(&done)),
         "Complete -> Complete is not a change"
     );
     assert!(
-        !queue.set_error(&done, "late"),
+        !queue.set_error(&queue.attempt_of(&done), "late"),
         "a finished item does not now fail"
     );
 
     let cancelled = enqueue_one(&mut queue);
     queue.cancel(&cancelled);
     assert!(
-        !queue.set_complete(&cancelled),
+        !queue.set_complete(&queue.attempt_of(&cancelled)),
         "cancelled during post-processing"
     );
-    assert!(!queue.set_error(&cancelled, "late"));
+    assert!(!queue.set_error(&queue.attempt_of(&cancelled), "late"));
 
-    assert!(!queue.set_complete("no-such-item"));
-    assert!(!queue.set_error("no-such-item", "x"));
+    assert!(!queue.set_complete(&queue.attempt_of("no-such-item")));
+    assert!(!queue.set_error(&queue.attempt_of("no-such-item"), "x"));
 }
 
-/// #1431, review round 3 item 1: on the per-format retry route the
-/// attempt sets Error itself before trying the next format. When no
-/// format is left, the final `set_error` changes nothing -- but the
-/// failure must still be announced and counted, once.
-#[test]
-fn a_failure_after_the_last_format_is_still_announced_once() {
-    let mut queue = DownloadQueue::new();
-    let id = enqueue_one(&mut queue);
-    let _ = queue.next_pending();
-    // The retry route: Error, then (chain exhausted) no new options.
-    let failed_here = queue.set_error(&id, "format not available");
-    assert!(failed_here);
-    let changed_now = queue.set_error(&id, "no output files were produced");
-    assert!(
-        !changed_now,
-        "already Error: no change at the final failure"
-    );
-    assert!(
-        is_new_failure(failed_here, changed_now),
-        "but it is this attempt's failure, so it is announced"
-    );
-    // An item the watchdog had failed before this attempt touched it is
-    // not this attempt's failure.
-    assert!(!is_new_failure(false, false));
-}
+// ==========================================================
+// #1432 — attempts: an old run can never act on a retried item
+// ==========================================================
 
-/// #1431, review round 3 item 2: a run that returns after the stall
-/// watchdog failed the item, or after the person cancelled it, leaves
-/// it as it is.
-#[test]
-fn an_item_ended_outside_the_attempt_is_recognised() {
-    assert_eq!(
-        ended_outside_this_attempt(&DownloadState::Error),
-        Some(EndedOutside::FailedByWatchdog)
-    );
-    assert_eq!(
-        ended_outside_this_attempt(&DownloadState::Cancelled),
-        Some(EndedOutside::Cancelled)
-    );
-    for running in [
-        DownloadState::Queued,
-        DownloadState::Downloading,
-        DownloadState::Processing,
-        DownloadState::Complete,
-    ] {
-        assert_eq!(ended_outside_this_attempt(&running), None, "{running:?}");
+/// A `DownloadProgress` line, the commonest output a run sends.
+fn progress_line() -> process::GamdlOutputEvent {
+    process::GamdlOutputEvent::DownloadProgress {
+        percent: 42.0,
+        speed: "1MiB/s".to_string(),
+        eta: "00:10".to_string(),
     }
-
-    // The case that motivated it: watchdog fails a running item, the
-    // run then exits cleanly. Without the check, set_processing would
-    // move it back and set_complete would report a NEW completion.
-    let mut queue = DownloadQueue::new();
-    let id = enqueue_one(&mut queue);
-    let _ = queue.next_pending();
-    assert!(queue.set_error(&id, "stalled"));
-    let state = queue.get_status()[0].state.clone();
-    assert!(ended_outside_this_attempt(&state).is_some());
 }
 
-/// #1431, review round 4: the one check used wherever the exit-0 branch
-/// re-takes the lock. It releases the slot only for a cancel (the
-/// watchdog has already released it), ignores an Error this attempt set
-/// itself, and leaves a running item alone.
+/// Test 1: every start, re-queue and cancel gives a new number, the
+/// numbers only go up, and two items never share one.
 #[test]
-fn stop_if_ended_outside_releases_the_slot_only_for_a_cancel() {
-    // Running: nothing to stop, slot untouched.
-    let mut q = DownloadQueue::new();
-    let id = enqueue_one(&mut q);
-    let _ = q.next_pending();
-    assert_eq!(q.active_count, 1);
-    assert_eq!(stop_if_ended_outside(&mut q, &id, false), None);
-    assert_eq!(q.active_count, 1);
-
-    // Cancelled by the person (e.g. during gap-fill): stop, and give the
-    // slot back -- nothing else will.
-    assert!(q.cancel(&id));
-    assert_eq!(
-        stop_if_ended_outside(&mut q, &id, false),
-        Some(EndedOutside::Cancelled)
-    );
-    assert_eq!(q.active_count, 0);
-
-    // Failed by the stall watchdog (which released the slot itself):
-    // stop, but do not release again -- that would free another item's
-    // slot and let two downloads run at once.
+fn each_start_and_requeue_gets_a_new_attempt_number() {
     let mut q = DownloadQueue::new();
     let ids = enqueue_n(&mut q, 2);
-    let first = ids[0].clone();
-    let _ = q.next_pending();
-    q.set_error(&first, "stalled");
-    q.on_task_finished(); // what the watchdog does
-    let second = ids[1].clone();
-    let _ = q.next_pending(); // the next item now holds the slot
-    assert_eq!(q.active_count, 1);
+    let settings = AppSettings::default();
+    let mut seen = vec![q.attempt_of(&ids[0]).number, q.attempt_of(&ids[1]).number];
+    let note = |q: &DownloadQueue, seen: &mut Vec<u64>| {
+        let n = q.attempt_of(&ids[0]).number;
+        assert!(n > *seen.iter().max().unwrap(), "numbers only go up");
+        seen.push(n);
+    };
+    let a = q.next_pending().unwrap().attempt;
+    note(&q, &mut seen);
+    assert!(q.set_error(&a, "network"));
+    assert!(q.try_network_retry(&a).is_some());
+    note(&q, &mut seen);
+    q.release_slot(&a);
+    let a = q.next_pending().unwrap().attempt;
+    note(&q, &mut seen);
+    assert!(q.cancel(&a.id));
+    note(&q, &mut seen);
+    q.release_slot(&a);
+    assert!(q.retry(&a.id, &settings));
+    note(&q, &mut seen);
+    let mut unique = seen.clone();
+    unique.sort_unstable();
+    unique.dedup();
+    assert_eq!(unique.len(), seen.len(), "no number is ever reused");
+}
+
+/// The issue's case (test 3): the stall check fails A's attempt, B starts,
+/// then A's old run finishes late. It can change nothing and free nothing.
+#[test]
+fn stalled_attempt_finishing_late_cannot_free_the_next_items_slot() {
+    let mut q = DownloadQueue::new();
+    let ids = enqueue_n(&mut q, 3);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert_eq!(q.active_len(), 0, "the stall check gave A's slot back");
+    let b = q.next_pending().expect("B starts").attempt;
+    assert_eq!(b.id, ids[1]);
+
+    // A's run finishes late and tries everything.
+    assert!(!q.release_slot(&a), "A frees nothing");
+    assert!(!q.set_processing(&a));
+    assert!(!q.set_complete(&a));
+    assert!(!q.set_error(&a, "late"));
+    q.update_item_progress(&a, &progress_line());
+
+    let st = q.get_status();
+    assert_eq!(st[0].state, DownloadState::Error, "A stays failed");
+    assert_eq!(st[1].state, DownloadState::Downloading, "B untouched");
+    assert_eq!(q.active_len(), 1, "B still holds the only slot");
+    assert!(q.next_pending().is_none(), "a third item does not start");
+}
+
+/// Test 4: Cancel and then Retry inside one quarter-second gap. The old
+/// run must still see it should stop, and nothing it does lands.
+#[test]
+fn cancel_then_quick_retry_is_seen_by_the_old_attempt() {
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let settings = AppSettings::default();
+    let old = q.next_pending().unwrap().attempt;
+    let urls_before = q.get_status()[0].urls.clone();
+    assert!(q.cancel(&id));
+    assert!(q.retry(&id, &settings));
+    assert_eq!(q.get_status()[0].state, DownloadState::Queued);
+
+    assert!(!q.should_keep_running(&old), "the old run must stop");
+    assert!(!q.set_processing(&old));
+    assert!(!q.set_complete(&old));
+    assert!(!q.set_error(&old, "late"));
+    assert!(q.try_fallback(&old, &settings).is_none());
+    assert!(q.try_network_retry(&old).is_none());
+    assert!(q.try_storefront_fallback(&old, &settings).is_none());
+    assert!(!q.retry_without_wrapper_auto(&old, &settings));
+    q.update_item_progress(&old, &progress_line());
+
+    let st = &q.get_status()[0];
     assert_eq!(
-        stop_if_ended_outside(&mut q, &first, false),
-        Some(EndedOutside::FailedByWatchdog)
+        st.state,
+        DownloadState::Queued,
+        "still waiting for its new run"
     );
-    assert_eq!(q.active_count, 1, "the other item's slot is untouched");
+    assert_eq!(st.urls, urls_before, "links unchanged");
+    assert!(
+        (st.progress - 0.0).abs() < f64::EPSILON,
+        "no stale progress"
+    );
+}
 
-    // An Error this attempt set itself (the per-format retry route) is
-    // not the watchdog's: carry on.
-    assert_eq!(stop_if_ended_outside(&mut q, &first, true), None);
+/// Test 5: a retried item that has not started yet waits for the old run
+/// to give back its own slot, and then starts as a new attempt.
+#[test]
+fn old_attempt_cannot_take_over_a_retried_item_that_has_not_started() {
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let settings = AppSettings::default();
+    let old = q.next_pending().unwrap().attempt;
+    assert!(q.set_error(&old, "failed"));
+    assert!(q.retry(&id, &settings));
+    assert!(
+        q.next_pending().is_none(),
+        "the old run still holds the slot"
+    );
+    assert!(!q.set_processing(&old), "the old run cannot take it over");
+    assert!(q.release_slot(&old), "the old run gives back its own slot");
+    let new = q.next_pending().expect("the retry starts").attempt;
+    assert_ne!(new.number, old.number);
+    assert!(q.should_keep_running(&new));
+    assert!(!q.should_keep_running(&old));
+}
 
-    // An unknown item: nothing to do.
-    assert_eq!(stop_if_ended_outside(&mut q, "gone", false), None);
-    let _ = second;
+/// Test 2: a stale attempt cannot release the new attempt's slot.
+#[test]
+fn stale_attempt_cannot_release_the_new_attempts_slot() {
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let settings = AppSettings::default();
+    let old = q.next_pending().unwrap().attempt;
+    assert!(q.set_error(&old, "failed"));
+    assert!(q.release_slot(&old));
+    assert!(q.retry(&id, &settings));
+    let new = q.next_pending().unwrap().attempt;
+    assert!(!q.release_slot(&old));
+    assert_eq!(q.active_len(), 1, "the new attempt keeps its slot");
+    assert!(q.release_slot(&new));
+}
+
+/// Test 6: output from an earlier run is ignored, and a progress line
+/// can never undo a cancel.
+#[test]
+fn a_progress_line_cannot_undo_a_cancel() {
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.cancel(&id));
+    // The old run's reader (stale number) and anyone holding the current
+    // number: neither may turn Cancelled back into Downloading.
+    q.update_item_progress(&a, &progress_line());
+    let current = q.attempt_of(&id);
+    q.update_item_progress(&current, &progress_line());
+    q.update_item_progress(
+        &current,
+        &process::GamdlOutputEvent::ProcessingStep {
+            step: "Remuxing".to_string(),
+        },
+    );
+    assert_eq!(q.get_status()[0].state, DownloadState::Cancelled);
+    assert!(
+        !q.should_keep_running(&a),
+        "so the run still sees the cancel"
+    );
+}
+
+/// Test 7: the stall check releases nothing when the item had already
+/// finished and the next one started.
+#[test]
+fn stall_check_releases_nothing_when_the_item_already_finished() {
+    let mut q = DownloadQueue::new();
+    enqueue_n(&mut q, 2);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.set_complete(&a));
+    assert!(q.release_slot(&a));
+    let _b = q.next_pending().unwrap().attempt;
+    assert!(!q.fail_stalled_attempt(&a, "stalled"));
+    assert_eq!(q.active_len(), 1, "B keeps its slot");
+    assert_eq!(q.get_status()[0].state, DownloadState::Complete);
+}
+
+/// Test 8: the stall check aimed at an earlier attempt leaves the retried
+/// one alone.
+#[test]
+fn stall_check_ignores_a_retried_attempt() {
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let settings = AppSettings::default();
+    let a1 = q.next_pending().unwrap().attempt;
+    assert!(q.set_error(&a1, "failed"));
+    q.release_slot(&a1);
+    assert!(q.retry(&id, &settings));
+    let a2 = q.next_pending().unwrap().attempt;
+    assert!(!q.fail_stalled_attempt(&a1, "stalled"));
+    assert_eq!(q.get_status()[0].state, DownloadState::Downloading);
+    assert!(q.should_keep_running(&a2));
+    assert_eq!(q.active_len(), 1);
+}
+
+/// The stall check marks the attempt failed, gives back its slot so the
+/// queue can move on, and does NOT stop the run (maintainer decision):
+/// the run is still allowed to carry on, but not to change the item.
+#[test]
+fn stall_marks_failed_releases_the_slot_and_lets_the_queue_move_on() {
+    let mut q = DownloadQueue::new();
+    let ids = enqueue_n(&mut q, 2);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert!(!q.fail_stalled_attempt(&a, "stalled"), "only once");
+    let st = &q.get_status()[0];
+    assert_eq!(st.state, DownloadState::Error);
+    assert_eq!(st.error.as_deref(), Some("stalled"));
+    assert!(q.should_keep_running(&a), "the run is left going");
+    assert_eq!(q.ended_outside(&a), Some(EndedOutside::StoppedAsStuck));
+    assert_eq!(
+        q.next_pending().expect("the next item starts").attempt.id,
+        ids[1]
+    );
+}
+
+/// Test 9: `stop_if_ended_outside` answers by attempt number and gives
+/// back only the attempt's own slot.
+#[test]
+fn stop_if_ended_outside_by_attempt() {
+    let settings = AppSettings::default();
+
+    // Running, even after this attempt set Error itself: carry on.
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert_eq!(stop_if_ended_outside(&mut q, &a), None);
+    assert!(q.set_error(&a, "its own failure"));
+    assert_eq!(stop_if_ended_outside(&mut q, &a), None);
+    assert_eq!(q.active_len(), 1, "slot untouched while it is ours");
+
+    // Cancelled: stop, own slot released.
+    let mut q = DownloadQueue::new();
+    let id2 = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.cancel(&id2));
+    assert_eq!(
+        stop_if_ended_outside(&mut q, &a),
+        Some(EndedOutside::Cancelled)
+    );
+    assert_eq!(q.active_len(), 0);
+
+    // Stalled: stop (slot already given back by the stall check).
+    let mut q = DownloadQueue::new();
+    enqueue_n(&mut q, 2);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    let b = q.next_pending().unwrap().attempt;
+    assert_eq!(
+        stop_if_ended_outside(&mut q, &a),
+        Some(EndedOutside::StoppedAsStuck)
+    );
+    assert_eq!(q.active_len(), 1, "B's slot untouched");
+
+    // Retried: stop, own slot released, the other item's slot kept.
+    let mut q = DownloadQueue::new();
+    let ids = enqueue_n(&mut q, 1);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.set_error(&a, "failed"));
+    assert!(q.retry(&ids[0], &settings));
+    assert_eq!(
+        stop_if_ended_outside(&mut q, &a),
+        Some(EndedOutside::Replaced)
+    );
+    assert_eq!(q.active_len(), 0);
+
+    // Removed.
+    let mut q = DownloadQueue::new();
+    let ids = enqueue_n(&mut q, 1);
+    let a = q.attempt_of(&ids[0]);
+    assert_eq!(q.delete(&ids[0]), Ok(true));
+    assert_eq!(
+        stop_if_ended_outside(&mut q, &a),
+        Some(EndedOutside::Removed)
+    );
+    let _ = (id, b);
+}
+
+/// Test 10 (part 2 of the issue): with no format left, the per-format
+/// retry changes nothing and keeps the slot, so carrying on with the files
+/// that did land (the partial-success route) holds the slot through the
+/// tidying-up and the next item cannot start alongside it.
+#[test]
+fn per_format_retry_keeps_the_slot_when_no_format_is_left() {
+    let mut q = DownloadQueue::new();
+    let ids = enqueue_n(&mut q, 2);
+    let settings = AppSettings {
+        fallback_enabled: false,
+        ..AppSettings::default()
+    };
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.per_format_retry(&a, &settings).is_none());
+    assert_eq!(q.get_status()[0].state, DownloadState::Downloading);
+    assert_eq!(q.active_len(), 1, "slot held across the decision");
+    // Partial success: on to the tidying-up, still holding the slot.
+    assert!(q.set_processing(&a));
+    assert!(q.next_pending().is_none(), "B must wait");
+    assert!(q.set_complete(&a));
+    assert!(q.release_slot(&a));
+    assert_eq!(q.next_pending().unwrap().attempt.id, ids[1]);
+}
+
+/// Test 10, the other half: when a next format is tried, the item is
+/// re-queued under a new number and this attempt's slot goes back.
+#[test]
+fn per_format_retry_releases_when_requeued() {
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let settings = AppSettings::default();
+    assert!(settings.music_fallback_chain.len() > 1);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.per_format_retry(&a, &settings).is_some());
+    assert_eq!(q.active_len(), 0);
+    assert_eq!(q.get_status()[0].state, DownloadState::Queued);
+    assert_ne!(q.attempt_of(&id).number, a.number);
+    assert!(!q.should_keep_running(&a));
+}
+
+/// Test 12 (maintainer decision 3): a run the stall check marked failed
+/// that finishes after all queues the item again -- once, and never after
+/// the person retried or removed it.
+#[test]
+fn late_finish_after_stall_queues_a_retry_once() {
+    let settings = AppSettings::default();
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert_eq!(q.ended_outside(&a), Some(EndedOutside::StoppedAsStuck));
+    assert!(q.retry_after_late_finish(&a, &settings));
+    assert_eq!(q.get_status()[0].state, DownloadState::Queued);
+    assert!(q.get_status()[0].error.is_none());
+    assert!(!q.retry_after_late_finish(&a, &settings), "only once");
+    assert_eq!(q.ended_outside(&a), Some(EndedOutside::Replaced));
+
+    // The person retried first: no second retry from the late finish.
+    let mut q = DownloadQueue::new();
+    let id2 = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.fail_stalled_attempt(&a, "stalled"));
+    assert!(q.retry(&id2, &settings));
+    assert!(!q.retry_after_late_finish(&a, &settings));
+
+    // A run that was not stopped as stuck never takes this route.
+    let mut q = DownloadQueue::new();
+    let _ = enqueue_one(&mut q);
+    let a = q.next_pending().unwrap().attempt;
+    assert!(q.set_error(&a, "ordinary failure"));
+    assert!(!q.retry_after_late_finish(&a, &settings));
+    let _ = id;
+}
+
+/// The late-finish line is plain and is written by the shared leaving
+/// step, only when the item really was queued again.
+#[test]
+fn late_finish_line_is_plain_and_written_once_queued() {
+    assert!(LATE_FINISH_LINE.contains("finished after all"));
+    assert!(LATE_FINISH_LINE.contains("queued again"));
+    let helpers = include_str!("helpers.rs");
+    let at = helpers
+        .find("pub(crate) async fn finish_ended_outside")
+        .unwrap();
+    let body = &helpers[at..at + 2500];
+    let queued = body.find("retry_after_late_finish").unwrap();
+    let line = body.find("LATE_FINISH_LINE").unwrap();
+    assert!(queued < line, "the line follows a successful re-queue");
+}
+
+/// Test 13 (sweep, queue half): a slot held by an attempt that is no
+/// longer any item's current attempt is found, and only such a slot can
+/// be freed by the sweep.
+#[test]
+fn sweep_frees_a_slot_held_by_a_replaced_attempt() {
+    let mut q = DownloadQueue::new();
+    let id = enqueue_one(&mut q);
+    let settings = AppSettings::default();
+    let a = q.next_pending().unwrap().attempt;
+    assert!(
+        q.orphaned_slots().is_empty(),
+        "a running attempt is not orphaned"
+    );
+    assert!(!q.release_orphaned_slot(a.number));
+    assert!(q.cancel(&id));
+    assert!(q.retry(&id, &settings));
+    assert_eq!(q.orphaned_slots(), vec![a.number]);
+    assert!(q.release_orphaned_slot(a.number));
+    assert_eq!(q.active_len(), 0);
+    assert!(q.next_pending().is_some(), "the retry can start");
+}
+
+/// Test 11/decision 5: a failed item's extra-format copies keep the slot
+/// until they end, so the next item cannot start alongside them.
+#[tokio::test]
+async fn failed_items_extra_copies_hold_the_slot_until_they_end() {
+    let handle = new_queue_handle();
+    let a = {
+        let mut q = handle.lock().await;
+        enqueue_n(&mut q, 2);
+        let a = q.next_pending().unwrap().attempt;
+        assert!(q.set_error(&a, "failed"));
+        a
+    };
+    let (finish, finished) = tokio::sync::oneshot::channel::<()>();
+    let copies = tokio::spawn(async move {
+        let _ = finished.await;
+    });
+    let mut companion = CompanionTaskHandle::for_test(copies);
+    let wait_queue = handle.clone();
+    let wait_attempt = a.clone();
+    let waiter = tokio::spawn(async move {
+        hold_slot_for_copies(&wait_queue, &wait_attempt, &mut companion).await
+    });
+    for _ in 0..8 {
+        tokio::task::yield_now().await;
+    }
+    {
+        let mut q = handle.lock().await;
+        assert_eq!(q.active_len(), 1, "still held while the copies run");
+        assert!(q.next_pending().is_none(), "the next item waits");
+    }
+    let _ = finish.send(());
+    assert_eq!(waiter.await.unwrap(), AttemptWait::Done);
+    let mut q = handle.lock().await;
+    assert_eq!(q.active_len(), 0);
+    assert!(q.next_pending().is_some(), "now the next item starts");
+}
+
+/// Decision 5, the other half: retrying the failed item stops its copies
+/// and gives back the slot, so the retry can start.
+#[tokio::test]
+async fn retrying_a_failed_item_stops_its_extra_copies() {
+    let handle = new_queue_handle();
+    let (a, id) = {
+        let mut q = handle.lock().await;
+        let id = enqueue_one(&mut q);
+        let a = q.next_pending().unwrap().attempt;
+        assert!(q.set_error(&a, "failed"));
+        (a, id)
+    };
+    let copies = tokio::spawn(std::future::pending::<()>());
+    let mut companion = CompanionTaskHandle::for_test(copies);
+    let wait_queue = handle.clone();
+    let wait_attempt = a.clone();
+    let waiter = tokio::spawn(async move {
+        hold_slot_for_copies(&wait_queue, &wait_attempt, &mut companion).await
+    });
+    assert!(handle.lock().await.retry(&id, &AppSettings::default()));
+    assert_eq!(waiter.await.unwrap(), AttemptWait::Replaced);
+    let mut q = handle.lock().await;
+    assert_eq!(q.active_len(), 0);
+    assert!(q.next_pending().is_some(), "the retry starts");
+}
+
+/// Test 13 (source checks): the running code never uses the old
+/// id-only forms, and both failure routes hold the slot for the copies.
+#[test]
+fn running_code_uses_attempt_checked_forms_only() {
+    let sources = [
+        ("processing.rs", include_str!("processing.rs")),
+        ("companions.rs", include_str!("companions.rs")),
+        ("lyrics_pass.rs", include_str!("lyrics_pass.rs")),
+        ("helpers.rs", include_str!("helpers.rs")),
+        ("../engine_runner.rs", include_str!("../engine_runner.rs")),
+        ("../queue_watchdog.rs", include_str!("../queue_watchdog.rs")),
+    ];
+    for (name, src) in sources {
+        let code = src.split("#[cfg(test)]").next().unwrap();
+        for banned in [
+            "on_task_finished(",
+            ".is_cancelled(",
+            "should_keep_working_on(",
+        ] {
+            assert!(!code.contains(banned), "{name} still uses {banned}");
+        }
+    }
+    let processing = include_str!("processing.rs");
+    assert_eq!(
+        processing.matches("finish_failed_attempt(").count(),
+        2,
+        "both failure routes hold the slot for the extra-format copies"
+    );
+    let watchdog = include_str!("../queue_watchdog.rs");
+    assert!(watchdog.contains("fail_stalled_attempt("));
+    assert!(
+        watchdog.contains("process_queue("),
+        "the stall check moves the queue on"
+    );
+    assert!(
+        watchdog.contains("save_history_entry("),
+        "and writes History"
+    );
 }
 
 /// Verifies that set_complete() refuses to overwrite a Cancelled state.
@@ -2285,7 +2718,7 @@ fn set_complete_does_not_revive_cancelled_item() {
     let id = enqueue_one(&mut queue);
 
     queue.cancel(&id);
-    queue.set_complete(&id);
+    queue.set_complete(&queue.attempt_of(&id));
 
     let statuses = queue.get_status();
     assert_eq!(
@@ -2304,7 +2737,7 @@ fn set_error_does_not_overwrite_cancelled_item() {
     let id = enqueue_one(&mut queue);
 
     queue.cancel(&id);
-    queue.set_error(&id, "stderr noise after cancellation");
+    queue.set_error(&queue.attempt_of(&id), "stderr noise after cancellation");
 
     let statuses = queue.get_status();
     assert_eq!(
@@ -2328,8 +2761,8 @@ fn set_error_does_not_overwrite_complete_item() {
     let mut queue = DownloadQueue::new();
     let id = enqueue_one(&mut queue);
 
-    queue.set_complete(&id);
-    queue.set_error(&id, "late-arriving enrichment failure");
+    queue.set_complete(&queue.attempt_of(&id));
+    queue.set_error(&queue.attempt_of(&id), "late-arriving enrichment failure");
 
     let statuses = queue.get_status();
     assert_eq!(
@@ -2410,7 +2843,7 @@ fn delete_removes_queued_item() {
 fn delete_removes_complete_item() {
     let mut queue = DownloadQueue::new();
     let id = enqueue_one(&mut queue);
-    queue.set_complete(&id);
+    queue.set_complete(&queue.attempt_of(&id));
 
     assert_eq!(queue.delete(&id), Ok(true));
     assert!(queue.get_status().is_empty());
@@ -2422,7 +2855,7 @@ fn delete_removes_complete_item() {
 fn delete_removes_errored_item() {
     let mut queue = DownloadQueue::new();
     let id = enqueue_one(&mut queue);
-    queue.set_error(&id, "permanent failure");
+    queue.set_error(&queue.attempt_of(&id), "permanent failure");
 
     assert_eq!(queue.delete(&id), Ok(true));
     assert!(queue.get_status().is_empty());
@@ -2516,9 +2949,9 @@ fn try_network_retry_resets_to_queued_when_retries_remain() {
     let id = enqueue_one(&mut queue);
 
     // Simulate an error state
-    queue.set_error(&id, "Network timeout");
+    queue.set_error(&queue.attempt_of(&id), "Network timeout");
 
-    let result = queue.try_network_retry(&id);
+    let result = queue.try_network_retry(&queue.attempt_of(&id));
     // max_network_retries = 3, so total = 4. First retry = attempt 2.
     assert_eq!(result, Some((2, 4)), "First retry should be attempt 2 of 4");
 
@@ -2543,16 +2976,25 @@ fn try_network_retry_returns_false_when_exhausted() {
     let id = enqueue_one(&mut queue);
 
     // Use up all 3 retries and verify attempt numbers
-    queue.set_error(&id, "network error");
-    assert_eq!(queue.try_network_retry(&id), Some((2, 4)));
-    queue.set_error(&id, "network error");
-    assert_eq!(queue.try_network_retry(&id), Some((3, 4)));
-    queue.set_error(&id, "network error");
-    assert_eq!(queue.try_network_retry(&id), Some((4, 4)));
+    queue.set_error(&queue.attempt_of(&id), "network error");
+    assert_eq!(
+        queue.try_network_retry(&queue.attempt_of(&id)),
+        Some((2, 4))
+    );
+    queue.set_error(&queue.attempt_of(&id), "network error");
+    assert_eq!(
+        queue.try_network_retry(&queue.attempt_of(&id)),
+        Some((3, 4))
+    );
+    queue.set_error(&queue.attempt_of(&id), "network error");
+    assert_eq!(
+        queue.try_network_retry(&queue.attempt_of(&id)),
+        Some((4, 4))
+    );
 
     // 4th attempt should fail
-    queue.set_error(&id, "network error");
-    let result = queue.try_network_retry(&id);
+    queue.set_error(&queue.attempt_of(&id), "network error");
+    let result = queue.try_network_retry(&queue.attempt_of(&id));
     assert!(
         result.is_none(),
         "Should return None after all retries exhausted"
@@ -2563,7 +3005,9 @@ fn try_network_retry_returns_false_when_exhausted() {
 #[test]
 fn try_network_retry_nonexistent_id() {
     let mut queue = DownloadQueue::new();
-    assert!(queue.try_network_retry("nonexistent").is_none());
+    assert!(queue
+        .try_network_retry(&queue.attempt_of("nonexistent"))
+        .is_none());
 }
 
 // ==========================================================
@@ -2581,9 +3025,9 @@ fn try_storefront_fallback_rewrites_us_to_gb_and_consumes_budget() {
     settings.storefront_fallback_on_failure = true;
 
     let id = queue.enqueue(test_request(), &settings);
-    queue.set_error(&id, "404 Resource Not Found");
+    queue.set_error(&queue.attempt_of(&id), "404 Resource Not Found");
 
-    let swap = queue.try_storefront_fallback(&id, &settings);
+    let swap = queue.try_storefront_fallback(&queue.attempt_of(&id), &settings);
     assert_eq!(swap, Some(("us".to_string(), "gb".to_string())));
 
     let statuses = queue.get_status();
@@ -2596,8 +3040,11 @@ fn try_storefront_fallback_rewrites_us_to_gb_and_consumes_budget() {
 
     // Budget consumed — second call must return None even after
     // another error, so we never ping-pong forever.
-    queue.set_error(&id, "404 Resource Not Found");
-    assert_eq!(queue.try_storefront_fallback(&id, &settings), None);
+    queue.set_error(&queue.attempt_of(&id), "404 Resource Not Found");
+    assert_eq!(
+        queue.try_storefront_fallback(&queue.attempt_of(&id), &settings),
+        None
+    );
 }
 
 /// Verifies that the fallback is a no-op when the URL storefront
@@ -2610,9 +3057,12 @@ fn try_storefront_fallback_skips_when_url_already_matches_region() {
     settings.storefront_fallback_on_failure = true;
 
     let id = queue.enqueue(test_request(), &settings);
-    queue.set_error(&id, "404 Resource Not Found");
+    queue.set_error(&queue.attempt_of(&id), "404 Resource Not Found");
 
-    assert_eq!(queue.try_storefront_fallback(&id, &settings), None);
+    assert_eq!(
+        queue.try_storefront_fallback(&queue.attempt_of(&id), &settings),
+        None
+    );
     let statuses = queue.get_status();
     assert_eq!(statuses[0].state, DownloadState::Error, "must stay errored");
 }
@@ -2626,9 +3076,12 @@ fn try_storefront_fallback_respects_settings_toggle() {
     settings.storefront_fallback_on_failure = false; // user opted out
 
     let id = queue.enqueue(test_request(), &settings);
-    queue.set_error(&id, "404 Resource Not Found");
+    queue.set_error(&queue.attempt_of(&id), "404 Resource Not Found");
 
-    assert_eq!(queue.try_storefront_fallback(&id, &settings), None);
+    assert_eq!(
+        queue.try_storefront_fallback(&queue.attempt_of(&id), &settings),
+        None
+    );
 }
 
 /// Verifies that a manual user retry (which calls `retry()`) refreshes
@@ -2642,21 +3095,27 @@ fn retry_resets_storefront_fallback_budget() {
 
     let id = queue.enqueue(test_request(), &settings);
     // First failure + automatic fallback consumes the budget.
-    queue.set_error(&id, "404 Resource Not Found");
-    assert!(queue.try_storefront_fallback(&id, &settings).is_some());
+    queue.set_error(&queue.attempt_of(&id), "404 Resource Not Found");
+    assert!(queue
+        .try_storefront_fallback(&queue.attempt_of(&id), &settings)
+        .is_some());
     // Pretend the GB attempt also failed.
-    queue.set_error(&id, "404 Resource Not Found");
-    assert!(queue.try_storefront_fallback(&id, &settings).is_none());
+    queue.set_error(&queue.attempt_of(&id), "404 Resource Not Found");
+    assert!(queue
+        .try_storefront_fallback(&queue.attempt_of(&id), &settings)
+        .is_none());
 
     // User clicks Retry — budget refreshes.
     assert!(queue.retry(&id, &settings));
     // Re-fail and verify the budget is fresh.
-    queue.set_error(&id, "404 Resource Not Found");
+    queue.set_error(&queue.attempt_of(&id), "404 Resource Not Found");
     // URL is now `/gb/`; the helper rejects same-region rewrites, so we
     // expect None here. Update settings to a different region to confirm
     // the budget *would* allow it.
     settings.storefront = "fr".to_string();
-    assert!(queue.try_storefront_fallback(&id, &settings).is_some());
+    assert!(queue
+        .try_storefront_fallback(&queue.attempt_of(&id), &settings)
+        .is_some());
 }
 
 // ==========================================================
@@ -2672,10 +3131,10 @@ fn try_fallback_returns_next_codec_in_chain() {
     let id = queue.enqueue(test_request(), &settings);
 
     // Simulate an error requiring fallback
-    queue.set_error(&id, "Codec not available");
+    queue.set_error(&queue.attempt_of(&id), "Codec not available");
 
     // First fallback: chain[0] = Alac (initial), so next = chain[1] = Atmos
-    let result = queue.try_fallback(&id, &settings);
+    let result = queue.try_fallback(&queue.attempt_of(&id), &settings);
     assert!(result.is_some(), "First fallback should succeed");
 
     let (new_opts, fb_idx, chain_len) = result.unwrap();
@@ -2728,8 +3187,10 @@ fn a_custom_mode_fallback_never_gives_a_companion_the_primarys_name() {
     let id = queue.enqueue(test_request(), &settings);
     assert!(queue.items[0].added_template_suffixes.is_empty());
 
-    queue.set_error(&id, "Codec not available");
-    let (first, _, _) = queue.try_fallback(&id, &settings).unwrap();
+    queue.set_error(&queue.attempt_of(&id), "Codec not available");
+    let (first, _, _) = queue
+        .try_fallback(&queue.attempt_of(&id), &settings)
+        .unwrap();
     // Atmos is next in the default chain: its suffix is now saved.
     assert!(first
         .single_disc_file_template
@@ -2740,8 +3201,10 @@ fn a_custom_mode_fallback_never_gives_a_companion_the_primarys_name() {
         queue.items[0].added_template_suffixes,
         vec!["[Dolby Atmos]"]
     );
-    queue.set_error(&id, "Codec not available");
-    let (second, _, _) = queue.try_fallback(&id, &settings).unwrap();
+    queue.set_error(&queue.attempt_of(&id), "Codec not available");
+    let (second, _, _) = queue
+        .try_fallback(&queue.attempt_of(&id), &settings)
+        .unwrap();
     let template = second.single_disc_file_template.clone().unwrap();
     assert!(
         !template.contains("[Dolby Atmos]"),
@@ -2776,7 +3239,7 @@ fn a_custom_mode_fallback_never_gives_a_companion_the_primarys_name() {
         Err(CompanionSkip::SameNames)
     );
     // A retry merges afresh and forgets the record.
-    queue.set_error(&id, "failed");
+    queue.set_error(&queue.attempt_of(&id), "failed");
     queue.retry(&id, &settings);
     assert!(queue.items[0].added_template_suffixes.is_empty());
 }
@@ -2822,8 +3285,10 @@ fn a_fallback_keeps_a_users_own_suffix_in_their_template() {
     settings.single_disc_file_template = "{track:02d} {title} [Lossless]".into();
     let id = queue.enqueue(test_request(), &settings);
     for _ in 0..2 {
-        queue.set_error(&id, "Codec not available");
-        queue.try_fallback(&id, &settings).unwrap();
+        queue.set_error(&queue.attempt_of(&id), "Codec not available");
+        queue
+            .try_fallback(&queue.attempt_of(&id), &settings)
+            .unwrap();
     }
     let template = queue.items[0]
         .merged_options
@@ -3597,16 +4062,16 @@ fn try_fallback_returns_none_when_chain_exhausted() {
     let id = queue.enqueue(test_request(), &settings);
 
     // First fallback: Alac (0) -> Aac (1)
-    queue.set_error(&id, "codec error");
-    let result1 = queue.try_fallback(&id, &settings);
+    queue.set_error(&queue.attempt_of(&id), "codec error");
+    let result1 = queue.try_fallback(&queue.attempt_of(&id), &settings);
     assert!(result1.is_some(), "First fallback to Aac should succeed");
     let (_, idx, len) = result1.unwrap();
     assert_eq!(idx, 1);
     assert_eq!(len, 2);
 
     // Second fallback: chain exhausted (index 2 >= chain.len() of 2)
-    queue.set_error(&id, "codec error again");
-    let result2 = queue.try_fallback(&id, &settings);
+    queue.set_error(&queue.attempt_of(&id), "codec error again");
+    let result2 = queue.try_fallback(&queue.attempt_of(&id), &settings);
     assert!(result2.is_none(), "Should return None when chain exhausted");
 }
 
@@ -3632,8 +4097,8 @@ fn try_fallback_does_nothing_for_a_music_video() {
     };
     let id = queue.enqueue(request, &settings);
 
-    queue.set_error(&id, "codec error");
-    let result = queue.try_fallback(&id, &settings);
+    queue.set_error(&queue.attempt_of(&id), "codec error");
+    let result = queue.try_fallback(&queue.attempt_of(&id), &settings);
     assert!(
         result.is_none(),
         "a music video must never be given an AUDIO codec fallback"
@@ -3662,8 +4127,8 @@ fn try_fallback_returns_none_when_disabled() {
     settings.fallback_enabled = false;
     let id = queue.enqueue(test_request(), &settings);
 
-    queue.set_error(&id, "codec error");
-    let result = queue.try_fallback(&id, &settings);
+    queue.set_error(&queue.attempt_of(&id), "codec error");
+    let result = queue.try_fallback(&queue.attempt_of(&id), &settings);
     assert!(
         result.is_none(),
         "Should return None when fallback_enabled is false"
@@ -3675,7 +4140,7 @@ fn try_fallback_returns_none_when_disabled() {
 fn try_fallback_nonexistent_id() {
     let mut queue = DownloadQueue::new();
     let settings = test_settings();
-    let result = queue.try_fallback("nonexistent", &settings);
+    let result = queue.try_fallback(&queue.attempt_of("nonexistent"), &settings);
     assert!(result.is_none());
 }
 
@@ -3689,8 +4154,8 @@ fn try_fallback_advances_through_full_chain() {
     let id = queue.enqueue(test_request(), &settings);
 
     // Fallback 1: Alac -> Atmos (index 1 of 3-element chain)
-    queue.set_error(&id, "codec error");
-    let r1 = queue.try_fallback(&id, &settings);
+    queue.set_error(&queue.attempt_of(&id), "codec error");
+    let r1 = queue.try_fallback(&queue.attempt_of(&id), &settings);
     let (r1_opts, r1_idx, r1_len) = r1.unwrap();
     assert_eq!(
         r1_opts.song_codec, None,
@@ -3705,8 +4170,8 @@ fn try_fallback_advances_through_full_chain() {
     );
 
     // Fallback 2: Atmos -> Aac (index 2 of 3-element chain)
-    queue.set_error(&id, "codec error");
-    let r2 = queue.try_fallback(&id, &settings);
+    queue.set_error(&queue.attempt_of(&id), "codec error");
+    let r2 = queue.try_fallback(&queue.attempt_of(&id), &settings);
     let (r2_opts, r2_idx, _) = r2.unwrap();
     assert_eq!(
         r2_opts.song_codec, None,
@@ -3720,8 +4185,8 @@ fn try_fallback_advances_through_full_chain() {
     );
 
     // Fallback 3: exhausted
-    queue.set_error(&id, "codec error");
-    let r3 = queue.try_fallback(&id, &settings);
+    queue.set_error(&queue.attempt_of(&id), "codec error");
+    let r3 = queue.try_fallback(&queue.attempt_of(&id), &settings);
     assert!(r3.is_none(), "Chain should be exhausted after 3 codecs");
 }
 
@@ -3737,7 +4202,7 @@ fn retry_resets_errored_item_to_queued() {
     let settings = test_settings();
     let id = queue.enqueue(test_request(), &settings);
 
-    queue.set_error(&id, "Download failed");
+    queue.set_error(&queue.attempt_of(&id), "Download failed");
 
     let result = queue.retry(&id, &settings);
     assert!(result, "retry() should return true for Error items");
@@ -3801,7 +4266,7 @@ fn retry_returns_false_for_non_terminal_states() {
     );
 
     // ids[3] = Complete
-    queue.set_complete(&ids[3]);
+    queue.set_complete(&queue.attempt_of(&ids[3]));
     assert!(
         !queue.retry(&ids[3], &settings),
         "Should not retry Complete item"
@@ -3826,7 +4291,7 @@ fn retry_remerges_options_from_original_request() {
     let request = test_request_with_codec_override(SongCodec::AacHe);
     let id = queue.enqueue(request, &settings);
 
-    queue.set_error(&id, "error");
+    queue.set_error(&queue.attempt_of(&id), "error");
 
     // Retry with the same settings
     let result = queue.retry(&id, &settings);
@@ -3851,23 +4316,23 @@ fn retry_resets_retry_counters() {
 
     // Exhaust network retries
     for _ in 0..3 {
-        queue.set_error(&id, "network");
-        queue.try_network_retry(&id);
+        queue.set_error(&queue.attempt_of(&id), "network");
+        queue.try_network_retry(&queue.attempt_of(&id));
     }
-    queue.set_error(&id, "network");
+    queue.set_error(&queue.attempt_of(&id), "network");
     assert!(
-        queue.try_network_retry(&id).is_none(),
+        queue.try_network_retry(&queue.attempt_of(&id)).is_none(),
         "Retries should be exhausted"
     );
 
     // Now use retry() to do a full reset
-    queue.set_error(&id, "network");
+    queue.set_error(&queue.attempt_of(&id), "network");
     queue.retry(&id, &settings);
 
     // Network retries should be available again
-    queue.set_error(&id, "network");
+    queue.set_error(&queue.attempt_of(&id), "network");
     assert!(
-        queue.try_network_retry(&id).is_some(),
+        queue.try_network_retry(&queue.attempt_of(&id)).is_some(),
         "After retry(), network retries should be reset to max"
     );
 }
@@ -3931,14 +4396,14 @@ fn full_lifecycle_happy_path() {
     assert_eq!(queue.get_status()[0].state, DownloadState::Queued);
 
     // Step 2: Start downloading
-    let (dl_id, _, _, _) = queue.next_pending().unwrap();
+    let dl_id = queue.next_pending().unwrap().attempt.id;
     assert_eq!(dl_id, id);
     assert_eq!(queue.get_status()[0].state, DownloadState::Downloading);
-    assert_eq!(queue.active_count, 1);
+    assert_eq!(queue.active_len(), 1);
 
     // Step 3: Progress updates
     queue.update_item_progress(
-        &id,
+        &queue.attempt_of(&id),
         &GamdlOutputEvent::TrackInfo {
             title: "Test Song".to_string(),
             artist: "Test Artist".to_string(),
@@ -3948,7 +4413,7 @@ fn full_lifecycle_happy_path() {
         },
     );
     queue.update_item_progress(
-        &id,
+        &queue.attempt_of(&id),
         &GamdlOutputEvent::DownloadProgress {
             percent: 50.0,
             speed: "5MiB/s".to_string(),
@@ -3963,7 +4428,7 @@ fn full_lifecycle_happy_path() {
 
     // Step 4: Processing
     queue.update_item_progress(
-        &id,
+        &queue.attempt_of(&id),
         &GamdlOutputEvent::ProcessingStep {
             step: "Remuxing to M4A".to_string(),
         },
@@ -3972,13 +4437,13 @@ fn full_lifecycle_happy_path() {
 
     // Step 5: Complete
     queue.update_item_progress(
-        &id,
+        &queue.attempt_of(&id),
         &GamdlOutputEvent::Complete {
             path: "/output/test.m4a".to_string(),
         },
     );
-    queue.set_complete(&id);
-    queue.on_task_finished();
+    queue.set_complete(&queue.attempt_of(&id));
+    queue.release_slot(&queue.attempt_of(&id));
 
     let final_status = &queue.get_status()[0];
     assert_eq!(final_status.state, DownloadState::Complete);
@@ -3987,7 +4452,7 @@ fn full_lifecycle_happy_path() {
         final_status.output_path.as_deref(),
         Some("/output/test.m4a")
     );
-    assert_eq!(queue.active_count, 0);
+    assert_eq!(queue.active_len(), 0);
 }
 
 /// Simulates a download that fails with a codec error and successfully
@@ -4001,11 +4466,11 @@ fn lifecycle_with_codec_fallback() {
 
     // Start and fail with codec error
     let _ = queue.next_pending();
-    queue.set_error(&id, "Codec not available for ALAC");
-    queue.on_task_finished();
+    queue.set_error(&queue.attempt_of(&id), "Codec not available for ALAC");
+    queue.release_slot(&queue.attempt_of(&id));
 
     // Fallback to AAC (index 1 of 3-element chain)
-    let fallback = queue.try_fallback(&id, &settings);
+    let fallback = queue.try_fallback(&queue.attempt_of(&id), &settings);
     assert!(fallback.is_some());
     let (fb_opts, fb_idx, fb_len) = fallback.unwrap();
     assert_eq!(
@@ -4030,11 +4495,11 @@ fn lifecycle_with_network_retry() {
 
     // Start and fail with network error
     let _ = queue.next_pending();
-    queue.set_error(&id, "Network timeout");
-    queue.on_task_finished();
+    queue.set_error(&queue.attempt_of(&id), "Network timeout");
+    queue.release_slot(&queue.attempt_of(&id));
 
     // Network retry should succeed (attempt 2 of 4)
-    let retried = queue.try_network_retry(&id);
+    let retried = queue.try_network_retry(&queue.attempt_of(&id));
     assert!(retried.is_some());
 
     // Item should be re-queued
@@ -4053,26 +4518,26 @@ fn sequential_processing_with_single_concurrency() {
     let ids = enqueue_n(&mut queue, 3);
 
     // Start first item
-    let (id1, _, _, _) = queue.next_pending().unwrap();
+    let id1 = queue.next_pending().unwrap().attempt.id;
     assert_eq!(id1, ids[0]);
 
     // Can't start second while first is running
     assert!(queue.next_pending().is_none());
 
     // Finish first
-    queue.set_complete(&ids[0]);
-    queue.on_task_finished();
+    queue.set_complete(&queue.attempt_of(&ids[0]));
+    queue.release_slot(&queue.attempt_of(&ids[0]));
 
     // Now second can start
-    let (id2, _, _, _) = queue.next_pending().unwrap();
+    let id2 = queue.next_pending().unwrap().attempt.id;
     assert_eq!(id2, ids[1]);
 
     // Finish second
-    queue.set_complete(&ids[1]);
-    queue.on_task_finished();
+    queue.set_complete(&queue.attempt_of(&ids[1]));
+    queue.release_slot(&queue.attempt_of(&ids[1]));
 
     // Third can start
-    let (id3, _, _, _) = queue.next_pending().unwrap();
+    let id3 = queue.next_pending().unwrap().attempt.id;
     assert_eq!(id3, ids[2]);
 }
 
@@ -4615,7 +5080,7 @@ fn has_duplicate_urls_ignores_completed() {
     };
     let id = queue.enqueue(request, &settings);
     // Transition to complete
-    queue.set_complete(&id);
+    queue.set_complete(&queue.attempt_of(&id));
 
     let urls = vec!["https://music.apple.com/us/album/test/123".to_string()];
     assert!(!queue.has_duplicate_urls(&urls));
@@ -4632,7 +5097,7 @@ fn has_duplicate_urls_ignores_errored() {
         ..Default::default()
     };
     let id = queue.enqueue(request, &settings);
-    queue.set_error(&id, "some error");
+    queue.set_error(&queue.attempt_of(&id), "some error");
 
     let urls = vec!["https://music.apple.com/us/album/test/123".to_string()];
     assert!(!queue.has_duplicate_urls(&urls));
@@ -6608,14 +7073,14 @@ fn queue_keeps_every_reported_path() {
         "/m/A/Three/01.m4a",
     ] {
         queue.update_item_progress(
-            &id,
+            &queue.attempt_of(&id),
             &GamdlOutputEvent::Complete {
                 path: path.to_string(),
             },
         );
     }
     queue.update_item_progress(
-        &id,
+        &queue.attempt_of(&id),
         &GamdlOutputEvent::Complete {
             path: String::new(),
         },
@@ -6640,12 +7105,12 @@ fn begin_run_clears_reported_paths_and_gap_fill_does_not() {
     let mut queue = DownloadQueue::new();
     let id = enqueue_one(&mut queue);
     queue.update_item_progress(
-        &id,
+        &queue.attempt_of(&id),
         &GamdlOutputEvent::Complete {
             path: "/m/A/01.m4a".to_string(),
         },
     );
-    queue.begin_run(&id);
+    queue.begin_run(&queue.attempt_of(&id));
     assert!(queue.items[0].reported_paths.is_empty());
 
     let processing = include_str!("processing.rs");
@@ -6961,7 +7426,11 @@ fn other_folder_files_never_reach_the_main_lists() {
         pass.contains("walk_fresh_m4a_stoppable"),
         "the walk must be stoppable"
     );
-    assert!(pass.contains("is_cancelled"), "must skip when cancelled");
+    // By attempt since #1432: cancelled, retried or removed.
+    assert!(
+        pass.contains("should_keep_running"),
+        "must skip when cancelled"
+    );
     let flat: String = pass.split_whitespace().collect();
     assert!(
         flat.contains("&other_fresh,true,)"),

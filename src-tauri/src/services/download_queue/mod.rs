@@ -23,7 +23,7 @@
 //                                    |
 //                             emit("gamdl-output") --> frontend listener
 //                                    |
-//                             on_task_finished() --> process_queue() (cascade)
+//                             release_slot(attempt) --> process_queue() (cascade)
 // ```
 //
 // ## Key Design Decisions
@@ -46,8 +46,15 @@
 // 5. **Network retries**: Network errors trigger automatic retries (up to 3 by default)
 //    with the same options, giving transient errors a chance to resolve.
 //
-// 6. **Cancellation polling**: Running downloads are checked for cancellation every
-//    250ms via try_wait() + is_cancelled(). The process is killed on cancellation.
+// 6. **Cancellation polling**: Running downloads are checked every 250ms via
+//    try_wait() + should_keep_running(attempt). The process is killed once the
+//    item is cancelled, retried or removed.
+//
+// 7. **Attempts (#1432)**: every run of an item carries an `Attempt` (the
+//    item's ID plus a number that changes whenever the item starts, is put
+//    back in the queue or is cancelled). State changes and the queue slot
+//    belong to one attempt, so an old run can never finish, fail or restart
+//    a retried item, nor free the slot of the item that started next.
 //
 // ## Event Emission Pattern
 //
@@ -301,6 +308,156 @@ pub(crate) struct QueueItem {
     /// starts empty. Cleared where a main download attempt starts
     /// ([`DownloadQueue::begin_run`]), never before the gap-fill run.
     pub reported_paths: Vec<PathBuf>,
+    /// The number of the attempt that is allowed to change this item now
+    /// (#1432). A new number is given whenever the item starts, is put back
+    /// in the queue, or is cancelled, so a run that belongs to an earlier
+    /// attempt can see it has been replaced and leaves the item alone.
+    pub attempt: u64,
+    /// Set by the stall check to the number of the attempt it marked failed
+    /// (#1432). That attempt is left running (it is not stopped) but may no
+    /// longer change the item; if it later finishes, the item is queued again
+    /// once. Cleared whenever the item gets a new attempt number.
+    pub stalled_attempt: Option<u64>,
+}
+
+/// One run of one queue item: which item, and which time round (#1432).
+///
+/// Every piece of work that runs for an item (the download itself, the
+/// tidying up afterwards, the extra-format copies) carries one of these.
+/// The queue only lets it change the item while the item's own attempt
+/// number is still this one, so an old run can never finish, fail, restart
+/// or take the slot of a later run of the same item. The number is unique
+/// across the whole queue for as long as the app runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Attempt {
+    /// The download ID of the item.
+    pub id: String,
+    /// Which run of that item this is.
+    pub number: u64,
+}
+
+/// What [`DownloadQueue::next_pending`] hands out when it starts an item:
+/// the attempt (which also owns the queue slot just taken) plus what is
+/// needed to run it.
+#[derive(Debug, Clone)]
+pub(crate) struct StartedAttempt {
+    /// The new attempt; its number holds the slot until it is released.
+    pub attempt: Attempt,
+    /// The links to download.
+    pub urls: Vec<String>,
+    /// The merged options for this run.
+    pub options: GamdlOptions,
+    /// The service the links belong to, when known.
+    pub service: Option<String>,
+}
+
+/// How an attempt finds its item when it looks again after doing some work
+/// (#1432). `None` from [`DownloadQueue::ended_outside`] means the item is
+/// still this attempt's to change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EndedOutside {
+    /// The person cancelled it.
+    Cancelled,
+    /// The stall check marked this attempt failed (and has already counted
+    /// it, written History and released its slot).
+    StoppedAsStuck,
+    /// It was put back in the queue (retried, re-queued) since this attempt
+    /// started; a later attempt owns it now.
+    Replaced,
+    /// It is no longer in the queue.
+    Removed,
+}
+
+/// Gives out the next attempt number and moves the counter on (#1432).
+/// A free function so it can be used while one queue item is borrowed.
+fn take_attempt_number(next: &mut u64) -> u64 {
+    let number = *next;
+    *next += 1;
+    number
+}
+
+/// Gives an item a fresh attempt number and forgets any stall mark (#1432).
+/// Called whenever the item is put back in the queue or cancelled, so the
+/// attempt that was running for it is retired at once.
+fn retire_running_attempt(item: &mut QueueItem, next: &mut u64) {
+    item.attempt = take_attempt_number(next);
+    item.stalled_attempt = None;
+}
+
+/// Finds the item `attempt` may still change (#1432): the same item, still
+/// on this attempt's number, and not marked failed by the stall check for
+/// this attempt. Anything else -- a later attempt, a cancel, a removed
+/// item, or this attempt after the stall check -- gives `None`, so the
+/// caller changes nothing.
+fn find_owned<'a>(
+    items: &'a mut VecDeque<QueueItem>,
+    attempt: &Attempt,
+) -> Option<&'a mut QueueItem> {
+    items.iter_mut().find(|i| {
+        i.status.id == attempt.id
+            && i.attempt == attempt.number
+            && i.stalled_attempt != Some(attempt.number)
+    })
+}
+
+/// Resets an item for a fresh run from the start (#1432): options merged
+/// afresh from the original request and the current settings, every retry
+/// budget refilled, the status cleared, the item back to Queued, and a new
+/// attempt number so the run that went before can no longer change it.
+///
+/// Shared by the person's Retry and by the automatic re-queue after a run
+/// that the stall check had marked failed finishes after all. It does not
+/// narrow the links (that is the person's smart retry, done by the caller).
+fn reset_for_fresh_run(
+    item: &mut QueueItem,
+    settings: &AppSettings,
+    max_network_retries: u32,
+    next_attempt: &mut u64,
+) {
+    // Re-merge options from the original request with current settings.
+    // This picks up any settings changes the user made since the original
+    // attempt. The service is worked out from the link again rather than
+    // read back from the stored text (#829). Fresh options: nothing
+    // MeedyaDL added is left in them.
+    item.added_template_suffixes.clear();
+    item.merged_options = merge_options(
+        item.request.options.as_ref(),
+        settings,
+        item.request
+            .urls
+            .first()
+            .and_then(|u| crate::models::media_service::MediaServiceId::from_url(u)),
+    );
+    // Reset fallback and retry counters to their initial values.
+    item.fallback_index = 0;
+    item.network_retries_left = max_network_retries;
+    // A fresh run may try the storefront rewrite once again (#666).
+    item.storefront_fallback_attempted = false;
+    // Forget the music-video count (#776) so the next run's enrichment
+    // finds it again rather than sizing its deadline from a stale one.
+    item.status.mv_companion_count = None;
+    // Reset status fields for a fresh start.
+    item.status.state = DownloadState::Queued;
+    item.status.error = None;
+    item.status.progress = 0.0;
+    item.status.fallback_occurred = false;
+    item.status.used_wrapper = item.merged_options.use_wrapper.unwrap_or(false);
+    item.status.codec_used = Some(item.merged_options.song_codec.as_ref().map_or_else(
+        || settings.default_song_codec.to_cli_string().to_string(),
+        |c| c.to_cli_string().to_string(),
+    ));
+    retire_running_attempt(item, next_attempt);
+}
+
+/// Whether an item is part-way through a run (downloading or tidying up).
+/// Captions and progress fractions are only changed while it is (#1432),
+/// so a run that has been replaced or stopped cannot paint over a failed,
+/// cancelled or finished row.
+const fn is_running_state(state: &DownloadState) -> bool {
+    matches!(
+        state,
+        DownloadState::Downloading | DownloadState::Processing
+    )
 }
 
 /// The most file paths one queue item remembers from its main runs.
@@ -452,9 +609,15 @@ pub struct DownloadQueue {
     /// Limiting to 1 avoids Apple Music rate limiting and reduces
     /// memory usage from concurrent GAMDL processes.
     max_concurrent: usize,
-    /// Number of currently active (Downloading/Processing) downloads.
-    /// Incremented by `next_pending()`, decremented by `on_task_finished()`.
-    active_count: usize,
+    /// The attempts that hold a queue slot right now (#1432). Each slot
+    /// belongs to one attempt number: `next_pending()` adds it and
+    /// `release_slot()` removes exactly that number, so no run can ever free
+    /// another run's slot. Never longer than `max_concurrent`.
+    active: Vec<u64>,
+    /// The next attempt number to give out (#1432). Starts at 1 and only
+    /// goes up, so a number is never reused while the app runs. Not saved:
+    /// no running attempt survives a restart.
+    next_attempt: u64,
     /// Maximum number of network retry attempts per download (default: 3).
     /// Each download starts with this many retries; decremented on network errors.
     max_network_retries: u32,
@@ -514,76 +677,88 @@ pub fn new_queue_handle() -> QueueHandle {
     Arc::new(Mutex::new(DownloadQueue::new()))
 }
 
-/// A guard that ensures one queue slot is released when the completion
-/// task finishes (#706).
+/// A guard that makes sure the queue slot one attempt holds is given back,
+/// however that attempt's work ends (#706, #1432).
 ///
-/// This uses a Rust pattern usually called "RAII" (the name comes from
-/// C++ and stands for "resource acquisition is initialisation", though
-/// the name matters far less than what it does): Rust runs a value's
-/// clean-up code automatically the moment that value goes out of scope
-/// — whether the surrounding code returns normally, returns early, or
-/// panics. So instead of every possible exit path having to remember to
-/// release the queue slot by hand, one of these guards is created when
-/// the slot is taken, and its `Drop` implementation (below) is Rust's
-/// guaranteed clean-up hook — it releases the slot no matter which way
-/// the task ends, including ways nobody explicitly coded for.
+/// Rust runs a value's clean-up code (its `Drop`) the moment the value goes
+/// out of scope -- on a normal return, an early return or a panic. One of
+/// these guards is made the moment `next_pending()` hands out a slot, and it
+/// travels with the attempt's work (the download task, then the tidying-up
+/// task, or the wait for a failed item's extra-format copies). Every normal
+/// way out releases the slot by hand first; the guard is the safety net for
+/// the ways nobody coded for, so a panic can never leave the queue stuck.
 ///
-/// **Why this exists.** The success path of the per-item download task
-/// used to call `q.on_task_finished()` immediately after primary GAMDL
-/// exited (line 6183 pre-#706), then spawn a separate completion task
-/// that awaited enrichment + companions. That early decrement freed
-/// the slot while the previous item was still in post-processing, so
-/// any subsequent `process_queue` invocation (user IPC, fallback
-/// retry, startup recovery) could start the next item in parallel —
-/// violating the strictly-serial contract of #455 and re-introducing
-/// the metadata cross-contamination risk that #452 / #455 were
-/// designed to prevent.
+/// **Why it is keyed by attempt (#1432).** It used to release "a" slot, so a
+/// guard dropped late -- after its attempt had already given the slot back
+/// and the next item had started -- freed the NEXT item's slot and let two
+/// downloads run at once. Now it releases only its own attempt's slot, which
+/// does nothing if that slot has already been given back. Dropping it twice,
+/// or after a hand release, is therefore harmless.
 ///
-/// **The fix.** The success-path call is moved into the completion
-/// task so the slot is held throughout post-processing. To make sure
-/// a panic, abort, or runtime shutdown inside the completion task
-/// cannot leak the slot (and stall the entire queue forever), the
-/// task takes ownership of one of these guards on entry. In the
-/// happy path the task calls [`ActiveSlotGuard::disarm`] alongside
-/// the explicit `q.on_task_finished()` so the `Drop` impl is a no-op;
-/// otherwise `Drop` fires a fire-and-forget `tokio::spawn` to release
-/// the slot asynchronously.
-///
-/// Construct exactly one of these per spawn of the completion task —
-/// double-construction would over-release.
+/// When it really does free a slot (nobody released it by hand), it also
+/// starts the queue again if it was given the app handle, so the next item
+/// is not left waiting for something else to start the queue.
 pub(crate) struct ActiveSlotGuard {
     /// `Some` while armed, `None` once `disarm` has run. `Drop`
     /// inspects this to decide whether to fire its release task.
     queue: Option<QueueHandle>,
+    /// The attempt whose slot this guard gives back.
+    attempt: Attempt,
+    /// Used to start the queue again after a release by the guard itself.
+    /// `None` in tests, which have no app.
+    app: Option<AppHandle>,
 }
 
 impl ActiveSlotGuard {
-    fn new(queue: QueueHandle) -> Self {
-        Self { queue: Some(queue) }
+    /// Makes an armed guard for `attempt`'s slot (no queue restart).
+    pub(crate) fn new(queue: QueueHandle, attempt: Attempt) -> Self {
+        Self {
+            queue: Some(queue),
+            attempt,
+            app: None,
+        }
     }
 
-    /// Disarms the guard. Call this from the completion task's happy
-    /// path immediately after the explicit `q.on_task_finished()`,
-    /// inside the same scope as the queue lock that performed the
-    /// release, so `Drop` becomes a no-op.
-    fn disarm(mut self) {
+    /// The same guard, but one that starts the queue again if it is the
+    /// guard that frees the slot.
+    pub(crate) fn with_app(mut self, app: AppHandle) -> Self {
+        self.app = Some(app);
+        self
+    }
+
+    /// Disarms the guard after the slot was released by hand, so `Drop`
+    /// does not even start its (harmless) release task.
+    pub(crate) fn disarm(mut self) {
         self.queue = None;
     }
 }
 
 impl Drop for ActiveSlotGuard {
+    /// Gives back this attempt's slot if it is still held, and if it was,
+    /// starts the queue again. `Drop` cannot wait, so this runs as a small
+    /// background task; with no runtime (the app shutting down) there is
+    /// nothing left to keep in step, so it does nothing.
     fn drop(&mut self) {
         let Some(queue) = self.queue.take() else {
-            return; // disarmed by happy-path
+            return; // disarmed after a release by hand
         };
-        // `Drop` is synchronous; we cannot `.await` here. A
-        // fire-and-forget release task acquires the lock and
-        // decrements `active_count`. If the runtime is shutting
-        // down the spawn may never run, but at that point the
-        // queue accounting no longer matters.
-        tokio::spawn(async move {
-            let mut q = queue.lock().await;
-            q.on_task_finished();
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        let attempt = self.attempt.clone();
+        let app = self.app.take();
+        runtime.spawn(async move {
+            let freed = queue.lock().await.release_slot(&attempt);
+            if freed {
+                log::debug!(
+                    "Queue slot of download {} (attempt {}) given back by its guard",
+                    attempt.id,
+                    attempt.number
+                );
+                if let Some(app) = app {
+                    process_queue(app, queue).await;
+                }
+            }
         });
     }
 }
@@ -601,7 +776,8 @@ impl DownloadQueue {
         Self {
             items: VecDeque::new(),
             max_concurrent: 1,
-            active_count: 0,
+            active: Vec::new(),
+            next_attempt: 1,
             max_network_retries: 3,
             gamdl_version: None,
             last_preflight_at: None,
@@ -711,6 +887,9 @@ impl DownloadQueue {
             storefront_fallback_attempted: false,
             added_template_suffixes: Vec::new(),
             reported_paths: Vec::new(),
+            // A fresh attempt number for a new item (#1432).
+            attempt: take_attempt_number(&mut self.next_attempt),
+            stalled_attempt: None,
         };
 
         log::info!(
@@ -876,6 +1055,9 @@ impl DownloadQueue {
             match item.status.state {
                 DownloadState::Queued => {
                     item.status.state = DownloadState::Cancelled;
+                    // A new attempt number, so nothing from the cancelled
+                    // run can act on the item any more (#1432).
+                    retire_running_attempt(item, &mut self.next_attempt);
                     // #895: evict counter on terminal transition.
                     crate::utils::activity_log::evict_activity_counter(download_id);
                     log::info!("Download {download_id} cancelled (was queued)");
@@ -883,8 +1065,10 @@ impl DownloadQueue {
                 }
                 DownloadState::Downloading | DownloadState::Processing => {
                     item.status.state = DownloadState::Cancelled;
-                    // The active_count will be decremented when the running task
-                    // detects the cancellation and stops
+                    // Retire the running attempt at once (#1432): its run
+                    // sees the number change within a quarter of a second,
+                    // stops, and gives back its own slot (only its own).
+                    retire_running_attempt(item, &mut self.next_attempt);
                     // #895: evict counter on terminal transition.
                     crate::utils::activity_log::evict_activity_counter(download_id);
                     log::info!("Download {download_id} marked for cancellation");
@@ -1028,16 +1212,20 @@ impl DownloadQueue {
             match item.status.state {
                 DownloadState::Queued => {
                     item.status.state = DownloadState::Cancelled;
+                    // Same as `cancel`: retire the attempt (#1432).
+                    retire_running_attempt(item, &mut self.next_attempt);
                     summary.queued_cancelled += 1;
                     ids_to_evict.push(item.status.id.clone());
                 }
                 DownloadState::Downloading => {
                     item.status.state = DownloadState::Cancelled;
+                    retire_running_attempt(item, &mut self.next_attempt);
                     summary.downloading_stopped += 1;
                     ids_to_evict.push(item.status.id.clone());
                 }
                 DownloadState::Processing => {
                     item.status.state = DownloadState::Cancelled;
+                    retire_running_attempt(item, &mut self.next_attempt);
                     summary.processing_stopped += 1;
                     ids_to_evict.push(item.status.id.clone());
                 }
@@ -1139,8 +1327,9 @@ impl DownloadQueue {
         self.paused
     }
 
-    /// Updates the state of a queue item.
-    /// Used by the download task to report progress.
+    /// Sets an item's state directly. Tests only (#1432): the app itself
+    /// changes a state only through the attempt-checked methods below.
+    #[cfg(test)]
     pub fn update_item_state(&mut self, download_id: &str, state: DownloadState) {
         if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
             item.status.state = state;
@@ -1158,8 +1347,23 @@ impl DownloadQueue {
     /// - `ProcessingStep`: Transitions state to Processing (e.g., remuxing, tagging)
     /// - Complete: Sets output path and 100% progress
     /// - Error: Records the error message for display
-    pub fn update_item_progress(&mut self, download_id: &str, event: &process::GamdlOutputEvent) {
-        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+    ///
+    /// Only the attempt that owns the item can change it (#1432): output
+    /// from an earlier run of the same item, or from a run the stall check
+    /// already marked failed, is ignored. A progress line also never moves
+    /// an item out of Cancelled, Error or Complete -- before, a line landing
+    /// just after Cancel turned the item back into "Downloading", and the
+    /// run then never noticed it had been cancelled.
+    pub(crate) fn update_item_progress(
+        &mut self,
+        attempt: &Attempt,
+        event: &process::GamdlOutputEvent,
+    ) {
+        if let Some(item) = find_owned(&mut self.items, attempt) {
+            let may_change_state = !matches!(
+                item.status.state,
+                DownloadState::Cancelled | DownloadState::Error | DownloadState::Complete
+            );
             match event {
                 process::GamdlOutputEvent::DownloadProgress {
                     percent,
@@ -1170,7 +1374,9 @@ impl DownloadQueue {
                     item.status.progress = *percent;
                     item.status.speed = Some(speed.clone());
                     item.status.eta = Some(eta.clone());
-                    item.status.state = DownloadState::Downloading;
+                    if may_change_state {
+                        item.status.state = DownloadState::Downloading;
+                    }
                 }
                 process::GamdlOutputEvent::TrackInfo {
                     title,
@@ -1202,7 +1408,9 @@ impl DownloadQueue {
                 process::GamdlOutputEvent::ProcessingStep { .. } => {
                     // Processing state covers post-download steps like remuxing,
                     // metadata tagging, and cover art embedding
-                    item.status.state = DownloadState::Processing;
+                    if may_change_state {
+                        item.status.state = DownloadState::Processing;
+                    }
                 }
                 process::GamdlOutputEvent::Complete { path } => {
                     // Set the output file/directory path for the "Open" button in the UI
@@ -1244,8 +1452,9 @@ impl DownloadQueue {
     /// Forgets the paths reported so far: called where a main download
     /// attempt starts. Not called before the gap-fill run, which belongs to
     /// the same download, so the two runs' lists add up.
-    pub fn begin_run(&mut self, download_id: &str) {
-        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+    /// Does nothing for an attempt that no longer owns the item (#1432).
+    pub(crate) fn begin_run(&mut self, attempt: &Attempt) {
+        if let Some(item) = find_owned(&mut self.items, attempt) {
             item.reported_paths.clear();
         }
     }
@@ -1265,8 +1474,13 @@ impl DownloadQueue {
     /// failure only on `true`, so one download is never announced twice --
     /// for instance after the stall watchdog failed it and the run then
     /// errored as well.
-    pub fn set_error(&mut self, download_id: &str, error: &str) -> bool {
-        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+    ///
+    /// Only the attempt that owns the item can fail it (#1432): an earlier
+    /// run of a retried item, or a run the stall check already marked
+    /// failed, gets `false` and changes nothing.
+    pub(crate) fn set_error(&mut self, attempt: &Attempt, error: &str) -> bool {
+        let download_id = attempt.id.as_str();
+        if let Some(item) = find_owned(&mut self.items, attempt) {
             if matches!(
                 item.status.state,
                 DownloadState::Cancelled | DownloadState::Complete
@@ -1291,16 +1505,31 @@ impl DownloadQueue {
 
     /// Marks a download as in post-processing (enrichment, companions, etc.).
     /// The item stays in this state until all background tasks finish.
-    pub fn set_processing(&mut self, download_id: &str) {
-        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
-            item.status.state = DownloadState::Processing;
+    ///
+    /// Returns whether it did (#1432). Only the attempt that owns the item,
+    /// and only from Downloading (or Processing, which changes nothing):
+    /// before, this moved a failed, waiting or cancelled item to Processing,
+    /// which is how an old run brought a retried item back to life.
+    pub(crate) fn set_processing(&mut self, attempt: &Attempt) -> bool {
+        match find_owned(&mut self.items, attempt) {
+            Some(item) if is_running_state(&item.status.state) => {
+                item.status.state = DownloadState::Processing;
+                true
+            }
+            _ => false,
         }
     }
 
     /// Updates the processing label for a download item.
     /// Shows what's currently happening during Processing state.
+    /// Only while the item is downloading or tidying up (#1432), so a late
+    /// caption cannot appear on a failed, cancelled or finished row.
     pub fn set_processing_label(&mut self, download_id: &str, label: &str) {
-        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+        if let Some(item) = self
+            .items
+            .iter_mut()
+            .find(|i| i.status.id == download_id && is_running_state(&i.status.state))
+        {
             item.status.processing_label = Some(label.to_string());
         }
     }
@@ -1314,8 +1543,14 @@ impl DownloadQueue {
     /// the aggregate bar advancing through the enrichment phase rather
     /// than sitting on a fixed "partial credit" value for 20+ minutes
     /// on large box sets.
+    ///
+    /// Only while the item is downloading or tidying up (#1432).
     pub fn set_processing_progress(&mut self, download_id: &str, progress: f32) {
-        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+        if let Some(item) = self
+            .items
+            .iter_mut()
+            .find(|i| i.status.id == download_id && is_running_state(&i.status.state))
+        {
             item.status.processing_progress = Some(progress.clamp(0.0, 1.0));
         }
     }
@@ -1344,8 +1579,13 @@ impl DownloadQueue {
     /// Returns whether the item has only NOW become complete (#1431):
     /// `false` when it is unknown, failed, cancelled or already complete.
     /// Callers announce and count a finished download only on `true`.
-    pub fn set_complete(&mut self, download_id: &str) -> bool {
-        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+    ///
+    /// Only the attempt that owns the item can finish it (#1432): an
+    /// earlier run of a retried item, or a run the stall check already
+    /// marked failed, gets `false` and changes nothing.
+    pub(crate) fn set_complete(&mut self, attempt: &Attempt) -> bool {
+        let download_id = attempt.id.as_str();
+        if let Some(item) = find_owned(&mut self.items, attempt) {
             if matches!(
                 item.status.state,
                 DownloadState::Error | DownloadState::Cancelled
@@ -1375,8 +1615,9 @@ impl DownloadQueue {
     /// Appends non-fatal warnings to a download item. These are displayed
     /// in the queue UI as amber text below the URL, indicating that the
     /// download succeeded but encountered issues during the run.
-    pub fn add_warnings(&mut self, download_id: &str, warnings: &[String]) {
-        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+    /// Only for the attempt that owns the item (#1432).
+    pub(crate) fn add_warnings(&mut self, attempt: &Attempt, warnings: &[String]) {
+        if let Some(item) = find_owned(&mut self.items, attempt) {
             item.status.warnings.extend(warnings.iter().cloned());
         }
     }
@@ -1397,12 +1638,17 @@ impl DownloadQueue {
     /// attempted. `fallback_index` is 1-indexed (first fallback = 1, since
     /// index 0 is the initial codec). `chain_len` is the total length of the
     /// fallback chain. Returns `None` if all fallbacks are exhausted.
-    pub fn try_fallback(
+    ///
+    /// Only the attempt that owns the item can re-queue it (#1432); when it
+    /// does, the item gets a new attempt number, so this run (and anything
+    /// left over from it) can no longer change it.
+    pub(crate) fn try_fallback(
         &mut self,
-        download_id: &str,
+        attempt: &Attempt,
         settings: &AppSettings,
     ) -> Option<(GamdlOptions, usize, usize)> {
-        let item = self.items.iter_mut().find(|i| i.status.id == download_id)?;
+        let download_id = attempt.id.as_str();
+        let item = find_owned(&mut self.items, attempt)?;
 
         // Only attempt fallback if the user has enabled it in settings
         if !settings.fallback_enabled {
@@ -1469,8 +1715,10 @@ impl DownloadQueue {
             // Update tracking info for the frontend to display
             item.status.codec_used = Some(next_codec.to_cli_string().to_string());
             item.status.fallback_occurred = true;
-            // Reset the item to Queued so process_queue() will start it again
+            // Reset the item to Queued so process_queue() will start it again,
+            // under a new attempt number (#1432).
             item.status.state = DownloadState::Queued;
+            retire_running_attempt(item, &mut self.next_attempt);
             item.status.error = None;
             item.status.progress = 0.0;
             item.merged_options = new_options.clone();
@@ -1493,6 +1741,22 @@ impl DownloadQueue {
         }
     }
 
+    /// The per-format retry as one step (#1432 part 2): re-queues the item
+    /// in the next format of the fallback chain and, only if it did, gives
+    /// back this attempt's slot. When no format is left (or format fallback
+    /// is off), nothing at all changes -- the item keeps its state and the
+    /// attempt keeps its slot, so carrying on with the files that did land
+    /// cannot let the next item start alongside it.
+    pub(crate) fn per_format_retry(
+        &mut self,
+        attempt: &Attempt,
+        settings: &AppSettings,
+    ) -> Option<(GamdlOptions, usize, usize)> {
+        let next = self.try_fallback(attempt, settings)?;
+        self.release_slot(attempt);
+        Some(next)
+    }
+
     /// Attempts to fall back to the next engine in the platform's engine chain.
     ///
     /// When the primary engine fails with a **tool error** (binary missing,
@@ -1506,8 +1770,11 @@ impl DownloadQueue {
     /// `Some((engine_id, fallback_index, chain_len))` if another engine is
     /// available. Returns `None` if all engines have been tried or the
     /// platform has no fallback engines.
-    pub fn try_engine_fallback(&mut self, download_id: &str) -> Option<(String, usize, usize)> {
-        let item = self.items.iter_mut().find(|i| i.status.id == download_id)?;
+    ///
+    /// Only the attempt that owns the item can re-queue it (#1432).
+    pub fn try_engine_fallback(&mut self, attempt: &Attempt) -> Option<(String, usize, usize)> {
+        let download_id = attempt.id.as_str();
+        let item = find_owned(&mut self.items, attempt)?;
 
         // Resolve the engine chain for this item's service
         let service_id = item.status.service.as_deref()?;
@@ -1528,8 +1795,10 @@ impl DownloadQueue {
 
             // Update the queue item's engine field
             item.status.engine = Some(next_engine_id.clone());
-            // Reset the item to Queued so process_queue() will start it again
+            // Reset the item to Queued so process_queue() will start it again,
+            // under a new attempt number (#1432).
             item.status.state = DownloadState::Queued;
+            retire_running_attempt(item, &mut self.next_attempt);
             item.status.error = None;
             item.status.progress = 0.0;
 
@@ -1556,12 +1825,17 @@ impl DownloadQueue {
     /// (initial + retries). For example, with `max_network_retries = 3`,
     /// total = 4 and attempts are 2, 3, 4 (attempt 1 was the initial try).
     /// Returns `None` if retries are exhausted or the item doesn't exist.
-    pub fn try_network_retry(&mut self, download_id: &str) -> Option<(u32, u32)> {
+    ///
+    /// Only the attempt that owns the item can re-queue it (#1432); the
+    /// re-queued item gets a new attempt number.
+    pub(crate) fn try_network_retry(&mut self, attempt: &Attempt) -> Option<(u32, u32)> {
+        let download_id = attempt.id.as_str();
         let max = self.max_network_retries;
-        if let Some(item) = self.items.iter_mut().find(|i| i.status.id == download_id) {
+        if let Some(item) = find_owned(&mut self.items, attempt) {
             if item.network_retries_left > 0 {
                 item.network_retries_left -= 1;
                 item.status.state = DownloadState::Queued;
+                retire_running_attempt(item, &mut self.next_attempt);
                 item.status.error = None;
                 item.status.progress = 0.0;
                 // Total attempts = initial try + max retries.
@@ -1605,15 +1879,19 @@ impl DownloadQueue {
     ///
     /// Budget is reset to fresh by [`Self::retry`], so a manual user retry
     /// from the UI gets to try the rewrite again.
-    pub fn try_storefront_fallback(
+    ///
+    /// Only the attempt that owns the item can re-queue it (#1432); the
+    /// re-queued item gets a new attempt number.
+    pub(crate) fn try_storefront_fallback(
         &mut self,
-        download_id: &str,
+        attempt: &Attempt,
         settings: &AppSettings,
     ) -> Option<(String, String)> {
+        let download_id = attempt.id.as_str();
         if !settings.storefront_fallback_on_failure {
             return None;
         }
-        let item = self.items.iter_mut().find(|i| i.status.id == download_id)?;
+        let item = find_owned(&mut self.items, attempt)?;
         if item.storefront_fallback_attempted {
             return None;
         }
@@ -1668,6 +1946,7 @@ impl DownloadQueue {
         item.request.urls = new_urls;
         item.storefront_fallback_attempted = true;
         item.status.state = DownloadState::Queued;
+        retire_running_attempt(item, &mut self.next_attempt);
         item.status.error = None;
         item.status.progress = 0.0;
 
@@ -1843,17 +2122,15 @@ impl DownloadQueue {
         true
     }
 
-    /// Gets the next queued item's download ID and options for execution.
+    /// Starts the next queued item, if a slot is free (the "scheduler").
     ///
-    /// This is the "scheduler" — it decides whether a new download can start.
-    /// Returns None if:
-    /// - No items are in the Queued state
-    /// - The max concurrent limit has been reached
-    ///
-    /// When an item is selected, it transitions from Queued -> Downloading
-    /// and the active count is incremented. The caller (`process_queue`) must
-    /// eventually call `on_task_finished()` when the download completes.
-    pub fn next_pending(&mut self) -> Option<(String, Vec<String>, GamdlOptions, Option<String>)> {
+    /// Returns `None` when the queue is paused, every slot is taken, or
+    /// nothing is waiting. Otherwise the first waiting item moves to
+    /// Downloading under a NEW attempt number, and that number takes a slot
+    /// (#1432). The caller must make sure the slot is given back with
+    /// [`Self::release_slot`] for that attempt -- an [`ActiveSlotGuard`]
+    /// does it if nothing else does.
+    pub(crate) fn next_pending(&mut self) -> Option<StartedAttempt> {
         // #889 — Non-destructive pause. When the user has explicitly
         // paused the queue, refuse to start any new item. Items
         // currently in `Downloading` / `Processing` state are
@@ -1865,7 +2142,7 @@ impl DownloadQueue {
         }
 
         // Check if we're at the concurrent download limit
-        if self.active_count >= self.max_concurrent {
+        if self.active.len() >= self.max_concurrent {
             return None;
         }
 
@@ -1874,9 +2151,15 @@ impl DownloadQueue {
             .items
             .iter_mut()
             .find(|i| i.status.state == DownloadState::Queued)?;
-        // Transition to Downloading and increment active count
+        // Transition to Downloading under a new attempt number, which takes
+        // the slot (#1432).
         item.status.state = DownloadState::Downloading;
-        self.active_count += 1;
+        retire_running_attempt(item, &mut self.next_attempt);
+        let attempt = Attempt {
+            id: item.status.id.clone(),
+            number: item.attempt,
+        };
+        self.active.push(attempt.number);
         // Record that the queue has genuinely done something, so the
         // after-queue action fires on a real drain and not merely because the
         // queue was asked to start with nothing in it (#1169).
@@ -1884,30 +2167,201 @@ impl DownloadQueue {
 
         // Return the data needed to start the download, including the
         // detected service ID for service-aware routing (#318).
-        Some((
-            item.status.id.clone(),
-            item.status.urls.clone(),
-            item.merged_options.clone(),
-            item.status.service.clone(),
-        ))
+        Some(StartedAttempt {
+            attempt,
+            urls: item.status.urls.clone(),
+            options: item.merged_options.clone(),
+            service: item.status.service.clone(),
+        })
     }
 
-    /// Called when a download task finishes (success, error, or cancel).
-    /// Decrements the active count so new downloads can start.
-    /// This must be called exactly once per `next_pending()` call to keep
-    /// the `active_count` accurate. The guard `if self.active_count > 0`
-    /// prevents underflow in edge cases.
-    pub const fn on_task_finished(&mut self) {
-        if self.active_count > 0 {
-            self.active_count -= 1;
+    /// Gives back the slot held by `attempt`, and only that slot (#1432).
+    ///
+    /// Returns whether a slot was actually freed. Calling it again for the
+    /// same attempt, or for an attempt whose slot the stall check already
+    /// gave back, does nothing -- so a late or repeated release can never
+    /// free the slot of the item that started next. (The old version just
+    /// took one off a counter, whoever was holding the slot.)
+    pub(crate) fn release_slot(&mut self, attempt: &Attempt) -> bool {
+        self.release_slot_number(attempt.number)
+    }
+
+    /// [`Self::release_slot`] by number alone, for the stall check's sweep
+    /// of slots held by attempts that have since been replaced.
+    fn release_slot_number(&mut self, number: u64) -> bool {
+        if let Some(pos) = self.active.iter().position(|n| *n == number) {
+            self.active.remove(pos);
+            true
+        } else {
+            false
         }
+    }
+
+    /// How many slots are held right now.
+    #[must_use]
+    pub fn active_len(&self) -> usize {
+        self.active.len()
+    }
+
+    /// Slots held by attempts that are no longer the current attempt of
+    /// any item (#1432): the item was cancelled, retried or removed while
+    /// the old run still held its slot. The old run normally gives the slot
+    /// back within seconds; the stall check frees any that it never does.
+    pub(crate) fn orphaned_slots(&self) -> Vec<u64> {
+        self.active
+            .iter()
+            .copied()
+            .filter(|n| !self.items.iter().any(|i| i.attempt == *n))
+            .collect()
+    }
+
+    /// Frees a slot found by [`Self::orphaned_slots`], but only if it is
+    /// still orphaned at this moment. Returns whether it freed one.
+    pub(crate) fn release_orphaned_slot(&mut self, number: u64) -> bool {
+        if self.items.iter().any(|i| i.attempt == number) {
+            return false;
+        }
+        self.release_slot_number(number)
+    }
+
+    /// The attempt that may change `download_id` right now. Tests only; the
+    /// app gets its attempts from `next_pending`.
+    #[cfg(test)]
+    pub(crate) fn attempt_of(&self, download_id: &str) -> Attempt {
+        Attempt {
+            id: download_id.to_string(),
+            number: self
+                .items
+                .iter()
+                .find(|i| i.status.id == download_id)
+                .map_or(0, |i| i.attempt),
+        }
+    }
+
+    /// Should the work of this attempt carry on (#1432)?
+    ///
+    /// `true` while the item is still on this attempt's number and has not
+    /// been cancelled. `false` once it has been cancelled, put back in the
+    /// queue (retried or re-queued), or removed -- the run must then stop
+    /// (a running GAMDL is killed within a quarter of a second).
+    ///
+    /// Deliberately still `true` after the stall check marked this attempt
+    /// failed: the stall check does not stop the run (maintainer decision,
+    /// 17 Nov 2026), it only stops the run from changing the item.
+    #[must_use]
+    pub(crate) fn should_keep_running(&self, attempt: &Attempt) -> bool {
+        self.items.iter().any(|i| {
+            i.status.id == attempt.id
+                && i.attempt == attempt.number
+                && i.status.state != DownloadState::Cancelled
+        })
+    }
+
+    /// Has the item ended from outside this attempt (#1432)? `None` while
+    /// the attempt still owns it -- whatever its state, so an Error this
+    /// attempt set itself is never mistaken for someone else's.
+    #[must_use]
+    pub(crate) fn ended_outside(&self, attempt: &Attempt) -> Option<EndedOutside> {
+        let Some(item) = self.items.iter().find(|i| i.status.id == attempt.id) else {
+            return Some(EndedOutside::Removed);
+        };
+        if item.attempt != attempt.number {
+            return Some(if item.status.state == DownloadState::Cancelled {
+                EndedOutside::Cancelled
+            } else {
+                EndedOutside::Replaced
+            });
+        }
+        if item.stalled_attempt == Some(attempt.number) {
+            return Some(EndedOutside::StoppedAsStuck);
+        }
+        if item.status.state == DownloadState::Cancelled {
+            return Some(EndedOutside::Cancelled);
+        }
+        None
+    }
+
+    /// The stall check's one action (#1432): marks `attempt` failed and
+    /// gives back its slot, in one step under the lock.
+    ///
+    /// Only if that attempt still owns the item and the item is still
+    /// downloading or tidying up -- so it can never fail a later attempt of
+    /// the same item, an item that finished just before, or one that was
+    /// cancelled. Returns whether it did; only then is anything released.
+    ///
+    /// The run itself is left going (maintainer decision, 17 Nov 2026). It
+    /// can no longer change the item; if it finishes after all, it queues
+    /// the item again once ([`Self::retry_after_late_finish`]).
+    pub(crate) fn fail_stalled_attempt(&mut self, attempt: &Attempt, error: &str) -> bool {
+        let Some(item) = find_owned(&mut self.items, attempt) else {
+            return false;
+        };
+        if !is_running_state(&item.status.state) {
+            return false;
+        }
+        item.status.state = DownloadState::Error;
+        item.status.error = Some(error.to_string());
+        item.stalled_attempt = Some(attempt.number);
+        crate::utils::activity_log::evict_activity_counter(&attempt.id);
+        self.release_slot(attempt);
+        true
+    }
+
+    /// The items being downloaded or tidied up right now, each with the
+    /// attempt running it (#1432). Used by the stall check, so its timers
+    /// belong to one attempt and a retried item starts a fresh one.
+    pub(crate) fn running_attempts(&self) -> Vec<(Attempt, QueueItemStatus)> {
+        self.items
+            .iter()
+            .filter(|i| is_running_state(&i.status.state))
+            .map(|i| {
+                (
+                    Attempt {
+                        id: i.status.id.clone(),
+                        number: i.attempt,
+                    },
+                    i.status.clone(),
+                )
+            })
+            .collect()
+    }
+
+    /// Queues an item again, once, when a run the stall check marked failed
+    /// finishes after all (#1432, maintainer decision 17 Nov 2026).
+    ///
+    /// Only while that same run is still the item's latest attempt and the
+    /// item is still in the Error state the stall check set -- so never
+    /// after the person retried or removed it. The whole link is fetched
+    /// again (no narrowing to missing songs), so the tidying-up runs over
+    /// every file; files already there are kept unless the person has
+    /// "Overwrite Existing Files" on. Returns whether it queued the item.
+    pub(crate) fn retry_after_late_finish(
+        &mut self,
+        attempt: &Attempt,
+        settings: &AppSettings,
+    ) -> bool {
+        let max = self.max_network_retries;
+        let Some(item) = self.items.iter_mut().find(|i| {
+            i.status.id == attempt.id
+                && i.attempt == attempt.number
+                && i.stalled_attempt == Some(attempt.number)
+                && i.status.state == DownloadState::Error
+        }) else {
+            return false;
+        };
+        reset_for_fresh_run(item, settings, max, &mut self.next_attempt);
+        log::info!(
+            "Download {} queued again after its stalled run finished",
+            attempt.id
+        );
+        true
     }
 
     /// Returns true when the queue has no active or pending downloads.
     /// Used to trigger after-queue actions.
     #[must_use]
     pub fn is_idle(&self) -> bool {
-        self.active_count == 0
+        self.active.is_empty()
             && !self
                 .items
                 .iter()
@@ -2031,35 +2485,15 @@ impl DownloadQueue {
                     return false;
                 }
 
-                // Re-merge options from the original request with current settings.
-                // This picks up any settings changes the user made since the original attempt.
-                // Work the service out from the link again rather than reading
-                // the stored text back. Same call the queue made when this item
-                // was first added, so the two can never disagree, and it needs
-                // no reverse lookup from the stored form (#829).
-                // Fresh options: nothing MeedyaDL added is left in them.
-                item.added_template_suffixes.clear();
-                item.merged_options = merge_options(
-                    item.request.options.as_ref(),
+                // Fresh options, counters and status, under a new attempt
+                // number so nothing from the earlier run can act on the
+                // item any more (#1432).
+                reset_for_fresh_run(
+                    item,
                     settings,
-                    item.request
-                        .urls
-                        .first()
-                        .and_then(|u| crate::models::media_service::MediaServiceId::from_url(u)),
+                    self.max_network_retries,
+                    &mut self.next_attempt,
                 );
-                // Reset fallback and retry counters to their initial values
-                item.fallback_index = 0;
-                item.network_retries_left = self.max_network_retries;
-                // Reset the storefront-fallback budget too (#666) — a manual
-                // retry from the UI is a fresh user intent and should be
-                // allowed to try the rewrite once again, even if the previous
-                // automatic fallback already exhausted its single attempt.
-                item.storefront_fallback_attempted = false;
-                // Clear the cached MV-companion count (#776) so the next
-                // attempt's enrichment task re-discovers it from a fresh
-                // API call. Stale counts from a previous attempt could
-                // mis-size the companion-wait deadline.
-                item.status.mv_companion_count = None;
 
                 // Apply the smart-retry plan if one was produced. The plan
                 // narrows the URL set to per-track entries that GAMDL can
@@ -2077,16 +2511,6 @@ impl DownloadQueue {
                     item.request.urls = plan.urls_to_fetch.clone();
                     item.status.urls = plan.urls_to_fetch;
                 }
-                // Reset status fields for a fresh start
-                item.status.state = DownloadState::Queued;
-                item.status.error = None;
-                item.status.progress = 0.0;
-                item.status.fallback_occurred = false;
-                item.status.used_wrapper = item.merged_options.use_wrapper.unwrap_or(false);
-                item.status.codec_used = Some(item.merged_options.song_codec.as_ref().map_or_else(
-                    || settings.default_song_codec.to_cli_string().to_string(),
-                    |c| c.to_cli_string().to_string(),
-                ));
                 log::info!("Download {download_id} reset for retry");
                 return true;
             }
@@ -2148,11 +2572,29 @@ impl DownloadQueue {
                     || settings.default_song_codec.to_cli_string().to_string(),
                     |c| c.to_cli_string().to_string(),
                 ));
+                // A new attempt number (#1432): the run that failed can no
+                // longer change the re-queued item.
+                retire_running_attempt(item, &mut self.next_attempt);
                 log::info!("Download {download_id} reset for retry without wrapper");
                 return true;
             }
         }
         false
+    }
+
+    /// The automatic form of [`Self::retry_without_wrapper`], used by a run
+    /// that has just failed (#1432). It only acts while that run still owns
+    /// the item, so it can never re-queue an item the person has since
+    /// retried, cancelled or removed, or one the stall check marked failed.
+    pub(crate) fn retry_without_wrapper_auto(
+        &mut self,
+        attempt: &Attempt,
+        settings: &AppSettings,
+    ) -> bool {
+        if find_owned(&mut self.items, attempt).is_none() {
+            return false;
+        }
+        self.retry_without_wrapper(&attempt.id, settings)
     }
 
     // ==========================================================
@@ -2184,7 +2626,7 @@ impl DownloadQueue {
             // Anything at all in flight. The watcher must never start work
             // while something is running — that is the rule the whole queue
             // is built on.
-            active: self.active_count > 0,
+            active: !self.active.is_empty(),
             paused: self.paused,
             // Used to decide which service to check is reachable. The first
             // waiting item is the one that would start.
@@ -2351,6 +2793,9 @@ impl DownloadQueue {
                 storefront_fallback_attempted: false,
                 added_template_suffixes: Vec::new(),
                 reported_paths: Vec::new(),
+                // A fresh attempt number for a restored item (#1432).
+                attempt: take_attempt_number(&mut self.next_attempt),
+                stalled_attempt: None,
             };
             self.items.push_back(item);
         }

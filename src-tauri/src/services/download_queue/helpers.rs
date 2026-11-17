@@ -106,81 +106,203 @@ pub(crate) fn format_content_label(status: &QueueItemStatus) -> String {
         .unwrap_or_else(|| "unknown content".to_string())
 }
 
-/// How an item ended while its GAMDL run was still going (#1431).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum EndedOutside {
-    /// The stall watchdog marked it failed (and has already announced,
-    /// counted it and released its slot).
-    FailedByWatchdog,
-    /// The person cancelled it (the run, not `cancel()`, releases the slot).
-    Cancelled,
-}
-
-/// Whether an item had already ended, from outside the current attempt,
-/// by the time its GAMDL run returned. Read in the first lock after the run,
-/// before this attempt has changed the state itself: during a run the state
-/// is Downloading or Processing, so Error can only have come from the stall
-/// watchdog and Cancelled only from the person. Such an item is left as it
-/// is -- not retried, not moved back to Processing, not announced again.
-pub(crate) fn ended_outside_this_attempt(state: &DownloadState) -> Option<EndedOutside> {
-    match state {
-        DownloadState::Error => Some(EndedOutside::FailedByWatchdog),
-        DownloadState::Cancelled => Some(EndedOutside::Cancelled),
-        _ => None,
-    }
-}
-
-/// The one check used wherever the exit-0 branch holds (or re-takes) the
-/// queue lock (#1431): has the item ended from outside this attempt?
+/// The one check an attempt runs whenever it takes the queue lock again
+/// after doing some work, before it changes the item (#1431, #1432): has
+/// the item ended from outside this attempt?
 ///
 /// `Some` means the caller must leave the item as it is: drop the lock,
-/// call [`finish_ended_outside`] and return. This also releases the slot,
-/// but only for a cancel -- the stall watchdog has already released it,
-/// and releasing it twice would let two downloads run at once.
+/// call [`finish_ended_outside`] and return. It also gives back this
+/// attempt's own slot -- and only that one, so it can never free the slot
+/// of the item that started next (the stall check has usually given it
+/// back already, in which case this does nothing).
 ///
-/// `error_set_by_this_attempt`: the per-format retry route sets Error
-/// itself before trying the next format; that Error is this attempt's own,
-/// not the watchdog's, so it is ignored here.
+/// The answer is by attempt number, not by state, so an Error this attempt
+/// set itself is never mistaken for the stall check's.
 pub(crate) fn stop_if_ended_outside(
     q: &mut DownloadQueue,
-    dl_id: &str,
-    error_set_by_this_attempt: bool,
+    attempt: &Attempt,
 ) -> Option<EndedOutside> {
-    let state = q
-        .items
-        .iter()
-        .find(|i| i.status.id == dl_id)
-        .map(|i| i.status.state.clone())?;
-    let ended = ended_outside_this_attempt(&state)?;
-    if ended == EndedOutside::FailedByWatchdog && error_set_by_this_attempt {
-        return None;
-    }
-    if ended == EndedOutside::Cancelled {
-        q.on_task_finished();
-    }
+    let ended = q.ended_outside(attempt)?;
+    q.release_slot(attempt);
     Some(ended)
 }
 
 /// The rest of leaving an item that ended from outside this attempt: log
 /// it, save the queue and move it on. Call after [`stop_if_ended_outside`]
 /// returned `Some`, with the lock dropped, then return.
+///
+/// `finished`: this attempt's run has just finished its work (GAMDL ended
+/// cleanly, or the tidying-up reached its end). If the stall check had
+/// marked this very attempt failed, the person is told in one plain line
+/// that the files are there but were not tidied up, and the item is
+/// queued again once so the tidying-up runs (maintainer decision, 17 Nov
+/// 2026). Nothing is queued if the person has since retried or removed it.
 pub(crate) async fn finish_ended_outside(
     app: &AppHandle,
     queue: &QueueHandle,
-    dl_id: &str,
+    attempt: &Attempt,
     ended: EndedOutside,
+    finished: bool,
 ) {
-    log::info!("Download {dl_id} had already ended ({ended:?}) — leaving it as it is");
+    let dl_id = attempt.id.as_str();
+    log::info!(
+        "Download {dl_id} (attempt {}) had already ended ({ended:?}) — leaving it as it is",
+        attempt.number
+    );
+    if ended == EndedOutside::StoppedAsStuck && finished {
+        let settings = load_settings_for_queue(app);
+        let queued_again = queue
+            .lock()
+            .await
+            .retry_after_late_finish(attempt, &settings);
+        if queued_again {
+            emit_download_log(app, dl_id, LATE_FINISH_LINE);
+            let _ = app.emit("download-queued", dl_id);
+        }
+    }
     save_queue_to_disk(app, queue).await;
     process_queue(app.clone(), queue.clone()).await;
 }
 
-/// Whether a "no output" failure is new for this attempt (#1431): either
-/// the state changed to Error just now, or this attempt had already set it
-/// earlier (the per-format retry route sets Error before trying the next
-/// format, and when none is left the later `set_error` changes nothing).
-pub(crate) fn is_new_failure(failed_earlier_in_this_attempt: bool, changed_now: bool) -> bool {
-    failed_earlier_in_this_attempt || changed_now
+/// What the activity log says when a download that was marked failed as
+/// stuck finishes after all (#1432). Plain words: what happened, where the
+/// files are, and what MeedyaDL is doing about it.
+pub(crate) const LATE_FINISH_LINE: &str =
+    "This download had been marked as stuck, but it finished \
+     after all. Its files are on disk, but they were not tidied up (tags, lyrics and file names), \
+     so it has been queued again to finish the job. Files already there are kept unless \
+     \"Overwrite Existing Files\" is on.";
+
+/// How often a long wait checks whether its attempt should still run
+/// (#1432). Two seconds: quick enough that a cancelled or retried item does
+/// not keep the queue waiting, cheap enough to ignore.
+pub(crate) const ATTEMPT_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How a wait on an attempt's background work ended (#1432).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AttemptWait {
+    /// The work finished.
+    Done,
+    /// The time limit passed first.
+    TimedOut,
+    /// The item was cancelled, retried or removed while waiting, so this
+    /// attempt should stop its work now.
+    Replaced,
+}
+
+/// Waits for an attempt's background work (`work`) for at most `limit`,
+/// looking every [`ATTEMPT_CHECK_INTERVAL`] at whether the attempt should
+/// still run (#1432). Without this, a cancelled-then-retried item that was
+/// tidying up kept its slot until the work reached its own next check,
+/// which could be many minutes, and the retry waited behind it.
+///
+/// The work is not stopped here; on `TimedOut` or `Replaced` the caller
+/// stops it the way it already does for its own deadline.
+pub(crate) async fn wait_while_attempt_runs<F>(
+    queue: &QueueHandle,
+    attempt: &Attempt,
+    limit: std::time::Duration,
+    work: &mut F,
+) -> AttemptWait
+where
+    F: Future + Unpin,
+{
+    let deadline = tokio::time::Instant::now() + limit;
+    loop {
+        tokio::select! {
+            _ = &mut *work => return AttemptWait::Done,
+            () = tokio::time::sleep_until(deadline) => return AttemptWait::TimedOut,
+            () = tokio::time::sleep(ATTEMPT_CHECK_INTERVAL) => {
+                if !queue.lock().await.should_keep_running(attempt) {
+                    return AttemptWait::Replaced;
+                }
+            }
+        }
+    }
+}
+
+/// The last step for an attempt that failed (#1432, maintainer decision 5).
+///
+/// A failed item may still start extra-format copies (the other format may
+/// be on offer where the main one was not). They used to run with the slot
+/// already given back, so the next item could start alongside them -- two
+/// downloads at once, which the one-at-a-time queue exists to prevent. Now
+/// the failed attempt keeps its slot until those copies have finished, run
+/// out of time, or been stopped because the item was retried, cancelled or
+/// removed; only then is the slot given back and the next item started.
+///
+/// With no copies to wait for, the slot is given back at once. The wait
+/// runs in its own task so the caller is not held up; `guard` goes with it,
+/// so even a panic there gives the slot back.
+pub(crate) async fn finish_failed_attempt(
+    app: AppHandle,
+    queue: QueueHandle,
+    attempt: Attempt,
+    guard: Option<ActiveSlotGuard>,
+    companions: Option<CompanionTaskHandle>,
+) {
+    let Some(mut handle) = companions else {
+        queue.lock().await.release_slot(&attempt);
+        if let Some(guard) = guard {
+            guard.disarm();
+        }
+        process_queue(app, queue).await;
+        return;
+    };
+    tokio::spawn(async move {
+        hold_slot_for_copies(&queue, &attempt, &mut handle).await;
+        if let Some(guard) = guard {
+            guard.disarm();
+        }
+        save_queue_to_disk(&app, &queue).await;
+        process_queue(app, queue).await;
+    });
+}
+
+/// The waiting half of [`finish_failed_attempt`] (#1432): keeps the failed
+/// attempt's slot while its extra-format copies run, stops them if they run
+/// out of time or the item is retried, cancelled or removed, and only then
+/// gives the slot back. Returns how the wait ended. Separate so it can be
+/// tested without the app.
+pub(crate) async fn hold_slot_for_copies(
+    queue: &QueueHandle,
+    attempt: &Attempt,
+    handle: &mut CompanionTaskHandle,
+) -> AttemptWait {
+    {
+        // Same time budget the finished-download path gives its copies,
+        // sized from the files already in the item's folder.
+        let output = {
+            let q = queue.lock().await;
+            q.items
+                .iter()
+                .find(|i| i.status.id == attempt.id)
+                .and_then(|i| i.status.output_path.clone())
+        };
+        let track_count = output
+            .as_deref()
+            .map(std::path::Path::new)
+            .map(|p| {
+                if p.is_dir() {
+                    count_audio_files_in_directory(p)
+                } else {
+                    p.parent().map(count_audio_files_in_directory).unwrap_or(0)
+                }
+            })
+            .unwrap_or(0);
+        let limit = compute_total_timeout(track_count, handle.tier_count(), 0, false);
+        let waited = wait_while_attempt_runs(queue, attempt, limit, &mut handle.handle).await;
+        if waited != AttemptWait::Done {
+            log::info!(
+                "Extra-format copies of failed download {} stopped ({waited:?})",
+                attempt.id
+            );
+            handle.abort();
+            let _ = (&mut handle.handle).await;
+        }
+        queue.lock().await.release_slot(attempt);
+        waited
+    }
 }
 
 /// Turns a URL into the identity used to answer "is this already queued,

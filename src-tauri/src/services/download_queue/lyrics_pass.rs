@@ -1274,16 +1274,19 @@ impl Drop for StopOnDrop {
 /// (checked every quarter second from here, and in every folder inside the
 /// walk). Returns `None` when it was stopped, never started because the item
 /// was already cancelled, or the walk failed.
+///
+/// "Cancelled" here means the attempt should stop (#1432): the item was
+/// cancelled, retried or removed since this attempt started.
 pub(crate) async fn walk_fresh_m4a_stoppable(
     root: &Path,
     before: Option<Arc<std::collections::HashSet<PathBuf>>>,
     since: Option<std::time::SystemTime>,
     overwrite: bool,
     queue: &QueueHandle,
-    dl_id: &str,
+    attempt: &Attempt,
     shutdown: &ShutdownSignal,
 ) -> Option<Vec<PathBuf>> {
-    if shutdown.is_triggered() || queue.lock().await.is_cancelled(dl_id) {
+    if shutdown.is_triggered() || !queue.lock().await.should_keep_running(attempt) {
         return None;
     }
     let stop = Arc::new(AtomicBool::new(false));
@@ -1301,7 +1304,7 @@ pub(crate) async fn walk_fresh_m4a_stoppable(
         tokio::select! {
             result = &mut handle => return result.ok().flatten(),
             () = tokio::time::sleep(std::time::Duration::from_millis(250)) => {
-                if shutdown.is_triggered() || queue.lock().await.is_cancelled(dl_id) {
+                if shutdown.is_triggered() || !queue.lock().await.should_keep_running(attempt) {
                     stop.store(true, Ordering::Relaxed);
                 }
             }
@@ -1796,7 +1799,7 @@ pub(crate) fn word_lyrics_pass_summary(gained: usize, end: PassEnd) -> String {
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_word_lyrics_pass(
     app: &AppHandle,
-    dl_id: &str,
+    attempt: &Attempt,
     urls: &[String],
     options: &GamdlOptions,
     queue: &QueueHandle,
@@ -1804,6 +1807,8 @@ pub(crate) async fn run_word_lyrics_pass(
     album_dir: &str,
     primary_files: &[PathBuf],
 ) {
+    // Stops when this attempt should (#1432): cancelled, retried or removed.
+    let dl_id = attempt.id.as_str();
     let before = count_word_timed_sidecars(primary_files);
     let audio_before = audio_files_in(Path::new(album_dir));
 
@@ -1846,7 +1851,7 @@ pub(crate) async fn run_word_lyrics_pass(
                     };
                 }
                 () = tokio::time::sleep(std::time::Duration::from_millis(500)) => {
-                    let cancelled = { queue.lock().await.is_cancelled(dl_id) };
+                    let cancelled = { !queue.lock().await.should_keep_running(attempt) };
                     if cancelled || shutdown.is_triggered() || tokio::time::Instant::now() >= deadline {
                         log::info!(
                             "Word-level lyrics pass for {dl_id} stopped (cancelled={cancelled}, shutdown={}, deadline passed={})",

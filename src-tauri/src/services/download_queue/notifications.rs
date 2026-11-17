@@ -82,7 +82,7 @@ pub fn test_desktop_notification(
 ///
 /// Checks `after_queue_once` first (one-shot override), then `after_queue_action`
 /// (persistent). One-shot actions are cleared after execution. Called after
-/// `on_task_finished()` when `is_idle()` returns true.
+/// a queue slot is released when `is_idle()` returns true.
 pub(crate) fn execute_after_queue_action(app: &AppHandle) {
     use crate::models::settings::AfterQueueAction;
 

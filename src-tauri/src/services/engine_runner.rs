@@ -209,7 +209,8 @@ pub async fn run_engine(
 /// Behaviour identical to `run_engine` PLUS:
 ///
 /// 1. **Cancellation polling**: every 250 ms the function locks the
-///    queue, calls `is_cancelled(download_id)`, and on a positive hit
+///    queue, asks whether this attempt should still run (#1432: not
+///    cancelled, retried or removed), and if not
 ///    kills the child, drains the reader tasks, and returns the
 ///    cancellation sentinel string the queue's error handler
 ///    short-circuits on (`"Download cancelled by user"`).
@@ -236,13 +237,15 @@ pub async fn run_engine(
 /// * `"{engine} process exited with code {n}"` — non-zero exit code.
 /// * `"Failed to start / wait for / capture …"` — OS-level subprocess
 ///   failures.
-pub async fn run_engine_with_queue(
+pub(crate) async fn run_engine_with_queue(
     app: &AppHandle,
-    download_id: &str,
+    attempt: &super::download_queue::Attempt,
     engine_id: &str,
     mut cmd: Command,
     queue: super::download_queue::QueueHandle,
 ) -> Result<(), String> {
+    // The run belongs to one attempt of the item (#1432).
+    let download_id = attempt.id.as_str();
     log::info!("Starting {engine_id} download {download_id} (queue-aware)");
 
     cmd.stdout(std::process::Stdio::piped());
@@ -269,7 +272,7 @@ pub async fn run_engine_with_queue(
     // an async lock acquisition that's clearer at the call site.
     let stdout_task = spawn_queue_aware_reader(
         app.clone(),
-        download_id.to_string(),
+        attempt.clone(),
         engine_id.to_string(),
         "stdout",
         stdout,
@@ -277,7 +280,7 @@ pub async fn run_engine_with_queue(
     );
     let stderr_task = spawn_queue_aware_reader(
         app.clone(),
-        download_id.to_string(),
+        attempt.clone(),
         engine_id.to_string(),
         "stderr",
         stderr,
@@ -301,7 +304,7 @@ pub async fn run_engine_with_queue(
     // sides waiting on each other forever — the queue slot would never
     // free up and the whole queue would stop responding.
     let status = loop {
-        let cancelled = { queue.lock().await.is_cancelled(download_id) };
+        let cancelled = { !queue.lock().await.should_keep_running(attempt) };
         if cancelled {
             log::info!("{engine_id} download {download_id} cancelled — killing process");
             let _ = child.kill().await;
@@ -343,9 +346,11 @@ pub async fn run_engine_with_queue(
 ///
 /// Tokio task — returns a JoinHandle the caller awaits to drain
 /// buffered output after the child exits.
+/// The reader's output only changes the item while `attempt` owns it
+/// (#1432).
 fn spawn_queue_aware_reader(
     app: AppHandle,
-    download_id: String,
+    attempt: super::download_queue::Attempt,
     engine_id: String,
     stream_label: &'static str,
     stream: impl tokio::io::AsyncRead + Unpin + Send + 'static,
@@ -353,6 +358,7 @@ fn spawn_queue_aware_reader(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         use tokio::io::AsyncBufReadExt;
+        let download_id = attempt.id.clone();
         let reader = tokio::io::BufReader::new(stream);
         let mut lines = reader.lines();
         while let Ok(Some(raw_line)) = lines.next_line().await {
@@ -366,7 +372,7 @@ fn spawn_queue_aware_reader(
             // Queue progress tick — locks held very briefly per line.
             {
                 let mut q = queue.lock().await;
-                q.update_item_progress(&download_id, &event);
+                q.update_item_progress(&attempt, &event);
             }
 
             let progress = EngineProgress {

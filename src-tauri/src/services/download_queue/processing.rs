@@ -333,7 +333,7 @@ pub fn process_queue(
         // the drain was caused by a user-initiated abort (#620), in which
         // case `take_recently_aborted` returns `true` and we suppress the
         // post-queue action this time around.
-        let Some((download_id, urls, mut options, item_service)) = pending else {
+        let Some(started) = pending else {
             let (is_idle, was_aborted, ran) = {
                 let mut q = queue.lock().await;
                 let idle = q.is_idle();
@@ -389,6 +389,19 @@ pub fn process_queue(
             }
             return;
         };
+        let StartedAttempt {
+            attempt,
+            urls,
+            mut options,
+            service: item_service,
+        } = started;
+        let download_id = attempt.id.clone();
+        // The guard that gives this attempt's slot back however its work
+        // ends (#706, #1432). Made here, the moment the slot is taken, so
+        // even a panic in the set-up below cannot leave the queue stuck; it
+        // travels with the attempt's work and also starts the queue again
+        // if it is the one that frees the slot.
+        let slot_guard = ActiveSlotGuard::new(queue.clone(), attempt.clone()).with_app(app.clone());
 
         // Determine if this is an Apple Music download for service-aware routing.
         // Used to guard Apple Music-specific enrichment and companion features.
@@ -447,7 +460,8 @@ pub fn process_queue(
             run_spotify_dispatch_arm(
                 app.clone(),
                 queue.clone(),
-                download_id.clone(),
+                attempt.clone(),
+                slot_guard,
                 urls.clone(),
                 download_started_at.clone(),
             )
@@ -1000,8 +1014,15 @@ pub fn process_queue(
         let queue_clone = queue.clone();
         let dl_id = download_id;
         let shutdown_clone = shutdown_signal;
+        // The slot guard moves into the attempt's task (#1432).
+        let slot_guard = Some(slot_guard);
 
         tokio::spawn(async move {
+            // Moved into the task; taken out again where the work goes on
+            // in another task (the tidying-up, or the wait for a failed
+            // item's extra-format copies). If the task ends any other way,
+            // dropping it gives this attempt's slot back.
+            let mut slot_guard = slot_guard;
             // The GAMDL version and the download folder this primary run
             // uses, recorded as it starts. The word-level lyrics pass after
             // it runs only on the same version and in the same folder, and
@@ -1092,14 +1113,24 @@ pub fn process_queue(
             // A new main download attempt: forget the paths an earlier
             // attempt reported. (The gap-fill run below belongs to the same
             // download, so it does not clear them.)
-            queue_clone.lock().await.begin_run(&dl_id);
+            // Not if the item was cancelled (or otherwise ended) while the
+            // file walk above ran: then leave without starting GAMDL (#1432).
+            {
+                let mut q = queue_clone.lock().await;
+                if let Some(ended) = stop_if_ended_outside(&mut q, &attempt) {
+                    drop(q);
+                    finish_ended_outside(&app_clone, &queue_clone, &attempt, ended, false).await;
+                    return;
+                }
+                q.begin_run(&attempt);
+            }
 
             // Run the GAMDL download with real-time event forwarding.
             // This function handles subprocess spawning, output parsing,
             // and cancellation polling. See run_download_with_events() below.
             let result = run_download_with_events(
                 &app_clone,
-                &dl_id,
+                &attempt,
                 &urls,
                 &download_options,
                 &queue_clone,
@@ -1129,18 +1160,15 @@ pub fn process_queue(
                         // The same check follows every place below that
                         // takes the lock again, or is about to change the
                         // state (`stop_if_ended_outside`).
-                        if let Some(ended) = stop_if_ended_outside(&mut q, &dl_id, false) {
+                        // GAMDL ended cleanly, so `finished` is true: if the
+                        // stall check had marked this attempt failed, the
+                        // item is queued again once (#1432).
+                        if let Some(ended) = stop_if_ended_outside(&mut q, &attempt) {
                             drop(q);
-                            finish_ended_outside(&app_clone, &queue_clone, &dl_id, ended).await;
+                            finish_ended_outside(&app_clone, &queue_clone, &attempt, ended, true)
+                                .await;
                             return;
                         }
-
-                        // #1431: whether this attempt has already moved the
-                        // item to Error itself (the per-format retry route
-                        // below), so a later "no output" failure is still
-                        // announced and counted although the state no longer
-                        // changes there.
-                        let mut failed_here = false;
 
                         // Check if GAMDL emitted a "Saved to:" line during the run.
                         // If not, no files were produced despite a clean exit.
@@ -1223,7 +1251,7 @@ pub fn process_queue(
 
                                         match run_download_with_events(
                                             &app_clone,
-                                            &dl_id,
+                                            &attempt,
                                             &urls,
                                             &gapfill_options,
                                             &queue_clone,
@@ -1260,14 +1288,15 @@ pub fn process_queue(
                                                 );
                                                 let mut q = queue_clone.lock().await;
                                                 if let Some(ended) =
-                                                    stop_if_ended_outside(&mut q, &dl_id, false)
+                                                    stop_if_ended_outside(&mut q, &attempt)
                                                 {
                                                     drop(q);
                                                     finish_ended_outside(
                                                         &app_clone,
                                                         &queue_clone,
-                                                        &dl_id,
+                                                        &attempt,
                                                         ended,
+                                                        false,
                                                     )
                                                     .await;
                                                     return;
@@ -1294,15 +1323,15 @@ pub fn process_queue(
                                         // While the lock was let go, the stall
                                         // watchdog may have failed the item, or
                                         // the person cancelled it (#1431).
-                                        if let Some(ended) =
-                                            stop_if_ended_outside(&mut q, &dl_id, false)
+                                        if let Some(ended) = stop_if_ended_outside(&mut q, &attempt)
                                         {
                                             drop(q);
                                             finish_ended_outside(
                                                 &app_clone,
                                                 &queue_clone,
-                                                &dl_id,
+                                                &attempt,
                                                 ended,
+                                                true,
                                             )
                                             .await;
                                             return;
@@ -1337,11 +1366,17 @@ pub fn process_queue(
                                      attempting fallback: {error_msg}"
                                     );
                                     let settings = load_settings_for_queue(&app_clone);
-                                    failed_here |= q.set_error(&dl_id, &error_msg);
-                                    q.on_task_finished();
-
+                                    // Part (2) of #1432: the slot is given
+                                    // back only when the item really leaves
+                                    // (re-queued in the next format). When no
+                                    // format is left, nothing changes here:
+                                    // the item keeps its state and its slot,
+                                    // and the code below either fails it (and
+                                    // only then releases) or carries on with
+                                    // the files that did land, still holding
+                                    // the slot through the tidying-up (#706).
                                     if let Some((new_options, fb_idx, chain_len)) =
-                                        q.try_fallback(&dl_id, &settings)
+                                        q.per_format_retry(&attempt, &settings)
                                     {
                                         // Read the field the fallback actually
                                         // sets. It clears `song_codec` and
@@ -1642,28 +1677,30 @@ pub fn process_queue(
                                 log::warn!(
                                     "Download {dl_id} exited 0 but produced no output: {error_msg}"
                                 );
-                                // #1431: announce and count only a real change
-                                // (the watchdog may have failed it already).
+                                // #1431: announce and count only a real change.
                                 // Counted here, inside the lock and before the
                                 // slot is released, so the queue summary
                                 // cannot miss it -- unless a retry without the
                                 // wrapper may still follow, in which case it is
                                 // counted below once that is ruled out.
                                 //
-                                // `failed_here`: the per-format retry route above
-                                // may already have set Error in this attempt, in
-                                // which case this call changes nothing but the
-                                // failure is still this attempt's to announce.
-                                if let Some(ended) =
-                                    stop_if_ended_outside(&mut q, &dl_id, failed_here)
-                                {
+                                // Not if the item ended from outside this
+                                // attempt (#1432). GAMDL produced no files, so
+                                // this is not a finish that would queue a
+                                // stalled item again.
+                                if let Some(ended) = stop_if_ended_outside(&mut q, &attempt) {
                                     drop(q);
-                                    finish_ended_outside(&app_clone, &queue_clone, &dl_id, ended)
-                                        .await;
+                                    finish_ended_outside(
+                                        &app_clone,
+                                        &queue_clone,
+                                        &attempt,
+                                        ended,
+                                        false,
+                                    )
+                                    .await;
                                     return;
                                 }
-                                let changed_now = q.set_error(&dl_id, &error_msg);
-                                let newly_failed = is_new_failure(failed_here, changed_now);
+                                let newly_failed = q.set_error(&attempt, &error_msg);
                                 // Read once, and used both for counting and for
                                 // the retry decision below, so the two agree.
                                 let ar_settings = load_settings_for_queue(&app_clone);
@@ -1675,14 +1712,21 @@ pub fn process_queue(
                                 // can start the queue and post "Queue finished"
                                 // without it (#1431, review round 6).
                                 let retried = may_retry_without_wrapper
-                                    && q.retry_without_wrapper(&dl_id, &ar_settings);
+                                    && q.retry_without_wrapper_auto(&attempt, &ar_settings);
                                 let counted_in_lock = newly_failed && !retried;
                                 if counted_in_lock {
                                     crate::services::notification_service::count_result(
                                         crate::services::notification_service::NotifyKind::DownloadFailed,
                                     );
                                 }
-                                q.on_task_finished();
+                                // Re-queued: this attempt leaves the item, so
+                                // its slot goes back now. Otherwise the slot
+                                // is kept until the extra-format copies below
+                                // have finished (#1432), so they never run
+                                // alongside the next item.
+                                if retried {
+                                    q.release_slot(&attempt);
+                                }
                                 drop(q);
                                 emit_download_error(
                                     &app_clone,
@@ -1800,10 +1844,10 @@ pub fn process_queue(
                                 // the companion codec may succeed where the primary
                                 // format was unavailable.
                                 let traits = read_audio_traits(&queue_clone, &dl_id).await;
-                                let _ = spawn_companion_downloads(
+                                let companions = spawn_companion_downloads(
                                     &app_clone,
                                     &queue_clone,
-                                    &dl_id,
+                                    &attempt,
                                     &urls,
                                     &primary_codec_for_companions,
                                     &companion_base_options,
@@ -1814,25 +1858,36 @@ pub fn process_queue(
                                     PrimaryNaming::of(&download_options, primary_appended_suffix),
                                 );
 
-                                // Continue processing remaining queued items
-                                process_queue(app_clone.clone(), queue_clone.clone()).await;
+                                // The slot is held until those copies end
+                                // (#1432), then given back and the queue moves
+                                // on. With no copies, that happens at once.
+                                finish_failed_attempt(
+                                    app_clone.clone(),
+                                    queue_clone.clone(),
+                                    attempt.clone(),
+                                    slot_guard.take(),
+                                    companions,
+                                )
+                                .await;
                                 return;
                             }
                         }
 
-                        // Not if it ended from outside this attempt (#1431):
-                        // moving a watchdog-failed or cancelled item to
-                        // Processing would bring it back to life.
-                        if let Some(ended) = stop_if_ended_outside(&mut q, &dl_id, failed_here) {
+                        // Not if it ended from outside this attempt (#1431,
+                        // #1432): moving a stalled, cancelled or retried item
+                        // to Processing would bring it back to life. Files did
+                        // land, so a stalled one counts as finished.
+                        if let Some(ended) = stop_if_ended_outside(&mut q, &attempt) {
                             drop(q);
-                            finish_ended_outside(&app_clone, &queue_clone, &dl_id, ended).await;
+                            finish_ended_outside(&app_clone, &queue_clone, &attempt, ended, true)
+                                .await;
                             return;
                         }
 
                         // Mark as processing (enrichment + companions still running).
                         // The item stays in Processing state until all background
                         // tasks complete, keeping the progress bar active.
-                        q.set_processing(&dl_id);
+                        q.set_processing(&attempt);
                         let mut all_warnings = warnings.clone();
                         if warnings.iter().any(|w| process::is_io_error(w)) {
                             all_warnings.push(
@@ -1843,13 +1898,13 @@ pub fn process_queue(
                             );
                         }
                         if !all_warnings.is_empty() {
-                            q.add_warnings(&dl_id, &all_warnings);
+                            q.add_warnings(&attempt, &all_warnings);
                         }
-                        // NOTE (#706): `on_task_finished()` deliberately
-                        // does NOT fire here, even though the primary
+                        // NOTE (#706, #1432): the slot is deliberately NOT
+                        // given back here, even though the primary
                         // GAMDL subprocess has exited. The slot stays
-                        // held by an `ActiveSlotGuard` taken at the top
-                        // of the completion task spawned below, so the
+                        // held by this attempt's `ActiveSlotGuard`, which
+                        // moves into the completion task spawned below, so the
                         // queue contract from #455 ("ENTIRE pipeline
                         // completes before the next item starts") is
                         // actually enforced. Releasing here would let
@@ -1878,7 +1933,7 @@ pub fn process_queue(
                             log::warn!("Download {dl_id} output path does not exist: {path}");
                             let mut q = queue_clone.lock().await;
                             q.add_warnings(
-                                &dl_id,
+                                &attempt,
                                 &["Output path reported by GAMDL does not exist on disk"
                                     .to_string()],
                             );
@@ -1971,6 +2026,10 @@ pub fn process_queue(
                         let enrich_app = app_clone.clone();
                         let enrich_urls = urls.clone();
                         let enrich_dl_id = dl_id.clone();
+                        // The attempt this tidying-up belongs to (#1432): it
+                        // stops at its next check once the item is
+                        // cancelled, retried or removed.
+                        let enrich_attempt = attempt.clone();
                         let enrich_codec_str = completed_codec.clone();
                         let enrich_shutdown = shutdown_clone.clone();
                         let enrich_native_priority = uses_native_priority;
@@ -2566,7 +2625,10 @@ pub fn process_queue(
                                 is_library,
                                 primary_clean: enrich_primary_clean,
                                 stopping: enrich_shutdown.is_triggered()
-                                    || enrich_queue.lock().await.is_cancelled(&enrich_dl_id),
+                                    || !enrich_queue
+                                        .lock()
+                                        .await
+                                        .should_keep_running(&enrich_attempt),
                                 needed: super::lyrics_pass::needs_gamdl_fallback(&step_1b),
                                 same_gamdl_version: enrich_primary_version.is_some()
                                     && gamdl_capabilities::detected_version()
@@ -2590,7 +2652,7 @@ pub fn process_queue(
                                     );
                                     super::lyrics_pass::run_word_lyrics_pass(
                                         &enrich_app,
-                                        &enrich_dl_id,
+                                        &enrich_attempt,
                                         &enrich_urls,
                                         &pass_options,
                                         &enrich_queue,
@@ -2708,7 +2770,10 @@ pub fn process_queue(
                                 && (download_albums.albums.len() > 1
                                     || !other_album_refs.is_empty());
                             let cancelled_now = enrich_shutdown.is_triggered()
-                                || enrich_queue.lock().await.is_cancelled(&enrich_dl_id);
+                                || !enrich_queue
+                                    .lock()
+                                    .await
+                                    .should_keep_running(&enrich_attempt);
                             if spans_several_albums && !cancelled_now {
                                 if let (Some(codec), Some(root)) =
                                     (codec.as_ref(), enrich_download_folder.as_deref())
@@ -2737,7 +2802,7 @@ pub fn process_queue(
                                             started,
                                             run_overwrote,
                                             &enrich_queue,
-                                            &enrich_dl_id,
+                                            &enrich_attempt,
                                             &enrich_shutdown,
                                         )
                                         .await
@@ -4828,7 +4893,7 @@ pub fn process_queue(
                     let companion_handle = spawn_companion_downloads(
                         &app_clone,
                         &queue_clone,
-                        &dl_id,
+                        &attempt,
                         &urls,
                         &actual_codec_for_companions,
                         &companion_base_options,
@@ -4853,14 +4918,16 @@ pub fn process_queue(
                         let completion_app = app_clone.clone();
                         let completion_dl_id = dl_id.clone();
                         let completion_queue = queue_clone.clone();
+                        // The attempt this task finishes (#1432).
+                        let completion_attempt = attempt.clone();
                         // Take ownership of the queue slot for the lifetime of
-                        // the completion task (#706). The success path's early
-                        // `q.on_task_finished()` was removed, so the slot
-                        // remains held until either the explicit release at the
-                        // bottom of this task (happy path) or the guard's Drop
-                        // (panic / abort / runtime shutdown). This makes the
-                        // queue *actually* serial as documented in #455.
-                        let active_guard = ActiveSlotGuard::new(completion_queue.clone());
+                        // the completion task (#706). The guard made when the
+                        // slot was taken moves in here, so the slot stays held
+                        // until either the explicit release at the bottom of
+                        // this task (happy path) or the guard's Drop (panic /
+                        // abort / runtime shutdown). This makes the queue
+                        // *actually* serial as documented in #455.
+                        let active_guard = slot_guard.take();
                         // Copy (bool is `Copy`) so the integrity guard below
                         // can use it after the enrichment closure captured
                         // its own copy (`enrich_is_apple_music`, see #452 /
@@ -4948,10 +5015,20 @@ pub fn process_queue(
                                 mv_count_estimate,
                             );
                             if let Some(mut handle) = enrichment_handle {
-                                if tokio::time::timeout(enrichment_timeout, &mut handle)
-                                    .await
-                                    .is_err()
-                                {
+                                let waited = wait_while_attempt_runs(
+                                    &completion_queue,
+                                    &completion_attempt,
+                                    enrichment_timeout,
+                                    &mut handle,
+                                )
+                                .await;
+                                if waited == AttemptWait::Replaced {
+                                    // Cancelled, retried or removed while the
+                                    // tidying-up ran (#1432): stop it now
+                                    // rather than at its next check.
+                                    handle.abort();
+                                    let _ = handle.await;
+                                } else if waited == AttemptWait::TimedOut {
                                     log::warn!(
                                         "Enrichment timed out after {} minutes for {} ({} track(s) in output) — some files may be missing ReplayGain / AcoustID / MusicBrainz tags",
                                         timeout_mins,
@@ -5016,10 +5093,19 @@ pub fn process_queue(
                                     mv_count_for_companion,
                                     mv_source,
                                 );
-                                if tokio::time::timeout(companion_timeout, &mut handle.handle)
-                                    .await
-                                    .is_err()
-                                {
+                                let first_wait = wait_while_attempt_runs(
+                                    &completion_queue,
+                                    &completion_attempt,
+                                    companion_timeout,
+                                    &mut handle.handle,
+                                )
+                                .await;
+                                if first_wait == AttemptWait::Replaced {
+                                    // Cancelled, retried or removed while the
+                                    // extra-format copies ran (#1432): stop them.
+                                    handle.abort();
+                                    let _ = (&mut handle.handle).await;
+                                } else if first_wait == AttemptWait::TimedOut {
                                     let pending = handle.describe_pending();
                                     log::warn!(
                                         "Companion downloads still running after {} minutes for {} ({})",
@@ -5034,10 +5120,16 @@ pub fn process_queue(
                                             "⚠ Companion downloads still running after {companion_timeout_mins} minutes for {content_label} — waiting instead of skipping ({pending}); final tag pass will run afterwards"
                                         ),
                                     );
-                                    if tokio::time::timeout(companion_timeout, &mut handle.handle)
-                                        .await
-                                        .is_err()
-                                    {
+                                    let second_wait = wait_while_attempt_runs(
+                                        &completion_queue,
+                                        &completion_attempt,
+                                        companion_timeout,
+                                        &mut handle.handle,
+                                    )
+                                    .await;
+                                    if second_wait == AttemptWait::Replaced {
+                                        handle.abort();
+                                    } else if second_wait == AttemptWait::TimedOut {
                                         let hard_timeout_mins =
                                             companion_timeout_mins.saturating_mul(2);
                                         let skipped = handle.describe_pending();
@@ -5085,7 +5177,7 @@ pub fn process_queue(
                                     && completion_queue
                                         .lock()
                                         .await
-                                        .should_keep_working_on(&completion_dl_id);
+                                        .should_keep_running(&completion_attempt);
                                 if keep_going {
                                     let wait = super::lyrics_steps::wait_to_catch_up(
                                         Some(&completion_pending_main),
@@ -5124,12 +5216,12 @@ pub fn process_queue(
                                                 );
                                             let settings = load_settings_for_queue(&completion_app);
                                             let stop_queue = completion_queue.clone();
-                                            let stop_id = completion_dl_id.clone();
+                                            let stop_attempt = completion_attempt.clone();
                                             let stop_shutdown = completion_shutdown.clone();
                                             let stop = move || {
                                                 stop_shutdown.is_triggered()
                                                     || stop_queue.try_lock().is_ok_and(|q| {
-                                                        !q.should_keep_working_on(&stop_id)
+                                                        !q.should_keep_running(&stop_attempt)
                                                     })
                                             };
                                             if let Some(line) =
@@ -5165,7 +5257,15 @@ pub fn process_queue(
                             // metadata plumbing is required.
                             {
                                 let completion_settings = load_settings_for_queue(&completion_app);
-                                if completion_settings.content_advisory_in_filenames {
+                                // Not for an attempt that has been cancelled,
+                                // retried or removed meanwhile (#1432).
+                                let still_running = completion_queue
+                                    .lock()
+                                    .await
+                                    .should_keep_running(&completion_attempt);
+                                if completion_settings.content_advisory_in_filenames
+                                    && still_running
+                                {
                                     let advisory_path = {
                                         let q = completion_queue.lock().await;
                                         q.items
@@ -5214,7 +5314,7 @@ pub fn process_queue(
                                         // mount / pathological tree it can hang
                                         // for hours and block the completion
                                         // task — preventing the set_complete +
-                                        // on_task_finished that release the queue
+                                        // slot release that free the queue
                                         // slot. Wrap in spawn_blocking + timeout
                                         // so:
                                         //   1. The sync walk runs on a dedicated
@@ -5368,20 +5468,41 @@ pub fn process_queue(
                             // a no-op and we don't double-release.
                             {
                                 let mut q = completion_queue.lock().await;
-                                // #1431: announce and count only a REAL change
-                                // (not an item the watchdog already failed, or
-                                // one cancelled during post-processing), and
-                                // count it here, before the slot is released,
-                                // so the queue summary cannot miss it.
+                                // #1432: the item ended from outside this
+                                // attempt while it was tidying up (cancelled,
+                                // retried, removed, or marked failed as stuck).
+                                // Leave it as it is; give back only this
+                                // attempt's own slot. A stuck one that has now
+                                // finished is queued again once.
+                                if let Some(ended) =
+                                    stop_if_ended_outside(&mut q, &completion_attempt)
+                                {
+                                    drop(q);
+                                    if let Some(guard) = active_guard {
+                                        guard.disarm();
+                                    }
+                                    finish_ended_outside(
+                                        &completion_app,
+                                        &completion_queue,
+                                        &completion_attempt,
+                                        ended,
+                                        true,
+                                    )
+                                    .await;
+                                    return;
+                                }
+                                // #1431: announce and count only a REAL change,
+                                // and count it here, before the slot is
+                                // released, so the queue summary cannot miss it.
                                 use crate::services::notification_service::{
                                     count_result, NotifyKind,
                                 };
                                 if let Some(ref msg) = integrity_failure {
-                                    if q.set_error(&completion_dl_id, msg) {
+                                    if q.set_error(&completion_attempt, msg) {
                                         count_result(NotifyKind::DownloadFailed);
                                         result_to_announce = Some(NotifyKind::DownloadFailed);
                                     }
-                                } else if q.set_complete(&completion_dl_id) {
+                                } else if q.set_complete(&completion_attempt) {
                                     let kind = if finished_with_warnings {
                                         NotifyKind::DownloadWarnings
                                     } else {
@@ -5390,10 +5511,13 @@ pub fn process_queue(
                                     count_result(kind);
                                     result_to_announce = Some(kind);
                                 }
-                                q.on_task_finished();
+                                // Only this attempt's slot (#1432).
+                                q.release_slot(&completion_attempt);
                                 drop(q);
                             }
-                            active_guard.disarm();
+                            if let Some(guard) = active_guard {
+                                guard.disarm();
+                            }
                             save_queue_to_disk(&completion_app, &completion_queue).await;
 
                             if let Some(msg) = integrity_failure {
@@ -5466,13 +5590,28 @@ pub fn process_queue(
                     // Err("Download cancelled by user"). The queue item's state is
                     // already set to Cancelled by cancel(). We must NOT overwrite it
                     // with Error state or create a spurious error report.
+                    //
+                    // The run also stops this way when the item was retried
+                    // or removed rather than cancelled (#1432); the log line
+                    // says which. Only this attempt's own slot is given back.
                     if error_msg == "Download cancelled by user" {
                         let mut q = queue_clone.lock().await;
-                        q.on_task_finished();
+                        let ended = q.ended_outside(&attempt);
+                        q.release_slot(&attempt);
                         drop(q);
                         save_queue_to_disk(&app_clone, &queue_clone).await;
-                        log::info!("Download {dl_id} cancelled by user");
-                        emit_download_log(&app_clone, &dl_id, "Download cancelled by user");
+                        match ended {
+                            Some(EndedOutside::Replaced) => {
+                                log::info!("Download {dl_id}: earlier run stopped (retried)");
+                            }
+                            Some(EndedOutside::Removed) => {
+                                log::info!("Download {dl_id}: run stopped (removed from queue)");
+                            }
+                            _ => {
+                                log::info!("Download {dl_id} cancelled by user");
+                                emit_download_log(&app_clone, &dl_id, "Download cancelled by user");
+                            }
+                        }
                         // Cascade on cancel (#455)
                         process_queue(app_clone, queue_clone).await;
                         return;
@@ -5485,10 +5624,11 @@ pub fn process_queue(
                     // again; just move the queue on.
                     {
                         let mut q = queue_clone.lock().await;
-                        if let Some(ended) = stop_if_ended_outside(&mut q, &dl_id, false) {
+                        if let Some(ended) = stop_if_ended_outside(&mut q, &attempt) {
                             drop(q);
                             log::info!("Download {dl_id} errored after it had ended — not retrying: {error_msg}");
-                            finish_ended_outside(&app_clone, &queue_clone, &dl_id, ended).await;
+                            finish_ended_outside(&app_clone, &queue_clone, &attempt, ended, false)
+                                .await;
                             return;
                         }
                     }
@@ -5636,12 +5776,15 @@ pub fn process_queue(
                                 };
                                 emit_download_log(&app_clone, &dl_id, &failure_log_line);
                             }
+                            // The slot is given back only if the item is
+                            // re-queued in the next format (#1432); otherwise
+                            // it is kept until this attempt has finished with
+                            // the item (see `finish_failed_attempt`).
                             let mut q = queue_clone.lock().await;
-                            newly_failed |= q.set_error(&dl_id, &error_msg);
-                            q.on_task_finished();
+                            newly_failed |= q.set_error(&attempt, &error_msg);
 
                             if let Some((new_options, fb_idx, chain_len)) =
-                                q.try_fallback(&dl_id, &settings)
+                                q.per_format_retry(&attempt, &settings)
                             {
                                 // Same as the other site above: the chosen
                                 // format lives in `song_codec_priority`, not
@@ -5724,8 +5867,7 @@ pub fn process_queue(
                             // Network error: transient connection issue.
                             // Retry with the same options (up to max_network_retries times).
                             let mut q = queue_clone.lock().await;
-                            newly_failed |= q.set_error(&dl_id, &error_msg);
-                            q.on_task_finished();
+                            newly_failed |= q.set_error(&attempt, &error_msg);
 
                             // Differentiate wrapper vs direct in activity log messages
                             let mode_context = if wrapper_url_for_logging.is_some() {
@@ -5734,14 +5876,17 @@ pub fn process_queue(
                                 " (direct to Apple Music)"
                             };
 
-                            if let Some((attempt, total)) = q.try_network_retry(&dl_id) {
-                                // try_network_retry resets the item to Queued with same options
-                                log::info!("Download {dl_id} will retry (network error, attempt {attempt} of {total})");
+                            if let Some((try_no, total)) = q.try_network_retry(&attempt) {
+                                // try_network_retry resets the item to Queued with
+                                // same options; this attempt leaves, so its slot
+                                // goes back now (#1432).
+                                q.release_slot(&attempt);
+                                log::info!("Download {dl_id} will retry (network error, attempt {try_no} of {total})");
                                 drop(q);
                                 emit_download_log(
                                         &app_clone,
                                         &dl_id,
-                                        &format!("Network error{mode_context} — retrying (attempt {attempt} of {total})"),
+                                        &format!("Network error{mode_context} — retrying (attempt {try_no} of {total})"),
                                     );
                                 true
                             } else {
@@ -5759,8 +5904,7 @@ pub fn process_queue(
                             // full disk, stale NFS handle, read-only filesystem).
                             // Not retriable — user needs to fix the underlying issue.
                             let mut q = queue_clone.lock().await;
-                            newly_failed |= q.set_error(&dl_id, &error_msg);
-                            q.on_task_finished();
+                            newly_failed |= q.set_error(&attempt, &error_msg);
                             drop(q);
                             // MeedyaDL's own refusal of the download folder
                             // (#1419) is a settings choice, not a disk fault, and
@@ -5784,16 +5928,17 @@ pub fn process_queue(
                             // Reuse the bounded network-retry counter so we retry a
                             // couple of times but never loop forever.
                             let mut q = queue_clone.lock().await;
-                            newly_failed |= q.set_error(&dl_id, &error_msg);
-                            q.on_task_finished();
-                            if let Some((attempt, total)) = q.try_network_retry(&dl_id) {
+                            newly_failed |= q.set_error(&attempt, &error_msg);
+                            if let Some((try_no, total)) = q.try_network_retry(&attempt) {
+                                // Re-queued: this attempt's slot goes back (#1432).
+                                q.release_slot(&attempt);
                                 drop(q);
                                 emit_download_log(
                                     &app_clone,
                                     &dl_id,
                                     &format!(
                                         "Temp file was briefly locked (antivirus/indexer) — \
-                                         retrying (attempt {attempt} of {total})"
+                                         retrying (attempt {try_no} of {total})"
                                     ),
                                 );
                                 true
@@ -5822,8 +5967,7 @@ pub fn process_queue(
                             // skips the error report, companion spawn, and
                             // auto-retry-without-wrapper for this category.
                             let mut q = queue_clone.lock().await;
-                            newly_failed |= q.set_error(&dl_id, &error_msg);
-                            q.on_task_finished();
+                            newly_failed |= q.set_error(&attempt, &error_msg);
                             q.pause();
                             drop(q);
                             emit_app_log(
@@ -5851,8 +5995,7 @@ pub fn process_queue(
                             // Non-retriable error (e.g., authentication, invalid URL).
                             // Mark as failed and don't retry.
                             let mut q = queue_clone.lock().await;
-                            newly_failed |= q.set_error(&dl_id, &error_msg);
-                            q.on_task_finished();
+                            newly_failed |= q.set_error(&attempt, &error_msg);
                             drop(q);
                             emit_download_error(
                                 &app_clone,
@@ -5893,6 +6036,21 @@ pub fn process_queue(
                         return;
                     }
 
+                    // #1432: the lock was let go between the first check
+                    // and the arm above, so the item may have been cancelled,
+                    // retried or removed meanwhile -- the arm then changed
+                    // nothing. Leave it as it is: no history entry, no report,
+                    // no extra-format copies for an item that is not ours.
+                    {
+                        let mut q = queue_clone.lock().await;
+                        if let Some(ended) = stop_if_ended_outside(&mut q, &attempt) {
+                            drop(q);
+                            finish_ended_outside(&app_clone, &queue_clone, &attempt, ended, false)
+                                .await;
+                            return;
+                        }
+                    }
+
                     // No retry will occur — check auto-retry-without-wrapper
                     // before falling through to the terminal error path.
                     {
@@ -5910,7 +6068,13 @@ pub fn process_queue(
                             let sf_settings = load_settings_for_queue(&app_clone);
                             let swap = {
                                 let mut q = queue_clone.lock().await;
-                                q.try_storefront_fallback(&dl_id, &sf_settings)
+                                let swap = q.try_storefront_fallback(&attempt, &sf_settings);
+                                // Re-queued: this attempt leaves the item, so
+                                // its slot goes back now (#1432).
+                                if swap.is_some() {
+                                    q.release_slot(&attempt);
+                                }
+                                swap
                             };
                             if let Some((from, to)) = swap {
                                 log::info!(
@@ -5981,7 +6145,14 @@ pub fn process_queue(
                                      state={:?}",
                                         item_state,
                                     );
-                                    q.retry_without_wrapper(&dl_id, &ar_settings)
+                                    let retried =
+                                        q.retry_without_wrapper_auto(&attempt, &ar_settings);
+                                    // Re-queued: this attempt's slot goes back
+                                    // now (#1432).
+                                    if retried {
+                                        q.release_slot(&attempt);
+                                    }
+                                    retried
                                 };
                                 log::debug!(
                                     "Download {dl_id} retry_without_wrapper returned {retried}"
@@ -6101,31 +6272,42 @@ pub fn process_queue(
                         // also fail and just waste time + clutter the Activity Log)
                         // or a rate limit (companions would fire more license
                         // requests into an active 429 — gamdl#306).
-                        if error_category != "network" && error_category != "rate_limit" {
-                            let traits = read_audio_traits(&queue_clone, &dl_id).await;
-                            let _ = spawn_companion_downloads(
-                                &app_clone,
-                                &queue_clone,
-                                &dl_id,
-                                &urls,
-                                &primary_codec_for_companions,
-                                &companion_base_options,
-                                &shutdown_clone,
-                                uses_native_priority,
-                                &traits,
-                                None,
-                                PrimaryNaming::of(&download_options, primary_appended_suffix),
-                            );
-                        } else {
-                            emit_download_log(
-                                &app_clone,
-                                &dl_id,
-                                "Companion downloads skipped — network unavailable",
-                            );
-                        }
+                        let companions =
+                            if error_category != "network" && error_category != "rate_limit" {
+                                let traits = read_audio_traits(&queue_clone, &dl_id).await;
+                                spawn_companion_downloads(
+                                    &app_clone,
+                                    &queue_clone,
+                                    &attempt,
+                                    &urls,
+                                    &primary_codec_for_companions,
+                                    &companion_base_options,
+                                    &shutdown_clone,
+                                    uses_native_priority,
+                                    &traits,
+                                    None,
+                                    PrimaryNaming::of(&download_options, primary_appended_suffix),
+                                )
+                            } else {
+                                emit_download_log(
+                                    &app_clone,
+                                    &dl_id,
+                                    "Companion downloads skipped — network unavailable",
+                                );
+                                None
+                            };
 
-                        // Cascade on error path (#455): process next item after failure
-                        process_queue(app_clone.clone(), queue_clone.clone()).await;
+                        // Cascade on error path (#455): the slot is held until
+                        // the extra-format copies end (#1432), then given back
+                        // and the next item started.
+                        finish_failed_attempt(
+                            app_clone.clone(),
+                            queue_clone.clone(),
+                            attempt.clone(),
+                            slot_guard.take(),
+                            companions,
+                        )
+                        .await;
                     }
                 }
             }
@@ -6280,15 +6462,20 @@ pub(crate) fn is_structlog_line_start(trimmed: &str) -> bool {
 ///   otherwise mark Complete.
 /// * Increment the daily-cap counter by the new-file count.
 /// * Write a best-effort manifest (`album_metadata: None`).
-/// * `on_task_finished()` releases the slot; `ActiveSlotGuard` is
+/// * `release_slot()` gives back this attempt's slot; `ActiveSlotGuard` is
 ///   disarmed; `process_queue` cascade fires the next item.
 pub(crate) async fn run_spotify_dispatch_arm(
     app: AppHandle,
     queue: QueueHandle,
-    download_id: String,
+    attempt: Attempt,
+    guard: ActiveSlotGuard,
     urls: Vec<String>,
     download_started_at: String,
 ) {
+    // The attempt and the guard of the slot it holds (#1432): every state
+    // change below is checked against the attempt, and only its own slot is
+    // given back.
+    let download_id = attempt.id.clone();
     // Emit the standard download separator (Spotify-flavoured — the
     // generic separator includes a GAMDL "Codec / Auth" line that
     // would be meaningless for a Spotify item).
@@ -6317,7 +6504,8 @@ pub(crate) async fn run_spotify_dispatch_arm(
             spotify_arm_terminate_error(
                 &app,
                 &queue,
-                &download_id,
+                &attempt,
+                guard,
                 &format!("Failed to load settings: {e}"),
             )
             .await;
@@ -6362,7 +6550,7 @@ pub(crate) async fn run_spotify_dispatch_arm(
     };
     if let Some(msg) = gate_error {
         emit_download_log(&app, &download_id, &msg);
-        spotify_arm_terminate_error(&app, &queue, &download_id, &msg).await;
+        spotify_arm_terminate_error(&app, &queue, &attempt, guard, &msg).await;
         return;
     }
 
@@ -6392,7 +6580,7 @@ pub(crate) async fn run_spotify_dispatch_arm(
         Err(e) => {
             let msg = format!("Failed to build votify command: {e}");
             emit_download_log(&app, &download_id, &msg);
-            spotify_arm_terminate_error(&app, &queue, &download_id, &msg).await;
+            spotify_arm_terminate_error(&app, &queue, &attempt, guard, &msg).await;
             return;
         }
     };
@@ -6404,15 +6592,15 @@ pub(crate) async fn run_spotify_dispatch_arm(
     let queue_clone = queue;
     let dl_id = download_id;
     tokio::spawn(async move {
-        // ActiveSlotGuard ensures `on_task_finished` is called even
-        // if this task panics — preventing a permanent queue stall.
-        let guard = ActiveSlotGuard::new(queue_clone.clone());
+        // The guard moved in here gives this attempt's slot back even if
+        // this task panics — preventing a permanent queue stall.
+        let guard = guard;
 
         // Run votify via the queue-aware runner (cancellation poll +
         // per-event update_item_progress).
         let result = crate::services::engine_runner::run_engine_with_queue(
             &app_clone,
-            &dl_id,
+            &attempt,
             "votify",
             cmd,
             queue_clone.clone(),
@@ -6441,7 +6629,7 @@ pub(crate) async fn run_spotify_dispatch_arm(
                     // Announced and counted like any failed download, and
                     // only if it really failed just now (#1431). Counted in
                     // the lock, before the slot is released further down.
-                    let newly_failed = q.set_error(&dl_id, &msg);
+                    let newly_failed = q.set_error(&attempt, &msg);
                     if newly_failed {
                         crate::services::notification_service::count_result(
                             crate::services::notification_service::NotifyKind::DownloadFailed,
@@ -6516,7 +6704,7 @@ pub(crate) async fn run_spotify_dispatch_arm(
                     );
 
                     let mut q = queue_clone.lock().await;
-                    let newly_complete = q.set_complete(&dl_id);
+                    let newly_complete = q.set_complete(&attempt);
                     if newly_complete {
                         crate::services::notification_service::count_result(
                             crate::services::notification_service::NotifyKind::DownloadComplete,
@@ -6542,7 +6730,7 @@ pub(crate) async fn run_spotify_dispatch_arm(
                 let mut q = queue_clone.lock().await;
                 // `false` for a cancellation (the item is already
                 // Cancelled) or an item already failed (#1431).
-                let newly_failed = q.set_error(&dl_id, &msg);
+                let newly_failed = q.set_error(&attempt, &msg);
                 if newly_failed {
                     crate::services::notification_service::count_result(
                         crate::services::notification_service::NotifyKind::DownloadFailed,
@@ -6561,14 +6749,11 @@ pub(crate) async fn run_spotify_dispatch_arm(
             }
         }
 
-        // Release the queue slot. Match the explicit order used by
-        // the GAMDL completion task: call `on_task_finished` FIRST,
-        // then `guard.disarm()` so the guard's Drop is a no-op
-        // (prevents double-decrement if the task panics between the
-        // two calls).
+        // Give back this attempt's slot (and only that one, #1432), then
+        // disarm the guard so its Drop has nothing left to do.
         {
             let mut q = queue_clone.lock().await;
-            q.on_task_finished();
+            q.release_slot(&attempt);
         }
         guard.disarm();
 
@@ -6584,24 +6769,29 @@ pub(crate) async fn run_spotify_dispatch_arm(
 /// Helper for `run_spotify_dispatch_arm`: handle the inline
 /// terminate-error path (gate block, settings load failure, command
 /// build failure). Sets Error state, releases the slot, cascades.
+///
+/// Only for the attempt's own item and slot (#1432).
 pub(crate) async fn spotify_arm_terminate_error(
     app: &AppHandle,
     queue: &QueueHandle,
-    download_id: &str,
+    attempt: &Attempt,
+    guard: ActiveSlotGuard,
     msg: &str,
 ) {
+    let download_id = attempt.id.as_str();
     let newly_failed = {
         let mut q = queue.lock().await;
-        let newly_failed = q.set_error(download_id, msg);
+        let newly_failed = q.set_error(attempt, msg);
         if newly_failed {
             // Counted before the slot is released (#1431).
             crate::services::notification_service::count_result(
                 crate::services::notification_service::NotifyKind::DownloadFailed,
             );
         }
-        q.on_task_finished();
+        q.release_slot(attempt);
         newly_failed
     };
+    guard.disarm();
     // Announced like any failed download, once (#1431).
     if newly_failed {
         notify_item_failed(app, queue, download_id, process::classify_error(msg)).await;
@@ -6725,11 +6915,15 @@ fn classify_error_for_installed_gamdl(error_msg: &str) -> &'static str {
 #[allow(clippy::too_many_lines)]
 pub(crate) async fn run_download_with_events(
     app: &AppHandle,
-    download_id: &str,
+    attempt: &Attempt,
     urls: &[String],
     options: &GamdlOptions,
     queue: &QueueHandle,
 ) -> Result<Vec<String>, String> {
+    // The run belongs to one attempt of the item (#1432): its output only
+    // updates the item while that attempt owns it, and the run is stopped
+    // as soon as the item is cancelled, retried or removed.
+    let download_id = attempt.id.as_str();
     log::info!(
         "Starting GAMDL download {} for {} URL(s)",
         download_id,
@@ -6856,6 +7050,7 @@ pub(crate) async fn run_download_with_events(
     // Spawn stdout reader
     let stdout_task = {
         let download_id = download_id.to_string();
+        let reader_attempt = attempt.clone();
         let app = app.clone();
         let queue = queue.clone();
         let errors = collected_errors.clone();
@@ -7024,7 +7219,7 @@ pub(crate) async fn run_download_with_events(
                     // Update the queue item's progress
                     {
                         let mut q = queue.lock().await;
-                        q.update_item_progress(&download_id, &event);
+                        q.update_item_progress(&reader_attempt, &event);
                     }
 
                     // Collect errors for fallback decisions. CodecSkip events
@@ -7074,6 +7269,7 @@ pub(crate) async fn run_download_with_events(
     // Spawn stderr reader
     let stderr_task = {
         let download_id = download_id.to_string();
+        let reader_attempt = attempt.clone();
         let app = app.clone();
         let queue = queue.clone();
         let errors = collected_errors.clone();
@@ -7152,7 +7348,7 @@ pub(crate) async fn run_download_with_events(
 
                     {
                         let mut q = queue.lock().await;
-                        q.update_item_progress(&download_id, &event);
+                        q.update_item_progress(&reader_attempt, &event);
                     }
 
                     // Collect errors + codec-skips for fallback decisions
@@ -7205,7 +7401,13 @@ pub(crate) async fn run_download_with_events(
         // were stuck waiting for the reader — neither side can move, the
         // queue slot never frees up, and the whole app's queue stops
         // responding to anything.
-        let cancelled = { queue.lock().await.is_cancelled(download_id) };
+        //
+        // "Cancelled" here covers every way the run stops being wanted
+        // (#1432): the person cancelled, the item was retried (even inside
+        // one quarter-second gap after a cancel, which the old state check
+        // missed), or it was removed. The stall check is NOT one of them:
+        // it leaves the run going (maintainer decision, 17 Nov 2026).
+        let cancelled = { !queue.lock().await.should_keep_running(attempt) };
         if cancelled {
             log::info!("Download {download_id} cancelled, killing process");
             // Kill the GAMDL process and wait for cleanup

@@ -2894,6 +2894,18 @@ impl Drop for CompanionTaskHandle {
 }
 
 impl CompanionTaskHandle {
+    /// A handle around any task, with no tiers and no heartbeat. Tests only
+    /// (#1432): lets the slot-holding wait be tested without GAMDL.
+    #[cfg(test)]
+    pub(crate) fn for_test(handle: tokio::task::JoinHandle<()>) -> Self {
+        Self {
+            handle,
+            aborted: Arc::new(AtomicBool::new(false)),
+            progress: Arc::new(StdMutex::new(CompanionTaskProgress::default())),
+            heartbeat: None,
+        }
+    }
+
     /// A short plain sentence saying which companion tier is running and
     /// which have not started, for the timeout log lines. If the progress
     /// lock is poisoned it says so instead of failing.
@@ -3056,7 +3068,7 @@ pub(crate) struct CompanionHold {
 pub(crate) fn spawn_companion_downloads(
     app: &tauri::AppHandle,
     queue: &QueueHandle,
-    dl_id: &str,
+    attempt: &Attempt,
     urls: &[String],
     primary_codec_str: &str,
     companion_base_options: &GamdlOptions,
@@ -3066,6 +3078,9 @@ pub(crate) fn spawn_companion_downloads(
     held_until: Option<CompanionHold>,
     primary: PrimaryNaming,
 ) -> Option<CompanionTaskHandle> {
+    // The copies belong to one attempt of the item (#1432): they stop at
+    // their next check once that item is cancelled, retried or removed.
+    let dl_id = attempt.id.as_str();
     // M9-7 belt-and-braces: companion downloads use GAMDL's
     // codec-tier model (Atmos → ALAC → AAC fan-out) which has no
     // votify equivalent. votify uses a single `--audio-quality` CSV
@@ -3136,6 +3151,7 @@ pub(crate) fn spawn_companion_downloads(
         let mut comp_base_opts = companion_base_options.clone();
         let mut companion_tiers = companion_tiers;
         let comp_dl_id = dl_id.to_string();
+        let comp_attempt = attempt.clone();
         let comp_shutdown = shutdown.clone();
         // Per-task cooperative-cancel flag (#663). The completion task
         // sets this to `true` before calling `handle.abort()` so the
@@ -3227,10 +3243,10 @@ pub(crate) fn spawn_companion_downloads(
                 let mut waiter = hold.waiter;
                 let state = super::lyrics_pass::wait_for_companion_gate(&mut waiter, || {
                     let queue = comp_queue.clone();
-                    let id = comp_dl_id.clone();
+                    let gate_attempt = comp_attempt.clone();
                     let stopping =
                         comp_shutdown.is_triggered() || aborted_for_task.load(Ordering::Relaxed);
-                    async move { stopping || !queue.lock().await.should_keep_working_on(&id) }
+                    async move { stopping || !queue.lock().await.should_keep_running(&gate_attempt) }
                 })
                 .await;
                 let Some(state) = state else {
@@ -3365,7 +3381,7 @@ pub(crate) fn spawn_companion_downloads(
                 // Checked between tiers, which is where the other two
                 // stop conditions are checked, and for the same reason:
                 // it is the point where nothing is half-done.
-                if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
+                if !comp_queue.lock().await.should_keep_running(&comp_attempt) {
                     log::info!("Companion downloads stopping early — {comp_dl_id} was cancelled");
                     emit_download_log(
                         &comp_app,
@@ -3434,7 +3450,7 @@ pub(crate) fn spawn_companion_downloads(
                     // let the next one start — fresh download work, begun
                     // after the person said stop. A reviewer caught the
                     // gap in the first version of this check.
-                    if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
+                    if !comp_queue.lock().await.should_keep_running(&comp_attempt) {
                         log::info!("Companion downloads stopping — {comp_dl_id} was cancelled");
                         emit_download_log(
                             &comp_app,
@@ -4078,7 +4094,7 @@ pub(crate) fn spawn_companion_downloads(
             let stop_aborted = aborted_for_task.clone();
             let stop_shutdown = comp_shutdown.clone();
             let stop_queue = comp_queue.clone();
-            let stop_dl_id = comp_dl_id.clone();
+            let stop_attempt = comp_attempt.clone();
             // Also stops when the item is cancelled mid-run. A queue that
             // is busy right now is not waited for: the next step asks
             // again.
@@ -4087,7 +4103,7 @@ pub(crate) fn spawn_companion_downloads(
                     || stop_shutdown.is_triggered()
                     || stop_queue
                         .try_lock()
-                        .is_ok_and(|q| !q.should_keep_working_on(&stop_dl_id))
+                        .is_ok_and(|q| !q.should_keep_running(&stop_attempt))
             };
             // The catch-up's own stop check leaves out the deadline flag, so a
             // deadline does not end it between two files. If the task is
@@ -4099,14 +4115,14 @@ pub(crate) fn spawn_companion_downloads(
             // leave the remainder on the list for the same reason.
             let catch_up_shutdown = comp_shutdown.clone();
             let catch_up_queue = comp_queue.clone();
-            let catch_up_dl_id = comp_dl_id.clone();
+            let catch_up_attempt = comp_attempt.clone();
             let catch_up_stop = move || {
                 catch_up_shutdown.is_triggered()
                     || catch_up_queue
                         .try_lock()
-                        .is_ok_and(|q| !q.should_keep_working_on(&catch_up_dl_id))
+                        .is_ok_and(|q| !q.should_keep_running(&catch_up_attempt))
             };
-            if comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
+            if comp_queue.lock().await.should_keep_running(&comp_attempt) {
                 // Wait for any writing job an abandoned enrichment left
                 // running, so the two never write the same file at once.
                 let wait = match in_flight_handle.as_ref() {
@@ -4196,7 +4212,7 @@ pub(crate) fn spawn_companion_downloads(
                     .as_ref()
                     .and_then(|h| h.lock().ok().and_then(|g| g.clone()));
                 // A cancelled item gets no more lyrics work.
-                if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
+                if !comp_queue.lock().await.should_keep_running(&comp_attempt) {
                     log::info!("Extra copy lyrics skipped — {comp_dl_id} was cancelled");
                     return;
                 }
