@@ -8,7 +8,7 @@
 
 MeedyaDL's Settings screen has 10 tabs, grouped into four sections in the sidebar: General, Download (Codec & Resolution, Codec Fallback Order, Lyrics, Cover Art, Metadata, Templates), Authentication (Cookies), and System (Tools, Advanced). This page covers what each one controls and when you might want to change it. The defaults suit most people, so you can leave most of it alone.
 
-**Saving.** Changes are not kept until you press **Save Changes** at the top of the Settings screen. The button reads **Saved** when nothing is waiting. If saving fails, MeedyaDL says so and your changes stay on screen, still unsaved. If MeedyaDL could not load your settings when it opened, **Save Changes** stays switched off and a note says so, so an empty set of settings can never overwrite your real ones. Try again or restart MeedyaDL.
+**Saving.** Changes are not kept until you press **Save Changes** at the top of the Settings screen. The button reads **Saved** when nothing is waiting. If saving fails, MeedyaDL says so and your changes stay on screen, still unsaved. If MeedyaDL could not load your settings when it opened, **Save Changes** stays switched off and a note says so, so an empty set of settings can never overwrite your real ones. Press **Try loading again**, or restart MeedyaDL.
 
 **Reset** puts the settings on these tabs back to how they were when MeedyaDL was first installed. It asks first, and lists what you would lose that is hard to set up again: where your cookies file and helper tools are, your Apple Music credentials and API keys, your wrapper addresses, and your download folder. A reset is not saved until you press **Save Changes**. Until then, closing Settings and opening it again gets your old settings back.
 
