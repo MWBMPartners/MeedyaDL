@@ -9,6 +9,6 @@ against the baselines pixel by pixel. Images that differ are saved to
 
 Screenshots go in `tests/visual-regression/screenshots/` and baselines in
 `tests/visual-regression/baselines/`; both folders are created when the script
-runs; `diffs/` is created when a comparison finds a difference.
+runs. `compare` creates `diffs/` and saves an image there for each screen that differs.
 
 See #415 for details.

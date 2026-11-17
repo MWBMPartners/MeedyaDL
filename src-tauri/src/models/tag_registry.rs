@@ -5,9 +5,10 @@
 // ========================================================
 //
 // This module delegates to `meedya_core::metadata::tag_registry` for all tag
-// definition loading, JSON path extraction, and value conversion. The local
-// `tags.toml` is still used as the source of truth (compiled in via the
-// meedya-metadata crate's default tags).
+// definition loading, JSON path extraction, and value conversion. The tag
+// list used is the meedya-metadata crate's own compiled-in default list
+// (`DEFAULT_REGISTRY`), NOT this project's `src-tauri/tags.toml`, which no
+// code reads and whose names differ (see #1444).
 //
 // ## Migration Notes
 //

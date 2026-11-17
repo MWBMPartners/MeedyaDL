@@ -1616,7 +1616,7 @@ The post-download enrichment pipeline runs inside `tokio::spawn(async move {...}
 1. Tag I/O wrapped in `tokio::task::spawn_blocking()` in all 4 services
 2. `tokio::task::yield_now().await` added between all enrichment steps
 
-`enhanced_lyrics_service::process_enhanced_lyrics_for_directory()` was changed from `async fn` to `fn` (had zero `.await` calls). Its call site in the download queue module wraps it in `spawn_blocking()`.
+`enhanced_lyrics_service::process_enhanced_lyrics_for_directory()` was changed from `async fn` to `fn` (had zero `.await` calls). It no longer has a call site in the download pipeline: since #1441 the per-file steps in `download_queue/lyrics_steps.rs` do this work, and the folder-wide function is kept only as the reference the parity tests compare with (removal is #1443).
 
 ---
 
@@ -1901,7 +1901,7 @@ Things a person working here should know:
 
 ## Subtitle and Lyrics Generation
 
-MeedyaDL's enrichment pipeline includes seven subtitle/lyrics processing steps (Steps 2 through 2g). They run once per file, on this download's files only (disc folders included), in `download_queue/lyrics_steps.rs`; extra-format copies get the same steps from `download_queue/companion_lyrics.rs`. See "Download Pipeline Order" for where they sit in the whole run.
+MeedyaDL's enrichment pipeline includes seven subtitle/lyrics processing steps (Steps 2 through 2g). Steps 2 and 2c to 2g run once per file, on this download's files only (disc folders included), in `download_queue/lyrics_steps.rs` (Step 2b is a GAMDL re-run, `run_lyrics_fallback` in `download_queue/companions.rs`); extra-format copies get the same steps from `download_queue/companion_lyrics.rs`. See "Download Pipeline Order" for where they sit in the whole run.
 
 ### Processing Pipeline
 
