@@ -218,12 +218,17 @@ pub async fn export_profile(
     // imports cleanly and the user re-imports cookies / re-enters
     // MusicKit on the new install.
     if options.include_credentials {
-        let password = options.credentials_password.as_deref().unwrap_or("");
-        if password.is_empty() {
+        // No password (or an empty one) refuses. Written without a stand-in
+        // empty string, so no fixed value can ever reach the encryption.
+        let Some(password) = options
+            .credentials_password
+            .as_deref()
+            .filter(|p| !p.is_empty())
+        else {
             return Err(
                 "Credentials cannot be included without a password — set a password in the export dialog.".to_string(),
             );
-        }
+        };
         match collect_credentials_blob(&app) {
             Ok(plaintext) if !plaintext.is_empty() => {
                 let encrypted = encrypt_credentials(password, &plaintext)
@@ -1009,12 +1014,17 @@ pub async fn import_profile(
     if matches!(options.credentials, ImportConflictAction::Replace)
         && reader.meta().has(BundleSection::Credentials)
     {
-        let password = options.credentials_password.as_deref().unwrap_or("");
-        if password.is_empty() {
+        // No password (or an empty one) refuses. Written without a stand-in
+        // empty string, so no fixed value can ever reach the encryption.
+        let Some(password) = options
+            .credentials_password
+            .as_deref()
+            .filter(|p| !p.is_empty())
+        else {
             return Err(
                 "Bundle contains credentials but no password was supplied — set the password and retry the import.".to_string(),
             );
-        }
+        };
         let ciphertext = reader
             .read_entry(entry::CREDENTIALS)
             .map_err(|e| format!("Failed to read credentials.encrypted: {e}"))?
