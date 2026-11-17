@@ -2140,7 +2140,9 @@ pub async fn abort_all_downloads(
         } else {
             format!("{n} downloads that were marked stuck")
         };
-        emit_app_log(&app, &format!("Aborted: also stopped {what}"));
+        // "also" only when the line above was written for normal downloads.
+        let also = if summary.total() > 0 { "also " } else { "" };
+        emit_app_log(&app, &format!("Aborted: {also}stopped {what}"));
     }
     kick_queue_after_stop(&app, &queue_handle);
 

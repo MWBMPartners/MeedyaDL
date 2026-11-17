@@ -432,8 +432,8 @@ async fn sweep_orphaned_slots(
 /// From then on that run no longer keeps the queue from being idle, but
 /// nothing else would start the queue to notice: if nothing else is queued
 /// or running, this is what makes "Queue finished" and the after-queue
-/// action happen. They still happen once only -- `process_queue` fires them
-/// only when a download ran since the queue last went quiet.
+/// action happen. They still happen once only -- `finish_queue_if_drained`
+/// fires them only when a download ran since the queue last went quiet.
 async fn start_queue_when_stalled_wait_ends(
     app: &AppHandle,
     queue: &Arc<Mutex<DownloadQueue>>,
@@ -442,7 +442,10 @@ async fn start_queue_when_stalled_wait_ends(
     let ran_out = queue.lock().await.stalled_waits_just_ran_out(now);
     if ran_out {
         log::info!("watchdog: a stuck download's one-hour wait ran out; checking the queue");
-        crate::services::download_queue::process_queue(app.clone(), queue.clone()).await;
+        // Only the "has the queue finished?" check: no pre-download checks,
+        // and nothing held back on purpose (offline, auto-start off) is
+        // started (review round 5 of #1432).
+        crate::services::download_queue::finish_queue_if_drained(app, queue).await;
     }
 }
 
