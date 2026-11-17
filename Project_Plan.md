@@ -9,7 +9,16 @@
 
 ## 📌 Current Version
 
-**v1.13.0-alpha.66** — all 6 phases complete, plus the post-release work listed below <!-- x-release-please-version -->
+**v1.13.0-alpha.90** (Alpha channel, read from `alpha`'s `package.json` on 17 Nov 2026) — all 6 phases complete, plus the post-release work listed below <!-- x-release-please-version -->
+
+| Channel | Branch | Latest version |
+|---------|--------|----------------|
+| Stable | `main` | 1.10.14 |
+| Release candidate | `release-candidate` | 1.0.0-rc.50 |
+| Beta | `beta` | 1.9.4-beta.23 |
+| Alpha | `alpha` | 1.13.0-alpha.90 |
+
+Current work happens on the `work-in-progress` branch, which feeds one combined pull request (#1420) to `alpha`. Version numbers go stale quickly, because every push to a channel branch cuts the next one. Re-read them from each branch's `package.json`.
 
 ---
 
@@ -85,7 +94,7 @@ Build the Rust services that power the application: Python management, GAMDL ins
 
 #### 2.3 Dependency Manager
 
-- ✅ Download and manage: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo (all required; rclone was added later as an optional tool for cloud uploads)
+- ✅ Download and manage: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box, MediaInfo (all required). rclone is registered as an optional tool for future cloud uploads but is not offered to anyone yet (it is hidden from Settings > Tools and the setup wizard until upload ships)
 - ✅ Platform-specific download URLs and extraction
 - ✅ Version tracking and binary verification
 - ✅ Display name → tool ID resolution (`resolve_tool_id()`)
@@ -213,7 +222,7 @@ Picture size is a separate setting and is not part of any chain. It sets a ceili
 
 - ✅ **Cookie Import UI** - Step-by-step instructions, validation, expiry warnings
 - ✅ **Auto-Update Checker** - GAMDL (PyPI), Python, tools, app self-update. (Correction, September 2026: of the five helper tools, only N_m3u8DL-RE was actually being checked until #273 — see Post-Release Features.)
-- ✅ **In-App Help System** - Markdown renderer, search, help topics (21 files in `help/*.md`; the in-app viewer reads and shows 20 of them — every one except `index.md`, the GitHub-only table of contents — with no separate hand-typed copy)
+- ✅ **In-App Help System** - Markdown renderer, search, help topics (21 files in `help/*.md`, rewritten in November 2026 as an end-user guide; the in-app viewer reads and shows 20 of them — every one except `index.md`, the GitHub-only table of contents — with no separate hand-typed copy)
 - ✅ **System Tray** - Minimize to tray, download count badge
 - ✅ **Service Architecture** - Extensible pattern for future YouTube Music / Spotify support
 
@@ -359,6 +368,15 @@ Picture size is a separate setting and is not part of any chain. It sets a ceili
 - ✅ **song.link (Odesli) links on other services** (#295) - New enrichment Step 6c asks song.link where else a downloaded album is available (Spotify, YouTube Music, Tidal, Deezer, Amazon Music, SoundCloud, Bandcamp, Pandora, and others) and Step 6d writes what it finds as `MeedyaMeta:<Service>Url` tags on every track, plus a `cross_platform_urls` field on the album's `manifest.meedyadl`. Shipped: the on/off toggle (`odesli_lookup_enabled`, off by default) in Settings > Metadata, the access-key field (`odesli_api_key`) in Settings > Advanced > API Credentials, paced and cached lookups (`services/odesli_service.rs`), and answers remembered for 30 days so a re-download or a different codec of the same album costs no extra request. The code existed before this but had no switch anywhere in the app, so it had never actually run for anyone — that's what this closes. Needs an access key that Odesli (who run song.link) grant by application, since they closed free public access to the API in 2026.
 - ✅ **Update checks for all five helper tools** (#273) - The Updates page now checks FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box and MediaInfo, each against the place an update would actually come from (GitHub releases, the build source FFmpeg was installed from, or the MeedyaSuite mirror). Before this only N_m3u8DL-RE was really checked. When a check cannot give an answer (no internet, a tool that will not report its version, a source that records no usable version), the page says "could not check" for that tool instead of calling it up to date. A copy that belongs to a package manager or was found already on the system is left to its owner.
 - ✅ **GAMDL 3.9.1 support** - Supported range raised to 3.9.1. GAMDL 3.9 is refused, because it cannot download Apple's web AAC formats, which are the last step in the fallback chain. Windows on ARM is held at 3.8.5 and Linux ARMv7 at 3.8.1, because newer releases cannot be installed there. GAMDL 3.9's second way of unlocking protected tracks (PlayReady, with a device file you supply) is offered in Settings > Advanced when GAMDL 3.9 or newer is installed. Full detail in `.github/audits/gamdl-v3.9-v3.9.1-audit.md`.
+- ✅ **GAMDL 4 opt-in trial** (#1404, #1434) - GAMDL 4.x can be installed on purpose from Settings > Tools > GAMDL Version Management. It is untested, so routine installs stay on GAMDL 3.x (3.9.1 is still the tested and recommended version). 4.0.0 and 4.0.1 are refused because of known faults; 4.0.2 is the GAMDL 4 to use. People on GAMDL 3 are only offered GAMDL 3 updates. Linux ARMv7 and Windows on ARM stay held at their older limits. Making GAMDL 4 the routine install is follow-up #1438.
+- ✅ **Notifications rebuilt** (#1431) - One rule decides every message. In-app messages always show. System notifications follow three settings: when (in the background or on another screen / only on another screen / always), which (important / important and errors / everything), and the style, plus a switch for each kind of event. Several downloads finishing together give one summary. "Play a sound" after the queue plays a real system sound. Needs a check on real machines for sounds and other-screen detection.
+- ✅ **Word-by-word lyrics order** (#1435) - MeedyaDL's own word-timed lyrics are fetched first. A GAMDL 4.0.2+ word-timed file is the fallback for tracks that could not be fetched. Every lyrics conversion runs after both, and file renames run last.
+- ✅ **Extra-format downloads made safe** (#1440, #1441, #1442) - Extra formats wait until the lyrics and renames are finished, and never overwrite anything. On mixed albums they ask only for the songs that need a copy. Only the files from this download are renamed, tagged or converted (disc folders are covered). Each extra copy gets the same lyrics files as the main download, and a better lyrics file from a copy can upgrade the main download. One app-wide lock allows only one writer per music file. An extra format's tags no longer spill into other files.
+- ✅ **Library re-download fills gaps only** - A re-download adds missing songs and formats. An album marked "Content updated" follows the Overwrite setting. The page warns before a re-download could add a second copy beside renamed files. GAMDL's own settings file never contains `overwrite` any more.
+- ✅ **Quick fixes** (#1433, #1267, #1237, #1235) - History retry, the wrapper decryption address worked out automatically (settings version 13), regional interface languages, and Settings can no longer be saved before they have loaded.
+- ✅ **Old SQLite with a security notice removed** (#1413) - The database library is updated, and a patched copy of the browser-cookie reader lives in `src-tauri/vendor/rookie` until the original catches up. Not yet tested with a real browser cookie import on each system.
+- ✅ **Polish pass (Oct 2026), help rewrite and code reformat (Nov 2026)** - Shared controls, one type scale, pages that load on demand, and an automatic check for anything that looks unfinished. All 20 in-app help pages rewritten. All code formatted with `cargo fmt` and Prettier, now checked in CI, and detailed comments added across the code. PR #1348's subtitle design note was folded in as `docs/media-preservation-integration.md`.
+- ✅ **Spotify is a developer-only preview everywhere**, the release channels are Alpha, Beta, RC and Stable only, and the settings file is at version 13.
 
 ---
 
@@ -376,7 +394,7 @@ Picture size is a separate setting and is not part of any chain. It sets a ceili
 | v3.x | TBD | Smart Download | Cross-platform | [#110](https://github.com/MWBMPartners/MeedyaDL/issues/110) | 🔮 Future |
 | v3.x | TBD | Enhanced MusicKit | Server-side JWT | [#108](https://github.com/MWBMPartners/MeedyaDL/issues/108) | 🔮 Future |
 | — | TBD | Full i18n | — | [#111](https://github.com/MWBMPartners/MeedyaDL/issues/111) | 🔮 Ongoing |
-| — | TBD | Remote feature disable | — | [#106](https://github.com/MWBMPartners/MeedyaDL/issues/106) | 🚧 Partially shipped — availability client + in-app notice banner landed (fail-open, sticky cache, self-protection floor); per-feature enforcement pending ([#1071](https://github.com/MWBMPartners/MeedyaDL/issues/1071)) |
+| — | TBD | Remote feature disable | — | [#106](https://github.com/MWBMPartners/MeedyaDL/issues/106) | 🚧 Mostly shipped — availability client, in-app notice banner and download-start checks per service landed (fail-open, sticky cache, self-protection floor); live switch-on depends on the server side ([#1071](https://github.com/MWBMPartners/MeedyaDL/issues/1071) closed) |
 | — | TBD | Native SwiftUI (macOS) | — | [#109](https://github.com/MWBMPartners/MeedyaDL/issues/109) | 🔮 Future |
 | — | TBD | Anonymous crash relay | PHP | [#44](https://github.com/MWBMPartners/MeedyaDL/issues/44) | 🔮 Future |
 
@@ -557,7 +575,7 @@ These tasks span multiple milestones and should be addressed incrementally:
 
 | Feature | Description | Status |
 | --- | --- | --- |
-| **Remote Service Status** | Developer-controlled ability to remotely enable/disable individual media services across all deployed app instances | 🚧 Partially shipped — availability client + in-app notice banner landed (fail-open, sticky cache, self-protection floor); per-feature enforcement pending ([#1071](https://github.com/MWBMPartners/MeedyaDL/issues/1071)) |
+| **Remote Service Status** | Developer-controlled ability to remotely enable/disable individual media services across all deployed app instances | 🚧 Mostly shipped — availability client, in-app notice banner and download-start checks per service landed (fail-open, sticky cache, self-protection floor); live switch-on depends on the server side ([#1071](https://github.com/MWBMPartners/MeedyaDL/issues/1071) closed) |
 | **Integration API** | REST or IPC API for external apps to trigger downloads programmatically | 🔮 Future |
 | **Custom themes** | User-defined accent colours and theme presets | 🔮 Future |
 | **Multi-track muxing** | Mux companion downloads (e.g. Atmos + AC3 + AAC) into a single MP4 with multiple audio streams and alternate-group metadata for codec-based fallback | 🔮 Future |
@@ -568,7 +586,18 @@ These tasks span multiple milestones and should be addressed incrementally:
 
 ## ⚠️ Known Issues / Blockers
 
-None at this time.
+No blockers. Open follow-ups (all unmerged work sits in PR #1420 until it lands; issues for finished work close then):
+
+| Issue | What |
+|-------|------|
+| [#1432](https://github.com/MWBMPartners/MeedyaDL/issues/1432) | Queue: an old download run can act on an item after it was retried, and one route frees the queue slot too early |
+| [#1436](https://github.com/MWBMPartners/MeedyaDL/issues/1436) | GAMDL 3: the lyrics recovery step writes into the album folder's old name after it gains [Explicit]/[Clean] |
+| [#1437](https://github.com/MWBMPartners/MeedyaDL/issues/1437) | Re-download after files were renamed: renamed files are not found, so the album downloads again |
+| [#1438](https://github.com/MWBMPartners/MeedyaDL/issues/1438) | Make GAMDL 4 the routine install, after real-download tests on each platform |
+| [#1439](https://github.com/MWBMPartners/MeedyaDL/issues/1439) | Three small UI faults spotted during the code comment pass |
+| [#1443](https://github.com/MWBMPartners/MeedyaDL/issues/1443) | Remove the old whole-folder lyrics functions once nothing needs them |
+
+Still needing real machines: notification sounds and other-screen detection, a live download on each platform with GAMDL 3.9.1, and a browser cookie import after the #1413 change.
 
 ---
 
@@ -582,6 +611,6 @@ None at this time.
 
 ---
 
-*Last updated: 2026-09-24*
+*Last updated: 2026-11-17*
 
 (c) 2024-2026 MeedyaDL

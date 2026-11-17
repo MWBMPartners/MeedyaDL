@@ -495,6 +495,7 @@ Not everything embedded via `option_env!()` at compile time is sensitive — the
 | Variable | Description |
 |----------|-------------|
 | `MEEDYADL_CHROME_MAJOR` | Chrome major version number (e.g. `"131"`) embedded into the Group C browser User-Agent strings (`browser_user_agent()` in `src-tauri/src/utils/http_client.rs`) used for generic third-party requests (Odesli, PyPI, etc.) on Windows and Linux. Set by a best-effort step in `release.yml` that queries Google's public [VersionHistory API](https://versionhistory.googleapis.com/v1/chrome/platforms/win/channels/stable/versions?pageSize=1) for the current stable Windows Chrome release, extracts the major version, and exports it via `$GITHUB_ENV`. If the fetch fails, times out, or returns something that doesn't look like a clean 2-4 digit number, the step logs a warning and moves on — it can never fail the build. Local dev builds, forks, and CI/PR builds never set this variable, and fall back to the compiled-in `CHROME_MAJOR_FALLBACK` constant, so the mechanism is entirely opt-in and zero-config by default. This is safe to document here (unlike `INTAPPS_*`) because it queries a public Google API with no auth, and the resulting value ships visibly in plaintext inside every binary's User-Agent header anyway. |
+| `MEEDYADL_SAFARI_VERSION` | Safari version (for example `"26.6"`) used in the Apple Music User-Agent (`SAFARI_MACOS_USER_AGENT` in `http_client.rs`). A small job in `release.yml` reads it once from the macOS build machine and hands it to every platform's build. If it is missing or malformed, the compiled-in `SAFARI_VERSION_FALLBACK` is used. Local, fork and CI builds never set it. |
 
 ---
 
@@ -995,6 +996,8 @@ MeedyaDL/
 
 │   │   ├── download/           #    DownloadForm, DownloadQueue, ActivityLog, QueueItem, HistoryPage, GlobalProgressBar
 
+│   │   ├── library/            #    LibraryScanPage, MvGapFillModal (Library Scan and re-download)
+
 │   │   ├── settings/           #    SettingsPage + 11 tab components (Spotify only with developer access; see settingsGroups.ts) + CrashReportSection, CrashReportDialog, DevToolsSection
 
 │   │   ├── updates/            #    UpdatesPage (changelog + update actions)
@@ -1100,6 +1103,8 @@ MeedyaDL/
 
 │       │   ├── feature_flags.rs#    Remote feature-availability read/refresh
 
+│       │   ├── language.rs     #    Language-list commands (Metadata Language list order, #1249)
+
 │       │   ├── legal.rs        #    Bundled licence text + legal document lookups
 
 │       │   ├── lyrics.rs       #    Lyrics-related IPC helpers
@@ -1156,7 +1161,7 @@ MeedyaDL/
 
 │       │   ├── config_service.rs    # JSON settings + INI sync
 
-│       │   ├── download_queue/      # Queue manager module (companions.rs, helpers.rs, notifications.rs, options.rs, persistence.rs, processing.rs, tests.rs)
+│       │   ├── download_queue/      # Queue manager module (companions.rs, companion_lyrics.rs, helpers.rs, lyrics_pass.rs, lyrics_steps.rs, notifications.rs, options.rs, persistence.rs, processing.rs, tests.rs)
 
 │       │   ├── update_checker.rs    # Version update checker
 
@@ -1258,6 +1263,8 @@ MeedyaDL/
 
 │       │   ├── music_video_subtitle_service.rs # Subtitle/caption stream handling for music videos
 
+│       │   ├── notification_service.rs # The one rule for in-app vs system notifications (#1431)
+
 │       │   ├── odesli_service.rs    # song.link (Odesli) cross-platform lookup (#295)
 
 │       │   ├── package_manager.rs   # Multi-package-manager attribution/update routing
@@ -1286,7 +1293,7 @@ MeedyaDL/
 
 │       │   └── youtube_service.rs   # yt-dlp version checks (M10 stub)
 
-│       └── utils/              #    Utility modules (19 files)
+│       └── utils/              #    Utility modules (20 files)
 
 │           ├── platform.rs     #    OS detection & paths
 
@@ -1306,7 +1313,7 @@ MeedyaDL/
 
 │           ├── error_context.rs#    `context_err!` macro for consistent error wrapping
 
-│           ├── file_locks.rs   #    Per-file write locks (FileWriteLocks) for enrichment races
+│           ├── file_locks.rs   #    The one app-wide per-file write lock (`file_locks::global()`) every tag write takes (#1442)
 
 │           ├── fs_safe.rs      #    Safe filesystem helpers (path-traversal guards, etc.)
 
@@ -1316,11 +1323,15 @@ MeedyaDL/
 
 │           ├── image_info.rs   #    Image dimension probing (cover-art pixel comparisons)
 
+│           ├── language.rs     #    Every use of the shared `meedya-lang` crate (language tags; see the language policy)
+
 │           ├── lyric_time.rs   #    Lyric timestamp parsing/formatting
 
 │           ├── subprocess_reader.rs #    Shared `BufReader → next_line` subprocess line-reading shell
 
 │           ├── text.rs         #    Shortening text at a whole character, so a cut never lands mid-character and stops the app
+
+│           ├── wrapper_address.rs #    Works out the wrapper's decryption address when it is left blank (#1433)
 
 │           └── version.rs      #    The one rule for "is this an unfinished build" (before 1.0, or any -alpha/-beta/-rc suffix)
 
@@ -1407,7 +1418,7 @@ The `music_video_companion` setting (default: `false`) enables automatic downloa
 | File | Role |
 | ---- | ---- |
 | `src-tauri/src/services/apple_music_api.rs` | `MusicVideoRelation` struct, `fetch_music_video_relations()`, `build_music_video_url()` |
-| `src-tauri/src/services/download_queue.rs` | `spawn_music_video_companion_inner()` — enrichment Step 6 |
+| `src-tauri/src/services/download_queue/companions.rs` | `spawn_music_video_companion_inner()` — enrichment Step 6 |
 | `src-tauri/src/models/settings.rs` | `music_video_companion: bool` setting field |
 | `src/components/settings/tabs/QualityTab.tsx` | Toggle in Video Quality section (gated behind MusicKit credentials) |
 
@@ -1420,7 +1431,7 @@ Music video placement on disk is resolved through a four-tier cascade, highest p
 | 1 | GAMDL's **iTunes Lookup** (`interface_music_video.py:80`) with album linkage | Inside GAMDL (`tags.album` populated → `album_folder_template`) | `{album_artist}/{album}/` | `{track:02d} {title}` or `{disc}-{track:02d} {title}` | Yes (disc/track disambiguate) |
 | 2 | **Apple Music Catalog API** `music-videos/{id}?include=albums` | Not yet wired — tracked as follow-up in #537 | `{album_artist}/{album}/` (pre-filled into `no_album_folder_template` before GAMDL runs) | `{title} ({title_id})` (same last-resort file template; album-aware override planned) | Yes |
 | 3 | **MeedyaDL-known parent album** — when the MV is discovered via `fetch_music_video_relations()` for album X, we already know it belongs to album X | Not yet wired — tracked in #537 | `{album_artist}/{album}/` from our known parent context | `{title} ({title_id})` | Yes |
-| 4 | **Fallback** (`MV_NO_ALBUM_FOLDER_TEMPLATE` + `MV_NO_ALBUM_FILE_TEMPLATE` in `download_queue.rs`) | Reached only when all three above fail or the MV genuinely has no album (standalone promo MV) | `{artist}/Music Videos/` | `{title} ({title_id})` — `{title_id}` is Apple Music's numeric MV ID, **guaranteed unique** and **deterministic across re-downloads** | Yes |
+| 4 | **Fallback** (`MV_NO_ALBUM_FOLDER_TEMPLATE` + `MV_NO_ALBUM_FILE_TEMPLATE` in `download_queue/companions.rs`) | Reached only when all three above fail or the MV genuinely has no album (standalone promo MV) | `{artist}/Music Videos/` | `{title} ({title_id})` — `{title_id}` is Apple Music's numeric MV ID, **guaranteed unique** and **deterministic across re-downloads** | Yes |
 
 **Why `{title_id}` and not a datetime?** `{title_id}` is the Apple Music MV numeric ID — the same ID every time, so re-downloads of the same MV dedupe correctly under GAMDL's `overwrite=false`. A datetime suffix would cause every re-download to create a new file, silently multiplying on-disk copies.
 
@@ -1441,9 +1452,9 @@ The same iTunes fill-in can also change an audio file's name: where iTunes repor
 
 | Location | Role |
 |----------|------|
-| `src-tauri/src/services/download_queue.rs` → `MV_NO_ALBUM_FOLDER_TEMPLATE` | Tier 4 folder template |
-| `src-tauri/src/services/download_queue.rs` → `MV_NO_ALBUM_FILE_TEMPLATE` | Tier 4 file template (includes `{title_id}` for uniqueness) |
-| `src-tauri/src/services/download_queue.rs` → `download_music_video_by_url()` | Applies Tier 4 overrides to the GAMDL invocation for MVs |
+| `src-tauri/src/services/download_queue/companions.rs` → `MV_NO_ALBUM_FOLDER_TEMPLATE` | Tier 4 folder template |
+| `src-tauri/src/services/download_queue/companions.rs` → `MV_NO_ALBUM_FILE_TEMPLATE` | Tier 4 file template (includes `{title_id}` for uniqueness) |
+| `src-tauri/src/services/download_queue/companions.rs` → `download_music_video_by_url()` | Applies Tier 4 overrides to the GAMDL invocation for MVs |
 | `src-tauri/src/services/config_service.rs` → `migrate_settings()` v2→v3 | Heals legacy broken `no_album_*` defaults on upgrade |
 | `src-tauri/src/services/apple_music_api.rs` → `fetch_music_video_relations()` | Currently returns MV ID + name only; to be extended for Tier 2 (`include=albums`) |
 
@@ -1541,7 +1552,7 @@ Actual errors (API failures, network issues) are logged at `warn!` level.
 |------|------|
 | `src-tauri/src/services/animated_artwork_service.rs` | Main service: credential check, API query, HLS download, file hiding |
 | `src-tauri/src/services/apple_music_api.rs` | Shared: JWT generation, keychain access, catalog API client |
-| `src-tauri/src/services/download_queue.rs` | Enrichment integration (Step 3 of pipeline) |
+| `src-tauri/src/services/download_queue/processing.rs` | Enrichment integration (Step 3 of pipeline) |
 | `src-tauri/src/commands/artwork.rs` | IPC command: manual artwork download |
 | `src/components/settings/tabs/CoverArtTab.tsx` | UI: toggles and settings |
 | `src/components/settings/tabs/AdvancedTab.tsx` | UI: MusicKit credentials, "Test Credentials" button |
@@ -1605,7 +1616,7 @@ The post-download enrichment pipeline runs inside `tokio::spawn(async move {...}
 1. Tag I/O wrapped in `tokio::task::spawn_blocking()` in all 4 services
 2. `tokio::task::yield_now().await` added between all enrichment steps
 
-`enhanced_lyrics_service::process_enhanced_lyrics_for_directory()` was changed from `async fn` to `fn` (had zero `.await` calls). Its call site in `download_queue.rs` wraps it in `spawn_blocking()`.
+`enhanced_lyrics_service::process_enhanced_lyrics_for_directory()` was changed from `async fn` to `fn` (had zero `.await` calls). Its call site in the download queue module wraps it in `spawn_blocking()`.
 
 ---
 
@@ -1890,14 +1901,14 @@ Things a person working here should know:
 
 ## Subtitle and Lyrics Generation
 
-MeedyaDL's enrichment pipeline includes seven subtitle/lyrics processing steps (Steps 2 through 2g):
+MeedyaDL's enrichment pipeline includes seven subtitle/lyrics processing steps (Steps 2 through 2g). They run once per file, on this download's files only (disc folders included), in `download_queue/lyrics_steps.rs`; extra-format copies get the same steps from `download_queue/companion_lyrics.rs`. See "Download Pipeline Order" for where they sit in the whole run.
 
 ### Processing Pipeline
 
 | Step | Feature | Setting | Default | Service |
 |------|---------|---------|---------|---------|
 | 2 | Enhanced LRC (word-by-word sync) | `enhanced_lrc` | ON | `enhanced_lyrics_service.rs` |
-| 2b | Lyrics format fallback | `lyrics_fallback_enabled` | ON | `download_queue.rs` |
+| 2b | Lyrics format fallback | `lyrics_fallback_enabled` | ON | `download_queue/companions.rs` (`run_lyrics_fallback`) |
 | 2c | WebVTT generation | `generate_webvtt` | OFF | `webvtt_service.rs` |
 | 2d | Rich SRT generation | `generate_rich_srt` | ON | `rich_srt_service.rs` |
 | 2e | Subtitle embedding | `embed_subtitles` | OFF | `rich_srt_service.rs` |
@@ -1933,6 +1944,32 @@ Enhanced LRC is always embedded via the native `©lyr` atom when `enhanced_lrc` 
 ### Sidecar Overwrite Behaviour
 
 See "Lyric Sidecar Regeneration Policy" further down this file for the current, accurate write policy — it isn't the same for every generator (some overwrite, some skip an existing file), and an older, now-deleted version of this section used to claim they all behaved the same way. That older claim was wrong; the code has always matched the policy described later in this file.
+
+---
+
+## Download Pipeline Order (as of Nov 2026)
+
+One queue item runs this sequence. The code lives in `src-tauri/src/services/download_queue/` (`processing.rs`, `lyrics_pass.rs`, `lyrics_steps.rs`, `companions.rs`, `companion_lyrics.rs`).
+
+1. **Main download** by GAMDL. Before it starts, the files already in place are noted, so later steps can tell this download's files from older ones.
+2. **Enrichment**, in this order:
+   - Album details are fetched once and shared.
+   - Step 0 (iTunes tags), then Step 1b (word-by-word lyrics: MeedyaDL's own fetch first, matched to files by disc and track number).
+   - On GAMDL 4.0.2 and newer only, a second GAMDL pass fetches the word-timed lyrics file for tracks MeedyaDL could not ask about. It never overwrites and never runs after a partly failed download.
+   - Step 1 tagging, which writes tags only and renames nothing, then the cover art steps.
+   - Steps 2 to 2g, the lyrics conversions, one file at a time.
+   - The album folder is renamed (`[Explicit]` or `[Clean]`), then the files (advisory label, then format label). Their lyrics files move with them.
+   - The extra-format downloads are then let go. They were waiting for this point.
+   - Step 3 onward: animated artwork, AcoustID, ReplayGain, music videos, song.link.
+3. **Extra-format ("companion") downloads** run after the renames. They never overwrite anything. On a mixed album they ask only for the songs that need a copy, as per-song links. Only this download's files are renamed or tagged. After the tiers finish, each new copy gets the same lyrics files as the main download (`companion_lyrics.rs`), and a better lyrics file from a copy can upgrade the main download's lyrics. A final pass adds `[Explicit]`/`[Clean]` labels to the new copies.
+4. The completion task waits for enrichment and the extra-format task, with timeouts from `compute_total_timeout`. Any lyrics work enrichment did not finish is caught up here.
+
+### Rules that keep this safe
+
+- **`overwrite` is only ever a command-line option**, never written to GAMDL's `config.ini`. GAMDL 3 cannot cancel an INI `overwrite = true`, so runs that must not overwrite (extra formats, gap-fill, Library re-download) would otherwise overwrite.
+- **One app-wide write lock per music file** (`utils/file_locks.rs`, `file_locks::global()`). Every tag write takes it for the file it rewrites, in the per-file loop, never inside the function that writes a single file (the lock is not re-entrant). Use `lock().await` in async code and `lock_blocking` only inside `spawn_blocking` or a plain thread. Hold one file lock at a time. A rename cannot be locked. Source checks in `download_queue/tests.rs` fail if a write site forgets the lock.
+- **Work that runs on a blocking thread is tracked** (`lyrics_steps::InFlightWrites`) so a late catch-up never writes while an abandoned job is still writing.
+- **Library re-download** only fills gaps (missing songs and formats). An album whose only reason is "Content updated" follows the saved Overwrite setting.
 
 ---
 
@@ -2125,7 +2162,7 @@ When a user re-downloads an album they have previously downloaded, MeedyaDL can 
 
 2. **API field extraction**: During enrichment, `apple_music_api.rs` extracts the `lastModifiedDate` ISO 8601 timestamp from the album's `attributes` in the Apple Music catalog API response. This is stored on the `AlbumMetadata` struct.
 
-3. **Manifest storage**: When `write_manifest()` runs in `download_queue.rs`, the `lastModifiedDate` is persisted as `ManifestSource.last_modified_date` in the `.meedyadl` JSON manifest file. This allows future downloads to compare the stored date against a fresh API response.
+3. **Manifest storage**: When `write_manifest()` runs (`download_queue/helpers.rs`), the `lastModifiedDate` is persisted as `ManifestSource.last_modified_date` in the `.meedyadl` JSON manifest file. This allows future downloads to compare the stored date against a fresh API response.
 
 4. **Tag embedding**: The `lastModifiedDate` is also embedded as MP4 freeform atoms via `tags.toml`: `com.apple.iTunes:AlbumLastModified` and `MeedyaMeta:AppleLastModifiedDate`.
 
@@ -2156,7 +2193,7 @@ When disabled, the pre-download history check is skipped entirely.
 |------|------|
 | `src-tauri/src/commands/gamdl.rs` | `check_redownload_status` IPC command, `RedownloadInfo` struct |
 | `src-tauri/src/services/apple_music_api.rs` | `lastModifiedDate` extraction into `AlbumMetadata` |
-| `src-tauri/src/services/download_queue.rs` | `last_modified_date` passed to `write_manifest()` |
+| `src-tauri/src/services/download_queue/helpers.rs` | `last_modified_date` passed to `write_manifest()` |
 | `src-tauri/src/models/manifest.rs` | `ManifestSource.last_modified_date` field |
 | `src-tauri/src/models/settings.rs` | `smart_redownload_detection` setting |
 | `src-tauri/tags.toml` | `[album.last_modified_date]` tag definition |
@@ -2435,7 +2472,7 @@ The `processing_label` field on `QueueItemStatus` is set at enrichment stage bou
 
 ### Files
 
-- `src-tauri/src/services/download_queue.rs` — state management, JoinHandle tracking, companion stdout streaming
+- `src-tauri/src/services/download_queue/` (`mod.rs`, `processing.rs`, `companions.rs`) — state management, JoinHandle tracking, companion stdout streaming
 - `src-tauri/src/models/download.rs` — `processing_label: Option<String>` on `QueueItemStatus`
 - `src/stores/downloadStore.ts` — event handling with state stability guards
 - `src/components/layout/GlobalProgressBar.tsx` — dual bar rendering with companion speed/ETA support
@@ -2452,7 +2489,7 @@ During multi-item download sessions the `tauri://localhost` WebView process grew
 
 3. **Virtualized ActivityLog** (`ActivityLog.tsx`) — `useVirtualizer` from `@tanstack/react-virtual` renders only visible rows + 50-row overscan buffer. DOM nodes drop from ~37,500 to ~150 regardless of entry count. Auto-scroll uses `virtualizer.scrollToIndex()` for accurate positioning with dynamic row heights.
 
-4. **Backend `\r` segment coalescing** (`download_queue.rs`) — for `\r`-split progress lines (yt-dlp style), only the **last non-empty segment** is emitted to `activity-log`. Intermediate segments are still parsed for `gamdl-output` progress tracking. Reduces activity-log event volume by 5-10x.
+4. **Backend `\r` segment coalescing** (`download_queue/processing.rs`) — for `\r`-split progress lines (yt-dlp style), only the **last non-empty segment** is emitted to `activity-log`. Intermediate segments are still parsed for `gamdl-output` progress tracking. Reduces activity-log event volume by 5-10x.
 
 5. **Download store optimization** (`downloadStore.ts`) — `handleProgressEvent` uses `map()` pattern returning same reference for non-matching items, instead of `[...arr]` + `findIndex` + splice.
 
@@ -2461,7 +2498,7 @@ During multi-item download sessions the `tauri://localhost` WebView process grew
 - `src/stores/activityStore.ts` — capped store with `addEntries()` batch method and `_id` assignment
 - `src/App.tsx` — RAF-batched event listener for `activity-log`
 - `src/components/download/ActivityLog.tsx` — virtualized rendering via `@tanstack/react-virtual`
-- `src-tauri/src/services/download_queue.rs` — `\r` coalescing in stdout/stderr reader tasks
+- `src-tauri/src/services/download_queue/processing.rs` — `\r` coalescing in stdout/stderr reader tasks
 - `src/stores/downloadStore.ts` — `map()` pattern for progress events
 - `src/types/index.ts` — `_id?: number` field on `ActivityLogEntry`
 
@@ -2568,7 +2605,7 @@ pub trait FilenameSafetyContract {
 
 ### Canonical implementation example
 
-`services::filename_safety::GamdlMusicVideoFallback` — pairs with `MV_NO_ALBUM_FILE_TEMPLATE` / `MV_NO_ALBUM_FOLDER_TEMPLATE` in `services/download_queue.rs`. New engines should structure their `impl` the same way: mirror the runtime template constants as string literals inside the contract module to keep the safety-check module free of cross-module coupling.
+`services::filename_safety::GamdlMusicVideoFallback` — pairs with `MV_NO_ALBUM_FILE_TEMPLATE` / `MV_NO_ALBUM_FOLDER_TEMPLATE` in `services/download_queue/companions.rs`. New engines should structure their `impl` the same way: mirror the runtime template constants as string literals inside the contract module to keep the safety-check module free of cross-module coupling.
 
 ### Out of scope
 
@@ -2582,26 +2619,47 @@ Lyric/subtitle generators run on every enrichment pass (first download, companio
 
 | Generator                  | File               | Source (`src-tauri/src/services/`)          | Existing file behaviour                                                                 |
 | -------------------------- | ------------------ | ------------------------------------------- | --------------------------------------------------------------------------------------- |
-| Enhanced LRC converter     | `.lrc`             | `enhanced_lyrics_service.rs:191`            | **Overwrites** — no `exists()` guard                                                    |
-| Rich SRT generator         | `.srt`             | `rich_srt_service.rs:132`                   | **Overwrites** by design (including GAMDL's plain `.srt`)                               |
-| Syllable-lyrics upgrade    | `.ttml`            | `download_queue.rs:~5594` and `~5618`       | **Overwrites** when Apple Music's `/syllable-lyrics` returns a word-level version       |
-| WebVTT generator           | `.vtt`             | `webvtt_service.rs:85-87`                   | **Skips** (`if vtt_path.exists() { continue; }`)                                        |
-| ASS generator              | `.ass`             | `ass_subtitle_service.rs:91-95`             | **Skips** (`if ass_path.exists() { continue; }`)                                        |
+| Enhanced LRC converter     | `.lrc`             | `lyrics_steps.rs` (`step_enhanced_lrc`) | **Overwrites** — no `exists()` guard                                                    |
+| Rich SRT generator         | `.srt`             | `lyrics_steps.rs` (`step_rich_srt`) | **Overwrites** by design (including GAMDL's plain `.srt`)                               |
+| Syllable-lyrics upgrade    | `.ttml`            | `download_queue/lyrics_pass.rs` (`run_step_1b`) | **Overwrites** when Apple Music's `/syllable-lyrics` returns a word-level version       |
+| WebVTT generator           | `.vtt`             | `lyrics_steps.rs` (`step_webvtt`) | **Skips** an existing `.vtt` unless the caller allows replacing it (`StepInput.replace_existing`) |
+| ASS generator              | `.ass`             | `lyrics_steps.rs` (`step_ass`) | **Skips** an existing `.ass` unless the caller allows replacing it |
+| Lyricsfile generator       | `.lyrics`          | `lyrics_steps.rs` (`step_lyricsfile`) | **Skips** an existing `.lyrics` unless the caller allows replacing it (keeps hand edits made in LRCGET) |
+
+The per-file steps in `lyrics_steps.rs` (#1441) are the one code path now. The older folder-wide service functions are kept only as a reference the parity tests check against (removal is #1443). Where a step may replace an existing `.vtt`, `.ass` or `.lyrics` is decided by the caller: the main download replaces only files it made itself, and extra copies never replace one.
 
 **Status: documented, not changed.** The audit in #550 considered four options (status quo with docs / content-hash skip / opt-in preservation / `.bak` backup) and settled on documented-status-quo. The overwriting generators are idempotent converters whose inputs (TTML from GAMDL, TTML from `/syllable-lyrics`) are themselves refreshed from upstream, so overwriting is the correct default for the 95% case — first-time generation and upstream content updates. The asymmetry between `.lrc`/`.srt` (overwrite) and `.vtt`/`.ass` (skip) is historical; it's called out in `help/lyrics-and-metadata.md` so users with hand-edited sidecars can work around it (rename to a non-generator extension, disable the generator, or copy the file before re-running enrichment).
 
-**If that policy changes**, the canonical touch points are the `std::fs::write` calls above and the two syllable-lyrics upgrade sites in `download_queue.rs`. A future hash-skip guard would live inline at each site (the existing idempotency means a content hash compare would be cheap); a preserve-user-edits toggle would need a new setting keyed off file mtime vs. an internal "generated-by-MeedyaDL" sentinel.
+**If that policy changes**, the canonical touch points are the `std::fs::write` calls above and the syllable-lyrics upgrade in `download_queue/lyrics_pass.rs`. A future hash-skip guard would live inline at each site (the existing idempotency means a content hash compare would be cheap); a preserve-user-edits toggle would need a new setting keyed off file mtime vs. an internal "generated-by-MeedyaDL" sentinel.
+
+## GAMDL 4 Handling (opt-in, untested)
+
+GAMDL 4.x is a rewrite (no `python -m gamdl`, a `rip` command, renamed options, text output meant for people). MeedyaDL can drive it, but `tool-versions.toml` still names 3.9.1 as tested and recommended, so a routine install stays on 3.x. A person installs 4.x on purpose from Settings > Tools > GAMDL Version Management.
+
+- **Where it lives:** `gamdl_capabilities::HIGHEST_DRIVABLE_MAJOR` (currently 4, so a 5.x is refused); `GamdlCliGeneration` decides which command builder is used. 4.x uses `GamdlOptions::to_cli_args_v4`, `gamdl_service::build_gamdl_v4_command` and `process::parse_gamdl_v4_line`. 3.x paths are unchanged.
+- **Refused releases:** `KNOWN_BAD_VERSIONS` lists 3.9, 4.0.0 and 4.0.1. Use 4.0.2 or newer. The update check never offers a refused release and, for someone on GAMDL 3, offers only GAMDL 3 updates (`update_major_ceiling`).
+- **Platform holds:** `[gamdl.platform_ceilings]` holds Linux ARMv7 at 3.8.1 and Windows on ARM at 3.8.5.
+- **Differences handled in code:** no config file (`--no-config`), the download folder is always sent, `--overwrite` is a plain switch, lyrics use `--lyrics-file-format`, and PlayReady is not passed (it falls back to the built-in unlocking with a log line). A 4.x run that fails only on "format not available" counts as done with warnings.
+- Full audits are in `.github/audits/` (`gamdl-v4.0.2-audit.md`, `gamdl-v3.9-v3.9.1-audit.md`).
+
+---
+
+## Settings File Version
+
+`CURRENT_SETTINGS_VERSION` in `src-tauri/src/models/settings.rs` is **13**. `migrate_settings()` in `config_service.rs` runs the steps in order on load. Version 13 made a blank `wrapper_decrypt_ip` mean "work it out from the wrapper address" (`utils/wrapper_address.rs`). Version 12 added the notification settings (`native_notification_when`, `native_notification_scope`, per-event switches). Keep this number in step with the constant.
+
+---
 
 ## GAMDL 3.6 — Wrapper-v2, Native Muxing, Codec Rename (#853)
 
 GAMDL **v3.6** (2026-05-20) is the largest upstream release MeedyaDL has absorbed since the 2.x → 3.0 transition. Implementation lives across the seven steps documented in PR linked to issue #853:
 
 1. **`GamdlFeature` gates** (`services/gamdl_capabilities.rs`). Four new variants pinned to ≥ 3.6: `WrapperUrl`, `AacWebCodecRename`, `NativeMuxing`, and a re-thresholded `WrapperM3u8Ip` (now 3.1 – 3.5.x only). Plus `MusicVideoRemuxMode` which inverts at the 3.6 boundary (true ≤ 3.5.x, false ≥ 3.6).
-2. **Codec emission** (`models/gamdl_options.rs::SongCodec::to_runtime_cli_string`). `AacLegacy` / `AacHeLegacy` Rust variants stay; their CLI string flips to `aac-web` / `aac-he-web` on ≥ 3.6. Updated 3 call sites in `services/download_queue.rs` (gap-fill priority chain, companion-task tier loop, primary fallback retry).
+2. **Codec emission** (`models/gamdl_options.rs::SongCodec::to_runtime_cli_string`). `AacLegacy` / `AacHeLegacy` Rust variants stay; their CLI string flips to `aac-web` / `aac-he-web` on ≥ 3.6. Updated 3 call sites in `services/download_queue/` (gap-fill priority chain in `helpers.rs`, companion-task tier loop in `companions.rs`, primary fallback retry in `mod.rs`).
 3. **Settings model** (`models/settings.rs`). New `wrapper_url: String` field with `default_wrapper_url() = "http://127.0.0.1"`. CURRENT_SETTINGS_VERSION 5 → 6. Migration `migrate_settings()` v5→v6 is additive — both wrapper-v1 (`wrapper_account_url` + `wrapper_m3u8_ip` + `wrapper_decrypt_ip`) and wrapper-v2 (`wrapper_url`) fields coexist; emission picks one per CLI invocation.
 4. **CLI / INI dispatch** (`models/gamdl_options.rs::path_cli_args` + `flag_cli_args`, `services/config_service.rs::ini_advanced_section` + `ini_tool_path_section`). Same gate everywhere: `supports(WrapperUrl) → emit wrapper-v2 family`, else emit wrapper-v1 family (with sub-gate for the v3.1 `wrapper_m3u8_ip` addition). External tool path options (`--ffmpeg-path` / `--mp4box-path` / `--mp4decrypt-path`) gated behind `!supports(NativeMuxing)`. `--music-video-remux-mode` gated behind `supports(MusicVideoRemuxMode)`.
-5. **Wrapper-v2 preflight** (`services/health_check_service.rs`). New `check_wrapper_v2_health()` does `GET /health` with a 3-second timeout. New `check_wrapper_v2_auth()` does `GET /me` and inspects `auth.state` — surfaces a yellow toast when reachable-but-logged-out. Both are called from `download_queue.rs::run_preflight_checks` under the `use_wrapper_v2` branch (mutually exclusive with the wrapper-v1 three-socket branch).
-6. **Companion planner** (`services/download_queue.rs::lossy_chain_for_runtime`). Returns `[AacLegacy, Aac]` (aac-web first) on ≥ 3.6, `[Aac, AacLegacy]` on ≤ 3.5.x. Wired into every CompanionTier that builds a lossy AAC fallback chain — Atmos→Lossless+Lossy, Atmos→AllFormats, SpecialistToLossy, and the ALAC-primary case of Atmos→Lossless+Lossy.
+5. **Wrapper-v2 preflight** (`services/health_check_service.rs`). New `check_wrapper_v2_health()` does `GET /health` with a 3-second timeout. New `check_wrapper_v2_auth()` does `GET /me` and inspects `auth.state` — surfaces a yellow toast when reachable-but-logged-out. Both are called from the queue's pre-download checks (`download_queue/processing.rs`) under the `use_wrapper_v2` branch (mutually exclusive with the wrapper-v1 three-socket branch).
+6. **Companion planner** (`services/download_queue/companions.rs::lossy_chain_for_runtime`). Returns `[AacLegacy, Aac]` (aac-web first) on ≥ 3.6, `[Aac, AacLegacy]` on ≤ 3.5.x. Wired into every CompanionTier that builds a lossy AAC fallback chain — Atmos→Lossless+Lossy, Atmos→AllFormats, SpecialistToLossy, and the ALAC-primary case of Atmos→Lossless+Lossy.
 7. **Frontend** (`commands/dependencies.rs::get_gamdl_capabilities` IPC + `src/components/settings/tabs/AdvancedTab.tsx`). The Settings UI's Wrapper section conditionally renders the v1 (three fields) or v2 (one field) layout based on the IPC response. Capabilities are loaded on mount.
 
 ### Fetch-path semantics (the key 3.6 insight)
