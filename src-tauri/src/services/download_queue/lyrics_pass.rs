@@ -903,9 +903,34 @@ pub(crate) struct GateAlbumFacts {
     /// The album's name, to tell its existing copies from another release's
     /// when a file has no song ID.
     pub name: Option<String>,
-    /// The date Apple Music last updated the album, as Apple sent it. Written
-    /// into each new extra-format copy (#1444).
+    /// The date the service last updated the album, as it sent it. Written
+    /// into each new extra-format copy (#1444). `None` unless every link of
+    /// the download is in this one album ([`links_share_one_album`]).
     pub last_modified_date: Option<String>,
+}
+
+/// Whether every link in a download points at the same Apple Music album
+/// (album links and single-song links into one album). Only then is the
+/// album's own last-updated date right for every extra-format copy: a
+/// playlist or artist item can be rewritten into song links from several
+/// albums, and one album's date must not be stamped on another's songs
+/// (#1444). Empty, unreadable or library links give `false`.
+pub(crate) fn links_share_one_album(urls: &[String]) -> bool {
+    let mut first: Option<String> = None;
+    for url in urls {
+        let Some(parsed) = crate::services::apple_music_api::parse_apple_music_url(url) else {
+            return false;
+        };
+        if parsed.album_id.is_empty() {
+            return false;
+        }
+        match &first {
+            None => first = Some(parsed.album_id),
+            Some(id) if *id == parsed.album_id => {}
+            Some(_) => return false,
+        }
+    }
+    first.is_some()
 }
 
 /// Enrichment's end of the gate. Dropping it — an early return, a panic,
@@ -1482,6 +1507,18 @@ pub(crate) async fn run_word_lyrics_pass(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn links_share_one_album_only_for_one_album() {
+        let a = "https://music.apple.com/us/album/x/1111111111".to_string();
+        let a_song = "https://music.apple.com/us/album/x/1111111111?i=2222222222".to_string();
+        let b_song = "https://music.apple.com/us/album/y/3333333333?i=4444444444".to_string();
+        assert!(links_share_one_album(std::slice::from_ref(&a)));
+        assert!(links_share_one_album(&[a.clone(), a_song.clone()]));
+        assert!(!links_share_one_album(&[a_song, b_song]));
+        assert!(!links_share_one_album(&[]));
+        assert!(!links_share_one_album(&["not a link".to_string()]));
+    }
     use super::*;
 
     const WORD_TTML: &str = r#"<tt xmlns="http://www.w3.org/ns/ttml"><body><div><p begin="0s" end="2s"><span begin="0s" end="1s">Hi</span></p></div></body></tt>"#;

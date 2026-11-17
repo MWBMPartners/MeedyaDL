@@ -3511,7 +3511,18 @@ pub fn process_queue(
                                     .as_ref()
                                     .map(|m| super::lyrics_pass::GateAlbumFacts {
                                         name: m.album_name.clone(),
-                                        last_modified_date: m.last_modified_date.clone(),
+                                        // Only when every link is in this
+                                        // one album: a playlist or artist
+                                        // item turned into song links from
+                                        // several albums must not get this
+                                        // album's date on the others' copies.
+                                        last_modified_date: m.last_modified_date.clone().filter(
+                                            |_| {
+                                                super::lyrics_pass::links_share_one_album(
+                                                    &enrich_urls,
+                                                )
+                                            },
+                                        ),
                                     })
                                     .unwrap_or_default(),
                             );
