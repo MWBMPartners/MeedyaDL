@@ -324,7 +324,9 @@ fn file_detector(
             exists_maybe_hidden(album_dir, "FrontCoverPortrait.mp4")
                 || exists_maybe_hidden(album_dir, "PortraitCover.mp4")
         }
-        EnrichmentStage::AlbumSpotlight => exists_maybe_hidden(album_dir, "AlbumSpotlightCover.mp4"),
+        EnrichmentStage::AlbumSpotlight => {
+            exists_maybe_hidden(album_dir, "AlbumSpotlightCover.mp4")
+        }
         EnrichmentStage::StaticCoverFallback => {
             album_dir.join("Cover.jpg").exists()
                 || album_dir.join("Cover.png").exists()
@@ -390,9 +392,7 @@ fn collect_audio_files(album_dir: &Path) -> Vec<std::path::PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::manifest::{
-        EnrichmentRecord, ManifestFile, ManifestSource, ManifestTrack,
-    };
+    use crate::models::manifest::{EnrichmentRecord, ManifestFile, ManifestSource, ManifestTrack};
     use std::fs::File;
 
     fn make_manifest(records: Vec<(&str, Option<&str>)>) -> ManifestFile {
@@ -430,8 +430,8 @@ mod tests {
                 }],
                 enrichment: Some(enrichment),
                 cross_platform_urls: None,
-            is_library: false,
-            companion_tiers: None,
+                is_library: false,
+                companion_tiers: None,
             }],
         }
     }
@@ -480,7 +480,10 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let report = scan_album_dir(
             tmp.path(),
-            Some(&make_manifest(vec![("replaygain", Some("2026-05-18T00:00:00Z"))])),
+            Some(&make_manifest(vec![(
+                "replaygain",
+                Some("2026-05-18T00:00:00Z"),
+            )])),
         );
         let rg = report
             .stages
@@ -493,10 +496,7 @@ mod tests {
     #[test]
     fn manifest_record_with_null_completed_at_reports_missing() {
         let tmp = tempfile::tempdir().unwrap();
-        let report = scan_album_dir(
-            tmp.path(),
-            Some(&make_manifest(vec![("replaygain", None)])),
-        );
+        let report = scan_album_dir(tmp.path(), Some(&make_manifest(vec![("replaygain", None)])));
         let rg = report
             .stages
             .iter()
@@ -627,7 +627,10 @@ mod tests {
             EnrichmentStage::AlbumSpotlight,
         ] {
             let status = report.stages.iter().find(|s| s.stage == stage).unwrap();
-            assert_eq!(status.status, "missing", "{stage:?} should be missing in an empty dir");
+            assert_eq!(
+                status.status, "missing",
+                "{stage:?} should be missing in an empty dir"
+            );
         }
     }
 

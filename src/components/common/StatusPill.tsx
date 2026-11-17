@@ -94,8 +94,7 @@ const STATE_CONFIG: Record<
   queued: {
     icon: Clock,
     label: 'Queued',
-    colorClasses:
-      'text-content-tertiary bg-content-tertiary/10 border-content-tertiary/25',
+    colorClasses: 'text-content-tertiary bg-content-tertiary/10 border-content-tertiary/25',
     iconColorClass: 'text-content-tertiary',
   },
   downloading: {
@@ -107,23 +106,20 @@ const STATE_CONFIG: Record<
   processing: {
     icon: Loader2,
     label: 'Processing',
-    colorClasses:
-      'text-status-warning-text bg-status-warning/15 border-status-warning/30',
+    colorClasses: 'text-status-warning-text bg-status-warning/15 border-status-warning/30',
     iconColorClass: 'text-status-warning',
     spinIcon: true,
   },
   complete: {
     icon: CheckCircle,
     label: 'Complete',
-    colorClasses:
-      'text-status-success-text bg-status-success/15 border-status-success/30',
+    colorClasses: 'text-status-success-text bg-status-success/15 border-status-success/30',
     iconColorClass: 'text-status-success',
   },
   'complete-with-warnings': {
     icon: AlertTriangle,
     label: 'Warnings',
-    colorClasses:
-      'text-status-warning-text bg-status-warning/15 border-status-warning/30',
+    colorClasses: 'text-status-warning-text bg-status-warning/15 border-status-warning/30',
     iconColorClass: 'text-status-warning',
   },
   error: {
@@ -135,8 +131,7 @@ const STATE_CONFIG: Record<
   cancelled: {
     icon: XCircle,
     label: 'Cancelled',
-    colorClasses:
-      'text-content-tertiary bg-content-tertiary/10 border-content-tertiary/25',
+    colorClasses: 'text-content-tertiary bg-content-tertiary/10 border-content-tertiary/25',
     iconColorClass: 'text-content-tertiary',
   },
 };
@@ -202,8 +197,7 @@ export function StatusPill({
   iconSize = 14,
   className,
 }: StatusPillProps) {
-  const effectiveState =
-    state === 'complete' && hasWarnings ? 'complete-with-warnings' : state;
+  const effectiveState = state === 'complete' && hasWarnings ? 'complete-with-warnings' : state;
   const config = STATE_CONFIG[effectiveState];
   const Icon = config.icon;
   return (

@@ -73,8 +73,6 @@ import {
   AlertTriangle, // Warning/error indicator
   CheckCircle, // Success indicator
   XCircle, // Failure indicator
-  ChevronDown, // Expanded state arrow
-  ChevronRight, // Collapsed state arrow
   Copy, // Copy-to-clipboard button icon
   Clock, // Expiry warning icon
   Globe, // Domain indicator icon
@@ -96,7 +94,16 @@ import { useSettingsField } from '@/hooks/useSettingsField';
 import * as commands from '@/lib/tauri-commands';
 
 // Shared UI components used in the form controls and action buttons.
-import { FilePickerButton, Button, Tooltip, SettingsSection } from '@/components/common';
+import {
+  FilePickerButton,
+  Button,
+  DisclosureButton,
+  InlineError,
+  Select,
+  Tooltip,
+  SettingsSection,
+} from '@/components/common';
+import { COOKIES_IMPORT_FAILED, explainError } from '@/lib/errorMessages';
 
 // TypeScript types for cookie data.
 import type { CookieValidation, DetectedBrowser, CookieImportResult } from '@/types';
@@ -121,7 +128,7 @@ const BROWSER_INSTRUCTIONS = [
       'Install the "Get cookies.txt LOCALLY" extension from the Chrome Web Store.',
       'Navigate to https://music.apple.com and sign in with your Apple ID.',
       'Click the extension icon in the toolbar.',
-      'Click "Export" to download the cookies as a Netscape-format .txt file.',
+      'Click "Export" to save the cookies as a .txt file.',
       'Save the file somewhere you can find it (e.g., your Downloads folder).',
       'Use the "Browse" button below to select the exported file.',
     ],
@@ -143,7 +150,7 @@ const BROWSER_INSTRUCTIONS = [
       'Install the "Get cookies.txt LOCALLY" extension from the Edge Add-ons store.',
       'Navigate to https://music.apple.com and sign in with your Apple ID.',
       'Click the extension icon in the toolbar.',
-      'Click "Export" to download the cookies in Netscape format.',
+      'Click "Export" to save the cookies as a .txt file.',
       'Save the file to a location you can easily browse to.',
       'Use the "Browse" button below to select the exported file.',
     ],
@@ -154,7 +161,7 @@ const BROWSER_INSTRUCTIONS = [
       'Safari does not have a direct cookie export extension.',
       'Use a third-party tool like "Cookie Exporter" or export via developer tools.',
       'Alternatively, open music.apple.com in Chrome or Firefox to export cookies.',
-      'Ensure the exported file is in Netscape/Mozilla cookie format.',
+      'If the tool asks for a format, choose "Netscape" (the cookies.txt format).',
       'Use the "Browse" button below to select the exported file.',
     ],
   },
@@ -343,34 +350,26 @@ function BrowserInstructions() {
   return (
     <div className="rounded-platform border border-border-light bg-surface-elevated overflow-hidden">
       {/* Outer collapsible header */}
-      <button
-        type="button"
+      {/* The app's one expand control (polish pass L3); it used to swap
+          between two chevron icons. */}
+      <DisclosureButton
+        open={isOpen}
         onClick={() => setIsOpen((prev) => !prev)}
-        className="
-          w-full flex items-center gap-3 px-4 py-3
-          text-sm font-medium text-content-primary
-          hover:bg-surface-secondary transition-colors
-          cursor-pointer
-        "
-        aria-expanded={isOpen ? "true" : "false"}
+        className="px-4 py-3 text-sm font-medium text-content-primary hover:bg-surface-secondary"
       >
-        {/* Chevron rotates to indicate open/closed state */}
-        {isOpen ? (
-          <ChevronDown size={16} className="text-content-tertiary flex-shrink-0" />
-        ) : (
-          <ChevronRight size={16} className="text-content-tertiary flex-shrink-0" />
-        )}
-        <Info size={16} className="text-accent flex-shrink-0" />
-        <span>How to Export Cookies</span>
-      </button>
+        <span className="inline-flex items-center gap-2">
+          <Info size={16} className="text-accent flex-shrink-0" />
+          How to Export Cookies
+        </span>
+      </DisclosureButton>
 
       {/* Expandable instruction content */}
       {isOpen && (
         <div className="border-t border-border-light px-4 pb-4 pt-2 space-y-2">
           {/* Introductory paragraph */}
           <p className="text-xs text-content-secondary mb-3">
-            Select your browser below for step-by-step instructions on how to export your Apple
-            Music cookies in Netscape format.
+            Select your browser below for step-by-step instructions on how to save your Apple Music
+            cookies to a cookies.txt file.
           </p>
 
           {/* One accordion panel per browser */}
@@ -380,25 +379,16 @@ function BrowserInstructions() {
               className="rounded-platform border border-border-light overflow-hidden"
             >
               {/* Browser header button */}
-              <button
-                type="button"
+              <DisclosureButton
+                open={expandedBrowser === browser}
                 onClick={() => toggleBrowser(browser)}
-                className="
-                  w-full flex items-center gap-2 px-3 py-2
-                  text-xs font-medium text-content-primary
-                  hover:bg-surface-secondary transition-colors
-                  cursor-pointer
-                "
-                aria-expanded={expandedBrowser === browser ? "true" : "false"}
+                className="px-3 py-2 text-xs font-medium text-content-primary hover:bg-surface-secondary"
               >
-                {expandedBrowser === browser ? (
-                  <ChevronDown size={14} className="text-content-tertiary flex-shrink-0" />
-                ) : (
-                  <ChevronRight size={14} className="text-content-tertiary flex-shrink-0" />
-                )}
-                <Globe size={14} className="text-accent flex-shrink-0" />
-                <span>{browser}</span>
-              </button>
+                <span className="inline-flex items-center gap-2">
+                  <Globe size={14} className="text-accent flex-shrink-0" />
+                  {browser}
+                </span>
+              </DisclosureButton>
 
               {/* Numbered step list (shown only when this browser is expanded) */}
               {expandedBrowser === browser && (
@@ -623,6 +613,7 @@ export function CookiesTab() {
    * Detect installed browsers on mount for the auto-import dropdown.
    */
   useEffect(() => {
+    // `cancelled` stops a slow reply from updating state after unmount.
     let cancelled = false;
     async function detect() {
       try {
@@ -904,299 +895,311 @@ export function CookiesTab() {
           <StatusBadge status={cookieStatus} />
         </div>
 
-      {/* ============================================================
+        {/* ============================================================
           Prominent Valid Banner
           When auto-validation confirms cookies are valid, show an
           eye-catching green banner immediately below the header.
           This gives instant positive feedback without the user
           needing to click "Validate" or scroll to find results.
           ============================================================ */}
-      {cookieStatus === 'valid' && (
-        <div
-          className="flex items-center gap-3 p-4 rounded-platform border border-status-success bg-status-success-bg"
-          role="status"
-          aria-label="Cookies are valid"
-        >
-          <CheckCircle size={20} className="text-status-success flex-shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-status-success-text">
-              Cookies are configured and valid
-            </p>
-            <p className="text-xs text-content-secondary mt-0.5">
-              {validation && (
-                <>
-                  {validation.apple_music_cookies} Apple Music cookies found. Your downloads are
-                  ready to go.
-                </>
-              )}
-            </p>
+        {cookieStatus === 'valid' && (
+          <div
+            className="flex items-center gap-3 p-4 rounded-platform border border-status-success bg-status-success-bg"
+            role="status"
+            aria-label="Cookies are valid"
+          >
+            <CheckCircle size={20} className="text-status-success flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-status-success-text">
+                Cookies are configured and valid
+              </p>
+              <p className="text-xs text-content-secondary mt-0.5">
+                {validation && (
+                  <>
+                    {validation.apple_music_cookies} Apple Music cookies found. Your downloads are
+                    ready to go.
+                  </>
+                )}
+              </p>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* ============================================================
+        {/* ============================================================
           Section 2: Introductory Information Box
           Brief explanation of why cookies are needed and what format
           is expected. Rendered with a shield icon for visual emphasis.
           ============================================================ */}
-      <div className="p-4 rounded-platform border border-border-light bg-surface-elevated">
-        <div className="flex items-start gap-3">
-          <Shield size={18} className="text-accent flex-shrink-0 mt-0.5" />
-          <div className="text-sm text-content-secondary space-y-2">
-            <p>
-              GAMDL requires Apple Music cookies for authentication. You need a Netscape-format
-              cookies file exported from your browser.
-            </p>
-            <p>
-              Use a browser extension like{' '}
-              <span className="font-medium text-content-primary">cookies.txt</span> to export
-              cookies from <span className="font-medium text-content-primary">music.apple.com</span>{' '}
-              after logging in.
-            </p>
+        <div className="p-4 rounded-platform border border-border-light bg-surface-elevated">
+          <div className="flex items-start gap-3">
+            <Shield size={18} className="text-accent flex-shrink-0 mt-0.5" />
+            <div className="text-sm text-content-secondary space-y-2">
+              {/* Polish pass L8: this box used to open with "You need a
+                Netscape-format cookies file", ahead of the one-click Sign in
+                below it. It now says the simple way first, and the
+                cookies-file route comes last on the page, for the people
+                who want it. */}
+              <p>
+                MeedyaDL needs to sign in to Apple Music to download with your subscription. The
+                quickest way is{' '}
+                <span className="font-medium text-content-primary">Sign in with Apple Music</span>,
+                just below.
+              </p>
+              <p>
+                You can also import the sign-in from a browser where you are already signed in, or,
+                further down, use a cookies file you exported yourself.
+              </p>
+            </div>
           </div>
         </div>
-      </div>
 
-      {/* ============================================================
+        {/* ============================================================
           Section 2.5: Sign in with Apple Music
           Primary authentication method — simplest for most users.
           Opens an embedded browser for direct Apple ID sign-in.
           ============================================================ */}
-      <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
-        <div className="flex items-center gap-2.5 mb-2">
-          <LogIn size={16} className="text-accent flex-shrink-0" />
-          <h4 className="text-xs font-medium text-content-primary">Sign in with Apple Music</h4>
-        </div>
-
-        {!isLoginWindowOpen ? (
-          /* Show the "Sign in" option when login window is not open */
-          <>
-            <p className="text-xs text-content-secondary">
-              Sign in with your Apple Account to authenticate downloads.
-            </p>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleOpenLoginWindow}
-              disabled={isImporting}
-            >
-              <LogIn size={14} className="mr-1.5" />
-              Sign in with Apple Music
-            </Button>
-            <p className="text-xs text-content-tertiary">
-              A browser window will open where you can sign in with your Apple ID. Your cookies will
-              be captured automatically.
-            </p>
-          </>
-        ) : (
-          /* Show the "Waiting for login..." state when login window is open */
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Loader2 size={14} className="animate-spin text-accent" />
-              <span className="text-xs font-medium text-content-primary">Signing in...</span>
-            </div>
-            <p className="text-xs text-content-tertiary">
-              Sign in with your Apple ID in the browser window, then return here.
-            </p>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                loading={isExtractingFromLogin}
-                onClick={handleManualExtract}
-              >
-                I&apos;ve signed in
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleCancelLogin}
-                disabled={isExtractingFromLogin}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ============================================================
-          Section 2.6: Import from Browser
-          Secondary method — re-import cookies from an installed browser.
-          ============================================================ */}
-      {!isDetecting && browsers.length > 0 && (
         <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
           <div className="flex items-center gap-2.5 mb-2">
-            <Globe size={16} className="text-accent flex-shrink-0" />
-            <h4 className="text-xs font-medium text-content-primary">Import from Browser</h4>
+            <LogIn size={16} className="text-accent flex-shrink-0" />
+            <h3 className="text-xs font-medium text-content-primary">Sign in with Apple Music</h3>
           </div>
 
-          {/* Browser selector and import button */}
-          <div className="flex items-center gap-2">
-            <select
-              aria-label="Select browser for cookie import"
-              className="
-                flex-1 px-3 py-1.5 text-sm rounded-platform
-                border border-border-light bg-surface-primary
-                text-content-primary
-                focus:outline-none focus:ring-2 focus:ring-accent/50
-              "
-              value={selectedBrowser}
-              onChange={(e) => {
-                setSelectedBrowser(e.target.value);
-                setImportResult(null);
-                setImportError(null);
-              }}
-              disabled={isImporting}
-            >
-              {browsers.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                  {b.requires_fda ? ' (requires Full Disk Access)' : ''}
-                </option>
-              ))}
-            </select>
-            <Button
-              variant="secondary"
-              size="sm"
-              loading={isImporting}
-              onClick={handleBrowserImport}
-              disabled={!selectedBrowser}
-            >
-              Import Cookies
-            </Button>
-          </div>
-
-          {/* Privacy notice */}
-          <p className="text-xs text-content-tertiary">
-            Reads only Apple Music cookies (apple.com, mzstatic.com) from your browser. No other
-            data is accessed.
-          </p>
-
-          {/* Import result -- three states: success with cookies, empty import, or failure */}
-          {importResult &&
-            (() => {
-              const hasAppleCookies = importResult.success && importResult.apple_music_cookies > 0;
-              const isEmptyImport = importResult.success && importResult.apple_music_cookies === 0;
-              return (
-                // Fix 13 (a11y audit): plain text/result after a button
-                // press, with nothing announcing it. `alert` for the
-                // failure case since that one needs attention; `status`
-                // for the two non-failure outcomes.
-                <div
-                  role={hasAppleCookies || isEmptyImport ? 'status' : 'alert'}
-                  className={`p-3 rounded-platform border text-xs ${
-                    hasAppleCookies
-                      ? 'border-status-success bg-status-success-bg'
-                      : isEmptyImport
-                        ? 'border-status-warning bg-status-warning-bg'
-                        : 'border-status-error bg-status-error-bg'
-                  }`}
+          {!isLoginWindowOpen ? (
+            /* Show the "Sign in" option when login window is not open */
+            <>
+              <p className="text-xs text-content-secondary">
+                Sign in with your Apple Account to authenticate downloads.
+              </p>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleOpenLoginWindow}
+                disabled={isImporting}
+              >
+                <LogIn size={14} className="mr-1.5" />
+                Sign in with Apple Music
+              </Button>
+              <p className="text-xs text-content-tertiary">
+                A browser window will open where you can sign in with your Apple ID. Your cookies
+                will be captured automatically.
+              </p>
+            </>
+          ) : (
+            /* Show the "Waiting for login..." state when login window is open */
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Loader2 size={14} className="animate-spin text-accent" />
+                <span className="text-xs font-medium text-content-primary">Signing in…</span>
+              </div>
+              <p className="text-xs text-content-tertiary">
+                Sign in with your Apple ID in the browser window, then return here.
+              </p>
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={isExtractingFromLogin}
+                  onClick={handleManualExtract}
                 >
-                  <div className="flex items-center gap-1.5 mb-1">
-                    {/* Fix 7 (a11y audit): unlike the bare status icons
-                        elsewhere in this fix, the word right next to
-                        this one ("Cookies Imported" / "Import Failed"
-                        etc.) already says the same thing out loud, so
-                        the icon itself is decorative here. */}
-                    {hasAppleCookies ? (
-                      <CheckCircle size={14} className="text-status-success" aria-hidden="true" />
-                    ) : isEmptyImport ? (
-                      <AlertTriangle size={14} className="text-status-warning" aria-hidden="true" />
-                    ) : (
-                      <XCircle size={14} className="text-status-error" aria-hidden="true" />
-                    )}
-                    <span className="font-medium text-content-primary">
-                      {hasAppleCookies
-                        ? 'Cookies Imported'
-                        : isEmptyImport
-                          ? 'No Apple Music Cookies Found'
-                          : 'Import Failed'}
-                    </span>
-                  </div>
-                  {hasAppleCookies && (
-                    <p className="text-content-secondary ml-5">
-                      {importResult.apple_music_cookies} Apple Music cookies imported
-                    </p>
-                  )}
-                  {isEmptyImport && (
-                    <p className="text-content-secondary ml-5">
-                      Log in to music.apple.com in your browser first, then try importing again.
-                    </p>
-                  )}
-                  {importResult.warnings.map((w, i) => (
-                    <p key={i} className="text-status-warning-text ml-5">
-                      {w}
-                    </p>
-                  ))}
-                </div>
-              );
-            })()}
-
-          {/* Import error */}
-          {importError && (
-            <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-xs">
-              <div className="flex items-center gap-1.5">
-                <XCircle size={14} className="text-status-error flex-shrink-0" />
-                <p className="text-status-error-text">{importError}</p>
+                  I&apos;ve signed in
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleCancelLogin}
+                  disabled={isExtractingFromLogin}
+                >
+                  Cancel
+                </Button>
               </div>
             </div>
           )}
         </div>
-      )}
 
-      {/* Loading indicator for browser detection */}
-      {isDetecting && (
-        <div className="flex items-center gap-2 py-2 text-xs text-content-tertiary">
-          <Loader2 size={14} className="animate-spin" />
-          Detecting browsers...
-        </div>
-      )}
+        {/* ============================================================
+          Section 2.6: Import from Browser
+          Secondary method — re-import cookies from an installed browser.
+          ============================================================ */}
+        {!isDetecting && browsers.length > 0 && (
+          <div className="p-4 rounded-platform border border-border-light bg-surface-elevated space-y-3">
+            <div className="flex items-center gap-2.5 mb-2">
+              <Globe size={16} className="text-accent flex-shrink-0" />
+              <h3 className="text-xs font-medium text-content-primary">Import from Browser</h3>
+            </div>
 
-      {/* ============================================================
+            {/* Browser selector and import button */}
+            <div className="flex items-center gap-2">
+              {/* The shared Select (polish pass M17), in a flex-1 box so it
+                takes the room beside the Import button. */}
+              <div className="flex-1">
+                <Select
+                  aria-label="Select browser for cookie import"
+                  options={browsers.map((b) => ({
+                    value: b.id,
+                    label: b.requires_fda ? `${b.name} (requires Full Disk Access)` : b.name,
+                  }))}
+                  value={selectedBrowser}
+                  onChange={(e) => {
+                    setSelectedBrowser(e.target.value);
+                    setImportResult(null);
+                    setImportError(null);
+                  }}
+                  disabled={isImporting}
+                />
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                loading={isImporting}
+                onClick={handleBrowserImport}
+                disabled={!selectedBrowser}
+              >
+                Import Cookies
+              </Button>
+            </div>
+
+            {/* Privacy notice */}
+            <p className="text-xs text-content-tertiary">
+              Reads only Apple Music cookies (apple.com, mzstatic.com) from your browser. No other
+              data is accessed.
+            </p>
+
+            {/* Import result -- three states: success with cookies, empty import, or failure */}
+            {importResult &&
+              (() => {
+                const hasAppleCookies =
+                  importResult.success && importResult.apple_music_cookies > 0;
+                const isEmptyImport =
+                  importResult.success && importResult.apple_music_cookies === 0;
+                return (
+                  // Fix 13 (a11y audit): plain text/result after a button
+                  // press, with nothing announcing it. `alert` for the
+                  // failure case since that one needs attention; `status`
+                  // for the two non-failure outcomes.
+                  <div
+                    role={hasAppleCookies || isEmptyImport ? 'status' : 'alert'}
+                    className={`p-3 rounded-platform border text-xs ${
+                      hasAppleCookies
+                        ? 'border-status-success bg-status-success-bg'
+                        : isEmptyImport
+                          ? 'border-status-warning bg-status-warning-bg'
+                          : 'border-status-error bg-status-error-bg'
+                    }`}
+                  >
+                    <div className="flex items-center gap-1.5 mb-1">
+                      {/* Fix 7 (a11y audit): unlike the bare status icons
+                        elsewhere in this fix, the word right next to
+                        this one ("Cookies Imported" / "Import Failed"
+                        etc.) already says the same thing out loud, so
+                        the icon itself is decorative here. */}
+                      {hasAppleCookies ? (
+                        <CheckCircle size={14} className="text-status-success" aria-hidden="true" />
+                      ) : isEmptyImport ? (
+                        <AlertTriangle
+                          size={14}
+                          className="text-status-warning"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <XCircle size={14} className="text-status-error" aria-hidden="true" />
+                      )}
+                      <span className="font-medium text-content-primary">
+                        {hasAppleCookies
+                          ? 'Cookies Imported'
+                          : isEmptyImport
+                            ? 'No Apple Music Cookies Found'
+                            : 'Import Failed'}
+                      </span>
+                    </div>
+                    {hasAppleCookies && (
+                      <p className="text-content-secondary ml-5">
+                        {importResult.apple_music_cookies} Apple Music cookies imported
+                      </p>
+                    )}
+                    {isEmptyImport && (
+                      <p className="text-content-secondary ml-5">
+                        Log in to music.apple.com in your browser first, then try importing again.
+                      </p>
+                    )}
+                    {importResult.warnings.map((w, i) => (
+                      <p key={i} className="text-status-warning-text ml-5">
+                        {w}
+                      </p>
+                    ))}
+                  </div>
+                );
+              })()}
+
+            {/* Import error */}
+            {importError && (
+              <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-xs">
+                <div className="flex items-center gap-1.5">
+                  <XCircle size={14} className="text-status-error flex-shrink-0" />
+                  <InlineError {...explainError(COOKIES_IMPORT_FAILED, importError)} />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Loading indicator for browser detection */}
+        {isDetecting && (
+          <div className="flex items-center gap-2 py-2 text-xs text-content-tertiary">
+            <Loader2 size={14} className="animate-spin" />
+            Detecting browsers…
+          </div>
+        )}
+
+        {/* ============================================================
           Section 3: Expandable Browser Instructions (Manual Import)
           Collapsible accordion with per-browser step-by-step guides
           for exporting cookies in Netscape format.
           ============================================================ */}
-      <BrowserInstructions />
+        {/* The cookies-file route, last: for people who prefer to export the
+          file themselves (polish pass L8). */}
+        <h3 className="text-xs font-medium text-content-primary pt-2">Or use a cookies file</h3>
+        <BrowserInstructions />
 
-      {/* ============================================================
+        {/* ============================================================
           Section 4: Cookie File Picker
           Lets the user browse for and select their cookies.txt file.
           Clearing the selection also resets validation state.
           ============================================================ */}
-      <FilePickerButton
-        label="Cookies File"
-        description="Path to the Netscape-format cookies.txt file"
-        value={cookiesPath.value}
-        onChange={handleFileChange}
-        placeholder="No cookies file selected"
-        filters={[{ name: 'Text Files', extensions: ['txt'] }]}
-      />
+        <FilePickerButton
+          label="Cookies File"
+          description="The cookies.txt file you exported from your browser"
+          value={cookiesPath.value}
+          onChange={handleFileChange}
+          placeholder="No cookies file selected"
+          filters={[{ name: 'Text Files', extensions: ['txt'] }]}
+        />
 
-      {/* ============================================================
+        {/* ============================================================
           Section 5: Action Buttons Row
           Contains the "Validate Cookies" button and, when a file is
           selected, a "Copy Cookie Path" button. Buttons are laid out
           horizontally with a gap.
           ============================================================ */}
-      {cookiesPath.value && (
-        <div className="flex items-center gap-2">
-          {/* Validate button -- triggers backend validation */}
-          <Button variant="secondary" size="sm" loading={isValidating} onClick={handleValidate}>
-            Validate Cookies
-          </Button>
-
-          {/* Copy path button -- copies the file path to clipboard */}
-          <Tooltip content={copySuccess ? 'Copied!' : 'Copy file path to clipboard'} position="top">
-            <Button variant="ghost" size="sm" icon={<Copy size={14} />} onClick={handleCopyPath}>
-              {copySuccess ? 'Copied!' : 'Copy Cookie Path'}
+        {cookiesPath.value && (
+          <div className="flex items-center gap-2">
+            {/* Validate button -- triggers backend validation */}
+            <Button variant="secondary" size="sm" loading={isValidating} onClick={handleValidate}>
+              Validate Cookies
             </Button>
-          </Tooltip>
-        </div>
-      )}
 
-      {/* ============================================================
+            {/* Copy path button -- copies the file path to clipboard */}
+            <Tooltip
+              content={copySuccess ? 'Copied!' : 'Copy file path to clipboard'}
+              position="top"
+            >
+              <Button variant="ghost" size="sm" icon={<Copy size={14} />} onClick={handleCopyPath}>
+                {copySuccess ? 'Copied!' : 'Copy Cookie Path'}
+              </Button>
+            </Tooltip>
+          </div>
+        )}
+
+        {/* ============================================================
           Section 6: Validation Results Panel
           Shown only after a successful validation call. Contains:
           - Pass/fail header with icon.
@@ -1205,72 +1208,72 @@ export function CookiesTab() {
           - Expiry warning (if applicable).
           - Additional backend warnings.
           ============================================================ */}
-      {validation && (
-        <div
-          className={`p-4 rounded-platform border space-y-4 ${
-            validation.valid && !validation.expired
-              ? 'border-status-success bg-status-success-bg'
-              : validation.expired
-                ? 'border-status-warning bg-status-warning-bg'
-                : 'border-status-error bg-status-error-bg'
-          }`}
-        >
-          {/* ---- Result header (pass / fail / expired icon + label) ---- */}
-          <div className="flex items-center gap-2">
-            {validation.valid && !validation.expired ? (
-              <CheckCircle size={16} className="text-status-success" />
-            ) : validation.expired ? (
-              <AlertTriangle size={16} className="text-status-warning" />
-            ) : (
-              <XCircle size={16} className="text-status-error" />
-            )}
-            <span className="text-sm font-medium text-content-primary">
-              {validation.valid && !validation.expired
-                ? 'Cookies Valid'
+        {validation && (
+          <div
+            className={`p-4 rounded-platform border space-y-4 ${
+              validation.valid && !validation.expired
+                ? 'border-status-success bg-status-success-bg'
                 : validation.expired
-                  ? 'Cookies Expired'
-                  : 'Cookies Invalid'}
-            </span>
-          </div>
-
-          {/* ---- Cookie count summary ---- */}
-          <div className="text-xs text-content-secondary space-y-1 ml-6">
-            <p>
-              <span className="font-medium">{validation.cookie_count}</span> total cookies found
-            </p>
-            <p>
-              <span className="font-medium">{validation.apple_music_cookies}</span> Apple Music
-              cookies
-            </p>
-          </div>
-
-          {/* ---- Detected domains list ---- */}
-          {validation.domains.length > 0 && (
-            <div className="ml-6">
-              <DetectedDomains domains={validation.domains} />
+                  ? 'border-status-warning bg-status-warning-bg'
+                  : 'border-status-error bg-status-error-bg'
+            }`}
+          >
+            {/* ---- Result header (pass / fail / expired icon + label) ---- */}
+            <div className="flex items-center gap-2">
+              {validation.valid && !validation.expired ? (
+                <CheckCircle size={16} className="text-status-success" />
+              ) : validation.expired ? (
+                <AlertTriangle size={16} className="text-status-warning" />
+              ) : (
+                <XCircle size={16} className="text-status-error" />
+              )}
+              <span className="text-sm font-medium text-content-primary">
+                {validation.valid && !validation.expired
+                  ? 'Cookies Valid'
+                  : validation.expired
+                    ? 'Cookies Expired'
+                    : 'Cookies Invalid'}
+              </span>
             </div>
-          )}
 
-          {/* ---- Expiry warning with estimated days ---- */}
-          {(validation.expired || validation.warnings.length > 0) && (
-            <div className="ml-6">
-              <ExpiryWarning expired={validation.expired} warnings={validation.warnings} />
-            </div>
-          )}
-
-          {/* ---- Additional backend warnings ---- */}
-          {validation.warnings.length > 0 && (
+            {/* ---- Cookie count summary ---- */}
             <div className="text-xs text-content-secondary space-y-1 ml-6">
-              {validation.warnings.map((warning, i) => (
-                <div key={i} className="flex items-start gap-1.5">
-                  <AlertTriangle size={12} className="text-status-warning flex-shrink-0 mt-0.5" />
-                  <p className="text-status-warning-text">{warning}</p>
-                </div>
-              ))}
+              <p>
+                <span className="font-medium">{validation.cookie_count}</span> total cookies found
+              </p>
+              <p>
+                <span className="font-medium">{validation.apple_music_cookies}</span> Apple Music
+                cookies
+              </p>
             </div>
-          )}
-        </div>
-      )}
+
+            {/* ---- Detected domains list ---- */}
+            {validation.domains.length > 0 && (
+              <div className="ml-6">
+                <DetectedDomains domains={validation.domains} />
+              </div>
+            )}
+
+            {/* ---- Expiry warning with estimated days ---- */}
+            {(validation.expired || validation.warnings.length > 0) && (
+              <div className="ml-6">
+                <ExpiryWarning expired={validation.expired} warnings={validation.warnings} />
+              </div>
+            )}
+
+            {/* ---- Additional backend warnings ---- */}
+            {validation.warnings.length > 0 && (
+              <div className="text-xs text-content-secondary space-y-1 ml-6">
+                {validation.warnings.map((warning, i) => (
+                  <div key={i} className="flex items-start gap-1.5">
+                    <AlertTriangle size={12} className="text-status-warning flex-shrink-0 mt-0.5" />
+                    <p className="text-status-warning-text">{warning}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </SettingsSection>
     </div>
   );

@@ -132,6 +132,7 @@ pub async fn process_acoustid_for_directory(
     api_key: &str,
     on_progress: impl Fn(usize, usize) + Send,
     file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
+    in_flight: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
 ) -> Result<usize, String> {
     if api_key.is_empty() {
         return Err("AcoustID API key not configured".to_string());
@@ -158,7 +159,7 @@ pub async fn process_acoustid_for_directory(
             sleep(API_RATE_LIMIT_DELAY).await;
         }
 
-        match process_single_file(file_path, api_key, file_locks).await {
+        match process_single_file(file_path, api_key, file_locks, in_flight).await {
             Ok(true) => tagged_count += 1,
             Ok(false) => {
                 log::debug!("No AcoustID match for {}", file_path.display());
@@ -197,6 +198,7 @@ async fn process_single_file(
     file_path: &Path,
     api_key: &str,
     file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
+    in_flight: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
 ) -> Result<bool, String> {
     // Step 1: Generate Chromaprint fingerprint (embedded, no external binary).
     // This is CPU-intensive (decodes the entire audio file), so we run it
@@ -212,22 +214,13 @@ async fn process_single_file(
         return Ok(false); // No match found
     };
 
-    // Step 3: Acquire the per-file write lock (#779 Option 2). When
-    // supplied, this serialises against any other enrichment stage
-    // (notably ReplayGain) writing to the same file. Acquired BEFORE
-    // the spawn_blocking so the blocking task itself is short — read,
-    // mutate, write, release. The slow CPU-bound fingerprint work above
-    // already completed on its own thread without holding the lock.
-    let _write_guard = match file_locks {
-        Some(locks) => Some(locks.lock(file_path).await),
-        None => None,
-    };
-
-    // Step 4: Write tags on a blocking thread to avoid starving the async
-    // runtime. Tag::read_from_path / Tag::write_to_path are sync I/O that
-    // can block for seconds on slow FUSE mounts (CloudMounter, NFS, etc.).
+    // Step 3: Write tags on a blocking thread (sync I/O can block for
+    // seconds on slow FUSE mounts). The per-file write lock (#779 Option 2)
+    // and the download's in-flight-writes hold are taken here and MOVED
+    // into the blocking closure (`run_blocking_locked`), so they last until
+    // the write really ends even if this future is abandoned (#1442).
     let tag_path = file_path.to_path_buf();
-    tokio::task::spawn_blocking(move || {
+    crate::utils::file_locks::run_blocking_locked(file_locks, in_flight, file_path, move || {
         let mut tag =
             Tag::read_from_path(&tag_path).map_err(|e| format!("Failed to read M4A: {e}"))?;
 
@@ -351,10 +344,7 @@ async fn lookup_acoustid(
 ///   * `Err(AcoustIdApiError(_))` → `Err("AcoustID API error: …")`.
 ///   * Any other shared-crate error → `Err("AcoustID lookup failed: …")`.
 fn map_shared_acoustid_result(
-    result: Result<
-        meedya_fingerprint::AcoustIdResult,
-        meedya_fingerprint::FingerprintError,
-    >,
+    result: Result<meedya_fingerprint::AcoustIdResult, meedya_fingerprint::FingerprintError>,
 ) -> Result<Option<String>, String> {
     match result {
         Ok(r) => {
@@ -580,11 +570,7 @@ mod tests {
 
     #[test]
     fn shared_result_with_high_score_returns_acoustid() {
-        let r = map_shared_acoustid_result(Ok(fake_result(
-            "abc-123",
-            0.95,
-            vec!["mb-001".into()],
-        )));
+        let r = map_shared_acoustid_result(Ok(fake_result("abc-123", 0.95, vec!["mb-001".into()])));
         assert_eq!(r.unwrap(), Some("abc-123".to_string()));
     }
 
@@ -592,11 +578,7 @@ mod tests {
     fn shared_result_at_threshold_returns_acoustid() {
         // Score == 0.5 must pass the floor (the local doc says `< 0.5
         // → None`, so 0.5 should be inclusive).
-        let r = map_shared_acoustid_result(Ok(fake_result(
-            "abc-123",
-            0.5,
-            vec![],
-        )));
+        let r = map_shared_acoustid_result(Ok(fake_result("abc-123", 0.5, vec![])));
         assert_eq!(r.unwrap(), Some("abc-123".to_string()));
     }
 
@@ -605,11 +587,7 @@ mod tests {
         // Score < 0.5 is treated as no match, preserving the pre-#353
         // contract. This is the rule that protects against
         // mis-tagging tracks with low-confidence fingerprint matches.
-        let r = map_shared_acoustid_result(Ok(fake_result(
-            "abc-123",
-            0.49,
-            vec![],
-        )));
+        let r = map_shared_acoustid_result(Ok(fake_result("abc-123", 0.49, vec![])));
         assert_eq!(r.unwrap(), None);
     }
 
@@ -618,9 +596,7 @@ mod tests {
         // The shared crate signals "no result found" via the typed
         // `FingerprintError::NoMatch` variant, NOT via Ok(empty).
         // MeedyaDL's contract maps it to Ok(None).
-        let r = map_shared_acoustid_result(Err(
-            meedya_fingerprint::FingerprintError::NoMatch,
-        ));
+        let r = map_shared_acoustid_result(Err(meedya_fingerprint::FingerprintError::NoMatch));
         assert_eq!(r.unwrap(), None);
     }
 
@@ -632,9 +608,7 @@ mod tests {
         // 'network' bucket. The canonical prefix must survive the
         // shared-crate refactor or the classifier loses the rule.
         let r = map_shared_acoustid_result(Err(
-            meedya_fingerprint::FingerprintError::NetworkError(
-                "connection refused".to_string(),
-            ),
+            meedya_fingerprint::FingerprintError::NetworkError("connection refused".to_string()),
         ));
         let err = r.expect_err("network error must propagate as Err");
         assert!(
@@ -676,11 +650,8 @@ mod tests {
         // compiler error here flags the change BEFORE production
         // call sites break.
         let _: meedya_fingerprint::AcoustIdResult = fake_result("x", 0.0, vec![]);
-        let _: meedya_fingerprint::FingerprintError =
-            meedya_fingerprint::FingerprintError::NoMatch;
-        let _client = meedya_fingerprint::acoustid::AcoustIdClient::new(
-            "dummy-key".to_string(),
-        );
+        let _: meedya_fingerprint::FingerprintError = meedya_fingerprint::FingerprintError::NoMatch;
+        let _client = meedya_fingerprint::acoustid::AcoustIdClient::new("dummy-key".to_string());
     }
 
     // ============================================================
@@ -710,9 +681,9 @@ mod tests {
         // historical surface used "Failed to open audio file: {e}"
         // — preserve that so any log scrapers still match.
         let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
-        let r = map_shared_chromaprint_result(Err(
-            meedya_fingerprint::FingerprintError::IoError(io_err),
-        ));
+        let r = map_shared_chromaprint_result(Err(meedya_fingerprint::FingerprintError::IoError(
+            io_err,
+        )));
         let err = r.expect_err("io error must propagate as Err");
         assert!(
             err.starts_with("Failed to open audio file:"),
@@ -726,11 +697,10 @@ mod tests {
         // malformed file, missing track) all surface as
         // `FingerprintError::DecodeError`. Historical MeedyaDL
         // phrasing used "Audio decode error:" for these.
-        let r = map_shared_chromaprint_result(Err(
-            meedya_fingerprint::FingerprintError::DecodeError(
+        let r =
+            map_shared_chromaprint_result(Err(meedya_fingerprint::FingerprintError::DecodeError(
                 "format probe: unsupported codec".to_string(),
-            ),
-        ));
+            )));
         let err = r.expect_err("decode error must propagate as Err");
         assert!(
             err.contains("Audio decode error"),
@@ -778,9 +748,7 @@ mod tests {
         // `Result<(String, u32), FingerprintError>`. If upstream
         // renames the function or changes the signature, compilation
         // here breaks first.
-        let _: fn(&std::path::Path) -> Result<
-            (String, u32),
-            meedya_fingerprint::FingerprintError,
-        > = meedya_fingerprint::generate_fingerprint;
+        let _: fn(&std::path::Path) -> Result<(String, u32), meedya_fingerprint::FingerprintError> =
+            meedya_fingerprint::generate_fingerprint;
     }
 }

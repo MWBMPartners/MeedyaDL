@@ -92,6 +92,16 @@ pub(crate) fn plan_drm_backend(
 /// The same decision, reading the two facts it needs from the machine:
 /// which GAMDL is installed, and whether the device file is really there.
 pub(crate) fn plan_drm_backend_for_now(settings: &AppSettings) -> DrmPlan {
+    // GAMDL 4.x needs an extra package for PlayReady that MeedyaDL does not
+    // install (it does not install on Windows on ARM), and without it GAMDL
+    // 4 stops the whole run. So on 4.x a PlayReady choice falls back to the
+    // built-in (Widevine) unlocking and says so — the same outcome as the
+    // 4.x command builder, which never passes PlayReady on.
+    if crate::services::gamdl_capabilities::detected_cli_generation()
+        == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
+    {
+        return plan_drm_backend_on_gamdl_4(settings);
+    }
     let understands = crate::services::gamdl_capabilities::supports(
         crate::services::gamdl_capabilities::GamdlFeature::PlayReadyDrmBackend,
     );
@@ -100,6 +110,18 @@ pub(crate) fn plan_drm_backend_for_now(settings: &AppSettings) -> DrmPlan {
         !path.is_empty() && std::path::Path::new(path).is_file()
     };
     plan_drm_backend(settings, understands, exists)
+}
+
+/// The PlayReady decision when GAMDL 4.x is installed. Pure, for testing.
+pub(crate) fn plan_drm_backend_on_gamdl_4(settings: &AppSettings) -> DrmPlan {
+    if settings.drm_backend != DrmBackend::PlayReady {
+        return DrmPlan::LeaveToGamdl;
+    }
+    DrmPlan::FallBackToBuiltIn {
+        reason: "PlayReady is switched on, but MeedyaDL does not use it with GAMDL 4 yet. This \
+                 download used the built-in unlocking instead."
+            .to_string(),
+    }
 }
 
 // ============================================================
@@ -136,7 +158,11 @@ pub(crate) fn plan_drm_backend_for_now(settings: &AppSettings) -> DrmPlan {
 /// Extracted as a pure function so it can be exercised by unit tests
 /// without a full settings/queue setup.
 #[must_use]
-pub(crate) fn apply_padding_to_template(template: &str, track_width: usize, disc_width: usize) -> String {
+pub(crate) fn apply_padding_to_template(
+    template: &str,
+    track_width: usize,
+    disc_width: usize,
+) -> String {
     // Regex-free implementation: walk the string, find literal `{track}`
     // and `{disc}` substrings (no format spec after the name), replace
     // in-place. Robust against tokens that appear multiple times in one
@@ -186,7 +212,15 @@ pub(crate) fn merge_options(
     options.cover_format = Some(settings.cover_format.clone());
     options.cover_size = Some(settings.cover_size);
     options.overwrite = Some(settings.overwrite);
-    options.language = Some(settings.language.clone());
+    // Sent in its standard form (independent review, round 3 of #1244):
+    // the stored setting is only ever put into standard form on save and
+    // import, so a value written before that existed -- or edited by hand
+    // -- could still carry a stray newline or leading space straight onto
+    // GAMDL's command line. See `language_arg_for_gamdl`'s own comment for
+    // why the STORED value is never touched, only what is sent here.
+    options.language = Some(crate::utils::language::language_arg_for_gamdl(
+        &settings.language,
+    ));
     // Every template field is passed through
     // `config_service::resolve_meedyadl_template_vars` BEFORE assignment
     // so MeedyaDL-introduced placeholders (currently `{platform}`, #829)
@@ -200,10 +234,11 @@ pub(crate) fn merge_options(
         &settings.album_folder_template,
         service,
     ));
-    options.compilation_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
-        &settings.compilation_folder_template,
-        service,
-    ));
+    options.compilation_folder_template =
+        Some(super::config_service::resolve_meedyadl_template_vars(
+            &settings.compilation_folder_template,
+            service,
+        ));
     options.no_album_folder_template = Some(super::config_service::resolve_meedyadl_template_vars(
         &settings.no_album_folder_template,
         service,
@@ -267,15 +302,13 @@ pub(crate) fn merge_options(
     if settings.use_wrapper {
         options.wrapper_url = Some(settings.wrapper_url.clone());
     }
-    // `wrapper_m3u8_ip` is a GAMDL v3.1+ CLI flag; only emit it when the
-    // detected GAMDL release supports it and the user has wrapper mode on.
-    // Older releases don't know the flag (would parse-error), and cookie-
-    // mode downloads never consult the wrapper m3u8 socket.
-    if settings.use_wrapper
-        && super::gamdl_capabilities::supports(
-            super::gamdl_capabilities::GamdlFeature::WrapperM3u8Ip,
-        )
-    {
+    // `wrapper_m3u8_ip` is a GAMDL v3.1 to 3.5 CLI flag. It is stored
+    // whenever wrapper mode is on, WITHOUT asking the GAMDL version now: at
+    // queue restore the version is still unknown, and an item restored then
+    // would lose the address. `GamdlOptions::to_cli_args` only sends it on
+    // releases that know the flag. Cookie-mode downloads never consult the
+    // wrapper m3u8 socket.
+    if settings.use_wrapper {
         options.wrapper_m3u8_ip = Some(settings.wrapper_m3u8_ip.clone());
     }
     // `wrapper_decrypt_ip` (#743) is the third leg of the wrapper triangle —
@@ -285,20 +318,24 @@ pub(crate) fn merge_options(
     // version-capability gate is needed. Cookie-mode downloads never hit
     // the decrypt socket, so we only emit when wrapper auth is on.
     if settings.use_wrapper {
-        options.wrapper_decrypt_ip = Some(settings.wrapper_decrypt_ip.clone());
+        // Only what the person typed (empty = automatic) is kept here. The
+        // automatic address depends on the GAMDL version, which may still be
+        // unknown now (queue restore), so it is worked out when the command
+        // is built (`GamdlOptions::to_cli_args`), never stored (#1433).
+        options.wrapper_decrypt_ip = Some(settings.wrapper_decrypt_ip.trim().to_string());
     }
     options.truncate = settings.truncate;
 
-    if !settings.output_path.is_empty() {
-        // Validate output path for traversal sequences (#459)
-        match super::config_service::validate_path_safe(&settings.output_path) {
-            Ok(_) => {
-                options.output_path = Some(settings.output_path.clone());
-            }
-            Err(e) => {
-                log::warn!("Output path rejected: {e}");
-            }
-        }
+    // A folder with a ".." step is left off the command line (and out of
+    // config.ini); the download then refuses it by name (#1419).
+    if let Some(folder) =
+        crate::services::config_service::usable_download_folder(&settings.output_path)
+    {
+        options.output_path = Some(folder);
+    } else if let Some(why) =
+        crate::services::config_service::download_folder_refusal(&settings.output_path)
+    {
+        log::warn!("Output path rejected: {why}");
     }
 
     // Resolve temp_path: use the user's custom path if set, otherwise fall
@@ -625,3 +662,19 @@ pub(crate) fn needs_primary_suffix(
     }
 }
 
+/// The settings the follow-up GAMDL runs of one item use (the lyrics
+/// fallback, music-video copies): the saved settings, with `overwrite`
+/// taken from the item's own options when it has one. A Library "fill the
+/// gaps" re-download sends `overwrite: false`, which must reach these runs
+/// too, not only the main download.
+#[must_use]
+pub(crate) fn settings_for_follow_up_runs(
+    settings: &AppSettings,
+    item_overwrite: Option<bool>,
+) -> AppSettings {
+    let mut s = settings.clone();
+    if let Some(overwrite) = item_overwrite {
+        s.overwrite = overwrite;
+    }
+    s
+}

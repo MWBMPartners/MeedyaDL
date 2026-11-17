@@ -5,9 +5,16 @@
 // ========================================================
 //
 // This module delegates to `meedya_core::metadata::tag_registry` for all tag
-// definition loading, JSON path extraction, and value conversion. The local
-// `tags.toml` is still used as the source of truth (compiled in via the
-// meedya-metadata crate's default tags).
+// definition loading, JSON path extraction, and value conversion. The tag
+// list used is the meedya-metadata crate's own compiled-in default list
+// (`DEFAULT_REGISTRY`), NOT this project's `src-tauri/tags.toml`, which no
+// code reads and whose names differ (see #1444).
+//
+// One entry of that shared list is set aside on purpose: `last_modified_date`.
+// The pinned version of the shared list reads Apple's list of an album's old
+// IDs (`meta.formerIds`) where the date belongs. MeedyaDL writes the real date
+// itself, as `MeedyaMeta:LastModified`, and only into files the
+// current download wrote (see `NOT_USED_FROM_SHARED_REGISTRY`, #1444).
 //
 // ## Migration Notes
 //
@@ -32,6 +39,43 @@ pub const ITUNES_NAMESPACE: &str = "com.apple.iTunes";
 
 /// MeedyaDL-branded freeform atom namespace.
 pub const MEEDYADL_NAMESPACE: &str = "MeedyaMeta";
+
+/// The name (inside the `MeedyaMeta` group) of the tag that holds the date the
+/// service the file came from last updated the album (#1444). One name, used
+/// everywhere, and service-neutral: other services and other MeedyaSuite apps
+/// use the same tag.
+pub const SOURCE_LAST_MODIFIED_TAG: &str = "LastModified";
+
+/// Apple Music's CURRENT number for the album (#1447), from the album answer's
+/// own `id`. `MeedyaMeta` group.
+pub const APPLE_MUSIC_ALBUM_ID_TAG: &str = "AppleMusicAlbumId";
+
+/// The numbers the album had before (`meta.formerIds`), several values in one
+/// atom, kept and added to on each download, never removed (#1447).
+pub const APPLE_MUSIC_FORMER_ALBUM_IDS_TAG: &str = "AppleMusicFormerAlbumIds";
+
+/// Apple Music's current number for the song (#1447). Carries the same value
+/// as the shared `AppleSongID` tag, which stays.
+pub const APPLE_MUSIC_SONG_ID_TAG: &str = "AppleMusicSongId";
+
+/// The numbers the song had before, written only when Apple Music sends them (#1447).
+pub const APPLE_MUSIC_FORMER_SONG_IDS_TAG: &str = "AppleMusicFormerSongIds";
+
+/// The name (inside the `com.apple.iTunes` group) of the second tag that
+/// holds the same date, so apps that read the iTunes-style album tags find it
+/// too. It always carries exactly the same value as `MeedyaMeta:LastModified`
+/// (maintainer's decision, 17 Nov 2026; MWBMPartners/MeedyaSuite-core#115).
+pub const ITUNES_LAST_MODIFIED_TAG: &str = "AlbumLastModified";
+
+/// Entries of the shared MeedyaSuite-core list that MeedyaDL does not use,
+/// because the pinned version reads the wrong field. `last_modified_date`
+/// there reads `meta.formerIds` (Apple's list of an album's old IDs), not the
+/// date. MeedyaDL writes the real date itself as
+/// `MeedyaMeta:LastModified` (#1444), and only into files the
+/// current download wrote, which the shared list cannot do (it would stamp
+/// every file in the folder whose album matches). Even after the shared list
+/// is fixed, keep this entry set aside unless that freshness rule is dropped.
+const NOT_USED_FROM_SHARED_REGISTRY: &[&str] = &["last_modified_date"];
 
 /// Tag definition with ID included for backward compatibility.
 #[derive(Debug, Clone)]
@@ -66,6 +110,7 @@ pub fn load_tag_registry() -> TagRegistry {
     let album_tags = core_registry
         .album_tags
         .iter()
+        .filter(|(id, _)| !NOT_USED_FROM_SHARED_REGISTRY.contains(&id.as_str()))
         .map(|(id, def)| convert_core_definition(id, def))
         .collect();
 
@@ -81,6 +126,9 @@ pub fn load_tag_registry() -> TagRegistry {
     }
 }
 
+/// Converts one tag definition from the shared MeedyaSuite-core registry into
+/// MeedyaDL's own type. Each atom's namespace is mapped to this app's
+/// constants; an unknown namespace falls back to the iTunes one.
 fn convert_core_definition(id: &str, def: &CoreTagDefinition) -> TagDefinition {
     let atoms = def
         .atoms
@@ -186,5 +234,75 @@ mod tests {
         let paths = all_known_paths(&registry);
         assert!(paths.iter().any(|(scope, _, _)| scope == "album"));
         assert!(paths.iter().any(|(scope, _, _)| scope == "track"));
+    }
+
+    #[test]
+    fn the_wrong_last_modified_entry_is_not_loaded() {
+        let registry = load_tag_registry();
+        assert!(
+            !registry
+                .album_tags
+                .iter()
+                .any(|d| d.id == "last_modified_date"),
+            "the shared last_modified_date entry must be set aside (#1444)"
+        );
+        assert!(
+            !registry
+                .album_tags
+                .iter()
+                .chain(registry.track_tags.iter())
+                .any(|d| d.atoms.iter().any(|a| a.name == "AppleLastModified")),
+            "no tag named AppleLastModified may be loaded (#1444)"
+        );
+        // Nor may any other shared entry write either last-updated tag: the
+        // registry walk would stamp it on every album-matched file in the
+        // folder, older ones included. MeedyaDL writes both itself.
+        assert!(
+            !registry
+                .album_tags
+                .iter()
+                .chain(registry.track_tags.iter())
+                .any(|d| d.atoms.iter().any(|a| {
+                    (a.namespace == ITUNES_NAMESPACE && a.name == ITUNES_LAST_MODIFIED_TAG)
+                        || (a.namespace == MEEDYADL_NAMESPACE && a.name == SOURCE_LAST_MODIFIED_TAG)
+                })),
+            "no shared entry may write the last-updated tags (#1444)"
+        );
+        // Nor the four Apple Music number tags (#1447), compared ignoring case.
+        let ours = [
+            APPLE_MUSIC_ALBUM_ID_TAG,
+            APPLE_MUSIC_FORMER_ALBUM_IDS_TAG,
+            APPLE_MUSIC_SONG_ID_TAG,
+            APPLE_MUSIC_FORMER_SONG_IDS_TAG,
+        ];
+        assert!(
+            !registry
+                .album_tags
+                .iter()
+                .chain(registry.track_tags.iter())
+                .any(|d| d.atoms.iter().any(|a| {
+                    a.namespace.eq_ignore_ascii_case(MEEDYADL_NAMESPACE)
+                        && ours.iter().any(|o| a.name.eq_ignore_ascii_case(o))
+                })),
+            "no shared entry may write the Apple Music number tags (#1447)"
+        );
+    }
+
+    /// Fails when MeedyaSuite-core changes the entry, so the set-aside gets
+    /// looked at again instead of staying for ever.
+    #[test]
+    fn tripwire_shared_registry_still_reads_the_wrong_field() {
+        let core = &*meedya_core::metadata::tag_registry::DEFAULT_REGISTRY;
+        let entry = core
+            .album_tags
+            .iter()
+            .find(|(id, _)| id == "last_modified_date")
+            .map(|(_, def)| def)
+            .expect("MeedyaSuite-core no longer has last_modified_date: see #1444");
+        assert_eq!(
+            entry.json_path, "meta.formerIds",
+            "MeedyaSuite-core has changed this entry: see #1444 and revisit \
+             NOT_USED_FROM_SHARED_REGISTRY"
+        );
     }
 }

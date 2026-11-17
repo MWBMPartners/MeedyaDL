@@ -6,10 +6,11 @@ for the specific data-corruption bug that shipped in GAMDL 3.8.2/3.8.3 and
 was fixed in 3.8.4: queued decrypted samples weren't flushed before
 immediate writes on the wrapper-decrypt path, so payload order didn't
 always match the container's sample-size table — the audible symptom is a
-**truncated or corrupt song ending**. MeedyaDL's tooling now recommends
-GAMDL 3.8.5, but until this script exists nobody had actually run the
-live verification gate that closes the loop between "the upstream fix
-landed" and "we confirmed it works on our supported platforms."
+**truncated or corrupt song ending**. MeedyaDL's tested and recommended
+GAMDL is now 3.9.1 (3.9 itself is refused as known-bad), but this script was
+written for the 3.8.4 fix and its install helper now follows the tested version in
+`src-tauri/tool-versions.toml` (see below). It is the live verification gate that closes the loop between "the
+upstream fix landed" and "we confirmed it works on our supported platforms."
 
 **This script is intentionally NOT wired into any CI workflow, and never
 should be.** It needs a real Apple Music subscription (cookies and/or a
@@ -34,7 +35,7 @@ GAMDL version-audit entries for the cadence this has followed historically).
     session (non-wrapper leg), and/or
   - a running wrapper-v2 daemon with a real, logged-in Apple Music
     subscription, reachable at its account URL, m3u8 socket, and decrypt
-    socket (wrapper leg — required for ALAC and Dolby Atmos).
+    socket (wrapper leg — required for ALAC; the script also uses it for Dolby Atmos, to exercise the same decrypt path).
 - **A track to test with.** Pick something you don't mind re-downloading
   a few times; a mid-length song (3-5 minutes) is a good default — long
   enough that a truncated-ending bug has room to manifest, short enough
@@ -53,7 +54,7 @@ GAMDL version-audit entries for the cadence this has followed historically).
    and aborts at startup on any mismatch).
 3. **Download matrix** — real downloads into a fresh temp directory:
    - non-wrapper leg: `aac` (works without wrapper auth on GAMDL 3.8+),
-   - wrapper leg: `alac` (still wrapper-dependent on 3.8.5) **and**
+   - wrapper leg: `alac` (still wrapper-dependent on 3.9.1) **and**
      `atmos` (a second, independent wrapper-decrypt code path).
 4. **Song-ending integrity** — the core check, run per downloaded file:
    - a full `ffmpeg -f null -` decode produces zero stderr output,
@@ -80,7 +81,7 @@ python3 gamdl_live_smoke.py --auto --tools-dir /path/to/tools \
     --url "https://music.apple.com/us/song/example/1234567890" \
     --mode nonwrapper --cookies ./cookies.txt --json report.json
 
-# Wrapper only (ALAC + Dolby Atmos), against a locally running wrapper-v2:
+# Wrapper only (ALAC + Dolby Atmos through the wrapper), against a locally running wrapper-v2:
 python3 gamdl_live_smoke.py --auto --tools-dir /path/to/tools \
     --url "https://music.apple.com/us/song/example/1234567890" \
     --mode wrapper \
@@ -107,8 +108,15 @@ system-Python-venv layout from issue #1017 (`Scripts\python.exe` on
 Windows). Pass `--python-bin` instead to point at any other interpreter
 with `gamdl` installed.
 
-Run `--install` to `pip install --upgrade 'gamdl>=3.0,<=3.8.5'` first if
-you need to get onto 3.8.5 before running the checks.
+Run `--install` to `pip install --upgrade 'gamdl>=3.0,<=3.9.1'` first if
+you need to get onto 3.9.1 before running the checks. That limit is the
+script's `DEFAULT_GAMDL_SPEC_CEILING`, which is read from
+`maximum_tested_version` in `src-tauri/tool-versions.toml` each time the
+script runs (with 3.9.1 built in as a fallback), so it follows MeedyaDL's
+tested version without edits.
+
+The script drives GAMDL 3 only (`python -m gamdl`). GAMDL 4, the opt-in
+trial in Settings > Tools, has a different command line and is not covered.
 
 ## Platform matrix
 
@@ -117,7 +125,7 @@ you need to get onto 3.8.5 before running the checks.
 | macOS ARM64 | **Required** | Primary supported desktop platform. |
 | Windows x64 | **Required** | |
 | Linux x64 | **Required** | |
-| Windows ARM64 | Nice-to-have | Native ARM64 build; run if you have hardware. |
+| Windows ARM64 | Nice-to-have | Native ARM64 build; run if you have hardware. MeedyaDL holds GAMDL at 3.8.5 there. |
 | Linux aarch64 | Nice-to-have | Pi 4/5, ARM servers. |
 | Linux ARMv7 | **Excluded** | No `gamdl._ammuxer` wheel is published for this target — `pip`'s `--only-binary=gamdl` resolves down to **3.8.1** there, which does not contain the fix this script verifies. Running this harness on ARMv7 would test the wrong version; skip it. |
 
@@ -130,7 +138,7 @@ person, on purpose:
   personal credential material; there's no way to fabricate one, and it
   shouldn't be checked in or shared.
 - **A running wrapper daemon with a real subscription.** The wrapper leg
-  (ALAC, Dolby Atmos) needs an actual logged-in wrapper-v2 instance
+  (ALAC, and Dolby Atmos through the wrapper) needs an actual logged-in wrapper-v2 instance
   reachable over the network — this script only verifies the daemon is
   *reachable and the right version*, it does not stand one up.
 - **Choosing the track.** Pick something representative — normal length,

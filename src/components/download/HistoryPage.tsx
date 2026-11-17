@@ -16,7 +16,14 @@
 import { useEffect, useId, useMemo, useState, useCallback } from 'react';
 
 import { PageHeader } from '@/components/layout/PageHeader';
-import { Button, ContextMenu, ErrorMessageDisplay, Modal } from '@/components/common';
+import {
+  Button,
+  ContextMenu,
+  ErrorMessageDisplay,
+  IconButton,
+  Input,
+  Modal,
+} from '@/components/common';
 import type { ContextMenuItem } from '@/components/common';
 import {
   Trash2,
@@ -44,6 +51,7 @@ import { useUiStore } from '@/stores/uiStore';
 import { openContainingFolder } from '@/lib/openPath';
 
 import type { HistoryEntry } from '@/types';
+import { showBackendError, showError } from '@/lib/errorMessages';
 
 /**
  * Formats an ISO 8601 timestamp to a short locale-appropriate date/time string.
@@ -71,7 +79,7 @@ function getDisplayLabel(entry: HistoryEntry): string {
   // Truncate long URLs for display
   const url = entry.url;
   if (url.length > 80) {
-    return url.slice(0, 77) + '...';
+    return url.slice(0, 77) + '…';
   }
   return url;
 }
@@ -138,9 +146,12 @@ export function HistoryPage() {
   // Load entries on mount and when search query changes
   useEffect(() => {
     // Debounce search queries by 300ms
-    const timer = setTimeout(() => {
-      loadEntries();
-    }, searchQuery ? 300 : 0);
+    const timer = setTimeout(
+      () => {
+        loadEntries();
+      },
+      searchQuery ? 300 : 0
+    );
     return () => clearTimeout(timer);
   }, [loadEntries, searchQuery]);
 
@@ -167,7 +178,10 @@ export function HistoryPage() {
       addToast('Download history cleared', 'info');
     } catch (err) {
       console.error('Failed to clear history:', err);
-      addToast('Failed to clear history', 'error');
+      showError(
+        'MeedyaDL could not clear the history. Try again; if it keeps happening, restart MeedyaDL.',
+        err
+      );
     }
   }, [addToast]);
 
@@ -212,15 +226,25 @@ export function HistoryPage() {
   const handleRetryOne = useCallback(
     async (entry: HistoryEntry) => {
       try {
-        await startDownload({ urls: [entry.url] });
+        const result = await startDownload({ urls: [entry.url] });
+        if (!result.download_id) {
+          // Nothing was queued (most often: it is already in the queue).
+          // The backend has already dropped the old history row(s) for this
+          // link, so reload to show what is really stored.
+          void loadEntries();
+          addToast(result.duplicate_warning ?? 'Already in the queue — nothing added', 'info');
+          return;
+        }
         setEntries((current) => current.filter((item) => item.id !== entry.id));
         addToast(`Re-queued: ${getDisplayLabel(entry)}`, 'success');
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        addToast(`Retry failed: ${message}`, 'error');
+        showBackendError(
+          'MeedyaDL could not add that download to the queue again. Try again in a moment.',
+          err
+        );
       }
     },
-    [addToast],
+    [addToast, loadEntries]
   );
 
   /**
@@ -234,10 +258,10 @@ export function HistoryPage() {
         await navigator.clipboard.writeText(entry.url);
         addToast('URL copied to clipboard', 'info');
       } catch {
-        addToast('Could not copy to clipboard', 'error');
+        addToast('MeedyaDL could not copy the link. Try again in a moment.', 'error');
       }
     },
-    [addToast],
+    [addToast]
   );
 
   /**
@@ -258,7 +282,14 @@ export function HistoryPage() {
       return;
     }
     try {
-      await startDownload({ urls: uniqueUrls });
+      const result = await startDownload({ urls: uniqueUrls });
+      if (!result.download_id) {
+        // Nothing was queued, but the backend has already dropped the old
+        // history rows for these links, so reload to show what is stored.
+        void loadEntries();
+        addToast(result.duplicate_warning ?? 'Already in the queue — nothing added', 'info');
+        return;
+      }
       setEntries((current) => current.filter((entry) => !uniqueUrls.includes(entry.url)));
       addToast(
         `Re-queued ${uniqueUrls.length} download${uniqueUrls.length !== 1 ? 's' : ''}` +
@@ -267,13 +298,12 @@ export function HistoryPage() {
                 failedCount - uniqueUrls.length !== 1 ? 's' : ''
               } skipped)`
             : ''),
-        'success',
+        'success'
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      addToast(`Bulk retry failed: ${message}`, 'error');
+      showError('MeedyaDL could not retry the failed downloads. Try again in a moment.', err);
     }
-  }, [failedEntries, failedCount, addToast]);
+  }, [failedEntries, failedCount, addToast, loadEntries]);
 
   /**
    * Per-item Delete (#685). Confirms via modal, then removes the entry
@@ -289,19 +319,18 @@ export function HistoryPage() {
       setEntries((current) => current.filter((entry) => entry.id !== target.id));
       addToast('History entry removed', 'info');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      addToast(`Failed to remove: ${message}`, 'error');
+      showError(
+        'MeedyaDL could not remove that entry from the history. Try again in a moment.',
+        err
+      );
     }
   }, [deleteTarget, addToast]);
 
   /** Right-click handler — opens the per-row context menu at the cursor. */
-  const handleContextMenu = useCallback(
-    (event: React.MouseEvent, entry: HistoryEntry) => {
-      event.preventDefault();
-      setContextMenu({ entry, x: event.clientX, y: event.clientY });
-    },
-    [],
-  );
+  const handleContextMenu = useCallback((event: React.MouseEvent, entry: HistoryEntry) => {
+    event.preventDefault();
+    setContextMenu({ entry, x: event.clientX, y: event.clientY });
+  }, []);
 
   /**
    * Opens the same per-row menu from a visible "⋯" button (a11y audit
@@ -315,7 +344,7 @@ export function HistoryPage() {
       const rect = event.currentTarget.getBoundingClientRect();
       setContextMenu({ entry, x: rect.left, y: rect.bottom });
     },
-    [],
+    []
   );
 
   /**
@@ -357,7 +386,7 @@ export function HistoryPage() {
       });
       return items;
     },
-    [handleCopyUrl, handleRetryOne, handleOpenFolder],
+    [handleCopyUrl, handleRetryOne, handleOpenFolder]
   );
 
   const subtitle = searchQuery
@@ -408,27 +437,27 @@ export function HistoryPage() {
           <label htmlFor={searchInputId} className="sr-only">
             Search history by title, artist, album, or URL
           </label>
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary" aria-hidden="true" />
-          <input
+          {/* The shared Input (polish pass M17, L2). The magnifying glass
+              used to be drawn before a hand-made box, which painted over
+              it, so the icon could not be seen. */}
+          <Input
             id={searchInputId}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by title, artist, album, or URL..."
-            /* `bg-input-bg` / `border-input-border` were never defined
-             * colours -- see the matching fix in DownloadQueue.tsx. */
-            className="w-full pl-9 pr-8 py-2 text-sm rounded-platform bg-surface-elevated border border-border-light text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
+            placeholder="Search by title, artist, album, or URL…"
+            icon={<Search size={16} aria-hidden="true" />}
+            suffix={
+              searchQuery ? (
+                <IconButton
+                  size="sm"
+                  icon={<X size={14} />}
+                  label="Clear search"
+                  onClick={() => setSearchQuery('')}
+                />
+              ) : undefined
+            }
           />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-content-tertiary hover:text-content-primary"
-              aria-label="Clear search"
-            >
-              <X size={14} />
-            </button>
-          )}
         </div>
       </div>
 
@@ -436,7 +465,7 @@ export function HistoryPage() {
       <div className="flex-1 overflow-y-auto">
         {isLoading ? (
           <div className="flex items-center justify-center h-32 text-content-tertiary text-sm">
-            Loading history...
+            Loading history…
           </div>
         ) : entries.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-content-tertiary">
@@ -445,9 +474,7 @@ export function HistoryPage() {
               {searchQuery ? 'No matching downloads found.' : 'No download history yet.'}
             </p>
             {!searchQuery && (
-              <p className="text-xs mt-1">
-                Completed and failed downloads will appear here.
-              </p>
+              <p className="text-xs mt-1">Completed and failed downloads will appear here.</p>
             )}
           </div>
         ) : (
@@ -486,7 +513,7 @@ export function HistoryPage() {
                         {getDisplayLabel(entry)}
                       </span>
                       {entry.codec && (
-                        <span className="flex-shrink-0 px-1.5 py-0.5 text-[10px] font-medium rounded bg-accent/10 text-accent uppercase">
+                        <span className="flex-shrink-0 px-1.5 py-0.5 text-2xs font-medium rounded-platform-sm bg-accent/10 text-accent uppercase">
                           {entry.codec}
                         </span>
                       )}
@@ -494,7 +521,14 @@ export function HistoryPage() {
 
                     {/* Secondary info */}
                     <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs text-content-tertiary">
+                      {/* The date never shrinks or wraps: the artist and
+                          album beside it truncate instead. It used to be
+                          the first thing squeezed, so at the default size
+                          it broke onto three lines ("5 / Oct, / 03:59"). */}
+                      <span
+                        data-testid="history-date"
+                        className="text-xs text-content-tertiary flex-shrink-0 whitespace-nowrap"
+                      >
                         {formatDate(entry.completed_at)}
                       </span>
                       {entry.artist && (
@@ -536,10 +570,7 @@ export function HistoryPage() {
                         native browser tooltip so long Apple Music URLs
                         — which often run past the visible row width — are
                         readable on hover without resizing the window. */}
-                    <p
-                      className="text-[11px] text-content-tertiary mt-0.5 truncate"
-                      title={entry.url}
-                    >
+                    <p className="text-2xs text-content-tertiary mt-0.5 truncate" title={entry.url}>
                       {entry.url}
                     </p>
                   </div>
@@ -550,40 +581,31 @@ export function HistoryPage() {
                       power-user workflows (#665). */}
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {isFailed(entry) && (
-                      <button
-                        type="button"
+                      <IconButton
+                        size="sm"
+                        icon={<RotateCcw size={14} />}
+                        label="Retry download"
                         onClick={() => handleRetryOne(entry)}
-                        className="p-1 text-content-tertiary hover:text-content-primary rounded-platform hover:bg-surface-tertiary transition-colors"
-                        aria-label="Retry download"
-                        title="Retry download"
-                      >
-                        <RotateCcw size={14} />
-                      </button>
+                      />
                     )}
                     {entry.file_path && (
-                      <button
-                        type="button"
+                      <IconButton
+                        size="sm"
+                        icon={<FolderOpen size={14} />}
+                        label="Open folder"
                         onClick={() => handleOpenFolder(entry.file_path!)}
-                        className="p-1 text-content-tertiary hover:text-content-primary rounded-platform hover:bg-surface-tertiary transition-colors"
-                        aria-label="Open folder"
-                        title="Open folder"
-                      >
-                        <FolderOpen size={14} />
-                      </button>
+                      />
                     )}
                     {/* Overflow ("⋯") button — a11y audit Fix 1. Deleting
                         or copying a history row used to be reachable
                         only by right-clicking; this opens the same menu
                         for keyboard and screen-reader users. */}
-                    <button
-                      type="button"
+                    <IconButton
+                      size="sm"
+                      icon={<MoreVertical size={14} aria-hidden="true" />}
+                      label={`More actions for ${getDisplayLabel(entry)}`}
                       onClick={(e) => handleOverflowClick(e, entry)}
-                      className="p-1 text-content-tertiary hover:text-content-primary rounded-platform hover:bg-surface-tertiary transition-colors"
-                      aria-label={`More actions for ${getDisplayLabel(entry)}`}
-                      title="More actions"
-                    >
-                      <MoreVertical size={14} aria-hidden="true" />
-                    </button>
+                    />
                   </div>
                 </div>
               </div>
@@ -609,8 +631,8 @@ export function HistoryPage() {
         title="Remove history entry"
       >
         <p className="text-sm text-content-secondary mb-4">
-          Remove this entry from your download history? Already-downloaded
-          files on disk are not deleted — only the history record.
+          Remove this entry from your download history? Already-downloaded files on disk are not
+          deleted — only the history record.
         </p>
         {deleteTarget && (
           <p className="text-xs text-content-tertiary mb-6 break-all">
@@ -635,12 +657,12 @@ export function HistoryPage() {
       >
         <p className="text-sm text-content-secondary mb-4">
           This will re-enqueue {failedCount} failed download
-          {failedCount !== 1 ? 's' : ''} from your history. Duplicate URLs are
-          deduplicated automatically — each unique URL is queued once.
+          {failedCount !== 1 ? 's' : ''} from your history. Duplicate URLs are deduplicated
+          automatically — each unique URL is queued once.
         </p>
         <p className="text-sm text-content-secondary mb-6">
-          The history entries themselves are kept. Successful retries will write
-          new history entries on completion.
+          The history entries themselves are kept. Successful retries will write new history entries
+          on completion.
         </p>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setShowRetryAllConfirm(false)}>
@@ -663,14 +685,13 @@ export function HistoryPage() {
         title="Clear Download History"
       >
         <p className="text-sm text-content-secondary mb-4">
-          This will permanently delete all {entries.length}{' '}
-          entr{entries.length === 1 ? 'y' : 'ies'} in your download history. This cannot be
-          undone.
+          This will permanently delete all {entries.length} entr{entries.length === 1 ? 'y' : 'ies'}{' '}
+          in your download history. This cannot be undone.
         </p>
         <p className="text-sm text-content-secondary mb-6">
-          Your history isn't only a list on this page — MeedyaDL also checks it to spot
-          duplicate downloads and to tell you when something has already been downloaded,
-          so clearing it changes what happens the next time you download something too.
+          Your history isn't only a list on this page — MeedyaDL also checks it to spot duplicate
+          downloads and to tell you when something has already been downloaded, so clearing it
+          changes what happens the next time you download something too.
         </p>
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setShowClearConfirm(false)}>

@@ -34,7 +34,11 @@ describe('selectNoticeEntries', () => {
       verdicts: {
         'core.updater': makeFlagVerdict({
           enabled: true,
-          notice: { message: 'Heads up: brief maintenance window tonight.', severity: 'maintenance', url: null },
+          notice: {
+            message: 'Heads up: brief maintenance window tonight.',
+            severity: 'maintenance',
+            url: null,
+          },
         }),
       },
     });

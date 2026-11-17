@@ -207,17 +207,21 @@ impl SongCodec {
     }
 
     /// Returns `true` if this codec requires wrapper authentication for
-    /// reliable per-track availability queries. Atmos (E-AC-3 JOC) and
-    /// Dolby Digital (AC-3) use spatial audio API endpoints that don't
-    /// properly fall back per-track without wrapper auth. When these codecs
-    /// lead a native priority chain (`--song-codec-priority`) and wrapper
-    /// is not enabled, GAMDL may skip tracks instead of trying later codecs.
+    /// reliable per-track availability queries on GAMDL older than 3.8 (and
+    /// on an unknown version). Before 3.8, GAMDL treats lossless (ALAC),
+    /// Atmos (E-AC-3 JOC) and Dolby Digital (AC-3) alike: all three use
+    /// endpoints that don't properly fall back per-track without wrapper
+    /// auth (GAMDL 3.0 to 3.5.2 document them as wrapper-required, 3.7.4 as
+    /// wrapper-recommended). When these codecs lead a native priority chain
+    /// (`--song-codec-priority`) and wrapper is not enabled, GAMDL may skip
+    /// tracks instead of trying later codecs. From 3.8 only ALAC still
+    /// needs it; see [`Self::is_wrapper_dependent_runtime`].
     ///
     /// Used by the gap-fill mechanism in `download_queue.rs` to build a
     /// fallback chain that excludes these codecs for skipped tracks.
     #[must_use]
     pub const fn is_wrapper_dependent(&self) -> bool {
-        matches!(self, Self::Atmos | Self::Ac3)
+        matches!(self, Self::Alac | Self::Atmos | Self::Ac3)
     }
 
     /// Runtime (GAMDL-version-aware) counterpart to [`Self::is_wrapper_dependent`]
@@ -230,7 +234,7 @@ impl SongCodec {
     /// is still wrapper-dependent; on every other detected version
     /// (including an unprobed / unknown one) this falls back to the
     /// conservative, version-agnostic [`Self::is_wrapper_dependent`]
-    /// predicate — `Atmos` and `Ac3`.
+    /// predicate — `Alac`, `Atmos` and `Ac3`.
     ///
     /// Used by `download_queue::build_gapfill_priority_chain()` so a
     /// wrapper-less gap-fill retry doesn't pre-emptively strip Atmos/AC3
@@ -853,7 +857,13 @@ pub struct GamdlOptions {
     pub wrapper_url: Option<String>,
 
     // --- Metadata ---
-    /// Language for metadata (ISO 639-1 code, e.g., "en-US")
+    /// Language for metadata, as a BCP 47 language tag (e.g. "en-US",
+    /// "zh-Hant-TW"). Passed to GAMDL as `--language`. (This used to say
+    /// "ISO 639-1 code", which was wrong: ISO 639-1 is only the two-letter
+    /// language part, such as "en"; "en-US" is a BCP 47 tag.) The value is
+    /// the `language` setting, put into standard form when it is saved or
+    /// imported — see `commands::settings::settle_metadata_language_on_save`
+    /// and docs/standards/media-language-bcp47-policy.md.
     pub language: Option<String>,
     /// Comma-separated list of tags to exclude from embedding
     pub exclude_tags: Option<String>,
@@ -931,9 +941,39 @@ pub struct GamdlOptions {
     pub read_urls_as_txt: Option<bool>,
     /// Skip using GAMDL's own config file
     pub no_config_file: Option<bool>,
+
+    /// Ask GAMDL 4.0.2 or later for the word-by-word (`enhanced-ttml`)
+    /// lyrics file instead of the line-by-line one. Set only by the
+    /// enrichment pipeline's word-timed lyrics pass
+    /// (`download_queue::lyrics_pass`), never by a setting, so it is not
+    /// saved, sent to the page or read from it.
+    ///
+    /// Never used for an ordinary download: a track Apple has no word
+    /// timing for gets NO `.ttml` at all with `enhanced-ttml` (GAMDL does
+    /// not fall back to the line version), and every lyrics file MeedyaDL
+    /// builds comes from that `.ttml`.
+    #[serde(skip)]
+    pub word_timed_lyrics_file: Option<bool>,
 }
 
 impl GamdlOptions {
+    /// The wrapper decryption address to send, worked out NOW, where the
+    /// newer-or-older wrapper branch is actually chosen (#1433). The options
+    /// hold only what the person typed (`wrapper_decrypt_ip`, empty =
+    /// automatic); deriving it earlier, while the GAMDL version was still
+    /// unknown (queue restore, early enqueue), picked the wrong wrapper
+    /// address. `None` when the wrapper decryption setting is absent (for
+    /// example a retry without the wrapper).
+    fn effective_decrypt_address(&self, newer_wrapper: bool) -> Option<String> {
+        let typed = self.wrapper_decrypt_ip.as_deref()?;
+        Some(crate::utils::wrapper_address::effective_decrypt_address(
+            typed,
+            self.wrapper_url.as_deref().unwrap_or(""),
+            self.wrapper_account_url.as_deref().unwrap_or(""),
+            newer_wrapper,
+        ))
+    }
+
     /// Converts the options struct into a vector of CLI argument strings.
     ///
     /// Only fields that are `Some(...)` generate CLI flags. `None` fields
@@ -1131,12 +1171,14 @@ impl GamdlOptions {
             // (IPv6-safe). A malformed value with no colon is skipped
             // entirely rather than emitting a partial/broken flag.
             if supports(GamdlFeature::WrapperDecryptHostPort) {
-                if let Some(ref addr) = self.wrapper_decrypt_ip {
-                    if let Some((host, port)) = addr.rsplit_once(':') {
+                if let Some(addr) = self.effective_decrypt_address(true) {
+                    if let Some((host, port)) =
+                        crate::utils::wrapper_address::split_decrypt_address(&addr)
+                    {
                         args.push("--wrapper-decrypt-host".to_string());
-                        args.push(host.to_string());
+                        args.push(host);
                         args.push("--wrapper-decrypt-port".to_string());
-                        args.push(port.to_string());
+                        args.push(port);
                     }
                 }
             }
@@ -1146,9 +1188,11 @@ impl GamdlOptions {
                 args.push("--wrapper-account-url".to_string());
                 args.push(url.clone());
             }
-            if let Some(ref ip) = self.wrapper_decrypt_ip {
+            if let Some(ip) = self.effective_decrypt_address(false) {
+                // Unverified: whether GAMDL 3.0 to 3.5 accepts a bracketed
+                // IPv6 host here (`[::1]:10020`); it is sent as stored/derived.
                 args.push("--wrapper-decrypt-ip".to_string());
-                args.push(ip.clone());
+                args.push(ip);
             }
             // --wrapper-m3u8-ip is itself GAMDL v3.1+ only.
             if let Some(ref ip) = self.wrapper_m3u8_ip {
@@ -1251,8 +1295,7 @@ impl GamdlOptions {
         // a readable version made `supports` answer false for a version
         // string we cannot parse, which this line would have read as
         // permission to send the old arguments.
-        let tool_paths_accepted =
-            crate::services::gamdl_capabilities::tool_path_flags_accepted();
+        let tool_paths_accepted = crate::services::gamdl_capabilities::tool_path_flags_accepted();
         let ffmpeg_path_supported = supports(GamdlFeature::FFmpegPath);
         // --ffmpeg-path: emit when the gate says it's accepted (true on
         // <3.6 OR >=3.7; false only on the 3.6.x line).
@@ -1392,6 +1435,472 @@ impl GamdlOptions {
 // ============================================================
 // Unit Tests
 // ============================================================
+
+// ============================================================
+// GAMDL 4.0 command line (prepared ahead of release)
+// ============================================================
+//
+// First written against the upstream `4.0` branch (2 Nov 2026), then
+// corrected for the released GAMDL 4.0.0 (12 Nov 2026, `gamdl/cli/options.py`
+// at tag `v4.0.0`), whose option parser was given this builder's output and
+// read it as intended. Not yet finished support: it is used only when the
+// installed GAMDL reports a major version of 4 or more, and the install path
+// refuses 4.x until `HIGHEST_DRIVABLE_MAJOR` is raised. Every 3.x download
+// keeps using `to_cli_args` above, unchanged.
+//
+// Full option-by-option comparison: `.github/audits/gamdl-v4.0-preview-audit.md`.
+
+/// The metadata fields GAMDL 4.0 accepts in `--exclude-tags`: the fields
+/// of its `Tags` record (`gamdl/download/tags.py`) plus `cover`.
+///
+/// 4.0 refuses the whole run if any name is not on this list, so names
+/// are translated (see [`v4_exclude_tag_name`]) and anything it would not
+/// recognise is left out rather than passed on.
+pub const GAMDL_V4_TAG_NAMES: &[&str] = &[
+    "title",
+    "artist",
+    "album",
+    "album_artist",
+    "title_id",
+    "artist_id",
+    "album_id",
+    "track_number",
+    "track_total",
+    "disc_number",
+    "disc_total",
+    "release_date",
+    "genre",
+    "genre_id",
+    "isrc",
+    "xid",
+    "title_sort",
+    "artist_sort",
+    "album_sort",
+    "composer",
+    "composer_id",
+    "composer_sort",
+    "copyright",
+    "comment",
+    "compilation",
+    "gapless",
+    "explicit",
+    "storefront",
+    "media_type",
+    "rating",
+    "lyrics",
+    "cover",
+];
+
+/// The song codec names GAMDL 4.0 accepts in `--song-codec-priority`
+/// (`gamdl/media/song/enums.py`). Same names as 3.6 and later; the
+/// interactive `ask` choice is no longer a codec.
+const GAMDL_V4_SONG_CODECS: &[&str] = &[
+    "aac-web",
+    "aac-he-web",
+    "aac",
+    "aac-he",
+    "aac-binaural",
+    "aac-downmix",
+    "aac-he-binaural",
+    "aac-he-downmix",
+    "atmos",
+    "ac3",
+    "alac",
+    // Released 4.0.0 splits ALAC into two named tiers as well.
+    "alac-lossless",
+    "alac-hires",
+];
+
+/// Translates a 3.x `--exclude-tags` name to its 4.0 name, or `None` when
+/// 4.0 has no such field.
+///
+/// Three fields were renamed in 4.0: `track` → `track_number`, `disc` →
+/// `disc_number`, `date` → `release_date`. Everything else either kept its
+/// name or is on neither list.
+#[must_use]
+pub fn v4_exclude_tag_name(name: &str) -> Option<&'static str> {
+    let translated = match name.trim() {
+        "track" => "track_number",
+        "disc" => "disc_number",
+        "date" => "release_date",
+        other => other,
+    };
+    GAMDL_V4_TAG_NAMES
+        .iter()
+        .copied()
+        .find(|known| *known == translated)
+}
+
+/// Rewrites a comma-separated codec list into names 4.0 accepts: the 3.x
+/// spellings `aac-legacy` / `aac-he-legacy` become `aac-web` /
+/// `aac-he-web` (the rename 3.6 made), and anything 4.0 does not know —
+/// including `ask` — is dropped. Order is kept and repeats removed.
+fn v4_song_codec_priority(list: &str) -> Option<String> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for raw in list.split(',') {
+        let name = match raw.trim() {
+            "aac-legacy" => "aac-web",
+            "aac-he-legacy" => "aac-he-web",
+            other => other,
+        };
+        if let Some(known) = GAMDL_V4_SONG_CODECS.iter().copied().find(|c| *c == name) {
+            if !out.contains(&known) {
+                out.push(known);
+            }
+        }
+    }
+    (!out.is_empty()).then(|| out.join(","))
+}
+
+/// Keeps only `h264` / `h265` from a comma-separated video codec list.
+fn v4_music_video_codec_priority(list: &str) -> Option<String> {
+    let mut out: Vec<&'static str> = Vec::new();
+    for raw in list.split(',') {
+        let known = match raw.trim() {
+            "h264" => "h264",
+            "h265" => "h265",
+            _ => continue,
+        };
+        if !out.contains(&known) {
+            out.push(known);
+        }
+    }
+    (!out.is_empty()).then(|| out.join(","))
+}
+
+impl VideoResolution {
+    /// The picture height in lines, which is how GAMDL 4.0 takes the
+    /// resolution ceiling (`--max-height`).
+    #[must_use]
+    pub fn height(&self) -> u32 {
+        match self {
+            Self::P2160 => 2160,
+            Self::P1440 => 1440,
+            Self::P1080 => 1080,
+            Self::P720 => 720,
+            Self::P540 => 540,
+            Self::P480 => 480,
+            Self::P360 => 360,
+            Self::P240 => 240,
+        }
+    }
+}
+
+impl GamdlOptions {
+    /// The options for GAMDL 4.0's `rip` command, built from the same
+    /// settings as [`Self::to_cli_args`].
+    ///
+    /// Returns only the options. The launcher, the group-level
+    /// `--no-config`, the `rip` command name and the links are added by
+    /// `gamdl_service::build_gamdl_command`, which is the only caller.
+    ///
+    /// What changes, in brief (the audit has the full table):
+    ///
+    /// - renamed: `--output-path` → `--output-dir`; `--music-video-resolution`
+    ///   → `--max-height` (a number); `--music-video-remux-format` →
+    ///   `--music-video-container`; `--wvd-path` / `--prd-path` →
+    ///   `--device-path`; `--no-synced-lyrics` → `--no-lyrics-file`;
+    ///   `--synced-lyrics-format` → `--lyrics-file-format`;
+    ///   `--use-wrapper` → `--auth-mode wrapper`; `--overwrite` stays
+    ///   `--overwrite`, a plain switch with NO value after it in the
+    ///   released 4.0.0 (a value would be read as an extra link);
+    /// - always sent: `--auth-mode` (with none, 4.0 opens an interactive
+    ///   sign-in wizard, which has nobody to answer it here),
+    ///   `--no-progress` (its progress display is for a terminal),
+    ///   `--no-database` (its own download database would skip MeedyaDL's
+    ///   deliberate re-runs) and `--no-tracebacks` (its traceback section
+    ///   has message-less error lines); the caller also always sends
+    ///   `--output-dir`;
+    /// - `--cover-size` becomes `--embedded-cover-size`, from 4.0.1 only
+    ///   (4.0.0 has no size option), always as a number, never `max`;
+    ///   `--use-album-date` and
+    ///   `--date-tag-template` are also sent from 4.0.1 only;
+    /// - not sent, because 4.x has no such option: the four helper
+    ///   program paths (it starts no outside program),
+    ///   `--synced-lyrics-only` (no lyrics-only mode), `--download-mode`,
+    ///   `--log-level`,
+    ///   `--no-exceptions`, `--wrapper-m3u8-ip`, `--wrapper-account-url`,
+    ///   `--read-urls-as-txt`, `--no-config-file` (replaced by the group's
+    ///   `--no-config`, which the caller always adds);
+    /// - `--save-cover` (and its size, `--file-cover-size`) are sent from
+    ///   4.0.2 only, and only when "Save Cover Art" is on. GAMDL 4.0.0
+    ///   and 4.0.1 save one picture per TRACK, named after the track,
+    ///   instead of one `Cover.jpg` per album, so asking for it would
+    ///   scatter a copy beside every song; 4.0.2 shares one `Cover` file
+    ///   per album folder again, as GAMDL 3 did (music videos keep a
+    ///   picture named after the video). On 4.0.0 and 4.0.1 MeedyaDL's own
+    ///   cover step writes the album picture instead — but only when it
+    ///   has the album's details from Apple Music, which needs MusicKit
+    ///   credentials and does not happen for library links; without them
+    ///   there is no saved cover file there (the picture inside each
+    ///   track is unaffected);
+    /// - not sent: PlayReady (see below) — 4.x downloads use Widevine;
+    /// - `all` in the tags to leave out becomes `--no-tag`.
+    ///
+    /// Any option 4.0 does not know ends the run before anything
+    /// downloads, so nothing here is passed on unchecked: codec names and
+    /// tag names are translated and filtered, not forwarded.
+    #[must_use]
+    pub fn to_cli_args_v4(&self) -> Vec<String> {
+        let mut args: Vec<String> = Vec::new();
+        /// Adds a flag and its value as two separate arguments, in that order.
+        fn push(args: &mut Vec<String>, flag: &str, value: String) {
+            args.push(flag.to_string());
+            args.push(value);
+        }
+
+        // --- Sign-in ---
+        // Always say which method, so 4.0 never opens its wizard.
+        if self.use_wrapper == Some(true) {
+            push(&mut args, "--auth-mode", "wrapper".to_string());
+            if let Some(ref url) = self.wrapper_url {
+                push(&mut args, "--wrapper-url", url.clone());
+            }
+            if let Some(addr) = self.effective_decrypt_address(true) {
+                if let Some((host, port)) =
+                    crate::utils::wrapper_address::split_decrypt_address(&addr)
+                {
+                    // 4.0 checks the port is a number from 1 to 65535 and
+                    // refuses the run otherwise; leave its default in
+                    // place rather than send one it would refuse.
+                    if port.parse::<u16>().is_ok_and(|p| p > 0) && !host.is_empty() {
+                        push(&mut args, "--wrapper-decrypt-host", host);
+                        push(&mut args, "--wrapper-decrypt-port", port);
+                    }
+                }
+            }
+        } else {
+            push(&mut args, "--auth-mode", "cookies".to_string());
+        }
+        if let Some(ref path) = self.cookies_path {
+            push(&mut args, "--cookies-path", path.clone());
+        }
+        if let Some(ref lang) = self.language {
+            push(&mut args, "--language", lang.clone());
+        }
+
+        // --- Unlocking protected tracks ---
+        // One device-file option now serves both methods.
+        //
+        // PlayReady is NOT passed on, even when chosen. 4.0 needs its
+        // optional `playready` extra for it, and `pip_target_spec` installs
+        // only the Widevine one (the PlayReady extra pulls in a
+        // `cryptography` range with no Windows ARM64 build). Without the
+        // extra, 4.0 stops the whole run before downloading anything
+        // ("Required DRM backend or default device is not available"), so
+        // passing it would turn every download into a failure. Widevine is
+        // what 3.x users had before PlayReady existed. Revisit together
+        // with the install extra — follow-up 2 in the 4.0 audit.
+        if let Some(ref path) = self.wvd_path {
+            push(&mut args, "--device-path", path.clone());
+        }
+
+        // --- Audio and video ---
+        let song_priority = self.song_codec_priority.clone().or_else(|| {
+            self.song_codec
+                .as_ref()
+                .map(|c| c.to_cli_string().to_string())
+        });
+        if let Some(list) = song_priority.as_deref().and_then(v4_song_codec_priority) {
+            push(&mut args, "--song-codec-priority", list);
+        }
+        if let Some(list) = self
+            .music_video_codec_priority
+            .as_deref()
+            .and_then(v4_music_video_codec_priority)
+        {
+            push(&mut args, "--music-video-codec-priority", list);
+        }
+        if let Some(ref resolution) = self.music_video_resolution {
+            push(&mut args, "--max-height", resolution.height().to_string());
+        }
+        if let Some(container) = self
+            .music_video_remux_format
+            .as_deref()
+            .map(str::trim)
+            .filter(|c| *c == "m4v" || *c == "mp4")
+        {
+            push(&mut args, "--music-video-container", container.to_string());
+        }
+        // The 3.x values `best` and `ask` do not exist in 4.0 (it names
+        // Apple's own quality variants instead, best first by default), so
+        // there is nothing to translate them into: leaving the option out
+        // gets the best available, which is what `best` meant.
+
+        // --- Artwork, lyrics, tags ---
+        // `raw` (the original file) is not offered by 4.x; leaving the
+        // format out gets its default, JPEG.
+        match self.cover_format {
+            Some(CoverFormat::Jpg) => push(&mut args, "--cover-format", "jpg".to_string()),
+            Some(CoverFormat::Png) => push(&mut args, "--cover-format", "png".to_string()),
+            Some(CoverFormat::Raw) | None => {}
+        }
+        // Size of the picture inside each file (4.0.1 and later; 4.0.0 has
+        // no such option and would stop on it). Sent as the number for
+        // every format, `raw` included. 4.x's other choice, `max`, is
+        // deliberately not used: for an artwork address without a size
+        // placeholder it raises an error and the song fails, where a number
+        // just leaves the address as it is (read in 4.0.1's
+        // `media/cover.py`, `get_formatted_url`). MeedyaDL's default size,
+        // 10000, already asks for the largest picture Apple has. A size of
+        // 0 is not something 4.x accepts, so it is left to 4.x's default
+        // (1200) rather than sent.
+        let restored_in_4_0_1 = crate::services::gamdl_capabilities::supports(
+            crate::services::gamdl_capabilities::GamdlFeature::GamdlFourRestoredOptions,
+        );
+        if restored_in_4_0_1 {
+            if let Some(size) = self.cover_size.filter(|s| *s > 0) {
+                push(&mut args, "--embedded-cover-size", size.to_string());
+            }
+            // The album's release date instead of the song's, and the form
+            // the date is written in (both 4.0.1 and later, same as 3.x).
+            // An empty template is refused by 4.x, so it is not sent.
+            if self.use_album_date == Some(true) {
+                args.push("--use-album-date".to_string());
+            }
+            if let Some(template) = self
+                .date_tag_template
+                .as_deref()
+                .filter(|t| !t.trim().is_empty())
+            {
+                push(&mut args, "--date-tag-template", template.to_string());
+            }
+        }
+        // Saved cover picture (4.0.2 and later, where it is one shared
+        // `Cover` file per album folder again). Earlier 4.x saves one per
+        // track, so nothing is sent there. The size is a number, never
+        // `max`, for the same reason as the embedded size above, and
+        // `--file-cover-size` is also new in 4.0.1, so it needs both gates.
+        if crate::services::gamdl_capabilities::supports(
+            crate::services::gamdl_capabilities::GamdlFeature::GamdlFourSharedAlbumCover,
+        ) && self.save_cover == Some(true)
+        {
+            args.push("--save-cover".to_string());
+            if restored_in_4_0_1 {
+                if let Some(size) = self.cover_size.filter(|s| *s > 0) {
+                    push(&mut args, "--file-cover-size", size.to_string());
+                }
+            }
+        }
+        // `all` meant "write no tags at all" in 3.x; 4.0 says that with
+        // `--no-tag` and has no `all` tag name, so it is translated rather
+        // than quietly dropped (which would have written every tag).
+        let exclude_all = self
+            .exclude_tags
+            .as_deref()
+            .is_some_and(|tags| tags.split(',').any(|t| t.trim() == "all"));
+        if exclude_all {
+            args.push("--no-tag".to_string());
+        } else if let Some(ref tags) = self.exclude_tags {
+            let mut names: Vec<&'static str> = Vec::new();
+            for name in tags.split(',').filter_map(v4_exclude_tag_name) {
+                if !names.contains(&name) {
+                    names.push(name);
+                }
+            }
+            if !names.is_empty() {
+                push(&mut args, "--exclude-tags", names.join(","));
+            }
+        }
+        // Lyrics files (released 4.0.0): `--no-lyrics-file` turns the
+        // separate file off; otherwise `--lyrics-file-format` picks it. The
+        // release added `ttml` back, which is what all of MeedyaDL's own
+        // lyrics formats are built from (Enhanced LRC, WebVTT, styled SRT,
+        // ASS, Lyricsfile). Lyrics inside the music file stay 4.0's default
+        // (plain text); MeedyaDL writes its own there later.
+        //
+        // The word-by-word file (`enhanced-ttml`) is asked for only by the
+        // lyrics pass that fills in tracks MeedyaDL's own lookup could not
+        // check, and only from 4.0.2 (the first release checked to handle
+        // it; earlier 4.x gets the plain `.ttml`).
+        let word_timed = self.word_timed_lyrics_file == Some(true)
+            && crate::services::gamdl_capabilities::supports(
+                crate::services::gamdl_capabilities::GamdlFeature::GamdlFourWordTimedLyricsFile,
+            );
+        if self.no_synced_lyrics == Some(true) {
+            args.push("--no-lyrics-file".to_string());
+        } else if word_timed {
+            push(
+                &mut args,
+                "--lyrics-file-format",
+                "enhanced-ttml".to_string(),
+            );
+        } else if let Some(ref format) = self.synced_lyrics_format {
+            push(
+                &mut args,
+                "--lyrics-file-format",
+                format.to_cli_string().to_string(),
+            );
+        }
+
+        // --- Where files go ---
+        if let Some(ref path) = self.output_path {
+            push(&mut args, "--output-dir", path.clone());
+        }
+        if let Some(ref path) = self.temp_path {
+            push(&mut args, "--temp-path", path.clone());
+        }
+        // An on/off switch in the released 4.0.0 (the branch had
+        // `--overwrite skip|replace|error`).
+        if self.overwrite == Some(true) {
+            args.push("--overwrite".to_string());
+        }
+        if let Some(truncate) = self.truncate.filter(|t| *t > 0) {
+            push(&mut args, "--truncate", truncate.to_string());
+        }
+        for (flag, value) in [
+            ("--album-folder-template", &self.album_folder_template),
+            (
+                "--compilation-folder-template",
+                &self.compilation_folder_template,
+            ),
+            ("--no-album-folder-template", &self.no_album_folder_template),
+            ("--playlist-folder-template", &self.playlist_folder_template),
+            (
+                "--single-disc-file-template",
+                &self.single_disc_file_template,
+            ),
+            ("--multi-disc-file-template", &self.multi_disc_file_template),
+            ("--no-album-file-template", &self.no_album_file_template),
+            ("--playlist-file-template", &self.playlist_file_template),
+        ] {
+            if let Some(template) = value {
+                push(&mut args, flag, template.clone());
+            }
+        }
+        if self.save_playlist == Some(true) {
+            args.push("--save-playlist".to_string());
+        }
+
+        // --- Which items an artist link means ---
+        // Without this, 4.0 needs a person to pick from a menu and stops.
+        if let Some(ref mode) = self.artist_auto_select {
+            push(
+                &mut args,
+                "--artist-auto-select",
+                mode.to_cli_string().to_string(),
+            );
+        }
+
+        // Its progress display is drawn for a terminal; the per-item
+        // result lines are what MeedyaDL reads.
+        args.push("--no-progress".to_string());
+        // Released 4.0.0 keeps its own download database, ON by default,
+        // and skips anything it has recorded as already downloaded.
+        // MeedyaDL keeps its own history and deliberately runs GAMDL again
+        // over albums it has already fetched (filling gaps, the
+        // extra-format copies, re-downloads), so GAMDL's database would
+        // quietly turn those runs into "skipped".
+        args.push("--no-database".to_string());
+        // An unexpected failure would otherwise add an "Exception
+        // tracebacks" section whose `✗ <title>` lines have no message,
+        // which MeedyaDL cannot tell apart from a real error line. The
+        // error list still names the error's type in brackets.
+        args.push("--no-tracebacks".to_string());
+
+        args
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -1714,6 +2223,150 @@ mod tests {
         assert!(args.contains(&"--wrapper-decrypt-port".to_string()));
         assert!(args.contains(&"10020".to_string()));
         assert!(!args.contains(&"--wrapper-decrypt-ip".to_string()));
+    }
+
+    #[test]
+    fn blank_decrypt_address_follows_the_wrapper_url_when_the_command_is_built() {
+        // Options merged while the GAMDL version was still unknown (queue
+        // restore) hold only the typed value, so a remote wrapper's host is
+        // still found once the version is known (#1433).
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(None);
+        let options = GamdlOptions {
+            use_wrapper: Some(true),
+            wrapper_url: Some("http://192.168.1.20:80".to_string()),
+            wrapper_account_url: Some("http://127.0.0.1:30020".to_string()),
+            wrapper_decrypt_ip: Some(String::new()),
+            ..Default::default()
+        };
+        set_detected_version(Some("3.8.2".to_string()));
+        let args = options.to_cli_args();
+        set_detected_version(None);
+        let at = args
+            .iter()
+            .position(|a| a == "--wrapper-decrypt-host")
+            .unwrap();
+        assert_eq!(args[at + 1], "192.168.1.20");
+        assert_eq!(args[at + 3], "10020");
+    }
+
+    #[test]
+    fn merge_keeps_a_blank_decrypt_address_and_the_m3u8_address_while_the_version_is_unknown() {
+        // Items restored at startup are merged before the GAMDL version is
+        // known. Nothing derived may be stored then (#1433).
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(None);
+        let settings = crate::models::settings::AppSettings {
+            use_wrapper: true,
+            wrapper_url: "http://192.168.1.20:80".to_string(),
+            wrapper_account_url: "http://192.168.1.20:30020".to_string(),
+            wrapper_m3u8_ip: "192.168.1.20:20020".to_string(),
+            wrapper_decrypt_ip: String::new(),
+            ..Default::default()
+        };
+        let merged = crate::services::download_queue::merge_options(None, &settings, None);
+        assert_eq!(merged.wrapper_decrypt_ip.as_deref(), Some(""));
+        assert_eq!(
+            merged.wrapper_m3u8_ip.as_deref(),
+            Some("192.168.1.20:20020")
+        );
+
+        set_detected_version(Some("3.8.2".to_string()));
+        let args = merged.to_cli_args();
+        assert!(!args.contains(&"--wrapper-m3u8-ip".to_string()));
+        set_detected_version(Some("3.1".to_string()));
+        let args = merged.to_cli_args();
+        set_detected_version(None);
+        let at = args.iter().position(|a| a == "--wrapper-m3u8-ip").unwrap();
+        assert_eq!(args[at + 1], "192.168.1.20:20020");
+        let at = args
+            .iter()
+            .position(|a| a == "--wrapper-decrypt-ip")
+            .unwrap();
+        assert_eq!(args[at + 1], "192.168.1.20:10020");
+    }
+
+    #[test]
+    fn merge_then_build_on_3_8_2_names_the_wrapper_url_host() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(None);
+        let settings = crate::models::settings::AppSettings {
+            use_wrapper: true,
+            wrapper_url: "http://192.168.1.20:80".to_string(),
+            wrapper_decrypt_ip: String::new(),
+            ..Default::default()
+        };
+        let merged = crate::services::download_queue::merge_options(None, &settings, None);
+        assert_eq!(merged.wrapper_decrypt_ip.as_deref(), Some(""));
+        set_detected_version(Some("3.8.2".to_string()));
+        let args = merged.to_cli_args();
+        set_detected_version(None);
+        let at = args
+            .iter()
+            .position(|a| a == "--wrapper-decrypt-host")
+            .unwrap();
+        assert_eq!(args[at + 1], "192.168.1.20");
+    }
+
+    #[test]
+    fn v4_blank_decrypt_address_names_the_wrapper_url_host() {
+        let options = GamdlOptions {
+            use_wrapper: Some(true),
+            wrapper_url: Some("http://192.168.1.20:80".to_string()),
+            wrapper_decrypt_ip: Some(String::new()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args_v4();
+        let at = args
+            .iter()
+            .position(|a| a == "--wrapper-decrypt-host")
+            .unwrap();
+        assert_eq!(args[at + 1], "192.168.1.20");
+        assert_eq!(args[at + 3], "10020");
+    }
+
+    #[test]
+    fn blank_decrypt_address_on_the_older_wrapper_follows_the_account_url() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(Some("3.5".to_string()));
+        let options = GamdlOptions {
+            use_wrapper: Some(true),
+            wrapper_url: Some("http://127.0.0.1".to_string()),
+            wrapper_account_url: Some("http://10.0.0.7:30020".to_string()),
+            wrapper_decrypt_ip: Some(String::new()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        set_detected_version(None);
+        let at = args
+            .iter()
+            .position(|a| a == "--wrapper-decrypt-ip")
+            .unwrap();
+        assert_eq!(args[at + 1], "10.0.0.7:10020");
+    }
+
+    #[test]
+    fn wrapper_v2_decrypt_host_port_strips_ipv6_brackets() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        set_detected_version(Some("3.8.2".to_string()));
+        let options = GamdlOptions {
+            wrapper_url: Some("http://[::1]".to_string()),
+            wrapper_decrypt_ip: Some("[::1]:10020".to_string()),
+            ..Default::default()
+        };
+        let args = options.to_cli_args();
+        set_detected_version(None);
+        let at = args
+            .iter()
+            .position(|a| a == "--wrapper-decrypt-host")
+            .unwrap();
+        assert_eq!(args[at + 1], "::1");
+        assert_eq!(args[at + 3], "10020");
     }
 
     #[test]
@@ -2046,14 +2699,15 @@ mod tests {
     // ----------------------------------------------------------
 
     #[test]
-    fn is_wrapper_dependent_atmos_ac3() {
+    fn is_wrapper_dependent_alac_atmos_ac3() {
+        // Before GAMDL 3.8, lossless is treated exactly like Atmos and AC-3.
+        assert!(SongCodec::Alac.is_wrapper_dependent());
         assert!(SongCodec::Atmos.is_wrapper_dependent());
         assert!(SongCodec::Ac3.is_wrapper_dependent());
     }
 
     #[test]
     fn is_wrapper_dependent_non_experimental() {
-        assert!(!SongCodec::Alac.is_wrapper_dependent());
         assert!(!SongCodec::Aac.is_wrapper_dependent());
         assert!(!SongCodec::AacLegacy.is_wrapper_dependent());
         assert!(!SongCodec::AacBinaural.is_wrapper_dependent());
@@ -2076,7 +2730,7 @@ mod tests {
         crate::services::gamdl_capabilities::set_detected_version(Some("3.7.4".to_string()));
         assert!(SongCodec::Atmos.is_wrapper_dependent_runtime());
         assert!(SongCodec::Ac3.is_wrapper_dependent_runtime());
-        assert!(!SongCodec::Alac.is_wrapper_dependent_runtime());
+        assert!(SongCodec::Alac.is_wrapper_dependent_runtime());
         assert!(!SongCodec::Aac.is_wrapper_dependent_runtime());
         assert!(!SongCodec::AacLegacy.is_wrapper_dependent_runtime());
         crate::services::gamdl_capabilities::set_detected_version(None);
@@ -2107,7 +2761,7 @@ mod tests {
         crate::services::gamdl_capabilities::set_detected_version(None);
         assert!(SongCodec::Atmos.is_wrapper_dependent_runtime());
         assert!(SongCodec::Ac3.is_wrapper_dependent_runtime());
-        assert!(!SongCodec::Alac.is_wrapper_dependent_runtime());
+        assert!(SongCodec::Alac.is_wrapper_dependent_runtime());
     }
 
     #[test]
@@ -2132,5 +2786,461 @@ mod tests {
         assert_eq!(SongCodec::AacHeLegacy.required_audio_trait(), None);
         assert_eq!(SongCodec::AacHeBinaural.required_audio_trait(), None);
         assert_eq!(SongCodec::AacHeDownmix.required_audio_trait(), None);
+    }
+}
+
+#[cfg(test)]
+mod gamdl_v4_args_tests {
+    use super::*;
+
+    /// Every option name `rip` accepts in the released GAMDL 4.0.0
+    /// (`gamdl/cli/options.py`, `RipOptions`, tag `v4.0.0`). Anything the builder
+    /// sends that is not on this list would end the run before anything
+    /// downloads, so every test below checks against it.
+    const V4_RIP_OPTIONS: &[&str] = &[
+        "--select",
+        "--artist-auto-select",
+        "--output-dir",
+        "--temp-path",
+        "--overwrite",
+        "--no-overwrite",
+        "--segment-concurrency",
+        "--concurrent-downloads",
+        "--song-codec",
+        "--song-codec-priority",
+        "--music-video-codec",
+        "--music-video-codec-priority",
+        "--music-video-container",
+        "--max-height",
+        "--uploaded-video-quality",
+        "--ask-song-codec",
+        "--ask-music-video-streams",
+        "--ask-uploaded-video-quality",
+        "--save-cover",
+        "--no-save-cover",
+        "--cover-format",
+        "--no-tag",
+        "--tag",
+        "--exclude-tags",
+        "--no-lyrics-file",
+        "--lyrics-file-format",
+        "--embedded-lyrics-format",
+        "--save-playlist",
+        "--no-save-playlist",
+        "--fail-fast",
+        "--database",
+        "--no-database",
+        "--database-path",
+        "--save-metadata",
+        "--no-save-metadata",
+        "--no-progress",
+        "--max-visible-tracks",
+        "--no-tracebacks",
+        "--auth-mode",
+        "--cookies-path",
+        "--wrapper-url",
+        "--media-user-token",
+        "--wrapper-decrypt-host",
+        "--wrapper-decrypt-port",
+        "--storefront",
+        "--language",
+        "--drm-backend",
+        "--device-path",
+        "--album-folder-template",
+        "--compilation-folder-template",
+        "--no-album-folder-template",
+        "--playlist-folder-template",
+        "--single-disc-file-template",
+        "--multi-disc-file-template",
+        "--no-album-file-template",
+        "--playlist-file-template",
+        "--truncate",
+    ];
+
+    fn assert_only_known_options(args: &[String]) {
+        for a in args.iter().filter(|a| a.starts_with("--")) {
+            assert!(
+                V4_RIP_OPTIONS.contains(&a.as_str()),
+                "4.0 has no option {a}"
+            );
+        }
+    }
+
+    fn value_of<'a>(args: &'a [String], flag: &str) -> Option<&'a str> {
+        args.iter()
+            .position(|a| a == flag)
+            .and_then(|i| args.get(i + 1))
+            .map(String::as_str)
+    }
+
+    /// Everything MeedyaDL can set, at once — the realistic worst case.
+    fn everything() -> GamdlOptions {
+        GamdlOptions {
+            song_codec: Some(SongCodec::Alac),
+            song_codec_priority: Some("alac,atmos,aac-legacy,aac-he-legacy,ask,alac".into()),
+            music_video_codec_priority: Some("h265,ask,h264".into()),
+            music_video_resolution: Some(VideoResolution::P2160),
+            music_video_remux_format: Some("mp4".into()),
+            uploaded_video_quality: Some("best".into()),
+            disable_music_video_skip: Some(true),
+            synced_lyrics_format: Some(LyricsFormat::Ttml),
+            no_synced_lyrics: Some(false),
+            synced_lyrics_only: Some(true),
+            save_cover: Some(true),
+            cover_format: Some(CoverFormat::Png),
+            cover_size: Some(3000),
+            output_path: Some("/Music".into()),
+            temp_path: Some("/tmp/MeedyaDL".into()),
+            overwrite: Some(true),
+            truncate: Some(120),
+            cookies_path: Some("/c/cookies.txt".into()),
+            use_wrapper: Some(true),
+            wrapper_account_url: Some("http://127.0.0.1:30020".into()),
+            wrapper_decrypt_ip: Some("192.168.1.5:10020".into()),
+            wrapper_m3u8_ip: Some("127.0.0.1:20020".into()),
+            wrapper_url: Some("http://192.168.1.5".into()),
+            language: Some("en-GB".into()),
+            exclude_tags: Some("track,disc,date,lyrics,not_a_tag,track".into()),
+            use_album_date: Some(true),
+            date_tag_template: Some("%Y".into()),
+            album_folder_template: Some("{album_artist}/{album}".into()),
+            compilation_folder_template: Some("Compilations/{album}".into()),
+            no_album_folder_template: Some("{artist}/Unknown Album".into()),
+            playlist_folder_template: Some("Playlists/{playlist_artist}".into()),
+            single_disc_file_template: Some("{track:02d} {title}".into()),
+            multi_disc_file_template: Some("{disc}-{track:02d} {title}".into()),
+            no_album_file_template: Some("{title}".into()),
+            playlist_file_template: Some("{playlist_title}".into()),
+            ffmpeg_path: Some("/bin/ffmpeg".into()),
+            mp4decrypt_path: Some("/bin/mp4decrypt".into()),
+            mp4box_path: Some("/bin/MP4Box".into()),
+            nm3u8dlre_path: Some("/bin/N_m3u8DL-RE".into()),
+            wvd_path: Some("/d/device.wvd".into()),
+            drm_backend: None,
+            prd_path: None,
+            download_mode: Some(DownloadMode::Nm3u8dlre),
+            remux_mode: Some(RemuxMode::Mp4box),
+            artist_auto_select: Some(ArtistAutoSelect::MainAlbums),
+            log_level: Some(LogLevel::Debug),
+            no_exceptions: Some(true),
+            save_playlist: Some(true),
+            read_urls_as_txt: Some(true),
+            no_config_file: Some(true),
+            word_timed_lyrics_file: None,
+        }
+    }
+
+    /// Options GAMDL 4.0.1 added to the 4.0.0 list above (read from the
+    /// released 4.0.1's own option list, 15 Nov 2026).
+    const V4_0_1_ADDED_OPTIONS: &[&str] = &[
+        "--embedded-cover-size",
+        "--file-cover-size",
+        "--use-album-date",
+        "--date-tag-template",
+    ];
+
+    #[test]
+    fn the_options_4_0_1_restored_are_sent_only_from_4_0_1() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+
+        // 4.0.0 stops on an option it does not know: none of them.
+        set_detected_version(Some("4.0.0".to_string()));
+        let args = everything().to_cli_args_v4();
+        assert_only_known_options(&args);
+        for added in V4_0_1_ADDED_OPTIONS {
+            assert!(!args.iter().any(|a| a == added), "{added} sent to 4.0.0");
+        }
+
+        // 4.0.1: the size, the album date and the date form go through.
+        set_detected_version(Some("4.0.1".to_string()));
+        let args = everything().to_cli_args_v4();
+        for a in args.iter().filter(|a| a.starts_with("--")) {
+            assert!(
+                V4_RIP_OPTIONS.contains(&a.as_str()) || V4_0_1_ADDED_OPTIONS.contains(&a.as_str()),
+                "4.0.1 has no option {a}"
+            );
+        }
+        assert_eq!(value_of(&args, "--embedded-cover-size"), Some("3000"));
+        assert!(args.iter().any(|a| a == "--use-album-date"));
+        assert_eq!(value_of(&args, "--date-tag-template"), Some("%Y"));
+
+        // The original-file format sends the size number too, never `max`
+        // (which fails a song whose artwork address has no size in it).
+        let raw = GamdlOptions {
+            cover_format: Some(CoverFormat::Raw),
+            ..everything()
+        };
+        assert_eq!(
+            value_of(&raw.to_cli_args_v4(), "--embedded-cover-size"),
+            Some("3000")
+        );
+
+        // A size of 0 and an empty date form are left to GAMDL 4's defaults.
+        let blank = GamdlOptions {
+            cover_size: Some(0),
+            date_tag_template: Some("  ".into()),
+            ..everything()
+        };
+        let args = blank.to_cli_args_v4();
+        assert!(!args.iter().any(|a| a == "--embedded-cover-size"));
+        assert!(!args.iter().any(|a| a == "--date-tag-template"));
+
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn the_saved_cover_is_sent_only_from_4_0_2() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+
+        for old in ["4.0.0", "4.0.1"] {
+            set_detected_version(Some(old.to_string()));
+            let args = everything().to_cli_args_v4();
+            assert!(!args.iter().any(|a| a == "--save-cover"), "sent to {old}");
+            assert!(!args.iter().any(|a| a == "--file-cover-size"));
+        }
+
+        set_detected_version(Some("4.0.2".to_string()));
+        let args = everything().to_cli_args_v4();
+        for a in args.iter().filter(|a| a.starts_with("--")) {
+            assert!(
+                V4_RIP_OPTIONS.contains(&a.as_str()) || V4_0_1_ADDED_OPTIONS.contains(&a.as_str()),
+                "4.0.2 has no option {a}"
+            );
+        }
+        assert!(args.iter().any(|a| a == "--save-cover"));
+        assert_eq!(value_of(&args, "--file-cover-size"), Some("3000"));
+        assert_eq!(value_of(&args, "--embedded-cover-size"), Some("3000"));
+
+        // Off or unset: neither is sent.
+        for save in [Some(false), None] {
+            let args = GamdlOptions {
+                save_cover: save,
+                ..everything()
+            }
+            .to_cli_args_v4();
+            assert!(!args.iter().any(|a| a == "--save-cover"));
+            assert!(!args.iter().any(|a| a == "--file-cover-size"));
+        }
+        // A size of 0 is left to GAMDL's default.
+        let args = GamdlOptions {
+            cover_size: Some(0),
+            ..everything()
+        }
+        .to_cli_args_v4();
+        assert!(args.iter().any(|a| a == "--save-cover"));
+        assert!(!args.iter().any(|a| a == "--file-cover-size"));
+
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn the_word_timed_lyrics_file_is_asked_for_only_from_4_0_2_and_only_when_set() {
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        use crate::services::gamdl_capabilities::set_detected_version;
+        let word_timed = GamdlOptions {
+            word_timed_lyrics_file: Some(true),
+            synced_lyrics_only: None,
+            ..everything()
+        };
+
+        // 4.0.1 and earlier: the plain `.ttml`, as before.
+        for old in ["4.0.0", "4.0.1"] {
+            set_detected_version(Some(old.to_string()));
+            let args = word_timed.to_cli_args_v4();
+            assert_eq!(
+                value_of(&args, "--lyrics-file-format"),
+                Some("ttml"),
+                "{old}"
+            );
+        }
+
+        set_detected_version(Some("4.0.2".to_string()));
+        let args = word_timed.to_cli_args_v4();
+        assert_eq!(
+            value_of(&args, "--lyrics-file-format"),
+            Some("enhanced-ttml")
+        );
+        // An ordinary download never asks for it.
+        let args = everything().to_cli_args_v4();
+        assert_eq!(value_of(&args, "--lyrics-file-format"), Some("ttml"));
+        // Lyrics files switched off still wins.
+        let args = GamdlOptions {
+            no_synced_lyrics: Some(true),
+            ..word_timed.clone()
+        }
+        .to_cli_args_v4();
+        assert!(args.iter().any(|a| a == "--no-lyrics-file"));
+        assert!(!args.iter().any(|a| a == "--lyrics-file-format"));
+
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn the_word_timed_lyrics_request_is_never_saved_or_read() {
+        let options = GamdlOptions {
+            word_timed_lyrics_file: Some(true),
+            ..GamdlOptions::default()
+        };
+        let json = serde_json::to_string(&options).unwrap();
+        assert!(!json.contains("word_timed"));
+        let back: GamdlOptions =
+            serde_json::from_str(r#"{"word_timed_lyrics_file": true}"#).unwrap();
+        assert_eq!(back.word_timed_lyrics_file, None);
+    }
+
+    #[test]
+    fn nothing_four_point_zero_would_reject() {
+        // Holds the lock and says 4.0.0 is installed: another test setting
+        // 4.0.1 meanwhile would otherwise add 4.0.1's options here.
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("4.0.0".to_string()));
+        assert_only_known_options(&everything().to_cli_args_v4());
+        assert_only_known_options(&GamdlOptions::default().to_cli_args_v4());
+        crate::services::gamdl_capabilities::set_detected_version(None);
+    }
+
+    #[test]
+    fn renamed_options_carry_their_values() {
+        let args = everything().to_cli_args_v4();
+        assert_eq!(value_of(&args, "--output-dir"), Some("/Music"));
+        assert_eq!(value_of(&args, "--max-height"), Some("2160"));
+        assert_eq!(value_of(&args, "--music-video-container"), Some("mp4"));
+        // A plain switch in the released 4.0.0, with no value after it.
+        let i = args
+            .iter()
+            .position(|a| a == "--overwrite")
+            .expect("--overwrite sent");
+        assert!(args.get(i + 1).is_none_or(|next| next.starts_with("--")));
+        assert_eq!(value_of(&args, "--lyrics-file-format"), Some("ttml"));
+        assert_eq!(value_of(&args, "--device-path"), Some("/d/device.wvd"));
+        assert_eq!(value_of(&args, "--auth-mode"), Some("wrapper"));
+        assert_eq!(value_of(&args, "--wrapper-url"), Some("http://192.168.1.5"));
+        assert_eq!(
+            value_of(&args, "--wrapper-decrypt-host"),
+            Some("192.168.1.5")
+        );
+        assert_eq!(value_of(&args, "--wrapper-decrypt-port"), Some("10020"));
+        assert_eq!(value_of(&args, "--artist-auto-select"), Some("main-albums"));
+        assert_eq!(value_of(&args, "--cover-format"), Some("png"));
+        assert_eq!(value_of(&args, "--truncate"), Some("120"));
+    }
+
+    #[test]
+    fn codec_lists_use_four_point_zero_names_only() {
+        let args = everything().to_cli_args_v4();
+        assert_eq!(
+            value_of(&args, "--song-codec-priority"),
+            Some("alac,atmos,aac-web,aac-he-web")
+        );
+        assert_eq!(
+            value_of(&args, "--music-video-codec-priority"),
+            Some("h265,h264")
+        );
+    }
+
+    #[test]
+    fn tag_names_are_translated_and_unknown_ones_dropped() {
+        let args = everything().to_cli_args_v4();
+        assert_eq!(
+            value_of(&args, "--exclude-tags"),
+            Some("track_number,disc_number,release_date,lyrics")
+        );
+    }
+
+    #[test]
+    fn always_says_how_to_sign_in_and_never_draws_progress_bars() {
+        let args = GamdlOptions::default().to_cli_args_v4();
+        assert_eq!(value_of(&args, "--auth-mode"), Some("cookies"));
+        assert!(args.iter().any(|a| a == "--no-progress"));
+        // GAMDL's own download database would turn MeedyaDL's deliberate
+        // re-runs into "skipped"; tracebacks would add error-shaped lines
+        // with no message.
+        assert!(args.iter().any(|a| a == "--no-database"));
+        assert!(args.iter().any(|a| a == "--no-tracebacks"));
+    }
+
+    #[test]
+    fn no_lyrics_file_wins_over_a_format() {
+        let opts = GamdlOptions {
+            no_synced_lyrics: Some(true),
+            synced_lyrics_format: Some(LyricsFormat::Ttml),
+            ..GamdlOptions::default()
+        };
+        let args = opts.to_cli_args_v4();
+        assert!(args.iter().any(|a| a == "--no-lyrics-file"));
+        assert!(!args.iter().any(|a| a == "--lyrics-file-format"));
+    }
+
+    #[test]
+    fn play_ready_is_not_passed_on_until_its_install_extra_is_decided() {
+        // 4.0 stops the whole run if asked for PlayReady without its
+        // optional extra, which MeedyaDL does not install yet.
+        let opts = GamdlOptions {
+            drm_backend: Some(DrmBackend::PlayReady),
+            prd_path: Some("/d/device.prd".into()),
+            wvd_path: Some("/d/device.wvd".into()),
+            ..GamdlOptions::default()
+        };
+        let args = opts.to_cli_args_v4();
+        assert!(!args
+            .iter()
+            .any(|a| a == "--drm-backend" || a == "playready"));
+        assert!(!args.iter().any(|a| a == "/d/device.prd"));
+        assert_eq!(value_of(&args, "--device-path"), Some("/d/device.wvd"));
+    }
+
+    #[test]
+    fn excluding_all_tags_means_no_tags() {
+        let opts = GamdlOptions {
+            exclude_tags: Some("lyrics,all".into()),
+            ..GamdlOptions::default()
+        };
+        let args = opts.to_cli_args_v4();
+        assert!(args.iter().any(|a| a == "--no-tag"));
+        assert!(!args.iter().any(|a| a == "--exclude-tags"));
+    }
+
+    #[test]
+    fn values_four_point_zero_cannot_take_are_left_out() {
+        // Holds the capability lock and names its version: from 4.0.2
+        // `--save-cover` IS sent, so a test running alongside that sets
+        // 4.0.2 would otherwise make this one fail at random.
+        let _lock = crate::services::gamdl_capabilities::capability_cache_test_lock();
+        crate::services::gamdl_capabilities::set_detected_version(Some("4.0.1".to_string()));
+        let opts = GamdlOptions {
+            cover_format: Some(CoverFormat::Raw),
+            uploaded_video_quality: Some("best".into()),
+            wrapper_decrypt_ip: Some("host:notaport".into()),
+            use_wrapper: Some(true),
+            truncate: Some(0),
+            save_cover: Some(true),
+            ..GamdlOptions::default()
+        };
+        let args = opts.to_cli_args_v4();
+        for absent in [
+            "--cover-format",
+            "--uploaded-video-quality",
+            "--wrapper-decrypt-host",
+            "--wrapper-decrypt-port",
+            "--truncate",
+            "--save-cover",
+        ] {
+            assert!(
+                !args.iter().any(|a| a == absent),
+                "{absent} should not be sent"
+            );
+        }
+        crate::services::gamdl_capabilities::set_detected_version(None);
+    }
+
+    #[test]
+    fn the_three_x_builder_is_unchanged_by_any_of_this() {
+        // Spot check: the 3.x builder still speaks 3.x.
+        let args = everything().to_cli_args();
+        assert!(args.iter().any(|a| a == "--output-path"));
+        assert!(!args.iter().any(|a| a == "--output-dir"));
+        assert!(!args.iter().any(|a| a == "--auth-mode"));
     }
 }

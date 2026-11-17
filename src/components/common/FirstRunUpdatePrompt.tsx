@@ -44,8 +44,18 @@ import { useUiStore } from '@/stores/uiStore';
 import { useUpdateStore } from '@/stores/updateStore';
 import { Button } from './Button';
 import { Modal } from './Modal';
+import { RESTART_FAILED, UPDATE_FAILED, showError } from '@/lib/errorMessages';
+import { InlineError } from './InlineError';
 
+/**
+ * The dialog shown on a first launch when an app update is waiting.
+ * Renders nothing unless the UI store says to show it and has the update's
+ * details. It offers "Update now" or "Continue setup on this version",
+ * and the second one is also what Escape and a click outside do.
+ */
 export default function FirstRunUpdatePrompt() {
+  // Each store value is read through its own selector, so this component only
+  // re-renders when one of the values it uses changes.
   const show = useUiStore((s) => s.showFirstRunUpdatePrompt);
   const info = useUiStore((s) => s.firstRunUpdatePromptInfo);
   const setShowFirstRunUpdatePrompt = useUiStore((s) => s.setShowFirstRunUpdatePrompt);
@@ -84,19 +94,24 @@ export default function FirstRunUpdatePrompt() {
       await downloadAndInstallAppUpdate(info.tagName);
       await relaunch();
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || 'Failed to download and install update', 'error');
+      showError(UPDATE_FAILED, e);
     }
-  }, [info, downloadAndInstallAppUpdate, addToast]);
+  }, [info, downloadAndInstallAppUpdate]);
 
+  /**
+   * Restarts the app after an update has been installed. If the restart
+   * itself fails, the person is told with a toast (the update is already
+   * on disk, so a manual restart finishes the job).
+   */
   const handleRestart = useCallback(async () => {
     try {
       await relaunch();
     } catch {
-      addToast('Failed to restart. Please restart manually.', 'error');
+      addToast(RESTART_FAILED, 'error');
     }
   }, [addToast]);
 
+  // Hooks above must always run; only after them is it safe to return early.
   if (!show || !info) return null;
 
   return (
@@ -118,14 +133,12 @@ export default function FirstRunUpdatePrompt() {
               (<span className="text-content-primary font-medium">v{info.latestVersion}</span>)
             </>
           )}{' '}
-          is available. You can install it now before setting up MeedyaDL, or continue setup on
-          the version you already have and update later.
+          is available. You can install it now before setting up MeedyaDL, or continue setup on the
+          version you already have and update later.
         </p>
 
         {downloadError && (
-          <div className="rounded-platform border border-status-error/30 bg-status-error/5 p-3">
-            <p className="text-xs text-status-error-text">{downloadError}</p>
-          </div>
+          <InlineError look="box" message={UPDATE_FAILED} details={downloadError} />
         )}
 
         {isDownloadingUpdate && (
@@ -146,7 +159,7 @@ export default function FirstRunUpdatePrompt() {
               />
             </div>
             <span className="text-xs text-content-tertiary tabular-nums">
-              {downloadProgress != null ? `${downloadProgress}%` : '...'}
+              {downloadProgress != null ? `${downloadProgress}%` : '…'}
             </span>
           </div>
         )}

@@ -138,9 +138,7 @@ function DetailField({
   if (value == null || value === '') return null;
   return (
     <div className={`flex flex-col gap-0.5 ${className}`}>
-      <span className="text-[10px] uppercase tracking-wide text-content-tertiary">
-        {label}
-      </span>
+      <span className="text-2xs uppercase tracking-wide text-content-tertiary">{label}</span>
       <span
         className={`text-xs text-content-secondary ${
           selectable ? 'font-mono break-all select-text' : 'truncate'
@@ -172,13 +170,9 @@ export function QueueItemExpandPanel({
   submittedRelative,
 }: QueueItemExpandPanelProps) {
   const firstUrl = item.urls?.[0] ?? null;
-  const extraUrlCount =
-    item.urls && item.urls.length > 1 ? item.urls.length - 1 : 0;
-  const isActive = item.state === 'downloading' || item.state === 'processing';
+  const extraUrlCount = item.urls && item.urls.length > 1 ? item.urls.length - 1 : 0;
   const audioTraits =
-    item.audio_traits && item.audio_traits.length > 0
-      ? item.audio_traits.join(', ')
-      : null;
+    item.audio_traits && item.audio_traits.length > 0 ? item.audio_traits.join(', ') : null;
 
   // ISO timestamp for the truly verbose "exact submitted time" line.
   // Wrapped in a defensive try/catch because the field is a backend
@@ -209,32 +203,13 @@ export function QueueItemExpandPanel({
          * exact inverse of QueueItem.tsx's `hidden md:flex` etc.
          * pattern — no double-announcement at wide widths.
          */}
-        <DetailField
-          label="Platform"
-          value={platformLabel}
-          className="md:hidden"
-        />
-        {isActive && (
-          <DetailField
-            label="Speed / ETA"
-            value={
-              item.speed && item.eta
-                ? `${item.speed} · ETA ${item.eta}`
-                : item.speed ?? null
-            }
-            className="lg:hidden"
-          />
-        )}
-        <DetailField
-          label="Codec / quality"
-          value={item.codec_used}
-          className="xl:hidden"
-        />
-        <DetailField
-          label="Submitted"
-          value={submittedRelative}
-          className="2xl:hidden"
-        />
+        <DetailField label="Platform" value={platformLabel} className="md:hidden" />
+        {/* No "Speed / time left" field here: below `lg`, where the row's
+            own column is hidden, the row already shows those figures under
+            its progress bar (QueueItem's SpeedEta), so a field here would
+            show them a second time. */}
+        <DetailField label="Codec / quality" value={item.codec_used} className="xl:hidden" />
+        <DetailField label="Submitted" value={submittedRelative} className="2xl:hidden" />
 
         {/*
          * Verbose / power-user data — always visible. The row never
@@ -254,10 +229,7 @@ export function QueueItemExpandPanel({
           selectable
         />
         <DetailField label="Audio traits" value={audioTraits} />
-        <DetailField
-          label="Music-video companions"
-          value={item.mv_companion_count}
-        />
+        <DetailField label="Music-video companions" value={item.mv_companion_count} />
         {submittedIso && submittedIso !== submittedRelative && (
           <DetailField label="Submitted at" value={submittedIso} />
         )}

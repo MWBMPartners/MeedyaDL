@@ -36,7 +36,7 @@
  * toast in addition to local error state:
  *
  *   const submit = useAsyncTask(() =>
- *     withErrorToast(runPreflight, { errorMsg: 'Submit failed' }),
+ *     withErrorToast(runPreflight, { errorMsg: 'MeedyaDL could not check that. Try again.' }),
  *   );
  *
  * The wrapped fn can take arbitrary arguments, forwarded through
@@ -92,12 +92,12 @@ export interface UseAsyncTaskReturn<TArgs extends unknown[], TResult> {
  *   const save = useAsyncTask(() =>
  *     withErrorToast(saveSettings, {
  *       successMsg: 'Saved',
- *       errorMsg: 'Save failed',
+ *       errorMsg: 'MeedyaDL could not save that. Try again.',
  *     }),
  *   );
  */
 export function useAsyncTask<TArgs extends unknown[], TResult>(
-  fn: (...args: TArgs) => Promise<TResult>,
+  fn: (...args: TArgs) => Promise<TResult>
 ): UseAsyncTaskReturn<TArgs, TResult> {
   // Capture the latest closure on every render so `run` always
   // calls the current version. Without this, a button wired to a
@@ -110,22 +110,19 @@ export function useAsyncTask<TArgs extends unknown[], TResult>(
 
   // `run` is intentionally stable (empty dep array). Captured-by-ref
   // pattern above keeps the closure fresh without dep churn.
-  const run = useCallback(
-    async (...args: TArgs): Promise<TResult | undefined> => {
-      setIsRunning(true);
-      setError(null);
-      try {
-        return await fnRef.current(...args);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        setError(msg);
-        return undefined;
-      } finally {
-        setIsRunning(false);
-      }
-    },
-    [],
-  );
+  const run = useCallback(async (...args: TArgs): Promise<TResult | undefined> => {
+    setIsRunning(true);
+    setError(null);
+    try {
+      return await fnRef.current(...args);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setError(msg);
+      return undefined;
+    } finally {
+      setIsRunning(false);
+    }
+  }, []);
 
   return { run, isRunning, error };
 }

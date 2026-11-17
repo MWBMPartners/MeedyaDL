@@ -10,14 +10,15 @@
 //
 // Usage:
 //   npm run dev  (in another terminal)
-//   node scripts/visual-regression.mjs capture    # Capture new baselines
-//   node scripts/visual-regression.mjs compare    # Compare against baselines
+//   node scripts/visual-regression.mjs capture --baseline  # Save baselines
+//   node scripts/visual-regression.mjs capture             # Take new screenshots
+//   node scripts/visual-regression.mjs compare             # Compare against baselines
 //
 // Screenshots are saved to tests/visual-regression/screenshots/
 // Baselines are stored in tests/visual-regression/baselines/
 //
-// Note: This is a test infrastructure scaffold. Full pixel-diff comparison
-// with pixelmatch is a follow-up (see #415 for details).
+// Comparison is pixel by pixel (pixelmatch); images that differ are saved to
+// tests/visual-regression/diffs/ (see #415 for details).
 
 import puppeteer from 'puppeteer';
 import { mkdirSync, existsSync } from 'fs';

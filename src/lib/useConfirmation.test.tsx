@@ -161,13 +161,7 @@ describe('useConfirmation', () => {
   // ===========================================================================
 
   it('honours custom confirmLabel and cancelLabel', () => {
-    render(
-      <Harness
-        onConfirm={vi.fn()}
-        confirmLabel="Delete"
-        cancelLabel="Keep it"
-      />
-    );
+    render(<Harness onConfirm={vi.fn()} confirmLabel="Delete" cancelLabel="Keep it" />);
     fireEvent.click(screen.getByText('Trigger'));
     expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Keep it' })).toBeInTheDocument();

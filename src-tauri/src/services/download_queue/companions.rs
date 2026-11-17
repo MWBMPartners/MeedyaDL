@@ -79,17 +79,18 @@ pub(crate) fn filter_tiers_by_audio_traits(
     // Always emits at debug level — surfaces in the on-disk
     // activity log when `--log-level=Debug` is configured (#768)
     // and stays out of the user-facing UI by default.
-    log::debug!(
-        "filter_tiers_by_audio_traits: available_traits = {available_traits:?}"
-    );
+    log::debug!("filter_tiers_by_audio_traits: available_traits = {available_traits:?}");
     let mut skipped = Vec::new();
     let kept: Vec<CompanionTier> = tiers
         .into_iter()
         .filter(|tier| {
-            let any_codec_supported = tier.codecs_to_try.iter().any(|c| match c.required_audio_trait() {
-                None => true,
-                Some(needed) => available_traits.iter().any(|t| t == needed),
-            });
+            let any_codec_supported =
+                tier.codecs_to_try
+                    .iter()
+                    .any(|c| match c.required_audio_trait() {
+                        None => true,
+                        Some(needed) => available_traits.iter().any(|t| t == needed),
+                    });
             let names: Vec<&str> = tier
                 .codecs_to_try
                 .iter()
@@ -155,7 +156,6 @@ pub(crate) fn lossy_chain_for_runtime() -> Vec<SongCodec> {
         vec![SongCodec::Aac, SongCodec::AacLegacy]
     }
 }
-
 
 /// Works out which extra copies of an album to download alongside the
 /// primary one, and in what order to try them.
@@ -332,6 +332,19 @@ pub(crate) fn build_manifest_companion_tiers(
     Some(tiers)
 }
 
+/// The suffix [`apply_codec_suffix`] would add for these options: the
+/// suffix of `song_codec`, else of the first codec in
+/// `song_codec_priority` (companion and fallback runs set `song_codec` to
+/// `None` and give one codec there). `None` when there is no codec or it
+/// has no suffix entry.
+pub(crate) fn codec_suffix_for_options(options: &GamdlOptions) -> Option<&'static str> {
+    if let Some(codec) = &options.song_codec {
+        return codec_suffix(codec);
+    }
+    let first = options.song_codec_priority.as_deref()?.split(',').next()?;
+    codec_suffix(&SongCodec::from_cli_string(first)?)
+}
+
 /// Appends a codec-specific suffix to all file naming templates in a
 /// `GamdlOptions` struct.
 ///
@@ -354,28 +367,8 @@ pub(crate) fn build_manifest_companion_tiers(
 ///
 /// Returns `true` if a suffix was applied, `false` if the codec has no suffix.
 pub(crate) fn apply_codec_suffix(options: &mut GamdlOptions) -> bool {
-    // Determine the suffix for the current codec, if any.
-    // Check song_codec first, then fall back to song_codec_priority
-    // (companion downloads set song_codec=None and use
-    // song_codec_priority with a single codec string instead).
-    let suffix = if let Some(codec) = &options.song_codec {
-        match codec_suffix(codec) {
-            Some(s) => s,
-            None => return false, // Lossy codecs get no suffix
-        }
-    } else if let Some(ref priority) = options.song_codec_priority {
-        // Parse the first (or only) codec from the priority string
-        let first_codec_str = priority.split(',').next().unwrap_or("");
-        if let Some(codec) = SongCodec::from_cli_string(first_codec_str) {
-            match codec_suffix(&codec) {
-                Some(s) => s,
-                None => return false,
-            }
-        } else {
-            return false;
-        }
-    } else {
-        return false; // No codec specified
+    let Some(suffix) = codec_suffix_for_options(options) else {
+        return false;
     };
 
     // For each file template, append the suffix to the existing value.
@@ -408,6 +401,532 @@ pub(crate) fn apply_codec_suffix(options: &mut GamdlOptions) -> bool {
     }
 
     true
+}
+
+/// Removes exactly the format suffixes MeedyaDL itself appended to the
+/// file templates (`recorded`, newest last; kept on the queue item as
+/// `QueueItem::added_template_suffixes`), each once, from the very end of
+/// each template, where [`apply_codec_suffix`] put it. Returns whether
+/// anything was removed.
+///
+/// Why this is needed: the format fallback (`DownloadQueue::try_fallback`)
+/// may add the new format's suffix to the item's saved options, and later
+/// runs, and the extra-format copies, start from those. Without this the
+/// "plain" copy would carry the primary's suffix and get exactly the
+/// primary's file name, and suffixes would pile up over several fallbacks.
+///
+/// Only what MeedyaDL recorded is removed, so a suffix the person typed
+/// into their own template (`{track:02d} {title} [Lossless]`) is never
+/// touched. Nothing older needs guessing: a queue saved to disk keeps only
+/// the original request and is merged afresh on restore, so a restored
+/// item never carries an added suffix.
+pub(crate) fn strip_recorded_codec_suffixes(options: &mut GamdlOptions, recorded: &[&str]) -> bool {
+    let mut changed = false;
+    for template in [
+        &mut options.single_disc_file_template,
+        &mut options.multi_disc_file_template,
+        &mut options.no_album_file_template,
+        &mut options.playlist_file_template,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for suffix in recorded.iter().rev().filter(|s| !s.is_empty()) {
+            let tail = format!(" {suffix}");
+            if template.ends_with(&tail) {
+                let keep = template.len() - tail.len();
+                template.truncate(keep);
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+/// Why a companion attempt is skipped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CompanionSkip {
+    /// The main download is already in this format (a second copy would
+    /// be pointless, and would have the main download's names).
+    SameFormat,
+    /// Its files would have the same names as the main download's.
+    SameNames,
+}
+
+/// How one companion attempt goes ahead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AttemptPlan {
+    /// Add the format suffix to its file names.
+    pub apply_suffix: bool,
+    /// Some of the primary's own tracks are already in this very format
+    /// (an album where native format priority mixed formats). The attempt
+    /// then asks only for the OTHER tracks, as per-track song links
+    /// ([`attempt_links`]), so a track already in this format is never
+    /// requested at all (an advisory-renamed primary such as
+    /// `02 T [Explicit] [Lossless]` would not stop GAMDL saving
+    /// `02 T [Lossless]` beside it). Nothing is ever deleted. Overwrite is
+    /// still forced off for that run, for safety.
+    pub only_other_tracks: bool,
+}
+
+/// Which links one companion attempt asks GAMDL for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AttemptLinks {
+    /// The item's own links, as for the primary run.
+    All,
+    /// Only these per-track song links. `left_out` tracks get no copy:
+    /// no song ID for them, or their disc/track number could not be read.
+    /// `details_available` is false when there were no album song details
+    /// at all (no developer key, for example).
+    Only {
+        links: Vec<String>,
+        /// Songs with no song ID.
+        unmapped: usize,
+        /// Songs whose disc/track number could not be read.
+        unreadable: usize,
+        /// Songs not requested because their copy in this format is
+        /// already in the folder (possibly with an advisory label).
+        already_there: usize,
+        details_available: bool,
+    },
+    /// Not run, with the plain reason for the activity log.
+    Skip(String),
+}
+
+/// Works out the links for one attempt: the item's links, or per-track
+/// song links — on a mixed album, for the tracks not already in `codec`;
+/// and whenever some of this download's tracks already have a copy in this
+/// format in the folder (`existing_copies`, e.g. a labelled copy from an
+/// earlier run), for the others only.
+///
+/// A mixed album that is not a single album link (a playlist, an artist,
+/// several links) cannot be split by track, so that format's copies are
+/// skipped with a plain reason. Existing copies alone never cause a skip:
+/// without a single album link or song details the normal request runs,
+/// and GAMDL's own name check applies.
+// Every argument is one fact about the album the decision needs; a
+// struct would only move the list to the one caller.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn attempt_links(
+    codec: &SongCodec,
+    only_other_tracks: bool,
+    item_urls: &[String],
+    primary_tracks: &[(SongCodec, u32, u32)],
+    album_tracks: &[(u32, u32, String)],
+    unplaceable: &[SongCodec],
+    existing_copies: &[(u32, u32)],
+    labelled_copies: bool,
+    covered_earlier: &[(u32, u32)],
+) -> AttemptLinks {
+    // This download's tracks that already have their copy.
+    let mut already_there: Vec<(u32, u32)> = Vec::new();
+    for (c, d, t) in primary_tracks {
+        if c != codec && existing_copies.contains(&(*d, *t)) && !already_there.contains(&(*d, *t)) {
+            already_there.push((*d, *t));
+        }
+    }
+    if !only_other_tracks && already_there.is_empty() && covered_earlier.is_empty() {
+        return AttemptLinks::All;
+    }
+    let name = plain_codec_name(codec);
+    let parsed: Vec<_> = item_urls
+        .iter()
+        .filter_map(|u| apple_music_api::parse_apple_music_url(u))
+        .collect();
+    let album = match parsed.as_slice() {
+        [p] if p.content_type == "album"
+            && p.song_id.is_none()
+            && item_urls.len() == 1
+            && (only_other_tracks || !album_tracks.is_empty()) =>
+        {
+            p
+        }
+        _ if !only_other_tracks => return AttemptLinks::All,
+        _ => {
+            let what = if parsed.iter().any(|p| p.content_type == "playlist") {
+                "this playlist"
+            } else {
+                "this download"
+            };
+            return AttemptLinks::Skip(format!(
+                "Extra copies in {name} were not made for {what}, because some of its songs are already in that format."
+            ));
+        }
+    };
+    let (links, unmapped) = super::lyrics_pass::other_track_links(
+        codec,
+        primary_tracks,
+        album_tracks,
+        &album.storefront,
+        &album.album_id,
+        &already_there
+            .iter()
+            .chain(covered_earlier.iter())
+            .copied()
+            .collect::<Vec<_>>(),
+    );
+    // Songs whose numbers could not be read cannot be requested on their
+    // own; those not already in this format are left out too.
+    let unplaceable_elsewhere = unplaceable.iter().filter(|c| *c != codec).count();
+    // Not a mixed album: if some songs cannot be asked for on their own,
+    // ask for the whole album instead — but only when GAMDL's own name
+    // check will recognise every copy already there (none carries an
+    // advisory label) and no song is covered by an earlier format of this
+    // tier. Otherwise keep the per-song request and report the songs left
+    // out, rather than download duplicates.
+    if !only_other_tracks
+        && (!unmapped.is_empty() || unplaceable_elsewhere > 0)
+        && !labelled_copies
+        && covered_earlier.is_empty()
+    {
+        return AttemptLinks::All;
+    }
+    AttemptLinks::Only {
+        links,
+        unmapped: unmapped.len(),
+        unreadable: unplaceable_elsewhere,
+        already_there: already_there.len(),
+        details_available: !album_tracks.is_empty(),
+    }
+}
+
+/// The plain activity-log lines for a mixed-album attempt that asks for
+/// `links` songs: one line for songs with no song ID (`unmapped`), one for
+/// songs whose track numbers could not be read (`unreadable`), and always
+/// one when nothing at all is requested.
+pub(crate) fn mixed_album_lines(
+    codec: &SongCodec,
+    links: usize,
+    unmapped: usize,
+    unreadable: usize,
+    details_available: bool,
+) -> Vec<String> {
+    let name = plain_codec_name(codec);
+    let mut lines = Vec::new();
+    if unmapped > 0 {
+        let why = if details_available {
+            "their Apple Music details could not be matched"
+        } else {
+            "this album's song details were not available"
+        };
+        lines.push(format!(
+            "{unmapped} song(s) were left without an extra copy in {name} because {why}."
+        ));
+    }
+    if unreadable > 0 {
+        lines.push(format!(
+            "{unreadable} song(s) were left without an extra copy in {name} because their track numbers could not be read."
+        ));
+    }
+    if links == 0 {
+        lines.push(format!(
+            "No extra copy in {name} was made for this album: none of its songs could be asked for on their own."
+        ));
+    }
+    lines
+}
+
+/// How the primary run named its files, for the companions' guard.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct PrimaryNaming {
+    /// The format suffix MeedyaDL itself appended to the primary run's
+    /// file templates (its own single-format suffix, or the one a format
+    /// fallback recorded) — never a label the person typed.
+    pub appended_suffix: Option<&'static str>,
+    /// The primary run's actual single-disc file template.
+    pub single_disc: Option<String>,
+    /// The primary run's actual multi-disc file template.
+    pub multi_disc: Option<String>,
+}
+
+impl PrimaryNaming {
+    /// Taken from the primary run's options, with the suffix MeedyaDL
+    /// appended to them.
+    pub(crate) fn of(options: &GamdlOptions, appended_suffix: Option<&'static str>) -> Self {
+        Self {
+            appended_suffix,
+            single_disc: options.single_disc_file_template.clone(),
+            multi_disc: options.multi_disc_file_template.clone(),
+        }
+    }
+}
+
+/// Whether an attempt's file names would be the primary's: its built
+/// single-disc or multi-disc file template equals the primary's (an unset
+/// template counts as GAMDL's default, which is what it means).
+fn templates_clash(attempt: &GamdlOptions, primary: &PrimaryNaming) -> bool {
+    // GAMDL's own default file templates, used when a template is unset.
+    // They must match GAMDL's defaults, or two unset templates would be
+    // compared wrongly.
+    const SINGLE_DEFAULT: &str = "{track:02d} {title}";
+    const MULTI_DEFAULT: &str = "{disc}-{track:02d} {title}";
+    let same = |a: Option<&str>, b: Option<&str>, default: &str| {
+        a.unwrap_or(default) == b.unwrap_or(default)
+    };
+    same(
+        attempt.single_disc_file_template.as_deref(),
+        primary.single_disc.as_deref(),
+        SINGLE_DEFAULT,
+    ) || same(
+        attempt.multi_disc_file_template.as_deref(),
+        primary.multi_disc.as_deref(),
+        MULTI_DEFAULT,
+    )
+}
+
+/// What one companion attempt may do so it never replaces the primary's
+/// files: go ahead (possibly with a suffix the tier did not plan, to tell
+/// it apart, or keeping existing files), or skip it.
+///
+/// - `attempt`: the attempt's options with its format set and no suffix
+///   added yet.
+/// - `primary`: how the primary run named its files. Names are compared
+///   as fully built templates, so a label the person typed into their own
+///   template counts only where it really makes two names equal.
+/// - `primary_codecs`: the formats detected in the primary's files (from
+///   the gate; empty when unknown). All of them this format: skipped —
+///   a second copy is pointless, and on the native-priority path its
+///   names are the primary's after enrichment renamed it by the detected
+///   format. Some of them (an album where native priority mixed formats):
+///   goes ahead with `only_other_tracks`.
+///
+/// A plain attempt beside a plain-named primary that enrichment did not
+/// rename is covered by [`force_suffixes_for_unrenamed_primary`].
+pub(crate) fn companion_attempt_naming(
+    codec: &SongCodec,
+    apply_suffix: bool,
+    attempt: &GamdlOptions,
+    primary: &PrimaryNaming,
+    primary_codecs: &[SongCodec],
+) -> Result<AttemptPlan, CompanionSkip> {
+    if !primary_codecs.is_empty() && primary_codecs.iter().all(|c| c == codec) {
+        return Err(CompanionSkip::SameFormat);
+    }
+    let mixed = primary_codecs.contains(codec);
+    let built = |apply: bool| {
+        let mut o = attempt.clone();
+        if apply {
+            apply_codec_suffix(&mut o);
+        }
+        o
+    };
+    let plan = |apply_suffix, only_other_tracks| AttemptPlan {
+        apply_suffix,
+        only_other_tracks,
+    };
+    if !templates_clash(&built(apply_suffix), primary) {
+        return Ok(plan(apply_suffix, mixed));
+    }
+    // A suffix of its own tells it apart.
+    let has_own = codec_suffix(codec).is_some_and(|s| !s.is_empty());
+    if !apply_suffix && has_own && !templates_clash(&built(true), primary) {
+        return Ok(plan(true, mixed));
+    }
+    if mixed {
+        // The clashing names belong to the primary's own tracks in this
+        // format; keep them, copy the others.
+        return Ok(plan(apply_suffix, true));
+    }
+    Err(CompanionSkip::SameNames)
+}
+
+/// Whether a GAMDL output line says an item was skipped because a file
+/// of that name was already there (companions always run with overwrite
+/// off). GAMDL 4.x: `↷ Title: skipped → path` with no reason in brackets
+/// (a skip for another reason carries one). GAMDL 3.x: a "Skipping" line
+/// that says the file already exists (wording to be confirmed on a real
+/// machine).
+pub(crate) fn is_already_there_skip_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if let Some(rest) = trimmed.strip_prefix('↷') {
+        return rest.contains(": skipped →") && !rest.contains(": skipped (");
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    lower.contains("skipping") && lower.contains("already exist")
+}
+
+/// Whether a run that produced no new files is still done: some copies
+/// were already there, and the copies already there plus the songs GAMDL
+/// said are not offered in this format cover EVERY song asked for. Then a
+/// different format is not tried for the whole album (it would add a
+/// second copy of every song). Otherwise the next format in the tier is
+/// tried. `expected` 0 (unknown) never counts as done.
+pub(crate) fn tier_done_without_new_files(
+    already_there: usize,
+    not_offered: usize,
+    expected: usize,
+) -> bool {
+    expected > 0 && already_there > 0 && already_there + not_offered >= expected
+}
+
+/// How many of this download's songs an album-wide attempt in `codec`
+/// asks for: those with readable numbers not already in that format
+/// (counted once each), plus those with unreadable numbers in another
+/// format.
+pub(crate) fn songs_wanted_in(
+    codec: &SongCodec,
+    primary_tracks: &[(SongCodec, u32, u32)],
+    unplaceable: &[SongCodec],
+) -> usize {
+    let mut wanted: Vec<(u32, u32)> = Vec::new();
+    let already: Vec<(u32, u32)> = primary_tracks
+        .iter()
+        .filter(|(c, _, _)| c == codec)
+        .map(|(_, d, t)| (*d, *t))
+        .collect();
+    for (_, d, t) in primary_tracks {
+        if !already.contains(&(*d, *t)) && !wanted.contains(&(*d, *t)) {
+            wanted.push((*d, *t));
+        }
+    }
+    wanted.len() + unplaceable.iter().filter(|c| *c != codec).count()
+}
+
+/// The `.m4a` files an extra-format tier added: in `after` but not in
+/// `before` (the music and video files in the folder before and after the
+/// tier's GAMDL run). Only `.m4a` files count; videos are never format-tagged.
+/// With an empty `before`, every `.m4a` in `after` is new. Used so a tier's
+/// format tags reach only the files that tier added.
+pub(crate) fn tier_new_m4a(
+    before: &std::collections::BTreeSet<std::path::PathBuf>,
+    after: &std::collections::BTreeSet<std::path::PathBuf>,
+) -> Vec<std::path::PathBuf> {
+    after
+        .iter()
+        .filter(|p| !before.contains(*p))
+        .filter(|p| {
+            p.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("m4a"))
+        })
+        .cloned()
+        .collect()
+}
+
+/// The folder a tier's new files may be tagged inside. Before and after
+/// the tier's run already isolate the files it added, so this only keeps out
+/// files another download wrote into the output folder meanwhile. It is the
+/// folder known to hold THIS download (where enrichment recorded the main
+/// files, then the folder the gate reported), including its disc
+/// subfolders; with neither known (or gone from disk) it is the output
+/// folder itself. It is never a folder looked up by album name: that lookup
+/// can return a different folder than the copies landed in (an old
+/// unsuffixed folder beside the renamed `Album [Explicit]`, or one disc
+/// folder), which dropped every new copy.
+pub(crate) fn tier_tag_folder(
+    output_dir: &std::path::Path,
+    recorded_scope_dir: Option<&std::path::Path>,
+    gate_album_dir: Option<&std::path::Path>,
+) -> std::path::PathBuf {
+    [recorded_scope_dir, gate_album_dir]
+        .into_iter()
+        .flatten()
+        .find(|d| d.is_dir() && d.starts_with(output_dir))
+        .unwrap_or(output_dir)
+        .to_path_buf()
+}
+
+/// The folders a tier's new copies may be tagged in: the known download
+/// folder, the other album folders of this download that still exist inside
+/// the output folder (`other_album_dirs`, from the gate, #1446), plus the
+/// folder the artist and album names point at when some new copy landed
+/// outside all of those (the predicted-suffix folder case the lyrics step
+/// handles with `resolve_extra_dir`). The name lookup only runs when a new
+/// file really is outside every known folder.
+pub(crate) fn tier_tag_folders(
+    output_dir: &std::path::Path,
+    tag_folder: &std::path::Path,
+    other_album_dirs: &[std::path::PathBuf],
+    before: &std::collections::BTreeSet<std::path::PathBuf>,
+    after: &std::collections::BTreeSet<std::path::PathBuf>,
+    artist_hint: Option<&str>,
+    album_hint: Option<&str>,
+) -> Vec<std::path::PathBuf> {
+    let mut folders = vec![tag_folder.to_path_buf()];
+    for dir in other_album_dirs {
+        if dir.is_dir() && dir.starts_with(output_dir) && !folders.contains(dir) {
+            folders.push(dir.clone());
+        }
+    }
+    let known: Vec<&std::path::Path> = folders.iter().map(|p| p.as_path()).collect();
+    if !tier_files_outside(before, after, &known).is_empty() {
+        if let Some(extra) = super::companion_lyrics::resolve_extra_dir(
+            output_dir,
+            artist_hint,
+            album_hint,
+            tag_folder,
+        ) {
+            folders.push(extra);
+        }
+    }
+    folders
+}
+
+/// The files a tier added that lie outside every folder in `within`, so
+/// would get no format tags.
+pub(crate) fn tier_files_outside(
+    before: &std::collections::BTreeSet<std::path::PathBuf>,
+    after: &std::collections::BTreeSet<std::path::PathBuf>,
+    within: &[&std::path::Path],
+) -> Vec<std::path::PathBuf> {
+    tier_new_m4a(before, after)
+        .into_iter()
+        .filter(|f| !within.iter().any(|dir| f.starts_with(dir)))
+        .collect()
+}
+
+/// Writes an extra-format tier's format tags to the files that tier added
+/// (see [`tier_new_m4a`]), each under the app-wide write lock. Files outside
+/// every folder in `within` are left out (an empty list leaves out
+/// everything); see [`tier_files_outside`]. Returns how many files were
+/// tagged. Failures are only logged. `stamps` (the albums of the download,
+/// when known) gives each added file its own album's last-updated date
+/// (`MeedyaMeta:LastModified`) in the same pass: the album is told by the
+/// file's song number, or, for a one-album download, is the one album
+/// (#1444, #1446).
+pub(crate) async fn tag_tier_additions(
+    before: &std::collections::BTreeSet<std::path::PathBuf>,
+    after: &std::collections::BTreeSet<std::path::PathBuf>,
+    within: &[&std::path::Path],
+    codec: &SongCodec,
+    dl_id: &str,
+    stamps: Option<&super::metadata_tag_service::DownloadStamps>,
+) -> usize {
+    let mut tagged = 0usize;
+    for new_file in tier_new_m4a(before, after) {
+        if !within.iter().any(|dir| new_file.starts_with(dir)) {
+            continue;
+        }
+        let _guard = crate::utils::file_locks::global().lock(&new_file).await;
+        match super::metadata_tag_service::apply_codec_metadata_tags(
+            &new_file.to_string_lossy(),
+            codec,
+            stamps,
+        ) {
+            Ok(count) => tagged += count,
+            Err(e) => {
+                log::debug!("Companion metadata tagging failed for {dl_id}: {e}");
+            }
+        }
+    }
+    tagged
+}
+
+/// The plain line for copies not made because a file with the same name
+/// was already there, or `None` when there were none.
+pub(crate) fn already_there_line(codec: &SongCodec, count: usize) -> Option<String> {
+    (count > 0).then(|| {
+        format!(
+            "{count} extra copy(ies) in {} were not made because a file with the same name was already there.",
+            plain_codec_name(codec)
+        )
+    })
+}
+
+/// A format's name for the activity log, without the "(Experimental)"
+/// note the settings list shows.
+pub(crate) fn plain_codec_name(codec: &SongCodec) -> &str {
+    codec.display_name().trim_end_matches(" (Experimental)")
 }
 
 // ============================================================
@@ -585,8 +1104,12 @@ pub(crate) async fn spawn_music_video_companion_inner(
     // happens inside GAMDL) — skip the snapshot in that case and fall
     // back to the count-of-attempts message. Better than emitting a
     // misleading "0 of N downloaded" when we just don't have visibility.
-    let video_count_tracking = (!settings.output_path.is_empty())
-        .then(|| (settings.output_path.clone(), snapshot_video_files(&settings.output_path).len()));
+    let video_count_tracking = (!settings.output_path.is_empty()).then(|| {
+        (
+            settings.output_path.clone(),
+            snapshot_video_files(&settings.output_path).len(),
+        )
+    });
 
     // Download each music video using the shared helper
     for relation in &unique_relations {
@@ -617,15 +1140,8 @@ pub(crate) async fn spawn_music_video_companion_inner(
 
         emit_download_log(app, dl_id, &format!("Downloading music video: {mv_name}"));
 
-        download_music_video_by_url(
-            app,
-            dl_id,
-            &mv_url,
-            mv_name,
-            settings,
-            parent_album_path,
-        )
-        .await;
+        download_music_video_by_url(app, dl_id, &mv_url, mv_name, settings, parent_album_path)
+            .await;
     }
 
     // Honest completion summary (#774-class false-positive fix). When
@@ -650,9 +1166,7 @@ pub(crate) async fn spawn_music_video_companion_inner(
                     total_attempted - new_files
                 )
             } else {
-                format!(
-                    "Music video companion downloads complete ({new_files} video(s))"
-                )
+                format!("Music video companion downloads complete ({new_files} video(s))")
             }
         }
         None => format!(
@@ -707,7 +1221,9 @@ pub(crate) async fn spawn_music_video_companion_inner(
 pub(crate) async fn update_companion_label_from_line(
     app: &tauri::AppHandle,
     queue: &QueueHandle,
-    dl_id: &str,
+    // The attempt the copies belong to (#1432 review): the caption and bar
+    // change only while it still owns the item.
+    attempt: &Attempt,
     tier_idx: usize,
     codec_name: &str,
     raw_line: &str,
@@ -750,7 +1266,7 @@ pub(crate) async fn update_companion_label_from_line(
     // stage's weight — `Finalising` is 0.95, which pegged the bar
     // at 95% for the entire companion run regardless of actual
     // within-companion progress.
-    set_label_only(app, queue, dl_id, &caption);
+    set_label_only_for(app, queue, attempt, &caption);
 
     // #836: drive the per-item bar between 95% and ~99% so the
     // companion phase no longer appears frozen for 30+ minutes on
@@ -780,11 +1296,28 @@ pub(crate) async fn update_companion_label_from_line(
             let fraction = (n as f32 / t as f32).clamp(0.0, 1.0);
             let bar_value = 0.95 + fraction * 0.04;
             let mut q = queue.lock().await;
-            q.set_processing_progress(dl_id, bar_value);
+            q.set_processing_progress_for(attempt, bar_value);
         }
     }
 }
 
+/// Sends one raw line from a companion GAMDL process to the app.
+///
+/// A progress bar redraws itself by writing `\r` (carriage return) and
+/// then new text on the same line, so one "line" can hold many updates.
+/// This splits the line on `\r` and, for every non-empty piece:
+///
+/// 1. strips colour codes, parses it and sends it as a `gamdl-output`
+///    event, so the speed, ETA and percentage on the progress bar stay live;
+/// 2. shows it in the activity log, but only the LAST piece, unless verbose
+///    logging is on (then every piece is shown). The log file on disk gets
+///    every piece either way; `emit_subprocess_line` does that.
+///
+/// `stream` is `"stdout"` or `"stderr"`. Returns the cleaned text of the
+/// last non-empty piece, or `None` if the line was blank.
+///
+/// See:
+/// https://doc.rust-lang.org/std/primitive.str.html#method.split
 pub(crate) async fn emit_companion_stream_line(
     app: &tauri::AppHandle,
     dl_id: &str,
@@ -822,11 +1355,7 @@ pub(crate) async fn emit_companion_stream_line(
         // need to touch one place.
         let show_in_ui = verbose || Some(idx) == last_segment_idx;
         crate::utils::activity_log::emit_subprocess_line(
-            app,
-            dl_id,
-            stream,
-            clean_line,
-            show_in_ui,
+            app, dl_id, stream, clean_line, show_in_ui,
         );
     }
 
@@ -890,10 +1419,7 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
 
     // Diff pre/post video sets to isolate the new files.
     let post_existing = snapshot_video_files(output_root);
-    let new_videos: Vec<_> = post_existing
-        .difference(pre_existing)
-        .cloned()
-        .collect();
+    let new_videos: Vec<_> = post_existing.difference(pre_existing).cloned().collect();
 
     if new_videos.is_empty() {
         log::debug!("No new music video files detected for {dl_id}");
@@ -940,22 +1466,32 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
         )
         .await
         {
-            Ok(0) => log::debug!(
-                "No subtitle streams in {}",
-                video_path.display()
-            ),
-            Ok(n) => {
-                emit_download_log(
-                    app,
-                    dl_id,
-                    &format!(
-                        "Extracted {n} subtitle/caption track(s) from {}",
-                        video_path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("music video")
-                    ),
-                );
+            Ok(report) => {
+                // Anything the person needs to know, even when nothing
+                // failed outright: a subtitle that could not be saved
+                // because the drive refused every way of adding it without
+                // the risk of replacing a file, or a temporary file that
+                // could not be removed (Codex's review of round 5, findings
+                // 3 and 4; stand-in review of round 6, finding 1).
+                for notice in &report.notices {
+                    emit_download_warn(app, dl_id, notice);
+                }
+                if report.written == 0 {
+                    log::debug!("No new subtitle sidecars for {}", video_path.display());
+                } else {
+                    emit_download_log(
+                        app,
+                        dl_id,
+                        &format!(
+                            "Extracted {} subtitle/caption track(s) from {}",
+                            report.written,
+                            video_path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("music video")
+                        ),
+                    );
+                }
             }
             Err(e) => {
                 log::warn!(
@@ -968,10 +1504,9 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
         // 2. Pair any matching song lyrics sidecars from the album folder
         //    (works when the music video was a companion to an album track).
         if let Some(album_dir) = video_path.parent() {
-            let paired =
-                super::music_video_subtitle_service::pair_song_lyrics_with_music_video(
-                    album_dir, video_path,
-                );
+            let paired = super::music_video_subtitle_service::pair_song_lyrics_with_music_video(
+                album_dir, video_path,
+            );
             if paired > 0 {
                 emit_download_log(
                     app,
@@ -1003,8 +1538,17 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
                 .and_then(|n| n.to_str())
                 .unwrap_or("music video")
                 .to_string();
-            match embed_and_remove_sidecar(video_path) {
-                EmbedOutcome::Embedded { sidecar_filename, bytes_embedded } => {
+            // The cover write rewrites the video's tags, so it takes the
+            // app-wide write lock (taken here, never inside the embed).
+            let embed_outcome = {
+                let _guard = crate::utils::file_locks::global().lock(video_path).await;
+                embed_and_remove_sidecar(video_path)
+            };
+            match embed_outcome {
+                EmbedOutcome::Embedded {
+                    sidecar_filename,
+                    bytes_embedded,
+                } => {
                     emit_download_log(
                         app,
                         dl_id,
@@ -1017,7 +1561,10 @@ pub(crate) async fn extract_music_video_subtitles_for_new_files(
                 EmbedOutcome::NoSidecar => {
                     log::debug!("No cover sidecar found next to {}", video_path.display());
                 }
-                EmbedOutcome::Failed { sidecar_filename, reason } => {
+                EmbedOutcome::Failed {
+                    sidecar_filename,
+                    reason,
+                } => {
                     // Sidecar kept (safe by design) — warn so the
                     // user knows the embed didn't happen.
                     log::warn!(
@@ -1200,15 +1747,14 @@ pub(crate) async fn try_resolve_mv_album_folder_via_catalog_api(
     // — Tier 4 still gives a correct result.
     let team_id = settings.musickit_team_id.as_deref();
     let key_id = settings.musickit_key_id.as_deref();
-    let private_key =
-        match crate::services::apple_music_api::get_private_key_from_keychain() {
-            Ok(Some(key)) => Some(key),
-            Ok(None) => None,
-            Err(e) => {
-                log::debug!("Tier 2 skipped — keychain read failed: {e}");
-                return None;
-            }
-        };
+    let private_key = match crate::services::apple_music_api::get_private_key_from_keychain() {
+        Ok(Some(key)) => Some(key),
+        Ok(None) => None,
+        Err(e) => {
+            log::debug!("Tier 2 skipped — keychain read failed: {e}");
+            return None;
+        }
+    };
     let token_pair = match crate::services::apple_music_api::resolve_premium_feature_token(
         team_id,
         key_id,
@@ -1255,9 +1801,7 @@ pub(crate) async fn try_resolve_mv_album_folder_via_catalog_api(
     let safe_artist = sanitize_fs_segment(&linkage.artist_name);
     let safe_album = sanitize_fs_segment(&linkage.album_name);
     if safe_artist.is_empty() || safe_album.is_empty() {
-        log::debug!(
-            "Tier 2 produced empty artist/album after sanitisation — falling through"
-        );
+        log::debug!("Tier 2 produced empty artist/album after sanitisation — falling through");
         return None;
     }
     Some(format!("{safe_artist}/{safe_album}"))
@@ -1269,9 +1813,17 @@ pub(crate) async fn try_resolve_mv_album_folder_via_catalog_api(
 /// path is identical to what GAMDL would produce when rendering
 /// `{album_artist}/{album}` itself.
 pub(crate) fn sanitize_fs_segment(raw: &str) -> String {
+    // Characters that cannot appear in a file or folder name on at least one
+    // supported system (Windows is the strictest).
     const UNSAFE: &[char] = &['/', '\\', ':', '*', '?', '"', '<', '>', '|'];
     raw.chars()
-        .map(|c| if UNSAFE.contains(&c) || c.is_control() { '_' } else { c })
+        .map(|c| {
+            if UNSAFE.contains(&c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
         .collect::<String>()
         .trim_matches(|c: char| c == '.' || c.is_whitespace())
         .to_string()
@@ -1300,9 +1852,7 @@ pub(crate) async fn download_music_video_by_url(
     // GAMDL's MV pipeline — votify has no equivalent and the GAMDL
     // build would silently fail on the unsupported URL host.
     if video_url.contains("open.spotify.com") || video_url.starts_with("spotify:") {
-        log::warn!(
-            "download_music_video_by_url called with Spotify URL — skipping (M9-7 guard)"
-        );
+        log::warn!("download_music_video_by_url called with Spotify URL — skipping (M9-7 guard)");
         emit_download_log(
             app,
             dl_id,
@@ -1375,14 +1925,10 @@ pub(crate) async fn download_music_video_by_url(
         // Tier 3: parent album context known from caller (MV companion
         // or MusicBrainz fallback within an album-scoped enrichment
         // task). Use the literal on-disk path directly.
-        log::info!(
-            "MV folder resolved via Tier 3 (parent album context): {parent_path}"
-        );
+        log::info!("MV folder resolved via Tier 3 (parent album context): {parent_path}");
         emit_app_log(
             app,
-            &format!(
-                "MV folder routed to parent album via Tier 3: {video_label} → {parent_path}"
-            ),
+            &format!("MV folder routed to parent album via Tier 3: {video_label} → {parent_path}"),
         );
         parent_path.to_string()
     } else if let Some(literal_path) =
@@ -1401,19 +1947,23 @@ pub(crate) async fn download_music_video_by_url(
         literal_path
     } else {
         // Tier 4: safety net.
-        log::debug!(
-            "Tier 2 + Tier 3 missed for MV {video_label} — using Tier 4 safety net"
-        );
+        log::debug!("Tier 2 + Tier 3 missed for MV {video_label} — using Tier 4 safety net");
         MV_NO_ALBUM_FOLDER_TEMPLATE.to_string()
     };
 
     let opts = crate::models::gamdl_options::GamdlOptions {
-        output_path: Some(settings.output_path.clone()),
+        output_path: crate::services::config_service::usable_download_folder(&settings.output_path),
+        // The overwrite setting, on the command line (config.ini no longer
+        // carries it; this run used to inherit it from there).
+        overwrite: Some(settings.overwrite),
         music_video_resolution: Some(settings.default_video_resolution.clone()),
         music_video_codec_priority: Some(settings.video_codec_priority_cli()),
         music_video_remux_format: Some(settings.default_video_remux_format.clone()),
         temp_path: Some(if settings.temp_path.is_empty() {
-            std::env::temp_dir().join("MeedyaDL").to_string_lossy().to_string()
+            std::env::temp_dir()
+                .join("MeedyaDL")
+                .to_string_lossy()
+                .to_string()
         } else {
             settings.temp_path.clone()
         }),
@@ -1442,7 +1992,13 @@ pub(crate) async fn download_music_video_by_url(
         mp4box_path: settings.mp4box_path.clone(),
         nm3u8dlre_path: settings.nm3u8dlre_path.clone(),
         // Metadata / language so music-video tags are localised consistently.
-        language: Some(settings.language.clone()),
+        // Sent in its standard form -- see `language_arg_for_gamdl`'s own
+        // comment (independent review, round 3 of #1244) for why the
+        // STORED setting is left untouched and only what reaches GAMDL's
+        // command line here is cleaned up.
+        language: Some(crate::utils::language::language_arg_for_gamdl(
+            &settings.language,
+        )),
         truncate: settings.truncate,
         download_mode: Some(settings.download_mode.clone()),
         remux_mode: Some(settings.remux_mode.clone()),
@@ -1556,8 +2112,7 @@ pub(crate) async fn download_music_video_by_url(
             let mut lines = reader.lines();
             let mut last = String::new();
             while let Ok(Some(line)) = lines.next_line().await {
-                if let Some(clean) =
-                    emit_companion_stream_line(&app, &dl_id, "stderr", &line).await
+                if let Some(clean) = emit_companion_stream_line(&app, &dl_id, "stderr", &line).await
                 {
                     last = clean;
                 }
@@ -1651,71 +2206,13 @@ pub(crate) async fn download_music_video_by_url(
 // Lyrics format fallback
 // ============================================================
 
-/// Count lyrics sidecar files in a directory.
-///
-/// Returns the number of files matching any supported lyrics extension
-/// (`.ttml`, `.lrc`, `.srt`). Each unique stem is counted only once
-/// (e.g., `01 Song.ttml` and `01 Song.lrc` count as 1 stem with lyrics).
-///
-/// Skips filesystem sidecars (#577) so a `._01 Song.ttml` AppleDouble
-/// shadow doesn't double-count toward coverage checks.
-pub(crate) fn count_lyrics_files(dir: &std::path::Path) -> usize {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return 0;
-    };
-    let mut stems_with_lyrics = std::collections::HashSet::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-            continue;
-        }
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        if ext == "ttml" || ext == "lrc" || ext == "srt" {
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                stems_with_lyrics.insert(stem.to_string());
-            }
-        }
-    }
-    stems_with_lyrics.len()
-}
-
-/// Count media files (audio or video) in a directory.
-///
-/// Returns `(audio_count, video_count)` for `.m4a` and `.m4v`/`.mp4` files.
-pub(crate) fn count_media_files(dir: &std::path::Path) -> (usize, usize) {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return (0, 0);
-    };
-    let mut audio = 0;
-    let mut video = 0;
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-            continue;
-        }
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        match ext.as_str() {
-            "m4a" => audio += 1,
-            "m4v" | "mp4" => video += 1,
-            _ => {}
-        }
-    }
-    (audio, video)
-}
-
 /// Run lyrics format fallback when the primary format didn't produce
 /// lyrics for all tracks.
 ///
 /// After the primary download (typically with `--synced-lyrics-format ttml`),
-/// checks if every media file has a corresponding lyrics sidecar. If not,
+/// checks if every one of THIS download's media files (`targets`) has a
+/// corresponding lyrics sidecar; older files in the same folder are not
+/// counted either way (#1441). If not,
 /// retries with fallback formats in content-type-specific order:
 /// - **Audio** (`.m4a`): TTML → LRC → SRT
 /// - **Video** (`.m4v`/`.mp4`): TTML → SRT → LRC
@@ -1726,9 +2223,10 @@ pub(crate) fn count_media_files(dir: &std::path::Path) -> (usize, usize) {
 pub(crate) async fn run_lyrics_fallback(
     app: &tauri::AppHandle,
     dl_id: &str,
-    album_dir: &str,
+    targets: &[std::path::PathBuf],
     urls: &[String],
     settings: &crate::models::settings::AppSettings,
+    primary: Option<(&GamdlOptions, &str)>,
 ) {
     // M9-7 belt-and-braces: lyrics fallback uses GAMDL's
     // `synced_lyrics_only` flag which only accepts Apple Music URLs.
@@ -1739,9 +2237,7 @@ pub(crate) async fn run_lyrics_fallback(
         .iter()
         .any(|u| u.contains("open.spotify.com") || u.starts_with("spotify:"))
     {
-        log::warn!(
-            "run_lyrics_fallback called with Spotify URL(s) — skipping (M9-7 guard)"
-        );
+        log::warn!("run_lyrics_fallback called with Spotify URL(s) — skipping (M9-7 guard)");
         emit_download_log(
             app,
             dl_id,
@@ -1749,18 +2245,35 @@ pub(crate) async fn run_lyrics_fallback(
         );
         return;
     }
-    let dir = std::path::Path::new(album_dir);
-    let (audio_count, video_count) = count_media_files(dir);
+
+    let (lyrics_count, audio_count, video_count) = super::lyrics_steps::lyrics_coverage(targets);
     let total_media = audio_count + video_count;
 
     if total_media == 0 {
         return; // No media files to match lyrics against
     }
 
-    let lyrics_count = count_lyrics_files(dir);
     if lyrics_count >= total_media {
         log::debug!("Lyrics fallback not needed for {dl_id}: {lyrics_count}/{total_media} tracks have lyrics");
         return; // All tracks already have lyrics
+    }
+
+    // GAMDL 4.x has no lyrics-only mode: the request would be dropped and
+    // the run would download the whole album again, in GAMDL's default
+    // format, beside (or over) the files already there. 4.x writes what
+    // lyrics it has (`.lrc` or `.txt`) during the main download, so there
+    // is nothing for this step to do (found in review round 4). Checked
+    // only once lyrics really are missing, so the line is not written on
+    // every download (review round 5).
+    if crate::services::gamdl_capabilities::detected_cli_generation()
+        == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
+    {
+        emit_download_log(
+            app,
+            dl_id,
+            "Lyrics fallback skipped — GAMDL 4 has no lyrics-only download",
+        );
+        return;
     }
 
     // Determine fallback chain based on content type.
@@ -1792,34 +2305,43 @@ pub(crate) async fn run_lyrics_fallback(
             ),
         );
 
-        // Build minimal options for lyrics-only download using struct init
-        // syntax (clippy: field_reassign_with_default). Carries over auth
-        // and template settings so lyrics land in the correct folder.
-        let opts = GamdlOptions {
-            synced_lyrics_format: Some(format.clone()),
-            synced_lyrics_only: Some(true),
-            output_path: Some(settings.output_path.clone()),
-            temp_path: Some(if settings.temp_path.is_empty() {
-                std::env::temp_dir().join("MeedyaDL").to_string_lossy().to_string()
-            } else {
-                settings.temp_path.clone()
-            }),
-            cookies_path: settings.cookies_path.clone(),
-            use_wrapper: Some(settings.use_wrapper),
-            wrapper_account_url: if settings.use_wrapper {
-                Some(settings.wrapper_account_url.clone())
-            } else {
-                None
-            },
-            single_disc_file_template: Some(settings.single_disc_file_template.clone()),
-            multi_disc_file_template: Some(settings.multi_disc_file_template.clone()),
-            no_album_file_template: Some(settings.no_album_file_template.clone()),
-            playlist_file_template: Some(settings.playlist_file_template.clone()),
-            album_folder_template: Some(settings.album_folder_template.clone()),
-            compilation_folder_template: Some(settings.compilation_folder_template.clone()),
-            no_album_folder_template: Some(settings.no_album_folder_template.clone()),
-            overwrite: Some(settings.overwrite),
-            ..Default::default()
+        // The primary run's own options when they are known (#1436), so the
+        // lyrics land beside the files exactly as the primary named them.
+        // Otherwise, minimal options built from Settings, as before.
+        let opts = if let Some((primary_options, folder)) = primary {
+            super::lyrics_pass::plan_lyrics_recovery_run(primary_options, folder, format.clone())
+        } else {
+            GamdlOptions {
+                synced_lyrics_format: Some(format.clone()),
+                synced_lyrics_only: Some(true),
+                output_path: crate::services::config_service::usable_download_folder(
+                    &settings.output_path,
+                ),
+                temp_path: Some(if settings.temp_path.is_empty() {
+                    std::env::temp_dir()
+                        .join("MeedyaDL")
+                        .to_string_lossy()
+                        .to_string()
+                } else {
+                    settings.temp_path.clone()
+                }),
+                cookies_path: settings.cookies_path.clone(),
+                use_wrapper: Some(settings.use_wrapper),
+                wrapper_account_url: if settings.use_wrapper {
+                    Some(settings.wrapper_account_url.clone())
+                } else {
+                    None
+                },
+                single_disc_file_template: Some(settings.single_disc_file_template.clone()),
+                multi_disc_file_template: Some(settings.multi_disc_file_template.clone()),
+                no_album_file_template: Some(settings.no_album_file_template.clone()),
+                playlist_file_template: Some(settings.playlist_file_template.clone()),
+                album_folder_template: Some(settings.album_folder_template.clone()),
+                compilation_folder_template: Some(settings.compilation_folder_template.clone()),
+                no_album_folder_template: Some(settings.no_album_folder_template.clone()),
+                overwrite: Some(settings.overwrite),
+                ..Default::default()
+            }
         };
 
         // Build and run GAMDL command
@@ -1908,7 +2430,7 @@ pub(crate) async fn run_lyrics_fallback(
         }
 
         // Re-check lyrics coverage after this fallback attempt
-        let new_lyrics_count = count_lyrics_files(dir);
+        let new_lyrics_count = super::lyrics_steps::lyrics_coverage(targets).0;
         if new_lyrics_count >= total_media {
             emit_download_log(
                 app,
@@ -1920,7 +2442,7 @@ pub(crate) async fn run_lyrics_fallback(
     }
 
     // All fallback formats exhausted
-    let final_count = count_lyrics_files(dir);
+    let final_count = super::lyrics_steps::lyrics_coverage(targets).0;
     emit_download_log(
         app,
         dl_id,
@@ -1979,12 +2501,15 @@ pub(crate) async fn detect_actual_primary_codec(
     };
 
     // Parse the requested codec for the ffprobe fallback path
-    let requested_song_codec = crate::models::gamdl_options::SongCodec::from_cli_string(requested_codec)
-        .unwrap_or(crate::models::gamdl_options::SongCodec::Aac);
+    let requested_song_codec =
+        crate::models::gamdl_options::SongCodec::from_cli_string(requested_codec)
+            .unwrap_or(crate::models::gamdl_options::SongCodec::Aac);
 
     // Try MediaInfo first (more reliable, especially for Atmos/AC3 distinction)
     if let Some(mediainfo_bin) = super::mediainfo_service::get_mediainfo_path(app) {
-        if let Some(result) = super::mediainfo_service::detect_codec(&mediainfo_bin, &m4a_path).await {
+        if let Some(result) =
+            super::mediainfo_service::detect_codec(&mediainfo_bin, &m4a_path).await
+        {
             let actual_str = result.codec.to_cli_string().to_string();
             if actual_str != requested_codec {
                 emit_download_log(
@@ -2008,8 +2533,13 @@ pub(crate) async fn detect_actual_primary_codec(
 
     // Fall back to ffprobe if MediaInfo unavailable or failed
     if let Ok(ffprobe) = super::metadata_tag_service::get_ffprobe_path(app) {
-        if let Some(info) = super::metadata_tag_service::detect_audio_info(&ffprobe, &m4a_path).await {
-            let actual = super::metadata_tag_service::resolve_codec_from_ffprobe(&info, &requested_song_codec);
+        if let Some(info) =
+            super::metadata_tag_service::detect_audio_info(&ffprobe, &m4a_path).await
+        {
+            let actual = super::metadata_tag_service::resolve_codec_from_ffprobe(
+                &info,
+                &requested_song_codec,
+            );
             let actual_str = actual.to_cli_string().to_string();
             if actual_str != requested_codec {
                 emit_download_log(
@@ -2063,8 +2593,7 @@ pub(crate) async fn detect_actual_primary_codec(
 /// downloads don't get spammed (a typical 8-track album with
 /// companions finishes in well under 2 min, so the heartbeat never
 /// even fires).
-pub(crate) const HEARTBEAT_INTERVAL: std::time::Duration =
-    std::time::Duration::from_secs(120);
+pub(crate) const HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Lightweight handle for a heartbeat ticker spawned via
 /// [`start_heartbeat_ticker`]. Owning the handle keeps the ticker
@@ -2093,6 +2622,8 @@ impl HeartbeatTicker {
 }
 
 impl Drop for HeartbeatTicker {
+    /// Stops the ticker when the handle goes out of scope, so a heartbeat
+    /// can never outlive the stage it reports on.
     fn drop(&mut self) {
         self.stop();
     }
@@ -2136,9 +2667,7 @@ pub(crate) fn start_heartbeat_ticker(
             let mut interval = tokio::time::interval(HEARTBEAT_INTERVAL);
             // Skip the immediate tick — we don't want a heartbeat at
             // t=0 saying "0 min elapsed" right after the stage starts.
-            interval.set_missed_tick_behavior(
-                tokio::time::MissedTickBehavior::Delay,
-            );
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             interval.tick().await;
 
             loop {
@@ -2184,7 +2713,9 @@ pub(crate) fn start_heartbeat_ticker(
                 emit_download_log(
                     &app,
                     &dl_id,
-                    &format!("⏳ Still working — {stage_kind}: {display_label} — {elapsed} elapsed"),
+                    &format!(
+                        "⏳ Still working — {stage_kind}: {display_label} — {elapsed} elapsed"
+                    ),
                 );
             }
         }
@@ -2278,6 +2809,7 @@ pub(crate) fn artwork_geo_lock_hint(reason: &str) -> &'static str {
 /// (e.g. `"2.1 MB"`, `"512 KB"`). Used only by
 /// `emit_artwork_variant_log` for the success-path line.
 pub(crate) fn format_artwork_size(bytes: u64) -> String {
+    // Binary units (1 KB = 1024 bytes).
     const KB: u64 = 1024;
     const MB: u64 = 1024 * KB;
     if bytes >= MB {
@@ -2357,12 +2889,28 @@ impl CompanionTaskHandle {
 /// explicitly, and `Drop` only has work left to do if something skipped
 /// that call.
 impl Drop for CompanionTaskHandle {
+    /// Runs `abort()` as a safety net; see the note on this `impl`.
     fn drop(&mut self) {
         self.abort();
     }
 }
 
 impl CompanionTaskHandle {
+    /// A handle around any task, with no tiers and no heartbeat. Tests only
+    /// (#1432): lets the slot-holding wait be tested without GAMDL.
+    #[cfg(test)]
+    pub(crate) fn for_test(handle: tokio::task::JoinHandle<()>) -> Self {
+        Self {
+            handle,
+            aborted: Arc::new(AtomicBool::new(false)),
+            progress: Arc::new(StdMutex::new(CompanionTaskProgress::default())),
+            heartbeat: None,
+        }
+    }
+
+    /// A short plain sentence saying which companion tier is running and
+    /// which have not started, for the timeout log lines. If the progress
+    /// lock is poisoned it says so instead of failing.
     pub(crate) fn describe_pending(&self) -> String {
         self.progress
             .lock()
@@ -2383,6 +2931,9 @@ impl CompanionTaskHandle {
     }
 }
 
+/// What the companion task has done so far, shared (behind a mutex) with
+/// the completion task so a timeout message can name the unfinished tiers.
+/// Tiers are numbered from 0, in the order `plan_companions` returned them.
 #[derive(Default)]
 pub(crate) struct CompanionTaskProgress {
     pub(crate) planned_tiers: Vec<String>,
@@ -2392,6 +2943,9 @@ pub(crate) struct CompanionTaskProgress {
 }
 
 impl CompanionTaskProgress {
+    /// Builds the text for `CompanionTaskHandle::describe_pending`: the tier
+    /// running now (if any), then the tiers not yet started (not current,
+    /// completed or exhausted). Says so plainly when nothing is left.
     pub(crate) fn describe_pending(&self) -> String {
         let mut parts = Vec::new();
 
@@ -2424,6 +2978,87 @@ impl CompanionTaskProgress {
     }
 }
 
+/// Used when the primary files may still have their plain names: every
+/// tier gets a format suffix, and formats whose suffix is empty (standard
+/// AAC — its copy would have exactly the primary's plain name) are taken
+/// out. A tier left with no format stays in place (so tier numbers still
+/// match the plan) and is passed over. Returns the formats taken out.
+///
+/// `primary_named_with_format`: the primary run's own file template
+/// already carried a format suffix (single-format mode with extra copies),
+/// so its files never had the plain name and a plain-named copy cannot
+/// collide; nothing is taken out then.
+pub(crate) fn force_suffixes_for_unrenamed_primary(
+    tiers: &mut [CompanionTier],
+    primary_named_with_format: bool,
+) -> Vec<String> {
+    let mut skipped = Vec::new();
+    for tier in tiers.iter_mut() {
+        tier.apply_suffix = true;
+        if primary_named_with_format {
+            continue;
+        }
+        tier.codecs_to_try.retain(|c| {
+            let keep = codec_suffix(c).is_some_and(|s| !s.is_empty());
+            if !keep {
+                skipped.push(c.to_cli_string().to_string());
+            }
+            keep
+        });
+    }
+    skipped
+}
+
+/// Holds a companion task back until enrichment says it may start
+/// (`lyrics_pass::CompanionGate`), and gives it the download folder the
+/// primary run used, to turn the real album folder into a template.
+pub(crate) struct CompanionHold {
+    /// The companion task's end of the gate.
+    pub waiter: super::lyrics_pass::CompanionGateWaiter,
+    /// The primary run's resolved download folder.
+    pub download_root: Option<String>,
+    /// What the final advisory pass may touch, filled by enrichment right
+    /// before it opens the gate. The companion task reads it afterwards to
+    /// find this download's new copies and give them their lyrics
+    /// (`companion_lyrics.rs`).
+    pub advisory_scope: Arc<StdMutex<Option<super::lyrics_pass::AdvisoryScope>>>,
+    /// The main download's files whose lyrics steps had started but not
+    /// finished when enrichment ended. `Some` only if enrichment stopped
+    /// early; the companion task then finishes their lyrics itself
+    /// (`companion_lyrics::run_main_files_own`).
+    pub pending_main_lyrics: Arc<StdMutex<Option<Vec<std::path::PathBuf>>>>,
+    /// The writing jobs enrichment may have left running when it was
+    /// abandoned; the catch-up waits for them to end
+    /// (`lyrics_steps::wait_to_catch_up`).
+    pub in_flight_writes: super::lyrics_steps::InFlightWrites,
+}
+
+/// Plans and starts the companion downloads for one finished primary
+/// download: extra GAMDL runs that fetch the same content in other formats
+/// (see `plan_companions` and the `CompanionMode` setting). When extra
+/// lyrics formats are chosen in settings, it also starts one small
+/// fire-and-forget GAMDL run per format for the lyrics files only.
+///
+/// Returns `None` when there is no format task to wait for: the item is a
+/// Spotify link (companions are a GAMDL feature), or no format tiers remain
+/// after the plan and the Apple Music `audioTraits` filter
+/// (`available_audio_traits`). Lyrics-only runs may still have started in
+/// that second case; nothing tracks them. Otherwise returns a
+/// [`CompanionTaskHandle`] the completion task uses to wait, time out or
+/// abort. The queue item stays in `Processing` until the task ends.
+///
+/// `force_all_suffixes` makes every tier use a labelled file name; it is
+/// needed when the primary's real format was not known in advance, so the
+/// primary's plain names cannot collide with a companion's. `held_until`
+/// (see [`CompanionHold`]) keeps the task waiting until enrichment has
+/// finished renaming the primary's files. `primary` describes how the
+/// primary's files were named, so attempts never reuse its names.
+///
+/// This function itself does no downloading: the work happens in the task
+/// it spawns, which checks `shutdown` and its own abort flag between steps.
+///
+/// See:
+/// https://docs.rs/tokio/latest/tokio/task/fn.spawn.html
 // The argument list is long because this function is the seam between
 // the queue's per-download state (app, queue, dl_id, urls, shutdown),
 // the GAMDL invocation context (primary codec, base options,
@@ -2435,14 +3070,19 @@ impl CompanionTaskProgress {
 pub(crate) fn spawn_companion_downloads(
     app: &tauri::AppHandle,
     queue: &QueueHandle,
-    dl_id: &str,
+    attempt: &Attempt,
     urls: &[String],
     primary_codec_str: &str,
     companion_base_options: &GamdlOptions,
     shutdown: &ShutdownSignal,
     force_all_suffixes: bool,
     available_audio_traits: &[String],
+    held_until: Option<CompanionHold>,
+    primary: PrimaryNaming,
 ) -> Option<CompanionTaskHandle> {
+    // The copies belong to one attempt of the item (#1432): they stop at
+    // their next check once that item is cancelled, retried or removed.
+    let dl_id = attempt.id.as_str();
     // M9-7 belt-and-braces: companion downloads use GAMDL's
     // codec-tier model (Atmos → ALAC → AAC fan-out) which has no
     // votify equivalent. votify uses a single `--audio-quality` CSV
@@ -2455,9 +3095,7 @@ pub(crate) fn spawn_companion_downloads(
         .iter()
         .any(|u| u.contains("open.spotify.com") || u.starts_with("spotify:"))
     {
-        log::warn!(
-            "spawn_companion_downloads called with Spotify URL(s) — skipping (M9-7 guard)"
-        );
+        log::warn!("spawn_companion_downloads called with Spotify URL(s) — skipping (M9-7 guard)");
         emit_download_log(
             app,
             dl_id,
@@ -2503,17 +3141,23 @@ pub(crate) fn spawn_companion_downloads(
     }
 
     let codec_handle = if companion_tiers.is_empty() {
+        // Nothing to hold back; dropping the hold is harmless.
+        drop(held_until);
         None
     } else {
         let comp_app = app.clone();
         let comp_queue = queue.clone();
         let comp_urls = urls.to_vec();
-        let comp_base_opts = companion_base_options.clone();
+        // The caller has already removed any suffix MeedyaDL added to
+        // these templates (`strip_recorded_codec_suffixes`).
+        let mut comp_base_opts = companion_base_options.clone();
+        let mut companion_tiers = companion_tiers;
         let comp_dl_id = dl_id.to_string();
+        let comp_attempt = attempt.clone();
         let comp_shutdown = shutdown.clone();
         // Per-task cooperative-cancel flag (#663). The completion task
         // sets this to `true` before calling `handle.abort()` so the
-        // synchronous `run_companion_lyrics_conversion` and the tier
+        // synchronous extra-copy lyrics step and the tier
         // loop can bail out at their next loop boundary instead of
         // emitting activity-log events for many minutes after abort.
         let comp_aborted = Arc::new(AtomicBool::new(false));
@@ -2561,6 +3205,154 @@ pub(crate) fn spawn_companion_downloads(
         }
 
         let handle = tokio::spawn(async move {
+            // Held until enrichment has finished its lyrics steps and its
+            // renames (16 Nov 2026), so nothing lands beside the primary
+            // files while their names may still change. Cancel, app
+            // shutdown and the completion task's abort still end the wait.
+            // Every suffix and format the primary's files carry, for the
+            // guard before each attempt. The template's suffix is known now;
+            // the formats detected in the files (and the suffixes enrichment
+            // renamed them with) arrive with the gate.
+            let mut primary_codecs: Vec<SongCodec> = Vec::new();
+            let mut primary_tracks: Vec<(SongCodec, u32, u32)> = Vec::new();
+            let mut album_tracks: Vec<(u32, u32, String)> = Vec::new();
+            let mut companion_album_dir: Option<std::path::PathBuf> = None;
+            let mut gate_album_name: Option<String> = None;
+            let mut gate_stamps = super::metadata_tag_service::DownloadStamps::default();
+            // The download's other album folders (#1446): copies landing there
+            // get format tags and their own album's stamps, nothing more.
+            let mut gate_other_dirs: Vec<std::path::PathBuf> = Vec::new();
+            let mut unplaceable: Vec<SongCodec> = Vec::new();
+            let mut lyricsfile_artist: Option<String> = None;
+            let mut lyricsfile_default_title: Option<String> = None;
+            // Where enrichment recorded this download's files, and when the
+            // gate opened (to tell a lyrics file written by this run from an
+            // older one). Both stay `None` on the failure path, which has no
+            // gate; the lyrics step then builds its own scope (below).
+            let mut lyrics_scope_handle: Option<
+                Arc<StdMutex<Option<super::lyrics_pass::AdvisoryScope>>>,
+            > = None;
+            // Main-download files whose lyrics steps enrichment began but did
+            // not finish (see `CompanionHold::pending_main_lyrics`).
+            let mut pending_main_handle: Option<Arc<StdMutex<Option<Vec<std::path::PathBuf>>>>> =
+                None;
+            let mut in_flight_handle: Option<super::lyrics_steps::InFlightWrites> = None;
+            let mut gate_opened_at: Option<std::time::SystemTime> = None;
+            if let Some(hold) = held_until {
+                lyrics_scope_handle = Some(hold.advisory_scope.clone());
+                pending_main_handle = Some(hold.pending_main_lyrics.clone());
+                in_flight_handle = Some(hold.in_flight_writes.clone());
+                let mut waiter = hold.waiter;
+                let state = super::lyrics_pass::wait_for_companion_gate(&mut waiter, || {
+                    let queue = comp_queue.clone();
+                    let gate_attempt = comp_attempt.clone();
+                    let stopping =
+                        comp_shutdown.is_triggered() || aborted_for_task.load(Ordering::Relaxed);
+                    async move { stopping || !queue.lock().await.should_keep_running(&gate_attempt) }
+                })
+                .await;
+                let Some(state) = state else {
+                    log::info!(
+                        "Companion downloads for {comp_dl_id} not started (stopped while waiting)"
+                    );
+                    return;
+                };
+                gate_opened_at = Some(std::time::SystemTime::now());
+                primary_codecs.clone_from(&state.primary_codecs);
+                primary_tracks.clone_from(&state.primary_tracks);
+                album_tracks.clone_from(&state.album_tracks);
+                companion_album_dir = state.album_dir.as_deref().map(std::path::PathBuf::from);
+                gate_album_name.clone_from(&state.album.name);
+                gate_stamps.clone_from(&state.album.stamps);
+                gate_other_dirs.clone_from(&state.other_album_dirs);
+                unplaceable.clone_from(&state.unplaceable);
+                lyricsfile_artist.clone_from(&state.lyricsfile_artist);
+                lyricsfile_default_title.clone_from(&state.lyricsfile_default_title);
+                if !state.renames_done {
+                    // The primary files may still have their plain names
+                    // (enrichment ended early, or the format could not be
+                    // told): give every extra copy a format suffix, and
+                    // leave out any format whose suffix is empty (standard
+                    // AAC), so none can land on a primary file's name.
+                    let skipped = force_suffixes_for_unrenamed_primary(
+                        &mut companion_tiers,
+                        primary.appended_suffix.is_some(),
+                    );
+                    if !skipped.is_empty() {
+                        emit_download_log(
+                            &comp_app,
+                            &comp_dl_id,
+                            &format!(
+                                "Extra format skipped so it cannot replace the main download's files: {}",
+                                skipped.join(", ")
+                            ),
+                        );
+                    }
+                }
+                // Write into the folder that really holds the primary
+                // files (#528), whatever GAMDL's template would call it.
+                // Only when the companion saves under the same download
+                // folder the primary run used.
+                if let (Some(dir), Some(root)) =
+                    (state.album_dir.as_deref(), hold.download_root.as_deref())
+                {
+                    let own_root = comp_base_opts
+                        .output_path
+                        .as_deref()
+                        .filter(|p| !p.trim().is_empty())
+                        .unwrap_or(root);
+                    if own_root == root
+                        && super::lyrics_pass::file_templates_allow_fixed_folder(&comp_base_opts)
+                    {
+                        if let Some(template) = super::lyrics_pass::literal_folder_template(
+                            std::path::Path::new(dir),
+                            std::path::Path::new(root),
+                        ) {
+                            comp_base_opts.album_folder_template = Some(template.clone());
+                            comp_base_opts.compilation_folder_template = Some(template);
+                            comp_base_opts.output_path = Some(root.to_string());
+                        }
+                    }
+                }
+                emit_download_log(
+                    &comp_app,
+                    &comp_dl_id,
+                    "Starting the extra format downloads",
+                );
+            }
+
+            // When enrichment never recorded a scope (the gate was dropped, or
+            // the failure path), the lyrics step cannot know which files are
+            // new copies. So, before any extra copy is downloaded, note what
+            // is in the album folder now and when the downloads started; the
+            // lyrics step then treats only files that appear after this as
+            // this download's copies (#1441).
+            let tiers_started_at = std::time::SystemTime::now();
+            let scope_recorded = lyrics_scope_handle
+                .as_ref()
+                .is_some_and(|h| h.lock().is_ok_and(|g| g.is_some()));
+            let folder_before: Option<super::companion_lyrics::FolderSnapshot> = if scope_recorded {
+                None
+            } else if let Some(output_dir) = comp_base_opts.output_path.as_deref() {
+                let (artist_hint, album_hint) = {
+                    let q = comp_queue.lock().await;
+                    q.items
+                        .iter()
+                        .find(|i| i.status.id == comp_dl_id)
+                        .map(|i| (i.status.artist_name.clone(), i.status.album_name.clone()))
+                        .unwrap_or((None, None))
+                };
+                super::companion_lyrics::resolve_album_folder(
+                    std::path::Path::new(output_dir),
+                    companion_album_dir.as_deref(),
+                    artist_hint.as_deref(),
+                    album_hint.as_deref(),
+                )
+                .map(|dir| super::companion_lyrics::FolderSnapshot::take(&dir))
+            } else {
+                None
+            };
+
             // `any_tier_produced_files` is set the first time a tier actually
             // writes new audio files to disk (#843). After the tier loop we
             // run the companion lyrics conversion exactly once if the flag is
@@ -2591,10 +3383,8 @@ pub(crate) fn spawn_companion_downloads(
                 // Checked between tiers, which is where the other two
                 // stop conditions are checked, and for the same reason:
                 // it is the point where nothing is half-done.
-                if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
-                    log::info!(
-                        "Companion downloads stopping early — {comp_dl_id} was cancelled"
-                    );
+                if !comp_queue.lock().await.should_keep_running(&comp_attempt) {
+                    log::info!("Companion downloads stopping early — {comp_dl_id} was cancelled");
                     emit_download_log(
                         &comp_app,
                         &comp_dl_id,
@@ -2617,16 +3407,24 @@ pub(crate) fn spawn_companion_downloads(
                     emit_download_log(
                         &comp_app,
                         &comp_dl_id,
-                        &format!("Companion task aborted — skipping remaining companions: {pending}"),
+                        &format!(
+                            "Companion task aborted — skipping remaining companions: {pending}"
+                        ),
                     );
                     return;
                 }
 
+                // A tier emptied by `force_suffixes_for_unrenamed_primary`.
+                if tier.codecs_to_try.is_empty() {
+                    continue;
+                }
                 let mut tier_succeeded = false;
                 if let Ok(mut progress) = progress_for_task.lock() {
                     progress.current_tier = Some(tier_idx);
                 }
 
+                // Songs found with a copy in an earlier format of this tier.
+                let mut tier_covered: Vec<(u32, u32)> = Vec::new();
                 // Try each codec in the tier until one succeeds
                 for codec in &tier.codecs_to_try {
                     // Phase 3.5g: surface the active companion stage to the
@@ -2636,10 +3434,10 @@ pub(crate) fn spawn_companion_downloads(
                     // Companion downloads happen AFTER enrichment finishes,
                     // so the bar would otherwise still display "Finalising
                     // metadata…" while companion GAMDL is the actual work.
-                    set_stage_with_label(
+                    set_stage_with_label_for(
                         &comp_app,
                         &comp_queue,
-                        &comp_dl_id,
+                        &comp_attempt,
                         ProgressStage::Finalising,
                         &format!(
                             "Companion: downloading {} (tier {})…",
@@ -2654,10 +3452,8 @@ pub(crate) fn spawn_companion_downloads(
                     // let the next one start — fresh download work, begun
                     // after the person said stop. A reviewer caught the
                     // gap in the first version of this check.
-                    if !comp_queue.lock().await.should_keep_working_on(&comp_dl_id) {
-                        log::info!(
-                            "Companion downloads stopping — {comp_dl_id} was cancelled"
-                        );
+                    if !comp_queue.lock().await.should_keep_running(&comp_attempt) {
+                        log::info!("Companion downloads stopping — {comp_dl_id} was cancelled");
                         emit_download_log(
                             &comp_app,
                             &comp_dl_id,
@@ -2683,18 +3479,162 @@ pub(crate) fn spawn_companion_downloads(
                     opts.song_codec = None;
                     opts.song_codec_priority = Some(codec.to_runtime_cli_string().to_string());
 
+                    // Final guard: this copy's file names must never be the
+                    // primary's (same suffix in the same folder would
+                    // overwrite it, or with overwrite off silently not
+                    // save the copy).
+                    let plan = match companion_attempt_naming(
+                        codec,
+                        tier.apply_suffix,
+                        &opts,
+                        &primary,
+                        &primary_codecs,
+                    ) {
+                        Ok(plan) => plan,
+                        Err(why) => {
+                            let reason = match why {
+                                CompanionSkip::SameFormat => {
+                                    "the main download is already in that format"
+                                }
+                                CompanionSkip::SameNames => {
+                                    "its files would have had the same names as the main download"
+                                }
+                            };
+                            emit_download_log(
+                                &comp_app,
+                                &comp_dl_id,
+                                &format!(
+                                    "An extra copy in {} was skipped because {reason}.",
+                                    plain_codec_name(codec)
+                                ),
+                            );
+                            continue;
+                        }
+                    };
                     // If this tier needs a suffix (e.g., ALAC
                     // companion in AtmosToLosslessAndLossy mode
                     // gets [Lossless]), apply it to the options.
-                    if tier.apply_suffix {
+                    if plan.apply_suffix {
                         apply_codec_suffix(&mut opts);
                     }
+                    // Copies in this format already in the album folder from
+                    // an earlier run — possibly carrying an advisory label
+                    // GAMDL's own name check does not know about. Only for a
+                    // suffixed attempt; a plain one (standard AAC) relies on
+                    // GAMDL's check.
+                    let existing_copies: super::lyrics_pass::ExistingCopies = match (
+                        companion_album_dir.as_deref(),
+                        codec_suffix(codec).filter(|s| plan.apply_suffix && !s.is_empty()),
+                    ) {
+                        (Some(dir), Some(suffix)) => super::lyrics_pass::tracks_with_existing_copy(
+                            dir,
+                            suffix,
+                            super::lyrics_pass::read_copy_evidence,
+                            &album_tracks,
+                            gate_album_name.as_deref(),
+                        ),
+                        _ => super::lyrics_pass::ExistingCopies::default(),
+                    };
+                    // Songs with a copy in an EARLIER format of this tier
+                    // (found before that attempt): not asked for again in
+                    // this one, so a fallback format never adds a second
+                    // copy of a song that already has one.
+                    let covered_earlier = tier_covered.clone();
+                    for t in &existing_copies.tracks {
+                        if !tier_covered.contains(t) {
+                            tier_covered.push(*t);
+                        }
+                    }
+                    // A mixed album (see `AttemptPlan::only_other_tracks`),
+                    // or copies already there: ask only for the rest.
+                    let attempt_urls: Vec<String> = match attempt_links(
+                        codec,
+                        plan.only_other_tracks,
+                        &comp_urls,
+                        &primary_tracks,
+                        &album_tracks,
+                        &unplaceable,
+                        &existing_copies.tracks,
+                        existing_copies.labelled,
+                        &covered_earlier,
+                    ) {
+                        AttemptLinks::All => comp_urls.clone(),
+                        AttemptLinks::Skip(reason) => {
+                            emit_download_log(&comp_app, &comp_dl_id, &reason);
+                            continue;
+                        }
+                        AttemptLinks::Only {
+                            links,
+                            unmapped,
+                            unreadable,
+                            already_there: present,
+                            details_available,
+                        } => {
+                            if let Some(line) = already_there_line(codec, present) {
+                                emit_download_log(&comp_app, &comp_dl_id, &line);
+                            }
+                            // Every song that can be asked for already has its
+                            // copy: the tier is done (songs that could not be
+                            // asked for are reported below, and a different
+                            // format is not tried just because of them).
+                            if links.is_empty() && present > 0 {
+                                for line in mixed_album_lines(
+                                    codec,
+                                    1, // not "nothing was requested": copies are there
+                                    unmapped,
+                                    unreadable,
+                                    details_available,
+                                ) {
+                                    emit_download_log(&comp_app, &comp_dl_id, &line);
+                                }
+                                tier_succeeded = true;
+                                if let Ok(mut progress) = progress_for_task.lock() {
+                                    progress.completed_tiers.insert(tier_idx);
+                                    progress.current_tier = None;
+                                }
+                                break;
+                            }
+                            for line in mixed_album_lines(
+                                codec,
+                                links.len(),
+                                unmapped,
+                                unreadable,
+                                details_available,
+                            ) {
+                                emit_download_log(&comp_app, &comp_dl_id, &line);
+                            }
+                            if links.is_empty() {
+                                continue;
+                            }
+                            links
+                        }
+                    };
+                    let requested_songs = (attempt_urls != comp_urls).then_some(attempt_urls.len());
+                    // How many songs this attempt asks for: the song links, or
+                    // for the whole album this download's songs not already
+                    // in this format (0 when unknown).
+                    let expected_songs = requested_songs
+                        .unwrap_or_else(|| songs_wanted_in(codec, &primary_tracks, &unplaceable));
+                    // An extra-format copy only ever ADDS files: it never
+                    // replaces one, whatever the person's overwrite setting
+                    // says. A file of the same name may be the main
+                    // download's (enriched) file, another album's, or an
+                    // earlier download's — none of which a copy may destroy.
+                    // The trade-off: re-downloading does not refresh extra
+                    // copies already on disk. Each skip of that kind is
+                    // counted from GAMDL's output and reported in one line.
+                    opts.overwrite = Some(false);
+                    let already_there = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                    // Songs GAMDL said are not offered in this format.
+                    let not_offered = Arc::new(std::sync::atomic::AtomicUsize::new(0));
                     // If not suffixed, the base options already
                     // have clean (unsuffixed) templates.
 
                     // Build the GAMDL CLI command for the companion
                     let mut cmd = match gamdl_service::build_gamdl_command_public(
-                        &comp_app, &comp_urls, &opts,
+                        &comp_app,
+                        &attempt_urls,
+                        &opts,
                     ) {
                         Ok(c) => c,
                         Err(e) => {
@@ -2738,9 +3678,15 @@ pub(crate) fn spawn_companion_downloads(
                     let supervisor_dl = comp_dl_id.clone();
                     let label_for_emit = format!("companion-tier-{tier_idx}");
                     let companion_settings = load_settings_for_queue(&comp_app);
-                    let idle_timeout = std::time::Duration::from_secs(
-                        u64::from(companion_settings.gamdl_idle_timeout_minutes.max(1)) * 60,
-                    );
+                    // Same rule as the main download (at least 30 minutes
+                    // for GAMDL 4.x, which is silent while it downloads):
+                    // see `gamdl_capabilities::idle_minutes_for`.
+                    let companion_idle_minutes =
+                        crate::services::gamdl_capabilities::idle_minutes_for_installed(
+                            companion_settings.gamdl_idle_timeout_minutes,
+                        );
+                    let idle_timeout =
+                        std::time::Duration::from_secs(u64::from(companion_idle_minutes) * 60);
                     // Track-aware companion caption (#799). The
                     // per-tier label set at tier start
                     // ("Companion: downloading atmos (tier 2)…") is
@@ -2758,15 +3704,22 @@ pub(crate) fn spawn_companion_downloads(
                     let tier_idx_for_label = tier_idx;
                     let queue_for_label = comp_queue.clone();
                     let app_for_label = comp_app.clone();
-                    let dl_for_label = comp_dl_id.clone();
+                    let attempt_for_label = comp_attempt.clone();
+                    let already_there_counter = already_there.clone();
+                    let not_offered_counter = not_offered.clone();
                     let emitter: super::companion_supervisor::LineEmitter =
                         std::sync::Arc::new(move |app, dl, stream, line| {
+                            if is_already_there_skip_line(&line) {
+                                already_there_counter.fetch_add(1, Ordering::Relaxed);
+                            } else if process::is_format_not_offered_line(&line) {
+                                not_offered_counter.fetch_add(1, Ordering::Relaxed);
+                            }
                             // Captured-by-value clones for the per-line update path.
                             let codec_name = tier_label_codec.clone();
                             let tier_n = tier_idx_for_label;
                             let queue_clone = queue_for_label.clone();
                             let app_clone_inner = app_for_label.clone();
-                            let dl_clone_inner = dl_for_label.clone();
+                            let attempt_inner = attempt_for_label.clone();
                             Box::pin(async move {
                                 let kind = if stream.contains("stderr") {
                                     "stderr"
@@ -2777,7 +3730,7 @@ pub(crate) fn spawn_companion_downloads(
                                 update_companion_label_from_line(
                                     &app_clone_inner,
                                     &queue_clone,
-                                    &dl_clone_inner,
+                                    &attempt_inner,
                                     tier_n,
                                     &codec_name,
                                     &line,
@@ -2797,12 +3750,19 @@ pub(crate) fn spawn_companion_downloads(
                     // companion AC3 ran on a track Apple Music doesn't ship in
                     // AC3, GAMDL produced 0 files, but the activity log said
                     // "Companion download complete (tier 0, codec: ac3)".
-                    let pre_run_audio_count = opts
+                    //
+                    // The list itself (not just its length) is kept: the tier's
+                    // format tags are written only to the files this tier adds
+                    // (`tier_new_m4a`), never to the main download's files or to
+                    // older ones. Same walk and same filter as
+                    // `count_audio_files_in_directory`, so the count is unchanged.
+                    let before_tier: std::collections::BTreeSet<std::path::PathBuf> = opts
                         .output_path
                         .as_deref()
                         .map(std::path::Path::new)
-                        .map(count_audio_files_in_directory)
-                        .unwrap_or(0);
+                        .map(super::lyrics_pass::audio_files_in)
+                        .unwrap_or_default();
+                    let pre_run_audio_count = before_tier.len();
 
                     let run_result = super::companion_supervisor::run_supervised(
                         &supervisor_app,
@@ -2813,6 +3773,11 @@ pub(crate) fn spawn_companion_downloads(
                         emitter,
                     )
                     .await;
+                    if let Some(line) =
+                        already_there_line(codec, already_there.load(Ordering::Relaxed))
+                    {
+                        emit_download_log(&comp_app, &comp_dl_id, &line);
+                    }
 
                     // Surface the post-processing transition to the queue UI so
                     // the per-item bar switches from `DOWNLOADING…` to
@@ -2821,8 +3786,8 @@ pub(crate) fn spawn_companion_downloads(
                     if let Ok(ref r) = run_result {
                         if r.reached_post_processing {
                             let mut q = comp_queue.lock().await;
-                            q.set_processing_label(
-                                &supervisor_dl,
+                            q.set_processing_label_for(
+                                &comp_attempt,
                                 &format!(
                                     "Post-processing companion ({}): remux / decrypt",
                                     stream_codec
@@ -2841,22 +3806,61 @@ pub(crate) fn spawn_companion_downloads(
                             // this check, the companion task records a false
                             // success — confusing for the user when checking
                             // history / diagnosing missing companions.
-                            let post_run_audio_count = opts
+                            let after_tier: std::collections::BTreeSet<std::path::PathBuf> = opts
                                 .output_path
                                 .as_deref()
                                 .map(std::path::Path::new)
-                                .map(count_audio_files_in_directory)
-                                .unwrap_or(0);
+                                .map(super::lyrics_pass::audio_files_in)
+                                .unwrap_or_default();
+                            let post_run_audio_count = after_tier.len();
+                            if post_run_audio_count <= pre_run_audio_count
+                                && tier_done_without_new_files(
+                                    already_there.load(Ordering::Relaxed),
+                                    not_offered.load(Ordering::Relaxed),
+                                    expected_songs,
+                                )
+                            {
+                                let skipped = not_offered.load(Ordering::Relaxed);
+                                if skipped > 0 {
+                                    emit_download_log(
+                                        &comp_app,
+                                        &comp_dl_id,
+                                        &format!(
+                                            "{skipped} song(s) are not offered in {}.",
+                                            plain_codec_name(codec)
+                                        ),
+                                    );
+                                }
+                                // No new files, but GAMDL said the copies were
+                                // already there: the tier is satisfied (the
+                                // "already there" line has been written).
+                                {
+                                    let mut q = comp_queue.lock().await;
+                                    q.clear_processing_label_for(&comp_attempt);
+                                }
+                                tier_succeeded = true;
+                                if let Ok(mut progress) = progress_for_task.lock() {
+                                    progress.completed_tiers.insert(tier_idx);
+                                    progress.current_tier = None;
+                                }
+                                break;
+                            }
                             if post_run_audio_count <= pre_run_audio_count {
                                 // No new files landed — the codec wasn't
                                 // available for any track in this URL set.
                                 emit_download_log(
                                     &comp_app,
                                     &comp_dl_id,
-                                    &format!(
-                                        "Companion (tier {}, codec: {}): no compatible format available — skipped (no files produced)",
-                                        tier_idx, stream_codec,
-                                    ),
+                                    &match requested_songs {
+                                        Some(n) => format!(
+                                            "Companion (tier {}, codec: {}): no compatible format available for the {n} song(s) requested — skipped (no files produced)",
+                                            tier_idx, stream_codec,
+                                        ),
+                                        None => format!(
+                                            "Companion (tier {}, codec: {}): no compatible format available — skipped (no files produced)",
+                                            tier_idx, stream_codec,
+                                        ),
+                                    },
                                 );
                                 // Do NOT mark this tier as succeeded; let the
                                 // next codec in the tier (if any) be tried.
@@ -2867,7 +3871,7 @@ pub(crate) fn spawn_companion_downloads(
                                 // nothing to post-process.
                                 {
                                     let mut q = comp_queue.lock().await;
-                                    q.clear_processing_label(&supervisor_dl);
+                                    q.clear_processing_label_for(&comp_attempt);
                                 }
                                 continue;
                             }
@@ -2887,7 +3891,10 @@ pub(crate) fn spawn_companion_downloads(
                             if let Some(ref output_dir) = opts.output_path {
                                 // Rename cover art per user setting (#448)
                                 let comp_settings = load_settings_for_queue(&comp_app);
-                                rename_cover_art(output_dir, comp_settings.cover_art_name.to_filename_stem());
+                                rename_cover_art(
+                                    output_dir,
+                                    comp_settings.cover_art_name.to_filename_stem(),
+                                );
 
                                 // Scope the lyrics conversion AND the tag pass
                                 // (#816) to the album we just produced —
@@ -2922,26 +3929,78 @@ pub(crate) fn spawn_companion_downloads(
                                 // previously-completed items. Now scope to
                                 // the current item's resolved album dir via
                                 // the same hints the lyrics conversion uses.
-                                let tag_pass_target = find_album_directory(
+                                // **Only the files THIS tier added** get its format
+                                // tags (#1442). The folder-wide pass used to write
+                                // this tier's tags (for example "lossless") into the
+                                // main download's files, earlier copies and older
+                                // downloads in the same folder. Files outside
+                                // the folder known to hold this download are left
+                                // out too (another download's files can appear
+                                // while this tier runs). Each file is tagged under the
+                                // app-wide write lock; the tagging function itself
+                                // takes no lock.
+                                let recorded_dir = lyrics_scope_handle.as_ref().and_then(|h| {
+                                    h.lock()
+                                        .ok()
+                                        .and_then(|g| g.as_ref().map(|sc| sc.dir.clone()))
+                                });
+                                let tag_folder = tier_tag_folder(
                                     std::path::Path::new(output_dir),
+                                    recorded_dir.as_deref(),
+                                    companion_album_dir.as_deref(),
+                                );
+                                // Copies can also land outside the recorded
+                                // folder (the predicted-suffix folder case the
+                                // lyrics step handles with `resolve_extra_dir`).
+                                // That name lookup only runs when some new file
+                                // really is outside the known folder.
+                                let tag_folders = tier_tag_folders(
+                                    std::path::Path::new(output_dir),
+                                    &tag_folder,
+                                    &gate_other_dirs,
+                                    &before_tier,
+                                    &after_tier,
                                     artist_hint.as_deref(),
                                     album_hint.as_deref(),
-                                )
-                                .unwrap_or_else(|| output_dir.clone());
-                                match super::metadata_tag_service::apply_codec_metadata_tags(
-                                    &tag_pass_target,
+                                );
+                                let within: Vec<&std::path::Path> =
+                                    tag_folders.iter().map(|p| p.as_path()).collect();
+                                let tagged = tag_tier_additions(
+                                    &before_tier,
+                                    &after_tier,
+                                    &within,
                                     codec,
-                                ) {
-                                    Ok(count) if count > 0 => {
-                                        log::info!(
-                                            "Tagged {} companion file(s) with {} metadata in {} for {}",
-                                            count, stream_codec, tag_pass_target, comp_dl_id
-                                        );
-                                    }
-                                    Ok(_) => {}
-                                    Err(e) => {
-                                        log::debug!("Companion metadata tagging failed for {comp_dl_id}: {e}");
-                                    }
+                                    &comp_dl_id,
+                                    (!gate_stamps.albums.is_empty()).then_some(&gate_stamps),
+                                )
+                                .await;
+                                if tagged > 0 {
+                                    log::info!(
+                                        "Tagged {} companion file(s) with {} metadata in {} for {}",
+                                        tagged,
+                                        stream_codec,
+                                        tag_folder.display(),
+                                        comp_dl_id
+                                    );
+                                }
+                                let left_out =
+                                    tier_files_outside(&before_tier, &after_tier, &within);
+                                if !left_out.is_empty() {
+                                    log::debug!(
+                                        "Extra copies not tagged for {comp_dl_id} (outside {:?}): {:?}",
+                                        within,
+                                        left_out
+                                    );
+                                    // Say so whenever any new copy was left out,
+                                    // not only when every one was: with some
+                                    // tagged and some not, the person would
+                                    // otherwise never hear about the rest.
+                                    let line = if tagged == 0 {
+                                        "The format details of the extra copies could not be added, because they were saved outside the album folder."
+                                    } else {
+                                        "The format details of some of the extra copies could not be added, because they were saved outside the album folder."
+                                    };
+                                    emit_download_log(&comp_app, &comp_dl_id, line);
                                 }
 
                                 // #843: lyrics conversion was previously called
@@ -2956,7 +4015,7 @@ pub(crate) fn spawn_companion_downloads(
                             // Clear the post-processing label now that we're done.
                             {
                                 let mut q = comp_queue.lock().await;
-                                q.clear_processing_label(&supervisor_dl);
+                                q.clear_processing_label_for(&comp_attempt);
                             }
 
                             tier_succeeded = true;
@@ -2976,8 +4035,7 @@ pub(crate) fn spawn_companion_downloads(
                                 msg
                             } else if r.idle_killed {
                                 format!(
-                                    "GAMDL was idle for {} min — terminated by watchdog",
-                                    companion_settings.gamdl_idle_timeout_minutes.max(1)
+                                    "GAMDL was idle for {companion_idle_minutes} min — terminated by watchdog"
                                 )
                             } else if r.had_soft_error {
                                 "GAMDL exited 0 but reported per-track errors — treating as failure"
@@ -2998,7 +4056,7 @@ pub(crate) fn spawn_companion_downloads(
                             // Reset post-processing label on failure too.
                             {
                                 let mut q = comp_queue.lock().await;
-                                q.clear_processing_label(&supervisor_dl);
+                                q.clear_processing_label_for(&comp_attempt);
                             }
                         }
                         Err(e) => {
@@ -3028,6 +4086,101 @@ pub(crate) fn spawn_companion_downloads(
             // library once per successful tier, doubling/tripling wasted
             // work on big libraries. TTML files don't change between tiers,
             // so converting them once is correct.
+            // Finish the main download's own lyrics first, if enrichment
+            // stopped before it was done with them (its deadline, an early
+            // return). This does not depend on an extra copy having been
+            // made: the main files are unfinished either way. It stops for
+            // cancel and shutdown (`catch_up_stop`, and the checks right
+            // here), but not for the deadline — see `catch_up_stop`.
+            let settings = load_settings_for_queue(&comp_app);
+            let stop_aborted = aborted_for_task.clone();
+            let stop_shutdown = comp_shutdown.clone();
+            let stop_queue = comp_queue.clone();
+            let stop_attempt = comp_attempt.clone();
+            // Also stops when the item is cancelled mid-run. A queue that
+            // is busy right now is not waited for: the next step asks
+            // again.
+            let stop = move || {
+                stop_aborted.load(Ordering::Relaxed)
+                    || stop_shutdown.is_triggered()
+                    || stop_queue
+                        .try_lock()
+                        .is_ok_and(|q| !q.should_keep_running(&stop_attempt))
+            };
+            // The catch-up's own stop check leaves out the deadline flag, so a
+            // deadline does not end it between two files. If the task is
+            // aborted while the catch-up waits for a file's lock, the
+            // catch-up takes the whole list first but puts the files it had
+            // not finished back on `pending_main_lyrics` as it is dropped
+            // (`PendingRestore`), so the completion task's own catch-up still
+            // finds them. Cancel and quit also stop it between files, and
+            // leave the remainder on the list for the same reason.
+            let catch_up_shutdown = comp_shutdown.clone();
+            let catch_up_queue = comp_queue.clone();
+            let catch_up_attempt = comp_attempt.clone();
+            let catch_up_stop = move || {
+                catch_up_shutdown.is_triggered()
+                    || catch_up_queue
+                        .try_lock()
+                        .is_ok_and(|q| !q.should_keep_running(&catch_up_attempt))
+            };
+            if comp_queue.lock().await.should_keep_running(&comp_attempt) {
+                // Wait for any writing job an abandoned enrichment left
+                // running, so the two never write the same file at once.
+                let wait = match in_flight_handle.as_ref() {
+                    Some(in_flight) => {
+                        super::lyrics_steps::wait_to_catch_up(
+                            pending_main_handle.as_ref(),
+                            in_flight,
+                            super::lyrics_steps::CATCH_UP_WAIT,
+                        )
+                        .await
+                    }
+                    None => super::lyrics_steps::CatchUpWait::NothingPending,
+                };
+                match wait {
+                    super::lyrics_steps::CatchUpWait::TimedOut => {
+                        log::debug!(
+                            "Lyrics catch-up skipped for {comp_dl_id}: a writing job was still running"
+                        );
+                    }
+                    other => {
+                        // Held until the catch-up has finished writing.
+                        let _hold = other;
+                        let (queue_artist, queue_album) = {
+                            let q = comp_queue.lock().await;
+                            q.items
+                                .iter()
+                                .find(|i| i.status.id == comp_dl_id)
+                                .map(|i| {
+                                    (i.status.artist_name.clone(), i.status.album_name.clone())
+                                })
+                                .unwrap_or((None, None))
+                        };
+                        let (names_artist, names_title) =
+                            super::lyrics_steps::lyricsfile_names_for_catch_up(
+                                lyricsfile_artist.as_deref(),
+                                lyricsfile_default_title.as_deref(),
+                                queue_artist.as_deref(),
+                                queue_album.as_deref(),
+                            );
+                        if let Some(line) = super::companion_lyrics::recover_pending_locked(
+                            crate::utils::file_locks::global(),
+                            pending_main_handle.as_ref(),
+                            &settings,
+                            names_artist.as_deref(),
+                            names_title.as_deref(),
+                            &catch_up_stop,
+                        )
+                        .await
+                        .as_ref()
+                        .and_then(super::companion_lyrics::recovery_line)
+                        {
+                            emit_download_log(&comp_app, &comp_dl_id, &line);
+                        }
+                    }
+                }
+            }
             if any_tier_produced_files && !aborted_for_task.load(Ordering::Relaxed) {
                 let Some(output_dir) = comp_base_opts.output_path.as_deref() else {
                     return;
@@ -3043,21 +4196,88 @@ pub(crate) fn spawn_companion_downloads(
                         .map(|i| (i.status.artist_name.clone(), i.status.album_name.clone()))
                         .unwrap_or((None, None))
                 };
-                set_stage_with_label(
+                set_stage_with_label_for(
                     &comp_app,
                     &comp_queue,
-                    &comp_dl_id,
+                    &comp_attempt,
                     ProgressStage::Finalising,
                     "Companion: converting lyrics formats…",
                 );
-                run_companion_lyrics_conversion(
+                // #1440/#1441: only THIS download's new copies are given
+                // lyrics, matched to the main download's files
+                // (`companion_lyrics.rs`). With a recorded scope that is
+                // exact. Without one (the gate was dropped, or the failure
+                // path) the scope is rebuilt from what appeared in the album
+                // folder after the extra copies started, and every such copy
+                // gets its own lyrics. There is no folder-wide pass any more.
+                let recorded_scope = lyrics_scope_handle
+                    .as_ref()
+                    .and_then(|h| h.lock().ok().and_then(|g| g.clone()));
+                // A cancelled item gets no more lyrics work.
+                if !comp_queue.lock().await.should_keep_running(&comp_attempt) {
+                    log::info!("Extra copy lyrics skipped — {comp_dl_id} was cancelled");
+                    return;
+                }
+                let output_dir = std::path::PathBuf::from(output_dir);
+                let (scope, since) = if let Some(scope) = recorded_scope {
+                    (scope, gate_opened_at.unwrap_or(tiers_started_at))
+                } else {
+                    let Some(dir_after) = super::companion_lyrics::resolve_album_folder(
+                        &output_dir,
+                        companion_album_dir.as_deref(),
+                        artist_hint.as_deref(),
+                        album_hint.as_deref(),
+                    ) else {
+                        log::debug!(
+                            "Extra copy lyrics: no album folder found for {comp_dl_id} — skipping"
+                        );
+                        return;
+                    };
+                    (
+                        super::companion_lyrics::fallback_scope(
+                            &dir_after,
+                            folder_before.as_ref(),
+                            tiers_started_at,
+                        ),
+                        tiers_started_at,
+                    )
+                };
+                set_stage_with_label_for(
                     &comp_app,
-                    &comp_dl_id,
-                    output_dir,
+                    &comp_queue,
+                    &comp_attempt,
+                    ProgressStage::Finalising,
+                    "Extra copies: adding lyrics…",
+                );
+                // Run right here, not in `spawn_blocking`: aborting the task
+                // cannot stop a blocking closure that has already started,
+                // which could keep writing files after the final rename pass
+                // began. Done in this task, the completion task's wait covers
+                // it (#663), and the stop check is asked before every step.
+                // The names the album details gave; when they were never set,
+                // the queue item's own names stand in.
+                let (copy_artist, copy_title) = super::lyrics_steps::lyricsfile_names_for_catch_up(
+                    lyricsfile_artist.as_deref(),
+                    lyricsfile_default_title.as_deref(),
                     artist_hint.as_deref(),
                     album_hint.as_deref(),
-                    &aborted_for_task,
                 );
+                let summary = super::companion_lyrics::run(
+                    &settings,
+                    &scope,
+                    &output_dir,
+                    artist_hint.as_deref(),
+                    album_hint.as_deref(),
+                    since,
+                    &album_tracks,
+                    copy_artist.as_deref(),
+                    copy_title.as_deref(),
+                    &stop,
+                )
+                .await;
+                if let Some(line) = super::companion_lyrics::summary_line(&summary) {
+                    emit_download_log(&comp_app, &comp_dl_id, &line);
+                }
             }
         });
         // Heartbeat ticker for the companion phase (#805). Shares the
@@ -3082,240 +4302,30 @@ pub(crate) fn spawn_companion_downloads(
         })
     };
 
-    /// Runs lyrics format conversion on a companion download's output directory.
-    ///
-    /// Companions inherit TTML as the lyrics format (forced by Enhanced LRC),
-    /// but the enrichment pipeline only runs for the primary download. This
-    /// function runs the same conversion steps so companion sidecars get
-    /// Enhanced LRC, Rich SRT, WebVTT, and ASS conversions.
-    ///
-    /// The `output_dir` parameter is the top-level output path from GamdlOptions
-    /// (e.g., `~/Music/`), not the album-specific directory. GAMDL creates the
-    /// `Artist/Album/` structure within this path. The lyrics conversion services
-    /// expect the album directory (where .ttml and .m4a files live), so this
-    /// function resolves it by recursively finding directories with TTML files.
-    fn run_companion_lyrics_conversion(
-        app: &tauri::AppHandle,
-        dl_id: &str,
-        output_dir: &str,
-        artist_hint: Option<&str>,
-        album_hint: Option<&str>,
-        aborted: &Arc<AtomicBool>,
-    ) {
-        let settings = load_settings_for_queue(app);
-        let base = std::path::Path::new(output_dir);
-
-        if !base.is_dir() {
-            return;
-        }
-        // Cooperative-cancel checkpoint #1 (#663). Bail before the
-        // potentially-multi-minute recursive directory walk if the
-        // completion task already fired the deadline.
-        if aborted.load(Ordering::Relaxed) {
-            return;
-        }
-
-        // Resolve the album directory in three layered ways, falling
-        // through to the next only when the prior produces nothing:
-        //   (1) targeted `{output_dir}/{artist}/{album}/` when both hints
-        //       are non-empty strings,
-        //   (2) `find_album_directory` (case-insensitive match + deepest
-        //       recently-modified audio dir),
-        //   (3) skip — return an empty `album_dirs` and bail.
-        //
-        // **What we no longer do (#839).** Previously the catch-all arm
-        // walked `find_dirs_with_ttml(base)` over the *entire* output
-        // root whenever either hint was missing, producing the
-        // 484-album-dir / 25-minute symptom users reported on v1.8.x.
-        // The depth-10 cap inside `find_dirs_with_ttml` doesn't help
-        // because user libraries naturally fit within 3 levels
-        // (`~/Music/Artist/Album/`). The trigger wasn't only
-        // `(None, None)`: an Apple Music API response with an empty
-        // artist or album string (`Some("")`) joined as `base` itself,
-        // satisfied `.is_dir()`, and walked the whole library too. The
-        // empty-string filter below treats those as missing.
-        let artist_hint = artist_hint.filter(|s| !s.is_empty());
-        let album_hint = album_hint.filter(|s| !s.is_empty());
-
-        let resolved_album_dir: Option<std::path::PathBuf> = if let (Some(artist), Some(album)) =
-            (artist_hint, album_hint)
-        {
-            let scoped = base.join(artist).join(album);
-            if scoped.is_dir() {
-                log::debug!(
-                    "Companion lyrics: scoped to album dir {} for {dl_id}",
-                    scoped.display()
-                );
-                Some(scoped)
-            } else {
-                // Hinted path doesn't exist on disk (e.g. user's folder
-                // template differs from `{album_artist}/{album}`, or
-                // sanitisation rewrote special characters). Try the
-                // shared `find_album_directory` resolver which handles
-                // case-insensitive matches + a bounded deepest-audio-dir
-                // scan, same as the codec-tag pass uses at #816.
-                find_album_directory(base, Some(artist), Some(album)).map(std::path::PathBuf::from)
-            }
-        } else {
-            log::debug!(
-                "Companion lyrics: no artist/album hints for {dl_id} — \
-                 attempting find_album_directory recovery for {output_dir}"
-            );
-            find_album_directory(base, artist_hint, album_hint).map(std::path::PathBuf::from)
-        };
-
-        let album_dirs: Vec<std::path::PathBuf> = match resolved_album_dir {
-            Some(dir) => find_dirs_with_ttml(&dir),
-            None => {
-                log::debug!(
-                    "Companion lyrics: no specific album dir resolved for {dl_id} — \
-                     skipping conversion (item likely had no successful audio)"
-                );
-                Vec::new()
-            }
-        };
-        if album_dirs.is_empty() {
-            log::debug!(
-                "Companion lyrics: no TTML files found in {output_dir} — skipping conversion"
-            );
-            return;
-        }
-        emit_download_log(
-            app,
-            dl_id,
-            &format!(
-                "Companion lyrics conversion: processing {} album dir(s)...",
-                album_dirs.len()
-            ),
-        );
-
-        for album_dir in &album_dirs {
-            // Cooperative-cancel checkpoint #2 (#663). Without this,
-            // the loop would emit `Companion: converted N TTML…`
-            // entries for every album dir even after the completion
-            // task aborted us — the symptom from the captured logs.
-            if aborted.load(Ordering::Relaxed) {
-                log::info!(
-                    "Companion lyrics conversion aborted for {dl_id} — \
-                     processed {}/{} album dirs",
-                    album_dirs.iter().position(|p| p == album_dir).unwrap_or(0),
-                    album_dirs.len(),
-                );
-                return;
-            }
-            let dir_str = album_dir.to_string_lossy();
-
-            // Enhanced LRC: TTML → word-by-word LRC
-            if settings.enhanced_lrc {
-                match super::enhanced_lyrics_service::process_enhanced_lyrics_for_directory(&dir_str, settings.keep_lyrics_sidecar)
-                {
-                    Ok(count) if count > 0 => {
-                        emit_download_log(
-                            app,
-                            dl_id,
-                            &format!("Companion: converted {count} TTML file(s) to Enhanced LRC"),
-                        );
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::debug!("Companion Enhanced LRC conversion failed: {e}");
-                    }
-                }
-            }
-
-            // Rich SRT: TTML → styled SRT with bold/italic/colour
-            if settings.generate_rich_srt && settings.keep_lyrics_sidecar {
-                match super::rich_srt_service::generate_rich_srt_for_directory(&dir_str) {
-                    Ok(count) if count > 0 => {
-                        log::debug!("Companion: generated {count} Rich SRT file(s)");
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::debug!("Companion Rich SRT generation failed: {e}");
-                    }
-                }
-            }
-
-            // WebVTT: TTML/SRT/LRC → .vtt
-            if settings.generate_webvtt && settings.keep_lyrics_sidecar {
-                match super::webvtt_service::generate_webvtt_for_directory(&dir_str) {
-                    Ok(count) if count > 0 => {
-                        log::debug!("Companion: generated {count} WebVTT file(s)");
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::debug!("Companion WebVTT generation failed: {e}");
-                    }
-                }
-            }
-
-            // ASS: → styled .ass subtitles
-            if settings.generate_ass && settings.keep_lyrics_sidecar {
-                match super::ass_subtitle_service::generate_ass_for_directory(&dir_str) {
-                    Ok(count) if count > 0 => {
-                        log::debug!("Companion: generated {count} ASS subtitle file(s)");
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::debug!("Companion ASS generation failed: {e}");
-                    }
-                }
-            }
-        }
-    }
-
-    /// Recursively finds directories that contain `.ttml` files.
-    ///
-    /// GAMDL creates an `Artist/Album/` directory structure within the output
-    /// path. The lyrics conversion services expect the leaf album directory
-    /// where `.ttml` and `.m4a` files coexist. This helper walks the tree
-    /// and collects every directory that directly contains at least one
-    /// `.ttml` file.
-    ///
-    /// **Depth-limited** to 10 levels (matching the convention used by
-    /// `scan_folder_for_manifests`). Without a cap, pointing this at a
-    /// large user music library walks tens of thousands of directories
-    /// and stalls the companion task for tens of minutes — the symptom
-    /// the user reported as a 30-minute silent gap between
-    /// `Companion download complete` and `Companion: converted N TTML…`.
-    fn find_dirs_with_ttml(base: &std::path::Path) -> Vec<std::path::PathBuf> {
-        // Migrated to the shared `utils::fs_walk::walk_dir_depth` helper
-        // (#716/1, v1.0.4 prep). Strategy: walk every entry, return the
-        // PARENT path of each `.ttml` file the visitor sees, then dedup
-        // via HashSet — net behaviour identical to the previous "scan
-        // each dir, set a `has_ttml_here` flag, push if true" pattern,
-        // but the per-directory state is replaced by post-pass dedup
-        // which fits the visitor model cleanly.
-        //
-        // Depth limit of 10 preserved (the convention used by
-        // `scan_folder_for_manifests`); see #712 for why this matters
-        // — without it, pointing at a large library produces the
-        // 30-minute hang the user reproduced on 2026-05-08.
-        const MAX_DEPTH: u32 = 10;
-        let parent_dirs: std::collections::HashSet<std::path::PathBuf> =
-            crate::utils::fs_walk::walk_dir_depth(base, MAX_DEPTH, |path| {
-                if path.is_file()
-                    && path
-                        .extension()
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
-                {
-                    path.parent().map(|p| p.to_path_buf())
-                } else {
-                    None
-                }
-            })
-            .into_iter()
-            .collect();
-        parent_dirs.into_iter().collect()
-    }
-
     // === Lyrics companion downloads (background, fire-and-forget) ===
     // When the user has selected additional lyrics formats beyond the
     // primary, spawn a lightweight GAMDL invocation for each extra
     // format using --synced-lyrics-only. This produces sidecar lyrics
     // files (.lrc, .srt, .ttml) without re-downloading audio.
     let lyrics_settings = load_settings_for_queue(app);
-    if !lyrics_settings.companion_lyrics_formats.is_empty()
+    // GAMDL 4.x has no lyrics-only mode, so each of these runs would
+    // become a full re-download of the album (found in review round 4).
+    // Skipped, with one line saying why; 4.x writes `.lrc` / `.txt`
+    // during the main download.
+    let lyrics_only_unavailable = crate::services::gamdl_capabilities::detected_cli_generation()
+        == crate::services::gamdl_capabilities::GamdlCliGeneration::V4;
+    if lyrics_only_unavailable
+        && !lyrics_settings.companion_lyrics_formats.is_empty()
+        && (!lyrics_settings.no_synced_lyrics || lyrics_settings.embed_lyrics_and_sidecar)
+    {
+        emit_download_log(
+            app,
+            dl_id,
+            "Extra lyrics formats skipped — GAMDL 4 has no lyrics-only download",
+        );
+    }
+    if !lyrics_only_unavailable
+        && !lyrics_settings.companion_lyrics_formats.is_empty()
         && (!lyrics_settings.no_synced_lyrics || lyrics_settings.embed_lyrics_and_sidecar)
     {
         let lyrics_app = app.clone();
@@ -3479,4 +4489,3 @@ pub(crate) fn spawn_companion_downloads(
     // (Lyrics companions are fire-and-forget — they're fast and non-critical.)
     codec_handle
 }
-

@@ -1,11 +1,11 @@
 ---
 name: project-audit-checks-inventory
-description: The twelve cross-source consistency scripts in tools/audit-checks/ — what each one catches, the house rules they all follow, and the pipe-swallows-your-findings trap every new one must be proven against
+description: The fourteen scripts in tools/audit-checks/ (twelve cross-source consistency checks, the capability-grant check, and the polish check run before every push) — what each one catches, the house rules they all follow, and the pipe-swallows-your-findings trap every new one must be proven against
 metadata:
   type: project
 ---
 
-# The twelve scripts in `tools/audit-checks/`
+# The fourteen scripts in `tools/audit-checks/`
 
 Each script checks that one part of the codebase still agrees with another
 part — the kind of thing that no compiler catches, because both sides are
@@ -15,6 +15,20 @@ and are runnable locally with nothing beyond Python 3's standard library.
 
 ## What each one catches
 
+- **`check_polish.py`** (added 5 Oct 2026) — the automatic half of the
+  maintainer's "nothing may look unfinished, careless or AI-made" rule: 17
+  rules a script can see without a browser (placeholders and "coming soon"
+  where people can see them, issue numbers and old version notes on screen,
+  one name/version across the build files, the native window title, icon
+  sizes, router fallback, a real crash screen, one `<h1>` per screen and no
+  heading in a button, debug output, drafts in what ships, a silenced size
+  warning, `href="#"`/empty handlers, real Settings places, claims of
+  features with no code, the hidden developer unlock, and ratchets that may
+  only go down). It runs before every push through `tools/hooks/pre-push`
+  (each clone runs `tools/install-hooks.sh` once — git never copies hooks)
+  and in `pr-security.yml`. Its self-test `test_check_polish.py` plants 29
+  faults and requires the check's own last line, so a crash cannot pass;
+  a ratchet that goes DOWN must have its ceiling lowered in the same change.
 - **`check_build_secrets.py`** — every build-time value the code reads
   (`option_env!("NAME")` in Rust, `import.meta.env.VITE_NAME` in the
   frontend) reaches EACH of the three build steps in `release.yml` that
@@ -91,6 +105,7 @@ and are runnable locally with nothing beyond Python 3's standard library.
   exactly how the two builders drifted apart in the first place (#1178). If it
   cannot read the canonical list it reports that as a finding rather than
   passing quietly.
+- **`check_capabilities_open_path.py`** (added 16 Nov 2026 with #1431) — `src-tauri/capabilities/*.json` must not give the page a permission to open arbitrary files (`opener:allow-open-path`, `opener:default`, any other opener permission that names opening a path) or to post system notifications (the only notification permission the page holds is `notification:allow-is-permission-granted`). Opening goes through the `open_downloaded_file` command; notifications are posted by the backend only. Revealing a file in the file manager stays allowed. (Added to this inventory 17 Nov 2026.)
 - **`check_tauri_version_sync.py`** — the Tauri npm package and the Tauri
   Rust crate agree on major.minor version, reproducing the exact check the
   Tauri CLI itself runs (and refuses to build past if it fails).

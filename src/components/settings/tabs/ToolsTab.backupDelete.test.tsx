@@ -34,7 +34,12 @@ import { render, screen, fireEvent, waitFor, within, act } from '@testing-librar
 
 import { ToolsTab } from './ToolsTab';
 import { useDependencyStore } from '@/stores/dependencyStore';
-import { deleteBackup, listBackups, restoreFromBackup, type BackupEntry } from '@/lib/tauri-commands';
+import {
+  deleteBackup,
+  listBackups,
+  restoreFromBackup,
+  type BackupEntry,
+} from '@/lib/tauri-commands';
 
 /**
  * Mock the Tauri IPC command wrappers ToolsTab imports. Only
@@ -45,6 +50,9 @@ import { deleteBackup, listBackups, restoreFromBackup, type BackupEntry } from '
  */
 vi.mock('@/lib/tauri-commands', () => ({
   installGamdlVersion: vi.fn(),
+  // The GAMDL 4 tool notes ask which GAMDL is installed; a never-settling
+  // answer keeps the defaults (GAMDL 3), which is what these tests expect.
+  getGamdlCapabilities: vi.fn(() => new Promise(() => {})),
   getGamdlSupportWindow: vi.fn(),
   createBackup: vi.fn(),
   listBackups: vi.fn(),
@@ -145,5 +153,16 @@ describe('ToolsTab -- Backups "Delete" confirmation', () => {
 
     expect(screen.queryByText('Delete snapshot?')).not.toBeInTheDocument();
     expect(deleteBackup).not.toHaveBeenCalled();
+  });
+});
+
+// Polish pass L13: "Backups" here was easy to confuse with the two ways of
+// saving in Settings > General. It is named for what it is.
+describe('ToolsTab -- the snapshots section name', () => {
+  it('is called Automatic Snapshots, and says when one is taken', async () => {
+    render(<ToolsTab />);
+    expect(await screen.findByRole('button', { name: 'Automatic Snapshots' })).toBeInTheDocument();
+    expect(screen.getByText(/each time it closes/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Backups?$/ })).not.toBeInTheDocument();
   });
 });

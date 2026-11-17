@@ -51,8 +51,9 @@ import { useTestLanguage } from '@/testing/i18n';
  */
 vi.mock('lucide-react', () => {
   /** Factory that creates a stub span component for a given icon name */
-  const stub = (name: string) =>
-    (props: Record<string, unknown>) => <span data-testid={`icon-${name}`} {...props} />;
+  const stub = (name: string) => (props: Record<string, unknown>) => (
+    <span data-testid={`icon-${name}`} {...props} />
+  );
 
   return {
     /* Common components */
@@ -94,6 +95,9 @@ vi.mock('lucide-react', () => {
     Shield: stub('Shield'),
     ShieldOff: stub('ShieldOff'),
     Headphones: stub('Headphones'),
+    /* SettingsSection and DisclosureButton: the shared expand chevron
+     * (polish pass L3). */
+    ChevronRight: stub('ChevronRight'),
   };
 });
 
@@ -118,6 +122,10 @@ vi.mock('@/lib/tauri-commands', () => ({
   deleteCrashReport: vi.fn().mockResolvedValue(undefined),
   deleteAllCrashReports: vi.fn().mockResolvedValue(undefined),
   getGithubIssueUrl: vi.fn().mockResolvedValue(''),
+  // #1249: GeneralTab asks the backend to order the Metadata Language
+  // list. Hand the list back unchanged; the ordering itself is tested in
+  // Rust and in useMetadataLanguageOptions.test.ts.
+  orderLanguagesForDisplay: vi.fn().mockImplementation(async (tags: string[]) => [...tags]),
   // #887: AdvancedTab calls `getGamdlCapabilities()` on mount to decide
   // whether to show the wrapper-m3u8 input and the FFmpeg-path field.
   // Return a stub with every capability `false` so the test renders the
@@ -132,7 +140,10 @@ vi.mock('@/lib/tauri-commands', () => ({
     native_codec_priority: false,
     ffmpeg_path: false,
     assets_api_unlocks_lossy_codecs: false,
+    wrapper_decrypt_host_port: false,
     play_ready_drm: false,
+    gamdl_v4: false,
+    gamdl_four_saves_album_cover: false,
   }),
 }));
 
@@ -200,6 +211,20 @@ beforeEach(() => {
 // GeneralTab
 // =============================================================================
 describe('GeneralTab', () => {
+  // Polish pass L13: three backup features had near-identical names
+  // ("Backup", "Profile Bundle", and "Backups" in Tools).
+  it('names the two ways to save settings by what each one holds', () => {
+    render(<GeneralTab />);
+    expect(screen.getByRole('button', { name: 'Settings File' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Full Copy of MeedyaDL' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Export Full Copy/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Import Full Copy/ })).toBeInTheDocument();
+    expect(
+      screen.queryByText(/Profile Bundle|Export Profile|Import Profile/)
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Backups?$/ })).not.toBeInTheDocument();
+  });
+
   // ===========================================================================
   // Toggle rendering -- initial state
   // ===========================================================================
@@ -338,25 +363,66 @@ describe('GeneralTab', () => {
   /**
    * German and French were translated by a machine and have not been
    * read through by a person who speaks the language. The dropdown says
-   * so directly on the option itself -- the option text comes straight
-   * from `LOCALES` in `src/lib/i18n.ts` (`nativeName` + the language's
-   * own `machineAssistedLabel`), so this test is really checking that
+   * so directly on the option itself -- the note comes straight from
+   * `LOCALES` in `src/lib/i18n.ts` (the language's own
+   * `machineAssistedLabel`), so this test is really checking that
    * GeneralTab builds its options from that data instead of a
    * hand-written label that could drift out of sync with it.
+   *
+   * Each row also names the language in the interface language first
+   * and then in its own language (policy UI-011: the language's own
+   * name must not be the only label) -- updated for the independent
+   * review of the language-policy work; the rows used to show only
+   * "Deutsch", "Français", "English".
    */
-  it('shows the machine-translation qualifier on the German and French options, but not on English', () => {
+  it('offers only complete languages: German and French are not listed for an English user (polish pass M10)', () => {
     render(<GeneralTab />);
 
     const select = screen.getByLabelText('Language') as HTMLSelectElement;
-    const options = Array.from(select.options);
+    const values = Array.from(select.options).map((o) => o.value);
 
-    expect(options.find((o) => o.value === 'de')?.textContent).toBe(
-      'Deutsch (automatische Übersetzung)',
+    expect(values).toEqual(['auto', 'en']);
+    // The two names are the same, so it is shown once.
+    expect(Array.from(select.options).find((o) => o.value === 'en')?.textContent).toBe('English');
+  });
+
+  it('keeps a saved German choice in the list, marked incomplete and machine-made (polish pass M10)', () => {
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, ui_language: 'de' } }));
+    render(<GeneralTab />);
+
+    const select = screen.getByLabelText('Language') as HTMLSelectElement;
+    expect(select.value).toBe('de');
+    // Named in the interface language first, then in its own language with
+    // its own notes (BCP 47 policy UI-011, polish pass M10).
+    expect(Array.from(select.options).find((o) => o.value === 'de')?.textContent).toBe(
+      'German — Deutsch (unvollständige Übersetzung, automatische Übersetzung)'
     );
-    expect(options.find((o) => o.value === 'fr')?.textContent).toBe(
-      'Français (traduction automatique)',
-    );
-    expect(options.find((o) => o.value === 'en')?.textContent).toBe('English');
+    // French was never chosen, so it is not offered.
+    expect(Array.from(select.options).some((o) => o.value === 'fr')).toBe(false);
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, ui_language: '' } }));
+  });
+
+  /** The first name follows the interface language; the value stays the code. */
+  it('names each interface language in the language the app is showing', async () => {
+    // French is not complete, so it is listed only because it is the saved
+    // choice (polish pass M10); German, chosen by nobody, is not listed.
+    useSettingsStore.setState((s) => ({ settings: { ...s.settings, ui_language: 'fr' } }));
+    await useTestLanguage('fr');
+    try {
+      render(<GeneralTab />);
+      const select = screen.getByLabelText('Language') as HTMLSelectElement;
+      const options = Array.from(select.options);
+      expect(options.some((o) => o.value === 'de')).toBe(false);
+      expect(options.find((o) => o.value === 'en')?.textContent).toBe('anglais — English');
+      // French in a French interface: "français" and "Français" differ only
+      // in letter case, so the name is shown once.
+      expect(options.find((o) => o.value === 'fr')?.textContent).toBe(
+        'Français (traduction incomplète, traduction automatique)'
+      );
+    } finally {
+      await useTestLanguage('en');
+      useSettingsStore.setState((s) => ({ settings: { ...s.settings, ui_language: '' } }));
+    }
   });
 
   /**
@@ -367,9 +433,7 @@ describe('GeneralTab', () => {
   it('does not show the machine-assisted note while the app is displaying English', () => {
     render(<GeneralTab />);
 
-    expect(
-      screen.queryByText(/was made by a machine/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/was made by a machine/i)).not.toBeInTheDocument();
   });
 
   /**
@@ -383,9 +447,7 @@ describe('GeneralTab', () => {
     await useTestLanguage('de');
     try {
       render(<GeneralTab />);
-      expect(
-        screen.getByText(/wurde maschinell erstellt/),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/wurde maschinell erstellt/)).toBeInTheDocument();
     } finally {
       await useTestLanguage('en');
     }
@@ -396,9 +458,7 @@ describe('GeneralTab', () => {
     await useTestLanguage('fr');
     try {
       render(<GeneralTab />);
-      expect(
-        screen.getByText(/réalisée par une machine/),
-      ).toBeInTheDocument();
+      expect(screen.getByText(/réalisée par une machine/)).toBeInTheDocument();
     } finally {
       await useTestLanguage('en');
     }
@@ -686,7 +746,9 @@ describe('AdvancedTab', () => {
     fireEvent.click(wrapperHeader);
 
     /* The auto-retry toggle and URL input should not be present */
-    expect(screen.queryByRole('switch', { name: /auto-retry without wrapper/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('switch', { name: /auto-retry without wrapper/i })
+    ).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/wrapper account url/i)).not.toBeInTheDocument();
   });
 
@@ -908,9 +970,7 @@ describe('CoverArtTab', () => {
     fireEvent.blur(input);
 
     /* Says what is allowed, instead of silently doing nothing. */
-    expect(
-      screen.getByText(/enter a whole number between 100 and 10000/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/enter a whole number between 100 and 10000/i)).toBeInTheDocument();
     /* What was typed is still visible -- not silently reverted. */
     expect(input).toHaveValue(50);
     /* The invalid value never reached the stored setting. */

@@ -56,6 +56,12 @@ const MOCK_SETTINGS: AppSettings = {
   abort_queue_confirm: false,
   desktop_notifications: true,
   notification_style: 'native_and_in_app',
+  native_notification_when: 'background_or_other_screen',
+  native_notification_scope: 'important',
+  notify_download_complete: true,
+  notify_download_failed: true,
+  notify_queue_finished: true,
+  notify_clipboard_link: true,
   smart_redownload_detection: true,
   clipboard_monitoring: true,
   default_song_codec: 'aac',
@@ -186,6 +192,12 @@ const BASE_SETTINGS: AppSettings = {
   abort_queue_confirm: true,
   desktop_notifications: true,
   notification_style: 'native_and_in_app',
+  native_notification_when: 'background_or_other_screen',
+  native_notification_scope: 'important',
+  notify_download_complete: true,
+  notify_download_failed: true,
+  notify_queue_finished: true,
+  notify_clipboard_link: true,
   smart_redownload_detection: true,
   clipboard_monitoring: true,
   default_song_codec: 'alac',
@@ -305,6 +317,7 @@ beforeEach(() => {
     settings: BASE_SETTINGS,
     savedSettings: BASE_SETTINGS,
     isLoading: false,
+    hasLoaded: true,
     isDirty: false,
     error: null,
   });
@@ -471,6 +484,24 @@ describe('settingsStore', () => {
   // saveSettings
   // =========================================================================
   describe('saveSettings', () => {
+    it('refuses to save before a load has succeeded (#1237)', async () => {
+      useSettingsStore.setState({ hasLoaded: false });
+      await expect(useSettingsStore.getState().saveSettings()).rejects.toThrow(
+        'Settings could not be loaded, so they were not saved. Try again or restart MeedyaDL.'
+      );
+      expect(commands.saveSettings).not.toHaveBeenCalled();
+    });
+
+    it('a failed load keeps saving refused, a later successful load allows it', async () => {
+      useSettingsStore.setState({ hasLoaded: false });
+      vi.mocked(commands.getSettings).mockRejectedValueOnce(new Error('boom'));
+      await useSettingsStore.getState().loadSettings();
+      expect(useSettingsStore.getState().hasLoaded).toBe(false);
+      vi.mocked(commands.getSettings).mockResolvedValueOnce(BASE_SETTINGS);
+      await useSettingsStore.getState().loadSettings();
+      expect(useSettingsStore.getState().hasLoaded).toBe(true);
+    });
+
     it('saves current settings to the backend', async () => {
       vi.mocked(commands.saveSettings).mockResolvedValueOnce(undefined);
 
@@ -692,7 +723,7 @@ describe('settingsStore', () => {
       expect(settings.output_path).toBe('/edited/during/save');
     });
 
-    it('saveSettings keeps savedSettings.after_queue_once as it already was, not the snapshot\'s copy', async () => {
+    it("saveSettings keeps savedSettings.after_queue_once as it already was, not the snapshot's copy", async () => {
       /*
        * The backend restores `after_queue_once` from disk on every
        * whole-settings save, regardless of what the payload says (see
@@ -708,9 +739,7 @@ describe('settingsStore', () => {
 
       /* savedSettings already knows the one-off is armed, via its own narrow write. */
       useSettingsStore.getState().syncAfterQueueOnce('hibernate_computer');
-      expect(useSettingsStore.getState().savedSettings.after_queue_once).toBe(
-        'hibernate_computer'
-      );
+      expect(useSettingsStore.getState().savedSettings.after_queue_once).toBe('hibernate_computer');
 
       /*
        * Simulate the Settings screen's in-memory copy going stale for
@@ -723,12 +752,10 @@ describe('settingsStore', () => {
 
       await useSettingsStore.getState().saveSettings();
 
-      expect(useSettingsStore.getState().savedSettings.after_queue_once).toBe(
-        'hibernate_computer'
-      );
+      expect(useSettingsStore.getState().savedSettings.after_queue_once).toBe('hibernate_computer');
     });
 
-    it('saveSettings keeps savedSettings.dev_access_enabled as it already was, not the snapshot\'s copy', async () => {
+    it("saveSettings keeps savedSettings.dev_access_enabled as it already was, not the snapshot's copy", async () => {
       /*
        * Same rule as the one-off above: the backend always keeps
        * `dev_access_enabled` from disk on a whole-settings save, so the
@@ -796,6 +823,25 @@ describe('settingsStore', () => {
       expect(after.savedSettings.default_song_codec).not.toBe('aac-legacy');
       /* `settings`, the screen's own copy, does change. */
       expect(after.settings.default_song_codec).toBe('aac-legacy');
+    });
+  });
+
+  describe('noteMetadataLanguageSeen (Codex catch-up review of #1244, finding 2)', () => {
+    beforeEach(() => useSettingsStore.setState({ seenMetadataLanguages: [] }));
+
+    it('remembers a new value once, ignores an empty one', () => {
+      const note = useSettingsStore.getState().noteMetadataLanguageSeen;
+      note('zh-CN');
+      note('zh-CN');
+      note('');
+      expect(useSettingsStore.getState().seenMetadataLanguages).toEqual(['zh-CN']);
+    });
+
+    it('does not remember a value differing only by case beside one it already has', () => {
+      const note = useSettingsStore.getState().noteMetadataLanguageSeen;
+      note('en-us');
+      note('EN-US');
+      expect(useSettingsStore.getState().seenMetadataLanguages).toEqual(['en-us']);
     });
   });
 });

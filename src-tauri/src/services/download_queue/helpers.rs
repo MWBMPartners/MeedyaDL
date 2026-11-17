@@ -106,6 +106,259 @@ pub(crate) fn format_content_label(status: &QueueItemStatus) -> String {
         .unwrap_or_else(|| "unknown content".to_string())
 }
 
+/// The one check an attempt runs whenever it takes the queue lock again
+/// after doing some work, before it changes the item (#1431, #1432): has
+/// the item ended from outside this attempt?
+///
+/// `Some` means the caller must leave the item as it is: drop the lock,
+/// call [`finish_ended_outside`] and return. It also gives back this
+/// attempt's own slot -- and only that one, so it can never free the slot
+/// of the item that started next (the stall check has usually given it
+/// back already, in which case this does nothing).
+///
+/// The answer is by attempt number, not by state, so an Error this attempt
+/// set itself is never mistaken for the stall check's.
+pub(crate) fn stop_if_ended_outside(
+    q: &mut DownloadQueue,
+    attempt: &Attempt,
+) -> Option<EndedOutside> {
+    let ended = q.ended_outside(attempt)?;
+    q.release_slot(attempt);
+    Some(ended)
+}
+
+/// The rest of leaving an item that ended from outside this attempt: log
+/// it, save the queue and move it on. Call after [`stop_if_ended_outside`]
+/// returned `Some`, with the lock dropped, then return.
+///
+/// `finished`: this attempt's run has genuinely finished its work -- GAMDL
+/// ended cleanly AND saved files, and (for the tidying-up) nothing was cut
+/// short by a time limit or stopped. Pass `false` for anything less: a run
+/// that timed out or saved nothing is not "finished after all", and
+/// queueing it again could loop for ever on an album that hangs in the same
+/// place (#1432 review).
+///
+/// If the stall check had marked this very attempt failed and it finished,
+/// the person is told in one plain line that the files are there but were
+/// not tidied up, and the item is queued again once so the tidying-up runs
+/// (maintainer decision, 17 Nov 2026). At most once per run the person
+/// started: if this was already that automatic retry, a different line
+/// says so and asks them to use Retry. Nothing is queued if the person has
+/// since retried or removed it.
+///
+/// In every case this run comes off the "stalled but still running" list
+/// in the same lock as the retry decision, so the queue can never look
+/// idle (and fire the after-queue action) in between.
+pub(crate) async fn finish_ended_outside(
+    app: &AppHandle,
+    queue: &QueueHandle,
+    attempt: &Attempt,
+    ended: EndedOutside,
+    finished: bool,
+) {
+    let dl_id = attempt.id.as_str();
+    log::info!(
+        "Download {dl_id} (attempt {}) had already ended ({ended:?}) — leaving it as it is",
+        attempt.number
+    );
+    let settings = load_settings_for_queue(app);
+    let outcome = queue
+        .lock()
+        .await
+        .on_late_finish(attempt, ended, finished, &settings);
+    match outcome {
+        LateFinish::QueuedAgain => {
+            emit_download_log(app, dl_id, LATE_FINISH_LINE);
+            let _ = app.emit("download-queued", dl_id);
+        }
+        LateFinish::NotQueuedAgain => {
+            emit_download_log(app, dl_id, LATE_FINISH_NOT_AGAIN_LINE);
+        }
+        LateFinish::Nothing => {}
+    }
+    save_queue_to_disk(app, queue).await;
+    process_queue(app.clone(), queue.clone()).await;
+}
+
+/// What the activity log says when a download that was marked failed as
+/// stuck finishes after all (#1432). Plain words: what happened, where the
+/// files are, and what MeedyaDL is doing about it.
+pub(crate) const LATE_FINISH_LINE: &str =
+    "This download had been marked as stuck, but it finished \
+     after all. Its files are on disk, but they were not tidied up (tags, lyrics and file names), \
+     so it has been queued again to finish the job. Files already there are kept unless \
+     \"Overwrite Existing Files\" is on.";
+
+/// The same news when the run that finished was already MeedyaDL's one
+/// automatic retry (#1432 review): it is not queued again, so a download
+/// that keeps getting stuck cannot go round for ever.
+pub(crate) const LATE_FINISH_NOT_AGAIN_LINE: &str =
+    "This download had been marked as stuck, but it finished \
+     after all. Its files are on disk, but they were not tidied up (tags, lyrics and file names). \
+     It had already been queued again once after getting stuck, so it was not queued again \
+     automatically. Use Retry if you want MeedyaDL to try once more.";
+
+/// Counts one download result for the "Queue finished" summary, the way
+/// every result of an attempt should be counted (#1431, #1432 review).
+///
+/// Call with the queue lock held (as `count_result` requires). If this
+/// attempt is the automatic retry of an item the stall check had already
+/// counted as failed, that earlier failure is taken back first, so the item
+/// counts once in the summary: as downloaded if the retry worked, as one
+/// failure if it did not.
+pub(crate) fn count_attempt_result(
+    q: &mut DownloadQueue,
+    attempt: &Attempt,
+    kind: crate::services::notification_service::NotifyKind,
+) {
+    if q.take_stall_failure_to_withdraw(attempt) {
+        crate::services::notification_service::withdraw_counted_failure();
+    }
+    crate::services::notification_service::count_result(kind);
+}
+
+/// Did an attempt's tidying-up genuinely finish (#1432 review)? Only when
+/// nothing in it was cut short (a time limit, or the attempt being
+/// replaced) and the files passed the integrity check. Anything less must
+/// not count as a stalled run "finishing after all", or an album that hangs
+/// in the same place every time would be queued again and again.
+#[must_use]
+pub(crate) const fn tidying_up_finished(cut_short: bool, integrity_failed: bool) -> bool {
+    !cut_short && !integrity_failed
+}
+
+/// How often a long wait checks whether its attempt should still run
+/// (#1432). Two seconds: quick enough that a cancelled or retried item does
+/// not keep the queue waiting, cheap enough to ignore.
+pub(crate) const ATTEMPT_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// How a wait on an attempt's background work ended (#1432).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AttemptWait {
+    /// The work finished.
+    Done,
+    /// The time limit passed first.
+    TimedOut,
+    /// The item was cancelled, retried or removed while waiting, so this
+    /// attempt should stop its work now.
+    Replaced,
+}
+
+/// Waits for an attempt's background work (`work`) for at most `limit`,
+/// looking every [`ATTEMPT_CHECK_INTERVAL`] at whether the attempt should
+/// still run (#1432). Without this, a cancelled-then-retried item that was
+/// tidying up kept its slot until the work reached its own next check,
+/// which could be many minutes, and the retry waited behind it.
+///
+/// The work is not stopped here; on `TimedOut` or `Replaced` the caller
+/// stops it the way it already does for its own deadline.
+pub(crate) async fn wait_while_attempt_runs<F>(
+    queue: &QueueHandle,
+    attempt: &Attempt,
+    limit: std::time::Duration,
+    work: &mut F,
+) -> AttemptWait
+where
+    F: Future + Unpin,
+{
+    let deadline = tokio::time::Instant::now() + limit;
+    loop {
+        tokio::select! {
+            _ = &mut *work => return AttemptWait::Done,
+            () = tokio::time::sleep_until(deadline) => return AttemptWait::TimedOut,
+            () = tokio::time::sleep(ATTEMPT_CHECK_INTERVAL) => {
+                if !queue.lock().await.should_keep_running(attempt) {
+                    return AttemptWait::Replaced;
+                }
+            }
+        }
+    }
+}
+
+/// The last step for an attempt that failed (#1432, maintainer decision 5).
+///
+/// A failed item may still start extra-format copies (the other format may
+/// be on offer where the main one was not). They used to run with the slot
+/// already given back, so the next item could start alongside them -- two
+/// downloads at once, which the one-at-a-time queue exists to prevent. Now
+/// the failed attempt keeps its slot until those copies have finished, run
+/// out of time, or been stopped because the item was retried, cancelled or
+/// removed; only then is the slot given back and the next item started.
+///
+/// With no copies to wait for, the slot is given back at once. The wait
+/// runs in its own task so the caller is not held up; `guard` goes with it,
+/// so even a panic there gives the slot back.
+pub(crate) async fn finish_failed_attempt(
+    app: AppHandle,
+    queue: QueueHandle,
+    attempt: Attempt,
+    guard: Option<ActiveSlotGuard>,
+    companions: Option<CompanionTaskHandle>,
+) {
+    let Some(mut handle) = companions else {
+        queue.lock().await.release_slot(&attempt);
+        if let Some(guard) = guard {
+            guard.disarm();
+        }
+        process_queue(app, queue).await;
+        return;
+    };
+    tokio::spawn(async move {
+        hold_slot_for_copies(&queue, &attempt, &mut handle).await;
+        if let Some(guard) = guard {
+            guard.disarm();
+        }
+        save_queue_to_disk(&app, &queue).await;
+        process_queue(app, queue).await;
+    });
+}
+
+/// The waiting half of [`finish_failed_attempt`] (#1432): keeps the failed
+/// attempt's slot while its extra-format copies run, stops them if they run
+/// out of time or the item is retried, cancelled or removed, and only then
+/// gives the slot back. Returns how the wait ended. Separate so it can be
+/// tested without the app.
+pub(crate) async fn hold_slot_for_copies(
+    queue: &QueueHandle,
+    attempt: &Attempt,
+    handle: &mut CompanionTaskHandle,
+) -> AttemptWait {
+    {
+        // Same time budget the finished-download path gives its copies,
+        // sized from the files already in the item's folder.
+        let output = {
+            let q = queue.lock().await;
+            q.items
+                .iter()
+                .find(|i| i.status.id == attempt.id)
+                .and_then(|i| i.status.output_path.clone())
+        };
+        let track_count = output
+            .as_deref()
+            .map(std::path::Path::new)
+            .map(|p| {
+                if p.is_dir() {
+                    count_audio_files_in_directory(p)
+                } else {
+                    p.parent().map(count_audio_files_in_directory).unwrap_or(0)
+                }
+            })
+            .unwrap_or(0);
+        let limit = compute_total_timeout(track_count, handle.tier_count(), 0, false);
+        let waited = wait_while_attempt_runs(queue, attempt, limit, &mut handle.handle).await;
+        if waited != AttemptWait::Done {
+            log::info!(
+                "Extra-format copies of failed download {} stopped ({waited:?})",
+                attempt.id
+            );
+            handle.abort();
+            let _ = (&mut handle.handle).await;
+        }
+        queue.lock().await.release_slot(attempt);
+        waited
+    }
+}
+
 /// Turns a URL into the identity used to answer "is this already queued,
 /// or already downloaded?"
 ///
@@ -228,7 +481,7 @@ pub(crate) fn find_album_directory(
 
     // --- Fallback: generic deep scan (picks most recently modified leaf dir) ---
     // Depth-bounded to 10 levels (#844) — matches the convention used by
-    // `find_dirs_with_ttml` and `scan_folder_for_manifests`. Without the cap,
+    // `scan_folder_for_manifests`. Without the cap,
     // pointing this at a 484-album library walked tens of thousands of dirs
     // and added 30-60 s of pure I/O before any actual enrichment work began.
     let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
@@ -286,8 +539,6 @@ pub(crate) fn find_directory_case_insensitive(
     None
 }
 
-/// Recursively finds the deepest directory that directly contains audio files.
-/// Prefers the most recently modified leaf directory.
 /// Maximum recursion depth for [`find_deepest_audio_dir`] (#844).
 ///
 /// User libraries typically fit within 3 levels (`Music/Artist/Album/`); 10
@@ -295,6 +546,15 @@ pub(crate) fn find_directory_case_insensitive(
 /// cost bounded.
 pub(crate) const FIND_DEEPEST_AUDIO_DIR_MAX_DEPTH: u32 = 10;
 
+/// Walks the folders under `dir` and records in `best` the most recently
+/// modified folder that directly holds audio files.
+///
+/// `best` is both input and output: a folder replaces the stored one only
+/// when its modified time is newer. `depth` is how far down this call is
+/// (pass 0 to start); the walk stops at
+/// [`FIND_DEEPEST_AUDIO_DIR_MAX_DEPTH`]. It keeps going into sub-folders
+/// even after finding a match, because albums can be nested. Folders that
+/// cannot be read are skipped without an error.
 pub(crate) fn find_deepest_audio_dir(
     dir: &std::path::Path,
     best: &mut Option<(std::time::SystemTime, std::path::PathBuf)>,
@@ -371,6 +631,12 @@ pub(crate) fn count_codec_skip_warnings(warnings: &[String]) -> usize {
         .count()
 }
 
+/// The audio format names this download asked GAMDL for, as the text GAMDL
+/// uses on its command line (for example `alac`).
+///
+/// The comma-separated priority list wins when it is set; otherwise the
+/// single chosen format is used; otherwise the list is empty. Blank items
+/// are dropped.
 pub(crate) fn requested_format_cli_values(options: &GamdlOptions) -> Vec<String> {
     if let Some(priority) = options.song_codec_priority.as_deref() {
         return priority
@@ -388,6 +654,11 @@ pub(crate) fn requested_format_cli_values(options: &GamdlOptions) -> Vec<String>
         .unwrap_or_default()
 }
 
+/// Pulls format names out of a GAMDL warning line that prints Python-style
+/// enum text such as `SongCodec.ALAC: 'alac'`.
+///
+/// Returns the quoted values (here `alac`), one per `SongCodec.` mention,
+/// in order. A mention that does not have the `: '...'` shape is skipped.
 pub(crate) fn extract_song_codec_values_from_line(line: &str) -> Vec<String> {
     line.split("SongCodec.")
         .skip(1)
@@ -400,6 +671,8 @@ pub(crate) fn extract_song_codec_values_from_line(line: &str) -> Vec<String> {
         .collect()
 }
 
+/// Turns a GAMDL format name into text for people: `Display name [name]`.
+/// A name MeedyaDL does not recognise is returned unchanged.
 pub(crate) fn describe_song_codec_cli_value(value: &str) -> String {
     SongCodec::from_cli_string(value).map_or_else(
         || value.to_string(),
@@ -407,6 +680,15 @@ pub(crate) fn describe_song_codec_cli_value(value: &str) -> String {
     )
 }
 
+/// Adds a plain note to a GAMDL "format is not available" line, saying
+/// which formats were asked for.
+///
+/// The formats come from the line itself when it names any (see
+/// [`extract_song_codec_values_from_line`]), otherwise from
+/// `requested_formats`. The line is returned unchanged when it is not an
+/// unavailable-format line, when it already has the note, or when no
+/// formats are known. One format reads "Unavailable requested format: X";
+/// several read "Unavailable requested format candidates: X -> Y".
 pub(crate) fn annotate_unavailable_format_line(line: &str, requested_formats: &[String]) -> String {
     let lower = line.to_lowercase();
     let is_unavailable_format = lower.contains("format is not available")
@@ -447,7 +729,7 @@ pub(crate) fn annotate_unavailable_format_line(line: &str, requested_formats: &[
 /// wrapper authentication for per-track availability.
 ///
 /// Version-aware (#963, #1002): below GAMDL 3.8 this strips Atmos and
-/// AC3, same as always. On a detected `>= 3.8` install (where GAMDL's
+/// AC3 and ALAC (before 3.8 GAMDL treats lossless like them). On a detected `>= 3.8` install (where GAMDL's
 /// `/v1/play/assets` endpoint unlocks every non-web codec except ALAC
 /// for wrapper-less downloads) only ALAC is stripped — see
 /// `SongCodec::is_wrapper_dependent_runtime()`.
@@ -520,7 +802,7 @@ pub(crate) fn inject_advisory_suffix_into_template(
 /// `walk_dir_depth` makes the bound mandatory and enforces the same
 /// `read_dir → recurse → filter` shape as the other 4+ walkers in
 /// the codebase. Depth 10 matches the convention used by
-/// `scan_folder_for_manifests` and `find_dirs_with_ttml` (post-#712).
+/// `scan_folder_for_manifests` (post-#712).
 pub(crate) fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
     crate::utils::fs_walk::walk_dir_depth(dir, 10, |path| {
         if !path.is_file() || crate::utils::fs_safe::is_filesystem_sidecar(path) {
@@ -561,7 +843,10 @@ pub(crate) fn count_audio_files_in_directory(dir: &std::path::Path) -> usize {
 /// message (issue #1231); see the marker's own doc comment for the
 /// full reasoning and the frontend file it must stay byte-identical
 /// with.
-pub(crate) fn integrity_failure_message(checked: usize, suspect_files: &[String]) -> Option<String> {
+pub(crate) fn integrity_failure_message(
+    checked: usize,
+    suspect_files: &[String],
+) -> Option<String> {
     if checked > 0 && suspect_files.len() == checked {
         Some(format!(
             "{}all {checked} probed file(s) appear corrupted or truncated ({}) — a known upstream truncated-write defect (gamdl#328). Try re-downloading.",
@@ -625,10 +910,16 @@ pub(crate) fn integrity_failure_message(checked: usize, suspect_files: &[String]
 /// (`gamdl_idle_timeout_minutes`) still kills any individual GAMDL run
 /// that genuinely stalls, so this completion-level deadline only needs
 /// to cover the *legitimate* total wall-clock cost.
+///
+/// **`word_lyrics_pass`** (16 Nov 2026): when the GAMDL 4.0.2+ word-level
+/// lyrics pass may run inside enrichment, its own deadline (one minute
+/// plus six seconds a track, `lyrics_pass::word_lyrics_pass_deadline`) is
+/// added, so a slow lyrics pass cannot eat the time the other stages need.
 pub(crate) fn compute_total_timeout(
     track_count: usize,
     companion_tier_count: usize,
     mv_count: usize,
+    word_lyrics_pass: bool,
 ) -> std::time::Duration {
     /// 10-minute base timeout (unchanged from #461's original design).
     const BASE_SECS: u64 = 600;
@@ -651,10 +942,16 @@ pub(crate) fn compute_total_timeout(
     /// check ever mis-resolves.
     const MAX_SECS: u64 = 4 * 3600;
 
+    let lyrics_pass_secs = if word_lyrics_pass {
+        super::lyrics_pass::word_lyrics_pass_deadline(track_count).as_secs()
+    } else {
+        0
+    };
     let scaled = BASE_SECS
         .saturating_add(PER_TRACK_SECS.saturating_mul(track_count as u64))
         .saturating_add(PER_TIER_SECS.saturating_mul(companion_tier_count as u64))
-        .saturating_add(PER_MV_SECS.saturating_mul(mv_count as u64));
+        .saturating_add(PER_MV_SECS.saturating_mul(mv_count as u64))
+        .saturating_add(lyrics_pass_secs);
     let clamped = scaled.min(MAX_SECS);
     std::time::Duration::from_secs(clamped)
 }
@@ -829,7 +1126,8 @@ pub(crate) fn write_manifest(
     // storefront into e.g. a Spotify `ManifestSource` would be misleading —
     // it documents "Platform-specific storefront/region" but the value
     // would have nothing to do with the platform it's attached to (A2 fix).
-    let storefront = if platform == crate::models::media_service::MediaServiceId::AppleMusic.to_string()
+    let storefront = if platform
+        == crate::models::media_service::MediaServiceId::AppleMusic.to_string()
         && !settings.storefront.is_empty()
     {
         Some(settings.storefront.clone())
@@ -972,9 +1270,7 @@ pub(crate) fn rename_cover_art(album_dir: &str, target_stem: &str) {
                 );
             }
             Err(e) => {
-                log::warn!(
-                    "Failed to rename Cover.{ext} → {target_stem}.{ext}: {e}"
-                );
+                log::warn!("Failed to rename Cover.{ext} → {target_stem}.{ext}: {e}");
             }
         }
     }
@@ -1116,4 +1412,3 @@ mod media_kind_tests {
         ]));
     }
 }
-

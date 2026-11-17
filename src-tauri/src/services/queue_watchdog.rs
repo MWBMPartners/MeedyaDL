@@ -41,22 +41,30 @@
 //!    WARN to the activity log so the user sees the watchdog
 //!    detected something.
 //! 2. Continued stall past `STALL_HARD_SECS = 1200 s` = 20 min:
-//!    transition the item to `Error` state via `set_error` (which
-//!    honours the #661 terminal-state guard so already-complete
-//!    items aren't poisoned), release the queue slot via
-//!    `on_task_finished`, and re-trigger `process_queue` to start
-//!    the next item.
+//!    mark that ATTEMPT failed via `fail_stalled_attempt` (#1432),
+//!    which also gives back that attempt's slot -- and nothing else,
+//!    so it can never free the slot of a later attempt or of the next
+//!    item -- write a History "failed" entry, and re-trigger
+//!    `process_queue` to start the next item.
 //!
 //! Users keep their work-in-progress files on disk — only the queue
 //! entry is marked failed. They can manually retry from the History.
 //!
-//! ## Not in scope (Phase 1)
+//! Timers are kept per attempt (#1432), so a retried item starts with a
+//! fresh one rather than inheriting the old attempt's.
 //!
-//! - Auto-cancelling the underlying GAMDL subprocess. The parent
-//!   task that spawned it is gone, so we can't await its handle;
-//!   any orphaned subprocess will get reaped by `kill_on_drop(true)`
-//!   when the OS notices the parent exit. Future work could expose
-//!   a per-item PID map for explicit kill.
+//! Each poll also frees any slot still held by an attempt that has been
+//! replaced (cancelled, retried or removed) for longer than
+//! `STALL_HARD_SECS` -- normally such a run gives its slot back within
+//! seconds; this catches one that never does (#1432).
+//!
+//! ## Deliberately not done
+//!
+//! - Stopping the underlying GAMDL subprocess or the tidying-up
+//!   (maintainer decision, 17 Nov 2026). The run is left going but can
+//!   no longer change the item. If it finishes after all, it writes one
+//!   activity-log line and queues the item again once
+//!   (`download_queue::finish_ended_outside`).
 //! - User-configurable thresholds. Hard-coded 10 / 20 min for now;
 //!   add settings keys in a follow-up if power users ask.
 
@@ -67,8 +75,8 @@ use std::time::{Duration, Instant};
 use tauri::AppHandle;
 use tokio::sync::Mutex;
 
-use crate::models::download::{DownloadState, QueueItemStatus};
-use crate::services::download_queue::{DownloadQueue, ShutdownSignal};
+use crate::models::download::QueueItemStatus;
+use crate::services::download_queue::{Attempt, DownloadQueue, ShutdownSignal};
 use crate::utils::activity_log::{emit_download_log, get_activity_count};
 
 /// Polling cadence. Short enough that a stalled item is noticed
@@ -106,6 +114,8 @@ struct ProgressSnapshot {
 }
 
 impl ProgressSnapshot {
+    /// Takes a snapshot of an item. Two snapshots that are equal mean the item made
+    /// no visible progress between the two looks.
     fn from(item: &QueueItemStatus) -> Self {
         // Bucket floating-point progress into deci-percent integers
         // so trivial float-noise jitter doesn't reset the stall
@@ -161,7 +171,8 @@ pub fn spawn_queue_watchdog(
 ) {
     tauri::async_runtime::spawn(async move {
         log::info!("queue watchdog started — polling every {:?}", POLL_INTERVAL);
-        let mut tracked: HashMap<String, ItemState> = HashMap::new();
+        let mut tracked: HashMap<u64, ItemState> = HashMap::new();
+        let mut orphans_seen: HashMap<u64, Instant> = HashMap::new();
         let mut ticker = tokio::time::interval(POLL_INTERVAL);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
@@ -171,45 +182,47 @@ pub fn spawn_queue_watchdog(
                 return;
             }
             poll_once(&app, &queue, &mut tracked).await;
+            sweep_orphaned_slots(&app, &queue, &mut orphans_seen, Instant::now()).await;
+            check_queue_finished_when_stalled_wait_ends(&app, &queue, Instant::now()).await;
         }
     });
 }
 
 /// One iteration of the polling loop. Pulled out for testability.
+///
+/// Timers are keyed by attempt number (#1432), so a retried item starts a
+/// fresh timer instead of inheriting the old attempt's.
 async fn poll_once(
     app: &AppHandle,
     queue: &Arc<Mutex<DownloadQueue>>,
-    tracked: &mut HashMap<String, ItemState>,
+    tracked: &mut HashMap<u64, ItemState>,
 ) {
     // Snapshot the queue under a brief lock — release before doing
-    // anything that might take time. `get_status()` already clones
-    // every QueueItemStatus, so we drop the lock immediately.
-    let items_snapshot: Vec<(String, DownloadState, ProgressSnapshot)> = {
+    // anything that might take time. Each running item comes with the
+    // attempt that is running it.
+    let items_snapshot: Vec<(Attempt, ProgressSnapshot)> = {
         let q = queue.lock().await;
-        q.get_status()
+        q.running_attempts()
             .into_iter()
-            .filter(|s| {
-                matches!(
-                    s.state,
-                    DownloadState::Downloading | DownloadState::Processing
-                )
-            })
-            .map(|s| {
+            .map(|(attempt, s)| {
                 let snap = ProgressSnapshot::from(&s);
-                (s.id, s.state, snap)
+                (attempt, snap)
             })
             .collect()
     };
 
-    // Forget any items that are no longer active. Stale entries would
+    // Forget any attempts that are no longer running. Stale entries would
     // never get matched again and just leak.
-    let active_ids: std::collections::HashSet<String> =
-        items_snapshot.iter().map(|(id, _, _)| id.clone()).collect();
-    tracked.retain(|id, _| active_ids.contains(id));
+    let running: std::collections::HashSet<u64> = items_snapshot
+        .iter()
+        .map(|(attempt, _)| attempt.number)
+        .collect();
+    tracked.retain(|number, _| running.contains(number));
 
     let now = Instant::now();
-    for (id, _state, snapshot) in items_snapshot {
-        match tracked.get_mut(&id) {
+    for (attempt, snapshot) in items_snapshot {
+        let id = attempt.id.clone();
+        match tracked.get_mut(&attempt.number) {
             Some(state) if state.snapshot == snapshot => {
                 // Snapshot unchanged — keep counting the stall.
                 let stalled_for = now.duration_since(state.stall_started_at);
@@ -250,10 +263,24 @@ async fn poll_once(
                             "⛔ Watchdog: stalled for {mins} min — marking failed + advancing queue. Files already on disk are preserved."
                         ),
                     );
-                    escalate_to_error(app, queue, &id).await;
+                    if escalate_to_error(app, queue, &attempt).await {
+                        // Counted and announced like any other failed
+                        // download (#1431), so the queue summary is right
+                        // and the person is told, by name.
+                        crate::services::download_queue::notify_item_failed(
+                            app, queue, &id, "stalled",
+                        )
+                        .await;
+                        // The slot was given back: move the queue on
+                        // (#1432; the module doc always said it did, but
+                        // nothing started the next item).
+                        crate::services::download_queue::save_queue_to_disk(app, queue).await;
+                        crate::services::download_queue::process_queue(app.clone(), queue.clone())
+                            .await;
+                    }
                     // Drop the entry so we don't re-escalate on the
                     // next poll.
-                    tracked.remove(&id);
+                    tracked.remove(&attempt.number);
                 }
             }
             Some(state) => {
@@ -266,7 +293,7 @@ async fn poll_once(
             None => {
                 // First sighting — start tracking.
                 tracked.insert(
-                    id,
+                    attempt.number,
                     ItemState {
                         snapshot,
                         stall_started_at: now,
@@ -278,26 +305,149 @@ async fn poll_once(
     }
 }
 
-/// Escalation action — transition the item to Error and release the
-/// queue slot so the next item can run. Honours #661's terminal-state
-/// guard (which is already inside `set_error`), so a race where the
-/// item legitimately completes between the poll and the escalation
-/// is harmless — the guard short-circuits.
+/// The message a download marked failed as stuck carries.
+const STALLED_MESSAGE: &str = "Queue watchdog detected a stalled download (no progress for >20 min). Marked failed automatically to keep the queue moving. Already-downloaded files on disk are preserved — retry from History to resume.";
+
+/// Escalation action (#1432) — mark the stuck ATTEMPT failed and give
+/// back its slot, in one step under the lock (`fail_stalled_attempt`).
+///
+/// It acts only if that attempt still owns the item and the item is still
+/// downloading or tidying up. So if the item finished, was cancelled, or
+/// was retried between the poll and now, nothing at all changes -- above
+/// all, no slot is released. (The old version released a slot whatever
+/// happened, which freed the next item's slot and let two downloads run
+/// at once.) The run itself is left going; see the module notes.
+///
+/// When it does act, it counts the failure (before anything can start the
+/// queue, #1431) and writes the History "failed" entry, which it never did
+/// before. Returns whether it acted, so only a real failure is announced.
 async fn escalate_to_error(
     app: &AppHandle,
     queue: &Arc<Mutex<DownloadQueue>>,
-    dl_id: &str,
-) {
+    attempt: &Attempt,
+) -> bool {
     let mut q = queue.lock().await;
-    q.set_error(
-        dl_id,
-        "Queue watchdog detected a stalled download (no progress for >20 min). Marked failed automatically to keep the queue moving. Already-downloaded files on disk are preserved — retry from History to resume.",
+    let failed = q.fail_stalled_attempt(attempt, STALLED_MESSAGE);
+    if !failed {
+        return false;
+    }
+    // Counted before anything can start the queue again, so the queue
+    // summary that may follow at once includes it (#1431).
+    // Through the queue's own counting, so the automatic retry of an item
+    // that already stalled once replaces its earlier failure rather than
+    // adding a second one (#1432 review).
+    crate::services::download_queue::count_attempt_result(
+        &mut q,
+        attempt,
+        crate::services::notification_service::NotifyKind::DownloadFailed,
     );
-    // Best-effort slot release. If the slot was already returned by
-    // a legitimate completion racing the watchdog, `on_task_finished`
-    // is idempotent.
-    q.on_task_finished();
+    let entry = stalled_history_entry(&q, attempt);
+    drop(q);
+    if let Some(entry) = entry {
+        crate::services::history_service::save_history_entry(app, entry);
+    }
     let _ = app.emit_to_all_with_str("queue-updated", "watchdog-escalated");
+    true
+}
+
+/// The History "failed" entry for a download the stall check stopped
+/// (#1432), shaped like the queue's own failure entries. `None` if the
+/// item is gone.
+fn stalled_history_entry(
+    q: &DownloadQueue,
+    attempt: &Attempt,
+) -> Option<crate::services::history_service::HistoryEntry> {
+    let status = q.get_status().into_iter().find(|s| s.id == attempt.id)?;
+    Some(crate::services::history_service::HistoryEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        url: status.urls.first().cloned().unwrap_or_default(),
+        title: None,
+        artist: status.artist_name.clone(),
+        album: status.album_name.clone(),
+        codec: None,
+        file_path: status.output_path.clone(),
+        started_at: status.created_at.clone(),
+        completed_at: crate::utils::time_compat::now_rfc3339(),
+        status: "failed".to_string(),
+        error_message: Some(STALLED_MESSAGE.to_string()),
+    })
+}
+
+/// Which held slots have belonged to a replaced attempt for at least
+/// `STALL_HARD_SECS` (#1432). `seen` remembers when each was first found
+/// orphaned; slots no longer orphaned are forgotten. Pure, for tests.
+fn orphans_due(orphaned_now: &[u64], seen: &mut HashMap<u64, Instant>, now: Instant) -> Vec<u64> {
+    seen.retain(|n, _| orphaned_now.contains(n));
+    let mut due = Vec::new();
+    for n in orphaned_now {
+        let first = *seen.entry(*n).or_insert(now);
+        if now.duration_since(first).as_secs() >= STALL_HARD_SECS {
+            due.push(*n);
+        }
+    }
+    due
+}
+
+/// Frees slots still held by attempts that were replaced long ago
+/// (#1432). An old run normally gives its slot back within seconds of
+/// being cancelled or retried; one that hangs instead would otherwise
+/// hold the one slot for good, because the stall check only watches
+/// running items. Logs each one and starts the queue again.
+async fn sweep_orphaned_slots(
+    app: &AppHandle,
+    queue: &Arc<Mutex<DownloadQueue>>,
+    seen: &mut HashMap<u64, Instant>,
+    now: Instant,
+) {
+    let orphaned = queue.lock().await.orphaned_slots();
+    let due = orphans_due(&orphaned, seen, now);
+    if due.is_empty() {
+        return;
+    }
+    let mut freed_any = false;
+    {
+        let mut q = queue.lock().await;
+        for n in &due {
+            if q.release_orphaned_slot(*n) {
+                freed_any = true;
+                log::warn!(
+                    "watchdog: freed a queue slot still held by replaced attempt {n} after {} min",
+                    STALL_HARD_SECS / 60
+                );
+            }
+            seen.remove(n);
+        }
+    }
+    if freed_any {
+        crate::utils::activity_log::emit_app_log(
+            app,
+            "An earlier download run that was cancelled or retried never let go of the queue. It has been released so the queue can carry on.",
+        );
+        crate::services::download_queue::process_queue(app.clone(), queue.clone()).await;
+    }
+}
+
+/// Checks once whether the queue has finished when a run marked stuck has
+/// been left going for `STALLED_RUN_WAIT` (one hour) (#1432, maintainer
+/// decision 17 Nov 2026).
+/// From then on that run no longer keeps the queue from being idle, but
+/// nothing else would check the queue to notice: if nothing else is queued
+/// or running, this is what makes "Queue finished" and the after-queue
+/// action happen. They still happen once only -- `finish_queue_if_drained`
+/// fires them only when a download ran since the queue last went quiet.
+async fn check_queue_finished_when_stalled_wait_ends(
+    app: &AppHandle,
+    queue: &Arc<Mutex<DownloadQueue>>,
+    now: Instant,
+) {
+    let ran_out = queue.lock().await.stalled_waits_just_ran_out(now);
+    if ran_out {
+        log::info!("watchdog: a stuck download's one-hour wait ran out; checking the queue");
+        // Only the "has the queue finished?" check: no pre-download checks,
+        // and nothing held back on purpose (offline, auto-start off) is
+        // started (review round 5 of #1432).
+        crate::services::download_queue::finish_queue_if_drained(app, queue).await;
+    }
 }
 
 /// Local trait extension so the watchdog can fire the same Tauri
@@ -305,10 +455,14 @@ async fn escalate_to_error(
 /// a serializable payload; the watchdog just needs a fire-and-forget
 /// notification, hence this tiny shim.
 trait WatchdogEmit {
+    /// Sends `event` to every window with a plain text payload.
     fn emit_to_all_with_str(&self, event: &str, payload: &str) -> Result<(), String>;
 }
 
 impl WatchdogEmit for AppHandle {
+    /// Sends the event through Tauri's `emit` and turns any error into text.
+    ///
+    /// See: https://v2.tauri.app/develop/calling-frontend/#event-system
     fn emit_to_all_with_str(&self, event: &str, payload: &str) -> Result<(), String> {
         use tauri::Emitter;
         self.emit(event, payload.to_string())
@@ -344,10 +498,7 @@ mod tests {
 
     /// Same as [`make_snapshot`] but with an explicit activity counter
     /// (#846).
-    fn make_snapshot_with_activity(
-        progress: f64,
-        activity_count: u64,
-    ) -> ProgressSnapshot {
+    fn make_snapshot_with_activity(progress: f64, activity_count: u64) -> ProgressSnapshot {
         ProgressSnapshot {
             progress_bucket: (progress * 10.0).round() as i64,
             processing_progress_bucket: -1,
@@ -356,6 +507,72 @@ mod tests {
             completed_tracks: None,
             activity_count,
         }
+    }
+
+    /// A queue with one item started, and that item's attempt.
+    fn queue_with_one_running() -> (DownloadQueue, Attempt) {
+        let mut q = DownloadQueue::new();
+        let request = crate::models::download::DownloadRequest {
+            urls: vec!["https://music.apple.com/us/album/test/123".to_string()],
+            options: None,
+            ..Default::default()
+        };
+        q.enqueue(request, &crate::models::settings::AppSettings::default());
+        let attempt = q.next_pending().expect("starts").attempt;
+        (q, attempt)
+    }
+
+    /// #1432: a slot held by a replaced attempt is freed only once it has
+    /// been orphaned for the full stall time; one that stops being orphaned
+    /// is forgotten.
+    #[test]
+    fn orphan_sweep_waits_the_stall_time_and_forgets_resolved_slots() {
+        let start = Instant::now();
+        let mut seen = HashMap::new();
+        assert!(orphans_due(&[7], &mut seen, start).is_empty());
+        let later = start + Duration::from_secs(STALL_HARD_SECS - 1);
+        assert!(orphans_due(&[7], &mut seen, later).is_empty());
+        let due_time = start + Duration::from_secs(STALL_HARD_SECS);
+        assert_eq!(orphans_due(&[7], &mut seen, due_time), vec![7]);
+        // Slot 7 was given back by its own run: forgotten.
+        assert!(orphans_due(&[], &mut seen, due_time).is_empty());
+        assert!(seen.is_empty());
+    }
+
+    /// #1432: the stall check's timers are keyed by attempt, so a retried
+    /// item is a new key with a fresh timer.
+    #[test]
+    fn running_attempts_give_a_retried_item_a_new_key() {
+        let (mut q, first) = queue_with_one_running();
+        let keys: Vec<u64> = q.running_attempts().iter().map(|(a, _)| a.number).collect();
+        assert_eq!(keys, vec![first.number]);
+        assert!(q.fail_stalled_attempt(&first, STALLED_MESSAGE));
+        assert!(
+            q.running_attempts().is_empty(),
+            "a failed item is not watched"
+        );
+        assert!(q.retry(&first.id, &crate::models::settings::AppSettings::default()));
+        let second = q.next_pending().unwrap().attempt;
+        let keys: Vec<u64> = q.running_attempts().iter().map(|(a, _)| a.number).collect();
+        assert_eq!(keys, vec![second.number]);
+        assert_ne!(second.number, first.number);
+    }
+
+    /// #1432: the stall check writes a History "failed" entry for the item
+    /// it stopped, with the plain message.
+    #[test]
+    fn stalled_item_gets_a_failed_history_entry() {
+        let (mut q, attempt) = queue_with_one_running();
+        assert!(q.fail_stalled_attempt(&attempt, STALLED_MESSAGE));
+        let entry = stalled_history_entry(&q, &attempt).expect("an entry");
+        assert_eq!(entry.status, "failed");
+        assert_eq!(entry.error_message.as_deref(), Some(STALLED_MESSAGE));
+        assert!(entry.url.contains("music.apple.com"));
+        let gone = Attempt {
+            id: "gone".to_string(),
+            number: 999,
+        };
+        assert!(stalled_history_entry(&q, &gone).is_none());
     }
 
     #[test]

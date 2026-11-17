@@ -6,577 +6,198 @@
 
 # Wrapper authentication
 
-> **Quick orientation:** MeedyaDL supports **two completely different
-> wrappers** depending on which GAMDL release is installed. Both are
-> opt-in — cookie-only mode works without either.
+The wrapper is an optional extra program. It lets MeedyaDL sign in to Apple Music without your cookies file. **Most people do not need it.** Cookies are enough for almost everything.
 
-| You're on … | Wrapper to install | Default endpoint |
+You run the wrapper yourself, either on this computer or on another one. MeedyaDL does not include it. This page tells you when it is worth the trouble, how to point MeedyaDL at it, how to check that it works, and what to do when it does not.
+
+---
+
+## Do I need a wrapper?
+
+Probably not. Without a wrapper you can still download songs, albums, playlists, lyrics, artwork and most audio formats. What you can get depends on the GAMDL version MeedyaDL has installed. You can see it under **Settings > Tools**.
+
+- **GAMDL 3.8 or newer:** the only thing that still needs a wrapper is **ALAC** (lossless). Everything else works with cookies, including Dolby Atmos and Dolby Digital.
+- **GAMDL 3.0 to 3.7:** you need a wrapper for ALAC, Dolby Atmos, Dolby Digital and the other AAC formats. AAC Legacy and AAC-HE Legacy still work with cookies.
+
+If you are happy with the standard lossy AAC quality, skip the wrapper. If you do not want to use a wrapper, see [Cookie Management](cookie-management.md).
+
+---
+
+## Set it up
+
+1. Install and start the wrapper by following that project's own instructions. There are two kinds, and which one you need depends on your GAMDL version:
+
+   | Your GAMDL version | Wrapper to use |
+   |---|---|
+   | 3.0 to 3.5 | [wrapper-v1](https://github.com/WorldObservationLog/wrapper) |
+   | 3.6 and newer | [wrapper-v2](https://github.com/glomatico/wrapper-v2) |
+
+   On Windows and macOS, wrapper-v2 needs Docker. On a Mac you can use Docker Desktop or [OrbStack](https://orbstack.dev/). On Linux it can run directly.
+2. In MeedyaDL, open **Settings > Advanced > Wrapper**.
+3. Turn on **Use Wrapper**.
+4. Check the address fields (see the next section). The defaults are right if the wrapper runs on this computer with its default settings.
+5. With the newer wrapper (GAMDL 3.6 and newer), press **Sign in to wrapper** and sign in with your Apple ID. MeedyaDL does not store your password. Next to the button you will see **Signed in**, **Not signed in** or **Wrapper unreachable**.
+
+> **Why signing in matters:** with the newer wrapper, a download started while you are signed out would wait for a sign-in that never comes. MeedyaDL checks before each download and shows a yellow message telling you to sign in first.
+
+### The address fields
+
+Which fields you see depends on your GAMDL version. On GAMDL 3.0 the m3u8 field is shown but not used.
+
+| GAMDL version | Field | Default |
 |---|---|---|
-| GAMDL **3.0 – 3.5.x** | **wrapper-v1** ([WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper)) | Three sockets: HTTP `127.0.0.1:30020` + TCP `127.0.0.1:20020` + TCP `127.0.0.1:10020` |
-| GAMDL **3.6 and newer** | **wrapper-v2** ([glomatico/wrapper-v2](https://github.com/glomatico/wrapper-v2)) | One HTTP endpoint: `http://127.0.0.1` (port 80) |
+| 3.6 and newer | **Wrapper URL** | `http://127.0.0.1` |
+| 3.0 to 3.5 | **Wrapper Account URL** | `http://127.0.0.1:30020` |
+| 3.1 to 3.5 | **Wrapper m3u8 Address** | `127.0.0.1:20020` |
+| 3.0 to 3.5 | **Wrapper Decryption Address** | blank (worked out from the Wrapper Account URL, `127.0.0.1:10020` for a local wrapper) |
 
-You can check which GAMDL version MeedyaDL has installed under
-**Help → About**, which lists the installed version of every component.
+`127.0.0.1` means "this computer". If your wrapper runs on another computer, put that computer's address in its place.
 
----
+<details>
+<summary>More detail: which GAMDL version to pick</summary>
 
-## Upgrading from GAMDL v2 (support dropped)
+MeedyaDL supports GAMDL 3.x only. If you still have GAMDL 2.x, MeedyaDL marks it as unsupported and downloads may fail. Upgrade it in **Settings > Tools**.
 
-MeedyaDL now supports **GAMDL v3.x only** — GAMDL v2 support was dropped.
-If you're still on a GAMDL v2 release, MeedyaDL flags it as unsupported and
-downloads may fail. **Upgrade GAMDL** — which version to pick depends on
-your wrapper setup:
+- **You use the older wrapper (wrapper-v1):** upgrade to GAMDL 3.5. It is the last release that works with that wrapper. Going past 3.5 means switching to the newer wrapper.
+- **You do not use a wrapper:** upgrade to the version MeedyaDL recommends. It is the newest one that has been tested.
+- Two kinds of computer cannot use the newest releases: Windows on ARM stays on 3.8.5, and 32-bit Raspberry Pi (ARMv7) stays on 3.8.1. MeedyaDL will not offer an update that cannot install.
+- **GAMDL 3.9.0 is refused.** It cannot download the AAC Legacy formats. MeedyaDL will not install it. Version 3.9.1 fixes the problem.
 
-- **If you use wrapper-v1** (the three-socket wrapper): upgrade to
-  **GAMDL v3.5** — the *last* release that works with wrapper-v1. Going
-  past 3.5 (to 3.6+) requires migrating to **wrapper-v2**, a Docker-based
-  setup with extra manual steps (see below), so stay on 3.5 until you're
-  ready for that.
-- **If you don't use a wrapper** (cookie-only): upgrade straight to the
-  **recommended latest** (3.9.1). On GAMDL 3.8+, every non-web codec
-  *except ALAC* downloads without any wrapper at all (see the next
-  section) — so cookie-only users get the best experience on the newest
-  release. Two kinds of computer are held back, because a piece the newer
-  releases need is not published for them: Windows on ARM stays on 3.8.5,
-  and 32-bit Raspberry Pi (ARMv7) stays on 3.8.1. MeedyaDL knows this and
-  will not offer you an update that cannot install. **Never use GAMDL
-  3.9** (3.9.0) — MeedyaDL refuses to install it and marks it as a known
-  issue, because it cannot download the AAC Legacy formats at all. 3.9.1
-  fixes that.
+The older wrapper will not be supported for ever. A later MeedyaDL release may require the newer wrapper for the wrapper-only formats. If you rely on the older one today, plan to switch.
 
-> **Heads-up on the future:** GAMDL v3.5 (and wrapper-v1) won't be
-> supported forever. A later MeedyaDL release may raise the floor past
-> 3.5, at which point continuing to use wrapper-gated codecs (ALAC, and
-> on older GAMDL also Atmos/AC3) will require **wrapper-v2** — a Docker
-> container plus extracting Apple Music for Android's `.so` libraries. If
-> you rely on wrapper-v1 today, it's worth planning that migration.
+</details>
+
+<details>
+<summary>More detail: keeping GAMDL and the newer wrapper in step</summary>
+
+GAMDL and the newer wrapper must be on matching versions:
+
+- **GAMDL 3.6 to 3.8.1** works with wrapper-v2 version 0.0.1.
+- **GAMDL 3.8.2 and newer** works with wrapper-v2 version 0.0.2.
+
+If they do not match, MeedyaDL says *"GAMDL and the wrapper-v2 daemon must be upgraded together"*. Update whichever one is behind.
+
+On GAMDL 3.8.2 and newer, Settings also shows a **Wrapper Decryption Address**. Leave it blank and MeedyaDL works it out from the Wrapper URL: the same computer, with the standard port `10020` (for example, a Wrapper URL of `http://192.168.1.20` gives `192.168.1.20:10020`, and a local wrapper gives `127.0.0.1:10020`). The blank field shows the address it will use. Type your own only if your wrapper listens on a different address or port. To go back to the automatic value, press **Use the address from the Wrapper URL**. If you reach the wrapper's decryption through a tunnel on your own computer, type `127.0.0.1:10020` yourself, because a blank field follows the Wrapper URL's address.
+
+</details>
 
 ---
 
-## When you actually need a wrapper
+## Run the wrapper on another computer
 
-Most users don't. The catalog API, song metadata, lyrics, artwork, and
-the entire `aac-web` / `aac-he-web` codec family all work with cookie-only
-authentication. **What still needs a wrapper depends on your GAMDL version:**
+You can run the wrapper on an always-on machine, such as a home server or a Raspberry Pi, and share it with several computers.
 
-**GAMDL 3.8 and newer — wrapper needed for ALAC only.** GAMDL 3.8
-introduced a new HLS asset endpoint that unlocks every non-web codec —
-`aac`, `aac-he`, `aac-binaural`, `aac-downmix`, and even **Atmos** and
-**AC3** — *without* a wrapper. On 3.8+ the only codec that still requires
-wrapper auth is **ALAC** (lossless). (3.8.1 further fixed some songs that
-previously failed on non-web codecs.) If you don't need ALAC lossless, you
-can skip wrapper setup entirely on 3.8+.
+1. Set up the wrapper on that machine and start it.
+2. Check that another computer on the same network can reach it. Open its address in a browser, or run `curl http://<its-address>` in a terminal.
+3. In MeedyaDL, put that machine's address in the address fields instead of `127.0.0.1`.
+4. With the older wrapper, **change all three addresses**, not just the first one. This is the most common reason a remote wrapper "does not work". If you change only the first, signing in seems to work and then the download fails partway through.
+5. With the newer wrapper, press **Sign in to wrapper** again. On GAMDL 3.8.2 and newer, leave the Wrapper Decryption Address blank and it follows the Wrapper URL by itself, so you normally do not need to change it.
 
-**GAMDL 3.0 – 3.7.x — wrapper needed for the full non-web set.** On these
-releases wrapper auth is required for:
+### Keep it on a network you trust
 
-- **ALAC** (lossless), **Atmos** (Dolby Atmos), **AC3** (Dolby Digital).
-- **Music videos** (on certain regional content).
-- The `aac` / `aac-he` / `aac-binaural` / `aac-downmix` codec variants
-  (the ones that don't end in `-web`).
-- The full set of audio traits / spatial audio flags on certain albums.
+**The newer wrapper has no password of its own.** Anyone who can reach its address can use your Apple Music sign-in through it.
 
-If your music library is fine with lossy AAC at 256 kbps, you can skip
-wrapper setup entirely on any supported version — MeedyaDL uses `aac-web`
-and falls back gracefully.
+- That is fine on this computer alone (`127.0.0.1`) and on a home network you control.
+- It is risky on shared networks (cafe, hostel, dorm, shared office) and on any address reachable from the internet.
+
+When your address is not on this computer, MeedyaDL shows a note under the field. An **amber** note means a home-network or name-based address. A **red** note means a public address, which is almost always a mistake.
+
+<details>
+<summary>More detail: making a remote wrapper safer</summary>
+
+- **Firewall it.** Allow only your own computers to reach the wrapper's port, and block everyone else.
+- **Use an SSH tunnel.** Keep the wrapper on its own computer's loopback address, and open a tunnel from your computer. Then point MeedyaDL at the tunnel's local address.
+- **Use a separate network segment** (a VLAN) with only your own computers on it.
+- **Use a VPN** such as Tailscale or WireGuard, and do not expose the wrapper to the internet at all.
+
+On a single trusted home network you do not need any of these.
+
+</details>
 
 ---
 
-## wrapper-v1 (GAMDL ≤ 3.5.x)
+## Check that it works
 
-The original wrapper is a native program that exposes three local sockets.
-Which platforms it has builds for is a question for that project — see
-"Platform support" below. MeedyaDL talks to it via the
-three Settings fields in **Settings → Advanced → Wrapper**:
+**Test Connection.** In **Settings > Advanced > Wrapper**, press **Test Connection**. It tries the wrapper address you are using and waits up to 5 seconds. With the newer wrapper that is the **Wrapper URL**; with the older one it is the **Wrapper Account URL**:
 
-| Setting | Default | Purpose |
+- **Connected (42ms)** (the number will differ): the wrapper answered.
+- **Connection timed out (5s):** the wrapper may not be running, or the address is wrong.
+- **Connection refused:** the computer answered but nothing is listening. Is the wrapper running?
+
+The test only talks to addresses on your own computer or your own network. Any other address is refused without being contacted. With the newer wrapper, the **Signed in** / **Wrapper unreachable** line next to **Sign in to wrapper** is the better check.
+
+**Automatic check.** Each time the queue starts, MeedyaDL checks that the wrapper answers. If it does not, a yellow message appears. The check is only a warning. Downloads are still tried. The warning goes away by itself once the wrapper answers again. Whether your computer also shows it as a system notification follows **Settings > General > Notifications**.
+
+---
+
+## If something goes wrong
+
+**"Wrapper ... unreachable", or every download shows a yellow message.**
+
+1. Check the address. Wrapper on this computer: `http://127.0.0.1`, or `http://127.0.0.1:30020` for the older one. Wrapper on another computer: use that computer's network address, never `127.0.0.1`.
+2. Check the wrapper is running. If you use Docker, run `docker ps` and look for it. If it is missing, start it again with `docker compose up -d`. `docker logs <container>` shows its recent messages.
+3. From the computer running MeedyaDL, run `curl -v <address>`. Any answer at all means the wrapper is reachable. "Connection refused" means nothing is listening. "Timed out" means a network or firewall problem. "Could not resolve host" means the name is wrong.
+
+**"Reachable but not signed in", on every download.** Press **Sign in to wrapper** in **Settings > Advanced > Wrapper**.
+
+**It says unreachable on a Mac even though Docker shows it running.** Docker on a Mac sometimes does not reconnect cleanly after a restart. Try `http://localhost` instead. Or run `docker compose down` and then `docker compose up -d`.
+
+**It works from the same computer but not from MeedyaDL on another one.** Usually a firewall on the wrapper's computer is blocking connections from other computers. Test from a third computer on the network. If that also fails, the wrapper is only listening on its own computer, or the firewall is blocking it.
+
+**Downloads stall for a long time with "Companion: downloading aac ...".** Your GAMDL version needs the wrapper for that format, and the wrapper is not set up. Either finish setting it up, or choose a companion mode that does not need it.
+
+**A yellow or amber note about your network address appears in Settings.** That is the safety reminder above. If the address is deliberate, you can ignore it.
+
+<details>
+<summary>More detail: checking ports and firewalls on the wrapper's computer</summary>
+
+If the wrapper is on another computer, its port must be open to the network.
+
+- **Listening address.** On the wrapper's computer, run `ss -tlnp | grep <port>` (or `netstat -tlnp | grep <port>`). You want to see it listening on all addresses (`0.0.0.0`) or its network address. If you only see `127.0.0.1`, it accepts connections from its own computer only.
+- **Docker.** Run `docker port <container>` and check the port is mapped to the host. If not, recreate the container with the port published.
+- **Linux firewall.** `sudo ufw status`, then `sudo ufw allow <port>/tcp`.
+- **macOS.** Check **System Settings > Network > Firewall**.
+- **Windows.** Check **Windows Defender Firewall > Inbound Rules** for the port.
+- **Different network.** If the wrapper is behind a router on a different subnet you may need port forwarding. On one home network you normally do not.
+
+After fixing it, press **Test Connection** again.
+
+</details>
+
+---
+
+## Wrapper or cookies?
+
+| | Cookies | Wrapper |
 |---|---|---|
-| Wrapper account URL | `http://127.0.0.1:30020` | Apple ID login, MusicKit JWT issuance |
-| Wrapper m3u8 IP | `127.0.0.1:20020` | HLS master playlist URL fetch (GAMDL 3.1+) |
-| Wrapper decryption IP | `127.0.0.1:10020` | FairPlay sample decrypt socket (#743) |
+| Setup | Easy | Advanced |
+| Lasts | Cookies expire from time to time | Stays signed in while it runs |
+| Needs | A cookies file | A separate program running |
+| Best for | Most people | People who want lossless ALAC, or older GAMDL users who want Atmos |
 
-Setup is documented at [WorldObservationLog/wrapper](https://github.com/WorldObservationLog/wrapper).
-MeedyaDL probes all three sockets before a wrapper download starts and
-surfaces a yellow toast if any is unreachable.
-
----
-
-## wrapper-v2 (GAMDL 3.6+)
-
-[wrapper-v2](https://github.com/glomatico/wrapper-v2) is a complete
-rewrite: a single C++ daemon (built with the Android NDK) that exposes
-**one HTTP REST API** instead of three sockets. Its endpoints are:
-
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/health` | Liveness probe — checked by MeedyaDL preflight |
-| `GET` | `/me` | Auth state + runtime readiness — checked by MeedyaDL preflight |
-| `POST` | `/login` | Apple ID sign-in |
-| `POST` | `/login/2fa` | HSA2 second factor |
-| `GET` | `/playback` | Apple Music playback dispatch (replaces the m3u8 socket) |
-| `POST` | `/decrypt` | FairPlay sample decrypt batch (binary protocol) — **wrapper-v2 0.0.1 only** (GAMDL 3.6 – 3.8.1). On wrapper-v2 **0.0.2** (GAMDL 3.8.2+), decrypt moves to a raw **TCP** port (default `10020`), not this HTTP route — see "GAMDL ↔ wrapper-v2 version lockstep" below. |
-| `DELETE` | `/login` | Clear cached tokens |
-
-In MeedyaDL, **Settings → Advanced → Wrapper** shows a single **Wrapper
-URL** field (default `http://127.0.0.1`) when the installed GAMDL is
-3.6 or newer. The three v1 fields stay in the settings file for users
-who downgrade GAMDL but are hidden in the UI.
-
-### Important deployment difference vs wrapper-v1
-
-The wrapper-v2 daemon runs **inside a Linux chroot** and depends on
-Apple Music for Android's native `.so` libraries. This has practical
-consequences:
-
-- **Linux**: Native run is possible but the process needs `SYS_ADMIN`
-  / `SYS_CHROOT` / `SYS_PTRACE` privileges (root). You must extract
-  Apple's `.so` files from the Apple Music Android APK and stage them
-  into the wrapper's `rootfs/system/lib64/` (digests pinned in
-  `LIBS_VERSION.json`).
-- **macOS / Windows**: **Docker is required.** On Windows that means
-  Docker Desktop. On a Mac it can be Docker Desktop or [OrbStack](https://orbstack.dev/), a
-  lighter alternative that provides the same `docker` and
-  `docker compose` commands (OrbStack is Mac-only). The wrapper-v2
-  ships as a `Dockerfile` + `compose.yaml`; you build the image
-  locally with the staged `.so` files (Apple `.so` files are not
-  redistributed by glomatico/wrapper-v2 — you stage them yourself).
-
-> **MeedyaDL does NOT bundle wrapper-v2.** Three blockers:
-> 1. Distributing Apple's proprietary `.so` files inside our installer
->    would be a licensing nightmare.
-> 2. The Linux chroot mode needs root capabilities that MeedyaDL
->    doesn't have on user installs.
-> 3. Cross-compilation via NDK isn't viable as a one-click MeedyaDL
->    bundle.
-
-### First-time setup outline
-
-1. Clone https://github.com/glomatico/wrapper-v2.
-2. Extract Apple Music for Android's `.so` files (the upstream README
-   has instructions and `tools/extract-libs.sh` helps verify SHA-256s).
-3. `docker compose build` (Linux/macOS/Windows).
-4. `docker compose up -d` to start the daemon — exposes
-   `http://localhost:80` by default.
-5. In MeedyaDL, **Settings → Advanced → Wrapper**:
-   - Toggle **Use wrapper** on.
-   - Set **Wrapper URL** to `http://127.0.0.1` (or whatever port you
-     mapped in `compose.yaml`).
-   - The "Sign In" button calls `POST /login` with the Apple ID +
-     password you provide — store nothing in MeedyaDL.
-
-### Why the "Sign In" button matters
-
-GAMDL 3.6 added an **interactive credential prompt** at the CLI level
-(`gamdl/cli/interactive_prompts.py`). When MeedyaDL spawns GAMDL as a
-non-interactive subprocess, an unauthenticated wrapper would cause
-GAMDL to **deadlock waiting on stdin** — the download would never
-progress and the queue would stall until the watchdog timed out at
-20 min.
-
-MeedyaDL preflights `GET /me` before every wrapper download and
-surfaces a yellow toast if the wrapper is logged-out, telling you to
-sign in via Settings before the download will proceed. This avoids
-the deadlock entirely.
-
-### Running wrapper-v2 on a separate machine (LAN deployment)
-
-A common request — and a fully supported configuration — is to run
-wrapper-v2 on a **different machine** than MeedyaDL. Two reasons:
-
-- You have an always-on home server (Raspberry Pi 4/5, NAS,
-  ProxmoxVE box, mini PC) and don't want to keep Docker Desktop (or
-  OrbStack) running on your laptop just for FairPlay decryption.
-- One household wrapper instance can serve multiple MeedyaDL
-  clients without each one needing its own Docker setup.
-
-This works **out of the box** because wrapper-v2 binds to `0.0.0.0`
-by default (the source ships `kDefaultHost = "0.0.0.0"` in
-`src/daemon/main.cpp`). Set up:
-
-1. Install wrapper-v2 on the remote host following the standard
-   Docker walkthrough above. Confirm it answers
-   `curl http://<remote-ip>:80/health` from another machine on
-   the same LAN.
-2. On the MeedyaDL host, **Settings → Advanced → Wrapper → Wrapper
-   URL**: paste the LAN URL (e.g. `http://192.168.1.50` or
-   `http://nas.home:80`).
-3. Hit **Sign In** as usual — the credentials flow through the LAN
-   to the remote wrapper's `/login` endpoint.
-4. Queue a download. The pre-flight health check probes the LAN URL
-   the same way it probes loopback (3-second TCP/HTTP timeout).
-
-### Security caveat — wrapper-v2 has no network-layer auth
-
-There's an important asymmetry between loopback and LAN deployment:
-
-> **Wrapper-v2 exposes no API key, no bearer token, no CORS check,
-> and no client IP allowlist.** Any device that can reach its HTTP
-> port can call `/playback` and `/decrypt` against your Apple Music
-> credentials.
-
-This is **fine** on:
-
-- **Loopback** (`127.0.0.1`) — only this machine can reach it
-- **A trusted home network** behind a residential firewall — you
-  control which devices are on the network
-
-This is **risky** on:
-
-- **Shared networks** (coffeeshop wifi, dorm, work LAN, AirBnB) — any
-  other client on the network can hit your wrapper
-- **Public IPs** — anyone on the internet can hit your wrapper
-
-MeedyaDL surfaces a corresponding hint in **Settings → Advanced →
-Wrapper** when the Wrapper URL is non-loopback:
-
-- **Amber note** for private-range IPs / DNS names — informational,
-  call out the no-auth caveat
-- **Red note** for public IPs — almost always a misconfiguration
-
-### Mitigations if you need stronger isolation
-
-If you want the convenience of running wrapper-v2 elsewhere AND
-network-layer protection, you have several options:
-
-1. **Firewall the wrapper port to specific source IPs.** On Linux,
-   `iptables -A INPUT -p tcp --dport 80 -s 192.168.1.10 -j ACCEPT`
-   then `iptables -A INPUT -p tcp --dport 80 -j DROP`. Equivalent
-   on macOS via `pf`, on Windows via Windows Firewall.
-
-2. **Bind wrapper-v2 to loopback on the remote host + SSH tunnel
-   from MeedyaDL.** On the wrapper host:
-   `WRAPPER_HOST=127.0.0.1 docker compose up -d`. On the MeedyaDL
-   host: `ssh -N -L 30020:127.0.0.1:80 user@wrapper-host`. Set
-   MeedyaDL's Wrapper URL to `http://127.0.0.1:30020`. The wrapper
-   stays loopback-only; the SSH tunnel terminates on the wrapper
-   host's loopback.
-
-3. **VLAN segmentation.** If you have a managed switch / router that
-   supports VLANs, put the wrapper on a dedicated VLAN with only
-   your MeedyaDL machines as authorised members.
-
-4. **VPN-only access.** Run the wrapper on a host accessible only
-   via your Tailscale / WireGuard / OpenVPN network — public IP +
-   firewall blocking everything except the VPN endpoint.
-
-For a single trusted home network (the most common case), no
-mitigation is needed — the LAN itself is the trust boundary.
+On the Settings screen you may see a note that the wrapper only has ready-made programs for Linux x86_64. On other computers, run it on another machine or in Docker and point MeedyaDL at it.
 
 ---
 
-## Cookie-only mode (no wrapper)
+## Retry without the wrapper
 
-If you don't want to run either wrapper, MeedyaDL still works with
-**cookies only**. You'll need:
+When a wrapper download fails after every retry, the failed item shows a **Retry without Wrapper** button. It re-queues the item using your cookies instead.
 
-- A valid Apple Music subscription
-- An exported cookies file (see
-  [Cookie management](./cookie-management.md))
-
-What you get without a wrapper depends on your GAMDL version:
-
-- **GAMDL 3.8 and newer** — everything except **ALAC** works cookie-only,
-  including Atmos and AC3. The one limitation is: no ALAC (lossless).
-  Music videos: hit-and-miss on certain regional content.
-- **GAMDL 3.0 – 3.7.x** — only the lossy `aac-web` family (256 kbps, or
-  `aac-legacy` on some releases) is reliable cookie-only. No ALAC / Atmos
-  / AC3 / spatial audio. Music videos: hit-and-miss.
-
-This is the recommended mode for casual users, and on GAMDL 3.8+ it covers
-almost everyone except people who specifically want lossless ALAC.
+To do that automatically, turn on **Auto-Retry without Wrapper** in **Settings > Advanced > Wrapper** (it appears once **Use Wrapper** is on). The Activity Log then shows "Wrapper failed — auto-retrying without wrapper". It is handy if your wrapper is sometimes offline.
 
 ---
 
-## Troubleshooting
+## Settings at a glance
 
-**"Wrapper-v2 daemon at http://127.0.0.1 returned HTTP …" on every
-download** → Container isn't running or isn't bound to the URL.
-Check `docker compose ps` and the `HTTP_PORT` env var in your
-`compose.yaml`.
-
-**"Wrapper-v2 daemon at … is reachable but not signed in" toast every
-download** → Hit **Sign In** in Settings → Advanced → Wrapper. If
-you've set `WRAPPER_USERNAME` / `WRAPPER_PASSWORD` env vars on the
-container, the daemon should restore the session automatically on
-restart — check `docker logs wrapper-v2` for restore errors.
-
-**Activity log shows `Wrapper-v2 daemon at … unreachable` toast on
-macOS even though `docker ps` shows it running** → On macOS, Docker
-Desktop port mappings sometimes don't bind to `127.0.0.1` cleanly
-when the daemon restarts. Try `http://localhost` instead, or set
-`docker compose down && docker compose up -d`.
-
-**Downloads stall forever with "Companion: downloading aac (tier N)…
-— X min elapsed"** → GAMDL 3.6 needs wrapper-v2 for the non-aac-web
-codec families. If you don't have wrapper-v2 set up, switch the
-companion mode to one that uses `aac-web` (e.g. **SpecialistToLossy**
-on the Apple Music side) or stay on GAMDL 3.5.2 until you have
-wrapper-v2 working.
-
-**LAN-deployed wrapper unreachable from MeedyaDL but reachable via
-`curl` from the same machine** → Almost always a firewall on the
-wrapper host blocking inbound port 80 from non-loopback sources.
-Verify with `curl http://<wrapper-lan-ip>:80/health` **from a third
-machine** on the LAN. If that works, the issue is in MeedyaDL's
-network config — try `ping <wrapper-lan-ip>` from the MeedyaDL host
-to rule out routing. If the third-machine `curl` also fails, the
-wrapper is bound to loopback only (`WRAPPER_HOST=127.0.0.1`) or the
-host's firewall is rejecting the LAN traffic.
-
-**Amber "Wrapper is on your LAN" note in Settings is unexpected** →
-That's the #891 security hint. If your wrapper URL is intentionally
-on a private-range IP (`10/8`, `172.16-31/12`, `192.168/16`), the
-note is just confirming you understand wrapper-v2 has no
-network-layer auth. See the "Security caveat" section above for
-mitigations if you need stronger isolation.
-
----
-
-## Platform support
-
-MeedyaDL shows the wrapper settings on every platform it runs on. It does
-not check what you are running, and it does not need to: all it ever does
-is talk to three addresses you give it, and those addresses can point at
-this machine or at another one.
-
-What varies is whether a wrapper you can run **on this machine** exists for
-your platform at all. That is decided by the wrapper projects, not by
-MeedyaDL:
-
-- **wrapper-v1** is a native program. Which platforms it has builds for is
-  a question for that project — check its own releases page before assuming
-  one exists for yours.
-- **wrapper-v2** is documented above: Linux can run it directly, while
-  Windows needs Docker Desktop and a Mac needs Docker Desktop or
-  [OrbStack](https://orbstack.dev/).
-
-If there is no wrapper you can run here, you can still use one. See below.
-
-### Using a wrapper running somewhere else
-
-If you cannot run a wrapper on this machine, you can point MeedyaDL at one
-running elsewhere:
-
-1. **On another machine** — run the wrapper on any machine that can host
-   it (a spare box, a home server, a small VPS, a Raspberry Pi) and point
-   MeedyaDL at that machine's address.
-2. **In Docker** — run it in a container, which works on any host that has
-   Docker. wrapper-v2 ships a Docker setup; see the section above.
-3. **By editing the settings file** — open MeedyaDL's `settings.json` in the
-   app data folder and set `"use_wrapper": true` along with the three
-   addresses below.
-
-**Point all three addresses at the same machine, not just one.** This is
-the single most common reason a remote wrapper "does not work". MeedyaDL
-makes three separate connections, and each has its own setting:
-
-| Setting | Default | What it is for |
-|---|---|---|
-| `wrapper_account_url` | `http://127.0.0.1:30020` | Signing in and getting a token |
-| `wrapper_m3u8_ip` | `127.0.0.1:20020` | Fetching the playlist address (GAMDL 3.1 and later) |
-| `wrapper_decrypt_ip` | `127.0.0.1:10020` | The decryption connection |
-
-If you change only the first one, signing in appears to work and the
-download then fails partway through — because the other two are still
-trying to reach this machine, where nothing is listening. All three are
-also in **Settings → Advanced → Wrapper**, which is easier than editing the
-file by hand.
-
----
-
-## Setting it up (wrapper-v1, GAMDL ≤ 3.5.x)
-
-This section walks through wrapper-v1's account-URL field specifically. If you're on GAMDL 3.6+, use wrapper-v2's setup outline further up this page instead — it uses a single "Wrapper URL" field, not the three wrapper-v1 addresses described here.
-
-### How it works
-
-1. A **wrapper service** runs on your computer (typically at `http://127.0.0.1:30020`)
-2. MeedyaDL connects to the wrapper instead of using cookies
-3. The wrapper handles Apple ID login, DRM key exchange, and decryption on your behalf
-
-### 1. Obtain and run the wrapper service
-
-The wrapper is a separate application that you run locally. It listens on `http://127.0.0.1:30020` by default. You will need to source this separately — it is not bundled with MeedyaDL.
-
-### 2. Enable the wrapper in MeedyaDL
-
-Go to **Settings > Advanced** and enable the **Use Wrapper** toggle. The default URL (`http://127.0.0.1:30020`) should work if the wrapper is running locally with default settings.
-
-### 3. Configure the URL (if needed)
-
-If your wrapper runs on a different port or host, update the **Wrapper Account URL** field in Settings > Advanced.
-
----
-
-## Checking it is working (wrapper-v1)
-
-MeedyaDL checks whether the wrapper is reachable in two ways:
-
-### Manual test
-
-In **Settings > Advanced**, click the **Test Connection** button next to the Wrapper Account URL field. MeedyaDL sends an HTTP GET to the wrapper URL with a 5-second timeout:
-
-- **Success** — shows "Connected" with the round-trip latency in milliseconds (e.g., "Connected (42ms)")
-- **Timeout** — "Connection timed out (5s)" — the wrapper may not be running or the URL is wrong
-- **Connection refused** — "Connection refused — is the wrapper running at {url}?" — the host is reachable but nothing is listening on that port
-- **Other errors** — the specific error message is shown
-
-The test only works on an address on your own computer or your own local network, because that is where a wrapper runs. Any other address is refused without being contacted.
-
-### Automatic pre-flight check
-
-Every time the download queue starts processing, MeedyaDL runs automatic health checks for internet connectivity, cookies, and (if the wrapper is enabled) the wrapper service. If the wrapper is unreachable, a **yellow toast notification** appears with the specific error message (e.g., "Wrapper service at `http://127.0.0.1:30020` timed out — check that it is running").
-
-This check is **advisory** — downloads will still be attempted, but they may fail if the wrapper is genuinely down. Wrapper notifications are **deduplicated** (only one is shown at a time) and **auto-dismiss** when the wrapper becomes reachable again on a subsequent download.
-
-### Troubleshooting Wrapper Connectivity
-
-If MeedyaDL reports the wrapper is unreachable (yellow toast or "Test Connection" failure), work through the steps below from a terminal on the **machine running MeedyaDL**.
-
-#### Step 1 — Verify the URL in MeedyaDL
-
-Open **Settings > Advanced** and check the **Wrapper Account URL**. It should look like:
-
-- Local: `http://127.0.0.1:30020` (wrapper on the same machine)
-- Remote: `http://192.168.x.x:30020` (wrapper on another device, e.g. a Raspberry Pi)
-
-Make sure the IP address and port are correct. If the wrapper is on another device, use that device's LAN IP — not `127.0.0.1`.
-
-#### Step 2 — Test from your terminal with curl
-
-Open a terminal on the machine running MeedyaDL and run:
-
-```
-curl -v http://192.168.x.x:30020
-```
-
-Replace the URL with your actual wrapper URL. Possible outcomes:
-
-- **A response (any HTTP status)** — the wrapper is running and reachable. If MeedyaDL still fails, double-check the URL matches exactly.
-- **"Connection refused"** — the host is reachable but nothing is listening on that port. The wrapper process may not be running, or it's on a different port.
-- **"Connection timed out" / no response** — the host is not reachable. Check network, firewall, or IP address.
-- **"Could not resolve host"** — the hostname/IP is wrong. Verify the address.
-
-#### Step 3 — Check the wrapper is running on the host
-
-SSH into the wrapper host (or open a terminal locally) and check:
-
-**Docker:**
-```
-docker ps | grep wrapper
-```
-If no output, the container isn't running. Start it with `docker start <container_name>` or `docker compose up -d`.
-
-Check container logs for errors:
-```
-docker logs <container_name> --tail 50
-```
-
-**Native (systemd):**
-```
-systemctl status wrapper
-```
-
-**Native (manual):**
-```
-ps aux | grep wrapper
-```
-
-If the process isn't running, start it according to the wrapper's own documentation.
-
-#### Step 4 — Check the port is open (remote setups)
-
-If the wrapper is on a different machine, the port must be accessible over the network.
-
-**On the wrapper host**, check the port is listening:
-```
-ss -tlnp | grep 30020
-```
-or:
-```
-netstat -tlnp | grep 30020
-```
-
-You should see the wrapper listening on `0.0.0.0:30020` (all interfaces) or your LAN IP. If it only shows `127.0.0.1:30020`, the wrapper is only accepting local connections — you'll need to configure it to bind to `0.0.0.0` or the LAN interface.
-
-**Docker port mapping:** ensure the container maps the port to the host. Check with:
-```
-docker port <container_name>
-```
-You should see `30020/tcp -> 0.0.0.0:30020`. If not, recreate the container with `-p 30020:30020`.
-
-#### Step 5 — Check firewall rules
-
-**Linux (ufw):**
-```
-sudo ufw status
-sudo ufw allow 30020/tcp
-```
-
-**Linux (iptables):**
-```
-sudo iptables -L -n | grep 30020
-```
-
-**macOS:** Check System Settings > Network > Firewall (or `/usr/libexec/ApplicationFirewall/socketfilterfw --listapps`).
-
-**Windows:** Check Windows Defender Firewall > Inbound Rules for port 30020.
-
-**Router/NAT:** If the wrapper is behind a router on a different subnet, you may need port forwarding. For devices on the same LAN, this is usually not needed.
-
-#### Step 6 — Verify from MeedyaDL
-
-After resolving the issue, go back to **Settings > Advanced** and click **Test Connection**. You should see "Connected" with a latency reading. If it still fails, repeat from Step 2.
-
----
-
-## Cookie authentication versus wrapper
-
-| Feature | Cookie Auth | Wrapper |
-|---|---|---|
-| Setup difficulty | Easy (browser extension export) | Advanced (local server) |
-| Dolby Atmos access | Sometimes unreliable | More reliable |
-| Session duration | Cookies expire periodically | Persistent while server runs |
-| Dependencies | None (cookies file only) | Wrapper service |
-| Platform support | All platforms | Linux x86_64 (native) or remote/Docker |
-| Recommended for | Most users | Advanced users needing reliable Atmos access |
-
----
-
-## Automatically retrying without the wrapper
-
-When a wrapper download fails (all retries and fallbacks exhausted), MeedyaDL normally shows a **"Retry without Wrapper"** button on the failed queue item. Clicking it re-queues the download with wrapper disabled, falling back to cookie-based authentication.
-
-If you'd prefer this to happen **automatically**, enable **Auto-Retry without Wrapper** in **Settings > Advanced > Wrapper**. When enabled:
-
-1. A wrapper download fails terminally (all retries exhausted)
-2. MeedyaDL automatically re-queues the item with wrapper disabled
-3. The Activity Log shows "Wrapper failed — auto-retrying without wrapper"
-4. The download retries with cookie-based authentication — no manual intervention needed
-
-This is particularly useful if your wrapper service is intermittently unavailable and you want downloads to proceed regardless.
-
----
-
-## Settings reference
-
-| Setting | Location | Default | Applies to |
+| Setting | Where | Default | Which GAMDL |
 |---|---|---|---|
-| Use Wrapper | Settings > Advanced | Off | Both |
-| Auto-Retry without Wrapper | Settings > Advanced | Off | Both |
-| Wrapper Account URL | Settings > Advanced > Wrapper | `http://127.0.0.1:30020` | wrapper-v1 |
-| Wrapper m3u8 Address | Settings > Advanced > Wrapper | `127.0.0.1:20020` | wrapper-v1 (GAMDL 3.1+) |
-| Wrapper Decryption Address | Settings > Advanced > Wrapper | `127.0.0.1:10020` | wrapper-v1, and also wrapper-v2 0.0.2+ (GAMDL 3.8.2+), where decryption moved back to a raw TCP port |
-| Wrapper URL | Settings > Advanced > Wrapper | `http://127.0.0.1` | wrapper-v2 (GAMDL 3.6+) |
+| Use Wrapper | Settings > Advanced > Wrapper | Off | All |
+| Auto-Retry without Wrapper | Settings > Advanced > Wrapper | Off | All |
+| Wrapper URL | Settings > Advanced > Wrapper | `http://127.0.0.1` | 3.6 and newer |
+| Wrapper Account URL | Settings > Advanced > Wrapper | `http://127.0.0.1:30020` | 3.0 to 3.5 |
+| Wrapper m3u8 Address | Settings > Advanced > Wrapper | `127.0.0.1:20020` | 3.1 to 3.5 |
+| Wrapper Decryption Address | Settings > Advanced > Wrapper | Blank (worked out from the Wrapper URL, `127.0.0.1:10020` for a local wrapper) | 3.0 to 3.5, and 3.8.2 and newer |
 
----
+See also [Settings](settings.md) and [Troubleshooting](troubleshooting.md).
 
-## GAMDL ↔ wrapper-v2 version lockstep
-
-GAMDL and wrapper-v2 are separate projects and must be kept on compatible versions:
-
-- **GAMDL 3.0 – 3.5.x** → wrapper-v1 (three local sockets).
-- **GAMDL 3.6 – 3.8.1** → wrapper-v2 **0.0.1** (HTTP decrypt).
-- **GAMDL 3.8.2 – 3.8.5, and 3.9.1** → wrapper-v2 **0.0.2** (native **TCP** decrypt on a separate port, default `10020`). Supported. (3.8.2 introduced the 0.0.2 protocol; 3.8.3–3.8.5 and 3.9.1 keep it unchanged — 3.8.4 also fixed a wrapper-decrypt bug that could corrupt the end of some songs. GAMDL 3.9.0 is refused by MeedyaDL for an unrelated reason; see the top of this page.)
-
-GAMDL and wrapper-v2 must be upgraded **in lockstep** — GAMDL 3.8.2+ exact-matches wrapper-v2's reported version `0.0.2` at startup and aborts otherwise, and GAMDL ≤ 3.8.1 still uses the old HTTP `POST /decrypt` endpoint that 0.0.2 removed (→ 404). If you run GAMDL 3.8.2+ with a **remote/LAN** wrapper-v2, you MUST also set the **Wrapper Decryption Address** (Settings → Advanced → Wrapper) to the daemon's `host:10020` — MeedyaDL now passes it to GAMDL as `--wrapper-decrypt-host`/`--wrapper-decrypt-port`. If MeedyaDL reports *"GAMDL and the wrapper-v2 daemon must be upgraded together"*, your GAMDL and wrapper-v2 versions have drifted apart.
+[Back to Help Index](index.md)

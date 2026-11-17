@@ -44,6 +44,7 @@ import type { DependencyStatus, PythonVenvHealthDto, SystemPython } from '@/type
 // Type-safe wrappers for Tauri IPC commands related to dependency management.
 // Each function maps to a `#[tauri::command]` handler in the Rust backend.
 import * as commands from '@/lib/tauri-commands';
+import { useSettingsStore } from '@/stores/settingsStore';
 
 /**
  * Combined state + actions interface for the dependency store.
@@ -215,8 +216,8 @@ interface DependencyState {
   installGamdl: () => Promise<string>;
 
   /**
-   * Install all bundled pip engines (GAMDL + votify + future engines).
-   * Called by the setup wizard GamdlStep.
+   * Install the bundled pip engines: GAMDL, plus votify with developer
+   * access on. Called by the setup wizard GamdlStep.
    */
   installBundledEngines: () => Promise<string>;
 
@@ -481,11 +482,16 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
   },
 
   /**
-   * Install all bundled pip engines (GAMDL + votify + any future enabled engines).
+   * Install the bundled pip engines the person can use.
    * Called by the setup wizard to ensure all core engines are installed in one step.
    *
-   * Installs sequentially: GAMDL first (primary), then additional engines.
-   * IPC calls: installGamdl() + installVotify()
+   * GAMDL always. votify (the Spotify engine) only with developer access
+   * on, because Spotify is a developer-only preview: until October 2026 the
+   * wizard installed votify for everyone and told everyone it "powers
+   * Spotify downloads", although Spotify downloads were refused to anyone
+   * without developer access.
+   *
+   * IPC calls: installGamdl(), then installVotify() for developer access
    */
   installBundledEngines: async () => {
     set({ isInstalling: true, installingName: 'GAMDL', error: null });
@@ -493,15 +499,18 @@ export const useDependencyStore = create<DependencyState>((set, get) => ({
       // Install GAMDL (primary engine, required)
       const gamdlVersion = await commands.installGamdl();
       const gamdl = await commands.checkGamdlStatus();
-      set({ gamdl, installingName: 'votify' });
+      set({ gamdl });
 
-      // Install votify (Spotify engine, required, enabled)
-      try {
-        await commands.installVotify();
-      } catch {
-        // Non-fatal — votify is required but Spotify support isn't active yet.
-        // Log but don't block the setup wizard.
-        console.warn('votify installation failed (non-fatal)');
+      if (useSettingsStore.getState().settings.dev_access_enabled === true) {
+        set({ installingName: 'votify' });
+        // Install votify (Spotify engine, developer preview)
+        try {
+          await commands.installVotify();
+        } catch {
+          // Non-fatal -- the Spotify preview is optional, so a failure
+          // here must not block the setup wizard.
+          console.warn('votify installation failed (non-fatal)');
+        }
       }
 
       set({ isInstalling: false, installingName: null });

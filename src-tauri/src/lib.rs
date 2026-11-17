@@ -218,9 +218,7 @@ fn clear_old_logs(app_data_dir: &std::path::Path, extra_log_dir: Option<&std::pa
         }
     }
     if removed > 0 {
-        log::info!(
-            "Cleaned up {removed} log file(s) (tracing/activity: >7d, session: >30d)"
-        );
+        log::info!("Cleaned up {removed} log file(s) (tracing/activity: >7d, session: >30d)");
     }
 }
 
@@ -295,7 +293,7 @@ fn setup_panic_handler() {
         // Build the crash report JSON
         let report = serde_json::json!({
             "id": uuid::Uuid::new_v4().to_string(),
-            "timestamp": chrono::Utc::now().to_rfc3339(),
+            "timestamp": crate::utils::time_compat::now_rfc3339(),
             "app_version": env!("CARGO_PKG_VERSION"),
             "os": std::env::consts::OS,
             "arch": std::env::consts::ARCH,
@@ -316,7 +314,10 @@ fn setup_panic_handler() {
         let crash_dir = utils::platform::resolve_early_app_data_root().join("crashes");
 
         if std::fs::create_dir_all(&crash_dir).is_ok() {
-            let filename = format!("crash-{}.json", chrono::Utc::now().format("%Y%m%d-%H%M%S"));
+            let filename = format!(
+                "crash-{}.json",
+                crate::utils::time_compat::compact_stamp(crate::utils::time_compat::now_utc())
+            );
             let path = crash_dir.join(&filename);
             if let Ok(json) = serde_json::to_string_pretty(&report) {
                 let _ = std::fs::write(&path, json);
@@ -332,25 +333,56 @@ fn setup_panic_handler() {
 /// Creates and configures the system tray icon with its context menu and
 /// event handlers.
 ///
-/// Managed state holding the tray icon ID so other modules (e.g., download_queue)
-/// can update the tray tooltip to show download progress.
-pub struct TrayState(pub tauri::tray::TrayIconId);
+/// Managed state holding the tray icon's ID and its "Downloads:" menu line,
+/// so other modules (e.g., download_queue) can keep both showing the queue's
+/// real state.
+pub struct TrayState {
+    /// The tray icon, for its tooltip.
+    pub id: tauri::tray::TrayIconId,
+    /// The disabled "Downloads: …" status line in the tray menu.
+    pub downloads_item: tauri::menu::MenuItem<tauri::Wry>,
+}
 
-/// Updates the system tray icon tooltip with the current queue status.
-/// Called from download_queue after state changes.
-pub fn update_tray_tooltip(app: &tauri::AppHandle, active: usize, queued: usize, completed: usize) {
+/// The tray icon's tooltip for the given queue counts.
+fn tray_tooltip_text(active: usize, queued: usize, completed: usize) -> String {
+    if active > 0 {
+        format!("MeedyaDL — {active} downloading, {queued} queued")
+    } else if completed > 0 {
+        format!("MeedyaDL — {completed} completed")
+    } else {
+        "MeedyaDL".to_string()
+    }
+}
+
+/// The tray menu's "Downloads:" status line for the given queue counts.
+///
+/// Until October 2026 this line was built once as "Downloads: None" and
+/// never changed -- a comment claimed the interface updated it, but nothing
+/// did -- so the tray said "None" in the middle of a download.
+fn tray_menu_status_text(active: usize, queued: usize, completed: usize) -> String {
+    if active > 0 {
+        format!("Downloads: {active} downloading, {queued} queued")
+    } else if queued > 0 {
+        format!("Downloads: {queued} queued")
+    } else if completed > 0 {
+        format!("Downloads: {completed} completed")
+    } else {
+        "Downloads: none".to_string()
+    }
+}
+
+/// Updates the system tray's tooltip and its "Downloads:" menu line with
+/// the current queue status. Called from download_queue each time the
+/// queue is saved, which happens after every change to it.
+pub fn update_tray_status(app: &tauri::AppHandle, active: usize, queued: usize, completed: usize) {
     use tauri::Manager;
     if let Some(tray_state) = app.try_state::<TrayState>() {
-        if let Some(tray) = app.tray_by_id(&tray_state.0) {
-            let tooltip = if active > 0 {
-                format!("MeedyaDL — {active} downloading, {queued} queued")
-            } else if completed > 0 {
-                format!("MeedyaDL — {completed} completed")
-            } else {
-                "MeedyaDL".to_string()
-            };
-            let _ = tray.set_tooltip(Some(&tooltip));
+        if let Some(tray) = app.tray_by_id(&tray_state.id) {
+            let _ = tray.set_tooltip(Some(&tray_tooltip_text(active, queued, completed)));
         }
+        let _ = tray_state
+            .downloads_item
+            .set_text(tray_menu_status_text(active, queued, completed));
     }
 }
 
@@ -390,11 +422,13 @@ fn setup_system_tray(
     // First separator -- visually groups window controls from status info
     let separator1 = PredefinedMenuItem::separator(app)?;
 
-    // "Downloads: None" -- disabled info item that displays current download status.
-    // The frontend can update this text via the tray menu API as downloads progress.
-    let downloads_item = MenuItemBuilder::with_id("downloads_status", "Downloads: None")
-        .enabled(false)
-        .build(app)?;
+    // "Downloads: …" -- disabled info item showing the queue's state. It is
+    // kept in `TrayState` and rewritten by `update_tray_status()` whenever
+    // the queue changes (the text starts as it would for an empty queue).
+    let downloads_item =
+        MenuItemBuilder::with_id("downloads_status", tray_menu_status_text(0, 0, 0))
+            .enabled(false)
+            .build(app)?;
 
     // Second separator -- visually groups status info from application actions
     let separator2 = PredefinedMenuItem::separator(app)?;
@@ -483,8 +517,12 @@ fn setup_system_tray(
 
     log::info!("System tray icon initialized");
 
-    // Store the tray icon's ID for later tooltip updates from download_queue
-    app.manage(TrayState(tray.id().clone()));
+    // Keep the tray icon's ID and the status line for later updates from
+    // download_queue (`update_tray_status`).
+    app.manage(TrayState {
+        id: tray.id().clone(),
+        downloads_item,
+    });
     Ok(tray)
 }
 
@@ -509,7 +547,8 @@ fn setup_queue_recovery(app: &tauri::App) {
     }
 
     let count = persisted_items.len();
-    let settings = services::config_service::load_settings_at_startup(&app_handle).unwrap_or_default();
+    let settings =
+        services::config_service::load_settings_at_startup(&app_handle).unwrap_or_default();
 
     // Get the queue handle from managed state
     let queue_handle: tauri::State<'_, services::download_queue::QueueHandle> = app.state();
@@ -804,7 +843,11 @@ fn emit_startup_settings_summary(app: &tauri::AppHandle, s: &models::settings::A
     );
 
     // Line 3: Authentication status (redacted — no credentials or paths)
-    let cookies_status = if s.cookies_path.is_some() { "set" } else { "not set" };
+    let cookies_status = if s.cookies_path.is_some() {
+        "set"
+    } else {
+        "not set"
+    };
     let musickit_status = if s.musickit_team_id.is_some() && s.musickit_key_id.is_some() {
         "configured"
     } else {
@@ -987,24 +1030,25 @@ pub fn run() {
     // the project, not authenticate requests).
     // Sentry DSN via compile-time env var. Without a real DSN, Sentry is a no-op.
     let sentry_dsn = option_env!("SENTRY_DSN").unwrap_or("");
-    let _sentry_guard = if sentry_enabled && !sentry_dsn.is_empty() && !sentry_dsn.contains("examplePublicKey") {
-        Some(sentry::init((
-            sentry_dsn,
-            sentry::ClientOptions {
-                release: Some(std::borrow::Cow::Borrowed(env!("CARGO_PKG_VERSION"))),
-                environment: Some(std::borrow::Cow::Borrowed(if cfg!(debug_assertions) {
-                    "development"
-                } else {
-                    "production"
-                })),
-                sample_rate: 1.0,
-                traces_sample_rate: 0.2,
-                ..Default::default()
-            },
-        )))
-    } else {
-        None
-    };
+    let _sentry_guard =
+        if sentry_enabled && !sentry_dsn.is_empty() && !sentry_dsn.contains("examplePublicKey") {
+            Some(sentry::init((
+                sentry_dsn,
+                sentry::ClientOptions {
+                    release: Some(std::borrow::Cow::Borrowed(env!("CARGO_PKG_VERSION"))),
+                    environment: Some(std::borrow::Cow::Borrowed(if cfg!(debug_assertions) {
+                        "development"
+                    } else {
+                        "production"
+                    })),
+                    sample_rate: 1.0,
+                    traces_sample_rate: 0.2,
+                    ..Default::default()
+                },
+            )))
+        } else {
+            None
+        };
 
     // Initialise the tracing subscriber with dual-output logging (stderr + file).
     // The `_tracing_guard` must be kept alive to ensure the file appender
@@ -1152,6 +1196,7 @@ pub fn run() {
             commands::system::save_session_log,
             // Notification diagnostics + backend-pipeline test button (#834).
             commands::system::test_desktop_notification,
+            commands::system::notify_system,
             commands::system::get_notification_diagnostics,
             // Output-directory integrity scan (#537 chunk B).
             commands::system::run_integrity_scan,
@@ -1265,6 +1310,9 @@ pub fn run() {
             commands::gamdl::fetch_syllable_lyrics,
             // Word-level lyrics connectivity test (#934)
             commands::lyrics::test_lyrics_connection,
+            // Language-list ordering by the shared language policy (#1249)
+            commands::language::order_languages_for_display,
+            commands::language::language_identities,
             // Credential storage commands
             commands::credentials::store_credential,
             commands::credentials::get_credential,
@@ -1339,8 +1387,12 @@ pub fn run() {
     // items (Edit, Window, etc.) are preserved.
     //
     // On Linux and Windows, no application menu is added — the app
-    // uses a custom titlebar/sidebar and the in-window menu bar is
-    // unwanted.
+    // uses the system's own title bar and its sidebar for navigation, and
+    // an in-window menu bar is unwanted.
+    //
+    // The Hide (Cmd+H) and Quit (Cmd+Q) items below keep their standard
+    // keys; the app's own page shortcuts avoid both (see
+    // src/hooks/useKeyboardShortcuts.ts).
     //
     // Reference: https://docs.rs/tauri/latest/tauri/menu/index.html
     #[cfg(target_os = "macos")]
@@ -1736,6 +1788,12 @@ pub fn run() {
                 // Log concise settings summary at startup for diagnostics
                 if let Ok(s) = services::config_service::load_settings_at_startup(&startup_handle) {
                     emit_startup_settings_summary(&startup_handle, &s);
+                    // Once per launch: a metadata language that is not a
+                    // language tag is reported, never changed (#1246).
+                    commands::settings::report_metadata_language_on_startup(
+                        &startup_handle,
+                        &s.language,
+                    );
                 }
 
                 // Log component versions to the Activity Log for diagnostics.
@@ -1761,4 +1819,33 @@ pub fn run() {
         // Reference: https://docs.rs/tauri/latest/tauri/macro.generate_context.html
         .run(tauri::generate_context!())
         .expect("Failed to start MeedyaDL application");
+}
+
+#[cfg(test)]
+mod tray_tests {
+    use super::{tray_menu_status_text, tray_tooltip_text};
+
+    /// The tray menu's status line follows the queue instead of saying
+    /// "None" for ever.
+    #[test]
+    fn tray_status_line_shows_the_real_queue_state() {
+        assert_eq!(tray_menu_status_text(0, 0, 0), "Downloads: none");
+        assert_eq!(
+            tray_menu_status_text(2, 3, 1),
+            "Downloads: 2 downloading, 3 queued"
+        );
+        assert_eq!(tray_menu_status_text(0, 4, 1), "Downloads: 4 queued");
+        assert_eq!(tray_menu_status_text(0, 0, 5), "Downloads: 5 completed");
+    }
+
+    /// The tooltip keeps its existing wording.
+    #[test]
+    fn tray_tooltip_keeps_its_wording() {
+        assert_eq!(
+            tray_tooltip_text(1, 2, 0),
+            "MeedyaDL — 1 downloading, 2 queued"
+        );
+        assert_eq!(tray_tooltip_text(0, 0, 3), "MeedyaDL — 3 completed");
+        assert_eq!(tray_tooltip_text(0, 0, 0), "MeedyaDL");
+    }
 }

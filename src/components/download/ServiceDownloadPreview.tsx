@@ -36,20 +36,17 @@
  */
 
 import { useMemo } from 'react';
-import {
-  Disc3,
-  Film,
-  Image as ImageIcon,
-  Languages,
-  Music,
-  Subtitles,
-  Video,
-} from 'lucide-react';
+import { Disc3, Film, Image as ImageIcon, Languages, Music, Subtitles, Video } from 'lucide-react';
 
 import { detectPlatform } from '@/lib/platform-config';
 import { PlatformIcon } from '@/lib/PlatformIcon';
 import { useSettingsStore } from '@/stores/settingsStore';
-import { MEDIA_SERVICE_LABELS, SONG_CODEC_LABELS, type MediaServiceId, type SongCodec } from '@/types';
+import {
+  MEDIA_SERVICE_LABELS,
+  SONG_CODEC_LABELS,
+  type MediaServiceId,
+  type SongCodec,
+} from '@/types';
 
 interface PreviewArtifact {
   icon: typeof Music;
@@ -179,10 +176,7 @@ export interface ServiceDownloadPreviewProps {
  * AND the user is on a stable channel — the "coming soon" line is
  * gated behind dev access).
  */
-export function ServiceDownloadPreview({
-  service,
-  urls,
-}: ServiceDownloadPreviewProps) {
+export function ServiceDownloadPreview({ service, urls }: ServiceDownloadPreviewProps) {
   const settings = useSettingsStore((s) => s.settings);
   const artifacts = useMemo(
     () => (service ? buildArtifacts(service, settings) : null),
@@ -206,8 +200,8 @@ export function ServiceDownloadPreview({
             {serviceLabel} support is coming
           </p>
           <p>
-            URL parsing recognises this service, but the download engine
-            isn&rsquo;t wired yet. Track progress in the multi-service EPIC.
+            URL parsing recognises this service, but the download engine isn&rsquo;t wired yet.
+            Track progress in the multi-service EPIC.
           </p>
         </div>
       </div>
@@ -222,9 +216,7 @@ export function ServiceDownloadPreview({
     >
       <div className="flex items-center gap-2 mb-2">
         <PlatformIcon platform={platform} size={16} />
-        <p className="text-xs font-medium text-content-primary">
-          {serviceLabel} will download:
-        </p>
+        <p className="text-xs font-medium text-content-primary">{serviceLabel} will download:</p>
       </div>
       <ul className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1.5 text-xs text-content-secondary">
         {artifacts.map((artifact, i) => {

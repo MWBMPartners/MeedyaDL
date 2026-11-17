@@ -9,15 +9,13 @@
  *   - Empty state (icon + helper text)
  *   - Header subtitle pluralisation
  *   - Stats bar segments (per-state counts, only-when-non-zero)
- *   - Conditional action buttons:
- *     - Start Queue: queued > 0 AND active === 0
- *     - Export: items > 0; disabled when exportable === 0
- *     - Clear Completed: finished > 0
- *     - Retry All Failed: failed > 0
- *     - Clear All: items > 0
- *     - Abort Queue: active > 0 OR queued > 0
- *   - Refresh button always present
- *   - Confirmation modals open on click (Clear All, Retry All, Abort)
+ *   - Header actions (polish pass H5): Start (queued > 0 AND active ===
+ *     0), Pause and Abort (active > 0 OR queued > 0) as buttons; Import,
+ *     Export, Retry All Failed, Clear Completed, Clear All and Refresh in
+ *     the "More" menu, greyed out when they cannot be used
+ *   - The More menu by keyboard, and how it is announced
+ *   - Filter chips use the status-pill words
+ *   - Confirmation modals open (Clear All, Retry All, Abort)
  *   - Polling: refreshQueue called on mount
  *
  * **Out of scope** (deferred): per-row QueueItem rendering — mocked
@@ -61,7 +59,13 @@ vi.mock('@/components/download/QueueItem', () => ({
  * QueueItem mock provides, so test queries keep working unchanged. (#467)
  */
 vi.mock('@/components/download/QueueListVirtualized', () => ({
-  QueueListVirtualized: ({ queueItems }: { queueItems: QueueItemStatus[] }) => {
+  QueueListVirtualized: ({
+    queueItems,
+    onToggleSelect,
+  }: {
+    queueItems: QueueItemStatus[];
+    onToggleSelect?: (id: string) => void;
+  }) => {
     if (queueItems.length === 0) {
       return (
         <div>
@@ -73,11 +77,13 @@ vi.mock('@/components/download/QueueListVirtualized', () => ({
     return (
       <div role="list" aria-label="Download queue items">
         {queueItems.map((item) => (
-          <div
-            key={item.id}
-            data-testid={`queue-item-${item.id}`}
-            data-state={item.state}
-          >
+          <div key={item.id} data-testid={`queue-item-${item.id}`} data-state={item.state}>
+            {/* Selection, so the bulk actions can be tested. */}
+            <input
+              type="checkbox"
+              aria-label={`Select ${item.id}`}
+              onChange={() => onToggleSelect?.(item.id)}
+            />
             {item.current_track ?? item.urls[0]}
           </div>
         ))}
@@ -102,9 +108,7 @@ describe('DownloadQueue', () => {
   it('renders empty state when no items', () => {
     render(<DownloadQueue />);
     expect(screen.getByText('No downloads in queue')).toBeInTheDocument();
-    expect(
-      screen.getByText(/Paste an Apple Music URL on the Download page/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Paste an Apple Music URL on the Download page/i)).toBeInTheDocument();
   });
 
   it('uses singular "item" in subtitle for empty queue', () => {
@@ -196,30 +200,115 @@ describe('DownloadQueue', () => {
   });
 
   // ===========================================================================
-  // Conditional action buttons
+  // Header actions: three buttons plus a "More" menu (polish pass H5)
   // ===========================================================================
 
-  it('Refresh button is always present', () => {
+  /** Opens the header's "More" menu and returns it. */
+  function openMore() {
+    fireEvent.click(screen.getByRole('button', { name: /^more/i }));
+    return screen.getByRole('menu', { name: /more queue actions/i });
+  }
+
+  /** The menu item whose name matches, or null. */
+  function menuItem(name: RegExp) {
+    return screen.queryByRole('menuitem', { name });
+  }
+
+  it('keeps only Start, Pause and Abort as buttons; everything else is in More', () => {
+    act(() => {
+      useDownloadStore.setState({
+        queueItems: [
+          makeItem({ id: 'a', state: 'queued' }),
+          makeItem({ id: 'b', state: 'complete' }),
+          makeItem({ id: 'c', state: 'error' }),
+        ],
+      });
+    });
     render(<DownloadQueue />);
-    expect(screen.getByRole('button', { name: /refresh/i })).toBeInTheDocument();
+    const header = screen.getByRole('banner');
+    const labels = [...header.querySelectorAll('button')].map((b) => b.textContent?.trim());
+    expect(labels).toEqual(['Start (1)', 'Pause', 'Abort', 'More']);
+    // None of the secondary actions is a header button any more.
+    for (const gone of [
+      /^import$/i,
+      /^export/i,
+      /^refresh$/i,
+      /^clear all$/i,
+      /clear completed/i,
+      /retry all failed/i,
+    ]) {
+      expect(screen.queryByRole('button', { name: gone })).toBeNull();
+    }
   });
 
-  it('Import button is always present', () => {
+  it('More is announced as a menu button and lists every secondary action', () => {
+    act(() => {
+      useDownloadStore.setState({
+        queueItems: [
+          makeItem({ id: 'a', state: 'queued' }),
+          makeItem({ id: 'b', state: 'downloading' }),
+          makeItem({ id: 'c', state: 'complete' }),
+          makeItem({ id: 'd', state: 'error' }),
+          makeItem({ id: 'e', state: 'error' }),
+        ],
+      });
+    });
     render(<DownloadQueue />);
-    expect(screen.getByRole('button', { name: /^import$/i })).toBeInTheDocument();
+    const more = screen.getByRole('button', { name: /^more/i });
+    expect(more).toHaveAttribute('aria-haspopup', 'menu');
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+    openMore();
+    expect(more).toHaveAttribute('aria-expanded', 'true');
+    expect(menuItem(/import a queue file/i)).toBeEnabled();
+    expect(menuItem(/export the queue \(2\)/i)).toBeEnabled();
+    expect(menuItem(/retry all failed \(2\)/i)).toBeEnabled();
+    expect(menuItem(/clear completed \(1\)/i)).toBeEnabled();
+    expect(menuItem(/clear all/i)).toBeEnabled();
+    expect(menuItem(/^refresh$/i)).toBeEnabled();
   });
 
-  it('Start Queue button shows when queued > 0 AND no active items', () => {
+  it('shows an action that cannot be used right now greyed out, not hidden', () => {
+    act(() => {
+      useDownloadStore.setState({ queueItems: [makeItem({ id: 'a', state: 'queued' })] });
+    });
+    render(<DownloadQueue />);
+    openMore();
+    expect(menuItem(/^retry all failed$/i)).toBeDisabled();
+    expect(menuItem(/^clear completed$/i)).toBeDisabled();
+  });
+
+  it('the More menu works from the keyboard and gives focus back', () => {
+    act(() => {
+      useDownloadStore.setState({ queueItems: [makeItem({ id: 'a', state: 'queued' })] });
+    });
+    render(<DownloadQueue />);
+    const more = screen.getByRole('button', { name: /^more/i });
+    more.focus();
+    fireEvent.keyDown(more, { key: 'ArrowDown' });
+    const menu = screen.getByRole('menu', { name: /more queue actions/i });
+    // Focus lands on the first item...
+    expect(document.activeElement).toBe(menuItem(/import a queue file/i));
+    // ...arrow keys move it...
+    fireEvent.keyDown(document, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(menuItem(/export the queue/i));
+    // ...and Escape closes the menu and returns focus to "More".
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(menu).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(more);
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('Start shows when queued > 0 AND no active items', () => {
     act(() => {
       useDownloadStore.setState({
         queueItems: [makeItem({ id: 'a', state: 'queued' })],
       });
     });
     render(<DownloadQueue />);
-    expect(screen.getByRole('button', { name: /start queue \(1\)/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^start \(1\)$/i })).toBeInTheDocument();
   });
 
-  it('Start Queue button hides when there are active downloads', () => {
+  it('Start hides when there are active downloads', () => {
     act(() => {
       useDownloadStore.setState({
         queueItems: [
@@ -229,56 +318,20 @@ describe('DownloadQueue', () => {
       });
     });
     render(<DownloadQueue />);
-    expect(screen.queryByRole('button', { name: /start queue/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^start/i })).not.toBeInTheDocument();
   });
 
-  it('Clear Completed button shows ONLY when finished items exist (complete/cancelled)', () => {
-    // No completed items → button hidden
-    act(() => {
-      useDownloadStore.setState({
-        queueItems: [makeItem({ id: 'a', state: 'queued' })],
-      });
-    });
-    const { rerender } = render(<DownloadQueue />);
-    expect(screen.queryByRole('button', { name: /clear completed/i })).not.toBeInTheDocument();
-
-    // Add a completed item → button appears with count
-    act(() => {
-      useDownloadStore.setState({
-        queueItems: [
-          makeItem({ id: 'a', state: 'queued' }),
-          makeItem({ id: 'b', state: 'complete' }),
-        ],
-      });
-    });
-    rerender(<DownloadQueue />);
-    expect(screen.getByRole('button', { name: /clear completed \(1\)/i })).toBeInTheDocument();
-  });
-
-  it('Retry All Failed button shows ONLY when failed > 0', () => {
-    act(() => {
-      useDownloadStore.setState({
-        queueItems: [
-          makeItem({ id: 'a', state: 'error' }),
-          makeItem({ id: 'b', state: 'error' }),
-        ],
-      });
-    });
-    render(<DownloadQueue />);
-    expect(screen.getByRole('button', { name: /retry all failed \(2\)/i })).toBeInTheDocument();
-  });
-
-  it('Abort Queue button shows when there are active OR queued items', () => {
+  it('Abort shows when there are active OR queued items', () => {
     act(() => {
       useDownloadStore.setState({
         queueItems: [makeItem({ id: 'a', state: 'queued' })],
       });
     });
     render(<DownloadQueue />);
-    expect(screen.getByRole('button', { name: /abort queue/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^abort$/i })).toBeInTheDocument();
   });
 
-  it('Abort Queue button hides when only terminal items exist', () => {
+  it('Abort hides when only terminal items exist', () => {
     act(() => {
       useDownloadStore.setState({
         queueItems: [
@@ -288,48 +341,50 @@ describe('DownloadQueue', () => {
       });
     });
     render(<DownloadQueue />);
-    expect(screen.queryByRole('button', { name: /abort queue/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^abort$/i })).not.toBeInTheDocument();
   });
 
-  it('Export button shows when queue has items, with active count in label', () => {
+  it('labels the filter chips with the same words as the status pills', () => {
     act(() => {
       useDownloadStore.setState({
         queueItems: [
-          makeItem({ id: 'a', state: 'queued' }),
-          makeItem({ id: 'b', state: 'downloading' }),
+          makeItem({ id: 'a', state: 'complete' }),
+          makeItem({ id: 'b', state: 'cancelled' }),
         ],
       });
     });
     render(<DownloadQueue />);
-    expect(screen.getByRole('button', { name: /export \(2\)/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Complete (1)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancelled (1)' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^complete \(1\)$/ })).toBeNull();
   });
 
   // ===========================================================================
   // Confirmation modals
   // ===========================================================================
 
-  it('opens the Retry All Failed confirmation modal on click', () => {
+  it('opens the Retry All Failed confirmation modal from the More menu', () => {
     act(() => {
       useDownloadStore.setState({
         queueItems: [makeItem({ id: 'a', state: 'error' })],
       });
     });
     render(<DownloadQueue />);
-    fireEvent.click(screen.getByRole('button', { name: /retry all failed/i }));
+    openMore();
+    fireEvent.click(menuItem(/retry all failed/i)!);
     expect(screen.getByText(/Retry All Failed Downloads/i)).toBeInTheDocument();
-    expect(
-      screen.getByText(/will re-queue 1 failed download/i)
-    ).toBeInTheDocument();
+    expect(screen.getByText(/will re-queue 1 failed download/i)).toBeInTheDocument();
   });
 
-  it('opens the Clear All confirmation modal on click', () => {
+  it('opens the Clear All confirmation modal from the More menu', () => {
     act(() => {
       useDownloadStore.setState({
         queueItems: [makeItem({ id: 'a', state: 'queued' })],
       });
     });
     render(<DownloadQueue />);
-    fireEvent.click(screen.getByRole('button', { name: /^clear all$/i }));
+    openMore();
+    fireEvent.click(menuItem(/clear all/i)!);
     expect(screen.getByText(/Clear All Queue Items/i)).toBeInTheDocument();
   });
 
@@ -346,12 +401,105 @@ describe('DownloadQueue', () => {
           ...useSettingsStore.getState().settings,
           abort_queue_confirm: true,
         },
+        savedSettings: {
+          ...useSettingsStore.getState().savedSettings,
+          abort_queue_confirm: true,
+        },
       });
     });
     render(<DownloadQueue />);
-    fireEvent.click(screen.getByRole('button', { name: /abort queue/i }));
-    // Modal title from the source: "Abort Queue?" inside the modal body
-    expect(screen.getAllByText(/abort/i).length).toBeGreaterThan(1);
+    fireEvent.click(screen.getByRole('button', { name: /^abort$/i }));
+    expect(screen.getByRole('dialog', { name: /abort queue/i })).toBeInTheDocument();
+  });
+
+  it('abort asks according to the SAVED setting, not an unsaved edit on the Settings screen (#1233)', () => {
+    const abortAll = vi.fn().mockResolvedValue(0);
+    act(() => {
+      useDownloadStore.setState({
+        queueItems: [makeItem({ id: 'a', state: 'downloading' })],
+        abortAll,
+      });
+      useSettingsStore.setState({
+        settings: { ...useSettingsStore.getState().settings, abort_queue_confirm: false },
+        savedSettings: { ...useSettingsStore.getState().savedSettings, abort_queue_confirm: true },
+      });
+    });
+    render(<DownloadQueue />);
+    fireEvent.click(screen.getByRole('button', { name: /^abort$/i }));
+    expect(screen.getByRole('dialog', { name: /abort queue/i })).toBeInTheDocument();
+    expect(abortAll).not.toHaveBeenCalled();
+  });
+
+  // ===========================================================================
+  // Bulk actions report failures (polish pass M8)
+  // ===========================================================================
+
+  it('a bulk cancel says how many could not be cancelled, instead of claiming all of them', async () => {
+    const cancel = vi.fn((id: string) =>
+      id === 'b' ? Promise.reject(new Error('already finished')) : Promise.resolve()
+    );
+    const realCancel = useDownloadStore.getState().cancelDownload;
+    act(() => {
+      useDownloadStore.setState({
+        queueItems: [
+          makeItem({ id: 'a', state: 'queued' }),
+          makeItem({ id: 'b', state: 'queued' }),
+        ],
+        cancelDownload: cancel,
+      });
+    });
+    render(<DownloadQueue />);
+    fireEvent.click(screen.getByLabelText('Select a'));
+    fireEvent.click(screen.getByLabelText('Select b'));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /cancel selected/i }));
+    });
+    const toasts = useUiStore.getState().toasts;
+    const report = toasts.find((t) =>
+      /Cancelled 1 of 2 items; 1 could not be cancelled/.test(t.message)
+    );
+    expect(report?.type).toBe('warning');
+    expect(report?.details).toBe('already finished');
+    expect(toasts.some((t) => t.message === 'Cancelled 2 items')).toBe(false);
+    act(() => useDownloadStore.setState({ cancelDownload: realCancel }));
+  });
+
+  it('Remove selected asks first, removes nothing on Cancel, and keeps failed rows selected (#1232)', async () => {
+    const del = vi.fn((id: string) =>
+      id === 'b' ? Promise.reject(new Error('busy')) : Promise.resolve()
+    );
+    const realDelete = useDownloadStore.getState().deleteItem;
+    act(() => {
+      useDownloadStore.setState({
+        queueItems: [
+          makeItem({ id: 'a', state: 'queued' }),
+          makeItem({ id: 'b', state: 'queued' }),
+        ],
+        deleteItem: del,
+      });
+    });
+    render(<DownloadQueue />);
+    fireEvent.click(screen.getByLabelText('Select a'));
+    fireEvent.click(screen.getByLabelText('Select b'));
+    fireEvent.click(screen.getByRole('button', { name: /remove selected/i }));
+    // Asked first; nothing removed yet.
+    expect(screen.getByRole('dialog', { name: /remove selected items/i })).toBeInTheDocument();
+    expect(del).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
+    expect(del).not.toHaveBeenCalled();
+    // Confirm.
+    fireEvent.click(screen.getByRole('button', { name: /remove selected/i }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /^remove$/i }));
+    });
+    expect(del).toHaveBeenCalledTimes(2);
+    const report = useUiStore
+      .getState()
+      .toasts.find((t) => /Removed 1 of 2 items; 1 could not be removed/.test(t.message));
+    expect(report).toBeTruthy();
+    // Only the row that failed stays selected.
+    expect(screen.getByText('1 selected')).toBeInTheDocument();
+    act(() => useDownloadStore.setState({ deleteItem: realDelete }));
   });
 
   // ===========================================================================
@@ -379,9 +527,7 @@ describe('DownloadQueue', () => {
     ];
     act(() => {
       useDownloadStore.setState({
-        queueItems: states.map((state, i) =>
-          makeItem({ id: `item-${i}`, state })
-        ),
+        queueItems: states.map((state, i) => makeItem({ id: `item-${i}`, state })),
       });
     });
     render(<DownloadQueue />);

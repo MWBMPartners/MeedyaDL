@@ -45,6 +45,9 @@ import type { DependencyStatus } from '@/types';
  */
 vi.mock('@/lib/tauri-commands', () => ({
   installGamdlVersion: vi.fn(),
+  // The GAMDL 4 tool notes ask which GAMDL is installed; a never-settling
+  // answer keeps the defaults (GAMDL 3), which is what these tests expect.
+  getGamdlCapabilities: vi.fn(() => new Promise(() => {})),
   getGamdlSupportWindow: vi.fn(),
   createBackup: vi.fn(),
   listBackups: vi.fn().mockResolvedValue([]),
@@ -120,8 +123,8 @@ describe('ToolsTab -- Reinstall button', () => {
     // only when IT works and the new one does not.
     expect(
       within(dialog).getByText(
-        /If your current copy starts and reports a version MeedyaDL recognises, and the new copy does not, your current copy is kept\./,
-      ),
+        /If your current copy starts and reports a version MeedyaDL recognises, and the new copy does not, your current copy is kept\./
+      )
     ).toBeInTheDocument();
     expect(installDependency).not.toHaveBeenCalled();
   });
@@ -130,7 +133,9 @@ describe('ToolsTab -- Reinstall button', () => {
     render(<ToolsTab />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Reinstall FFmpeg' }));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Reinstall$/ }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: /^Reinstall$/ })
+    );
 
     // Exactly one argument: no "for update" flag, so the backend treats it
     // as an install or repair, like the Install button.
@@ -144,15 +149,19 @@ describe('ToolsTab -- Reinstall button', () => {
 
   it('shows a failure, and still refreshes the tool list', async () => {
     vi.mocked(installDependency).mockRejectedValue(
-      'The new copy of FFmpeg would not start on this computer (it printed "dyld: Library not loaded" instead of its version), so it has been removed. The copy of FFmpeg you had before has been kept, and works as it did.',
+      'The new copy of FFmpeg would not start on this computer (it printed "dyld: Library not loaded" instead of its version), so it has been removed. The copy of FFmpeg you had before has been kept, and works as it did.'
     );
     render(<ToolsTab />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Reinstall FFmpeg' }));
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /^Reinstall$/ }));
+    fireEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', { name: /^Reinstall$/ })
+    );
 
     await waitFor(() =>
-      expect(toastMessages().some((m) => m.startsWith('Could not reinstall FFmpeg.'))).toBe(true),
+      expect(
+        toastMessages().some((m) => m.startsWith('MeedyaDL could not reinstall FFmpeg.'))
+      ).toBe(true)
     );
     expect(toastMessages().some((m) => m.includes('has been kept'))).toBe(true);
     await waitFor(() => expect(checkAll).toHaveBeenCalledTimes(2)); // on mount, and after the failure
@@ -185,5 +194,19 @@ describe('ToolsTab -- Reinstall button', () => {
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(installDependency).not.toHaveBeenCalled();
+  });
+});
+
+// Polish pass L3: "Required" was drawn in the error colour on every tool,
+// healthy or not, so a fully working set-up looked like a list of problems.
+// It is a neutral label now; a missing tool is shown by the icon instead.
+describe('ToolsTab -- the Required label', () => {
+  it('is not drawn in the error colour, even on a healthy tool', () => {
+    render(<ToolsTab />);
+    const labels = screen.getAllByText('Required');
+    expect(labels.length).toBe(2);
+    for (const label of labels) {
+      expect(label.className).not.toMatch(/status-error/);
+    }
   });
 });

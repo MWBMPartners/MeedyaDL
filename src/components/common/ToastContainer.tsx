@@ -5,8 +5,9 @@
  * @file Toast notification container and individual toast item component.
  *
  * This file exports a single public component, {@link ToastContainer}, which
- * renders a fixed-position stack of toast notifications in the top-right
- * corner of the viewport. Individual toast messages are managed by the global
+ * renders a fixed-position stack of toast notifications on the right of
+ * the window, below the page header (and below any area a page marks to
+ * keep clear). Individual toast messages are managed by the global
  * UI store (`useUiStore`) and rendered as {@link ToastItem} sub-components.
  *
  * **Toast lifecycle:**
@@ -32,6 +33,9 @@
  * @see https://lucide.dev/guide/packages/lucide-react
  */
 import { CheckCircle, AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { DEFAULT_TOP, KEEP_CLEAR_ATTRIBUTE, toastStackTop } from '@/lib/toastPlacement';
+import { ErrorDetails } from './ErrorDetails';
 
 // Every toast in the app passes through this one shared container, so
 // translating its two fixed strings (the dismiss button, the landmark
@@ -39,7 +43,7 @@ import { CheckCircle, AlertCircle, AlertTriangle, Info, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 /** Global UI store hook -- provides the `toasts` array and `removeToast` action */
-import { useUiStore } from '@/stores/uiStore';
+import { useUiStore, setToastDismissalPaused } from '@/stores/uiStore';
 
 /** TypeScript types for a single toast message and the union of toast types */
 import type { Toast, ToastType } from '@/types';
@@ -87,7 +91,7 @@ const TOAST_CONFIG: Record<
 
 /**
  * Tailwind text-colour class for each toast type's icon.
- * Uses the project's semantic status colour tokens defined in tailwind.config.ts.
+ * Uses the project's semantic status colour tokens defined in tailwind.config.js.
  */
 const ICON_COLORS: Record<ToastType, string> = {
   success: 'text-status-success', // green icon
@@ -121,6 +125,31 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
   /* Alias the icon component for JSX usage (must start with uppercase) */
   const Icon = config.icon;
 
+  /*
+   * Long messages are cut to three lines, with "Show more" to read the
+   * rest (polish audit M7). A toast used to grow to fit any message, so
+   * a long error or file path made a card about 250px tall, and error
+   * toasts never go away by themselves. Whether the text is actually
+   * cut is measured after it is drawn, so "Show more" only appears when
+   * there is more to show.
+   */
+  const messageRef = useRef<HTMLParagraphElement>(null);
+  // Links the "Show more" button to the paragraph it expands (`aria-controls`).
+  const messageId = useId();
+  // `expanded`: the whole text is showing. `cut`: the text is currently longer than its 3-line box.
+  const [expanded, setExpanded] = useState(false);
+  const [cut, setCut] = useState(false);
+  // Runs after the text is drawn but before the screen updates. `scrollHeight`
+  // is the full height of the text; `clientHeight` is what the 3-line clamp
+  // lets show. The `+ 1` ignores a rounding difference of one pixel.
+  // See: https://developer.mozilla.org/en-US/docs/Web/API/Element/scrollHeight
+  // See: https://react.dev/reference/react/useLayoutEffect
+  useLayoutEffect(() => {
+    const el = messageRef.current;
+    if (!el || expanded) return;
+    setCut(el.scrollHeight > el.clientHeight + 1);
+  }, [toast.message, expanded]);
+
   return (
     <div
       className={`
@@ -138,7 +167,27 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
 
       {/* Message text and optional action button */}
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-content-primary break-words overflow-hidden">{toast.message}</p>
+        <p
+          ref={messageRef}
+          id={messageId}
+          className={`text-sm text-content-primary break-words overflow-hidden ${expanded ? '' : 'line-clamp-3'}`}
+        >
+          {toast.message}
+        </p>
+        {/* The technical text, folded away: the message above says what
+            went wrong and what to do; this is for anybody reporting it. */}
+        <ErrorDetails details={toast.details} label={t('toast.details')} />
+        {(cut || expanded) && (
+          <button
+            type="button"
+            onClick={() => setExpanded(!expanded)}
+            aria-expanded={expanded}
+            aria-controls={messageId}
+            className="mt-1 text-xs font-medium text-accent-hover hover:underline transition-colors"
+          >
+            {expanded ? t('toast.showLess') : t('toast.showMore')}
+          </button>
+        )}
         {toast.action && (
           <button
             onClick={() => {
@@ -170,7 +219,7 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
         // target ~18px square, under the 24x24 CSS-pixel minimum
         // (WCAG 2.5.8). `p-1.5` brings it to 26px without changing how
         // large the icon itself looks.
-        className="flex-shrink-0 p-1.5 rounded text-content-tertiary hover:text-content-primary transition-colors"
+        className="flex-shrink-0 p-1.5 rounded-platform-sm text-content-tertiary hover:text-content-primary transition-colors"
         aria-label={t('toast.dismiss')}
       >
         <X size={14} />
@@ -183,7 +232,8 @@ function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
  * Renders the toast notification stack in the top-right corner of the viewport.
  *
  * **Positioning strategy:**
- * - `fixed top-4 right-4` anchors the stack 16px from the top-right corner.
+ * - `fixed right-4`, with `top` worked out by {@link toastStackTop}: 80px
+ *   from the top, or lower if the page marks an area to keep clear.
  * - `z-[100]` places toasts above everything including modals (z-50).
  * - `pointer-events-none` on the outer container allows click-through to
  *   elements beneath the stack area. Each individual toast card is wrapped
@@ -203,43 +253,220 @@ export function ToastContainer() {
   const toasts = useUiStore((s) => s.toasts);
   /* Action to remove a single toast by its id */
   const removeToast = useUiStore((s) => s.removeToast);
+  /* The page shown: a new page may have its own area to keep clear. */
+  const currentPage = useUiStore((s) => s.currentPage);
+
+  /*
+   * Where the stack starts (see `toastStackTop`), worked out again
+   * whenever it could have changed: a toast arriving, the page changing,
+   * the window being resized, the page scrolling, or a keep-clear area
+   * changing size (the Download page's link box grows as links are
+   * pasted).
+   */
+  const [top, setTop] = useState(DEFAULT_TOP);
+  useLayoutEffect(() => {
+    // ResizeObserver tells us when a keep-clear area changes size.
+    // See: https://developer.mozilla.org/en-US/docs/Web/API/ResizeObserver
+    const update = () => setTop(toastStackTop());
+    update();
+    window.addEventListener('resize', update);
+    // The `true` (capture) catches scrolls inside any element, since scroll events do not bubble.
+    document.addEventListener('scroll', update, true);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    document.querySelectorAll(`[${KEEP_CLEAR_ATTRIBUTE}]`).forEach((el) => observer?.observe(el));
+    return () => {
+      window.removeEventListener('resize', update);
+      document.removeEventListener('scroll', update, true);
+      observer?.disconnect();
+    };
+  }, [toasts.length, currentPage]);
+
+  /*
+   * The stack may not run past the bottom of the window. If the toasts
+   * need more room than there is, the stack scrolls -- and only then
+   * does it take mouse events (it lets clicks through to the page
+   * otherwise; see `pointer-events-none` below).
+   */
+  const stackRef = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useLayoutEffect(() => {
+    const el = stackRef.current;
+    if (!el) return;
+    // The stack scrolls only when its content is taller than its capped height.
+    const measure = () => setScrolls(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    // A toast opened with "Show more" grows without the list changing,
+    // so each toast is watched for size changes too.
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(el);
+    el.querySelectorAll(':scope > div').forEach((child) => observer?.observe(child));
+    return () => observer?.disconnect();
+  }, [toasts, top]);
+
+  /*
+   * Auto-dismiss waits while the pointer is over a toast or a toast has
+   * keyboard focus (#1431), so a message does not vanish while somebody
+   * is reading it or reaching for its button.
+   *
+   * "Focus inside" is worked out from where focus actually is, not only
+   * from focus/blur events: WebKit (macOS) sends no blur when the focused
+   * close button is removed with its toast, which would otherwise leave
+   * auto-dismiss paused for good. So it is checked again whenever the
+   * list changes and whenever focus leaves an element in the stack.
+   */
+  const [hovered, setHovered] = useState(false);
+  const [focusInside, setFocusInside] = useState(false);
+  // Looks at where focus really is, instead of trusting focus and blur events (see above).
+  const recheckFocus = () => {
+    const el = stackRef.current;
+    setFocusInside(!!el && !!document.activeElement && el.contains(document.activeElement));
+  };
+  // The store's auto-dismiss timers stand still while this is true.
+  const paused = (hovered || focusInside) && toasts.length > 0;
+  useEffect(() => {
+    setToastDismissalPaused(paused);
+  }, [paused]);
+  // On unmount, never leave auto-dismiss paused.
+  useEffect(() => () => setToastDismissalPaused(false), []);
+  useEffect(() => {
+    recheckFocus();
+    // A toast removed from under the pointer sends no "pointer left"
+    // (WebKit), so whether the pointer is still over the stack is checked
+    // again whenever the list changes. `:hover` is read from the element
+    // itself; where that is not supported, fall back to "not hovered" and
+    // let the next pointer-enter set it again.
+    const el = stackRef.current;
+    let stillHovered: boolean;
+    try {
+      stillHovered = toasts.length > 0 && !!el && el.matches(':hover');
+    } catch {
+      stillHovered = false;
+    }
+    setHovered(stillHovered);
+  }, [toasts]);
+  // While the pointer is counted as over the stack, re-check on every
+  // pointer move. WebKit sends the stack no pointer-leave if the last
+  // element under the pointer was removed, so without this the pause
+  // could stay on after the pointer moved away until the list changed.
+  useEffect(() => {
+    if (!hovered) return undefined;
+    const recheckHover = () => {
+      const el = stackRef.current;
+      let over: boolean;
+      try {
+        over = !!el && el.matches(':hover');
+      } catch {
+        over = false;
+      }
+      if (!over) setHovered(false);
+    };
+    document.addEventListener('pointermove', recheckHover);
+    return () => document.removeEventListener('pointermove', recheckHover);
+  }, [hovered]);
+
+  /*
+   * Screen readers (#1431): an error is announced at once (`role="alert"`),
+   * anything else politely (`role="status"`). Two hidden announcers carry
+   * the message, so the visible stack can stay in the order the messages
+   * arrived. (The stack itself used to be one polite status region, so
+   * errors were never announced urgently.)
+   *
+   * Each announcer speaks only a toast that has just ARRIVED. When the
+   * toast it is speaking goes away, it falls silent -- it never falls back
+   * to an older toast, which would read out an old message as if new. Both
+   * are always in the page, empty until there is something to say,
+   * because a screen reader only notices changes to a region it knows.
+   */
+  // Ids of toasts already announced, so only new arrivals are spoken.
+  const seenIds = useRef<Set<string>>(new Set());
+  const [alertToast, setAlertToast] = useState<{ id: string; message: string } | null>(null);
+  const [statusToast, setStatusToast] = useState<{ id: string; message: string } | null>(null);
+  useEffect(() => {
+    // Newest arrival wins if several land in one render; the `reverse()` makes `find` start from the newest.
+    const present = new Set(toasts.map((t) => t.id));
+    const arrived = toasts.filter((t) => !seenIds.current.has(t.id));
+    seenIds.current = present;
+    const newestError = [...arrived].reverse().find((t) => t.type === 'error');
+    const newestOther = [...arrived].reverse().find((t) => t.type !== 'error');
+    setAlertToast((current) =>
+      newestError
+        ? { id: newestError.id, message: newestError.message }
+        : current && present.has(current.id)
+          ? current
+          : null
+    );
+    setStatusToast((current) =>
+      newestOther
+        ? { id: newestOther.id, message: newestOther.message }
+        : current && present.has(current.id)
+          ? current
+          : null
+    );
+  }, [toasts]);
 
   return (
-    /*
-     * Fixed container -- top-right corner of the viewport.
-     * flex-col gap-2 stacks multiple toasts vertically with 8px spacing.
-     * pointer-events-none allows clicks to pass through to the content below.
-     *
-     * The container is always rendered (never null) so the aria-live region
-     * is in the DOM before content arrives. Screen readers must see a live
-     * region before it changes to announce updates.
-     */
-    <div
-      // Fix 14 (a11y audit): `top-4` (16px from the window's top edge)
-      // put toasts directly over most pages' PageHeader action-button
-      // row -- e.g. the Queue page's "Export"/"Clear" buttons sit
-      // right there, so an incoming toast could cover a button the
-      // user had just focused. `top-20` clears the header row on
-      // every page this app has; there's no per-page header-height
-      // value to measure against at runtime without a larger layout
-      // change, so this is a fixed offset chosen generously rather
-      // than a pixel-exact one.
-      className="fixed top-20 right-4 z-[100] flex flex-col gap-2 max-w-sm w-full pointer-events-none"
-      role="status"
-      aria-live="polite"
-      aria-label={t('toast.ariaLabel')}
-    >
-      {toasts.map((toast) => (
-        /*
-         * Each toast is wrapped in a pointer-events-auto div so that its
-         * buttons (dismiss, etc.) remain clickable even though the outer
-         * container has pointer-events-none.
-         * The key is the toast's unique id (generated by the store).
-         */
-        <div key={toast.id} className="pointer-events-auto">
-          <ToastItem toast={toast} onDismiss={removeToast} />
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="sr-only" role="alert" data-testid="toast-announcer-alert">
+        {alertToast?.message ?? ''}
+      </div>
+      <div
+        className="sr-only"
+        role="status"
+        aria-live="polite"
+        data-testid="toast-announcer-status"
+      >
+        {statusToast?.message ?? ''}
+      </div>
+      {/*
+       * Fixed container -- top-right corner of the viewport.
+       * flex-col gap-2 stacks multiple toasts vertically with 8px spacing.
+       * pointer-events-none allows clicks to pass through to the content below.
+       *
+       * Announcements are made by the two hidden regions above; the stack
+       * itself is a labelled region so it can be found and read.
+       */}
+      <div
+        // Fix 14 (a11y audit): `top-4` (16px from the window's top edge)
+        // put toasts directly over most pages' PageHeader action-button
+        // row -- e.g. the Queue page's "Export"/"Clear" buttons sit
+        // right there, so an incoming toast could cover a button the
+        // user had just focused. `top-20` clears the header row on
+        // every page this app has; there's no per-page header-height
+        // value to measure against at runtime without a larger layout
+        // change, so this is a fixed offset chosen generously rather
+        // than a pixel-exact one.
+        //
+        // Polish pass (M7): `top-20` alone still let a toast cover the
+        // Download page's "Add to Queue", "Import" and "Scan" buttons,
+        // which sit below the header. The stack now starts below anything
+        // a page marks as keep-clear (see `toastStackTop`), and 80px is
+        // only the least it starts at.
+        ref={stackRef}
+        style={{ top, maxHeight: `calc(100vh - ${top}px - 16px)` }}
+        className={`fixed right-4 z-[100] flex flex-col gap-2 max-w-sm w-full overflow-y-auto ${scrolls ? 'pointer-events-auto' : 'pointer-events-none'}`}
+        data-testid="toast-stack"
+        role="region"
+        aria-label={t('toast.ariaLabel')}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onFocus={() => setFocusInside(true)}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusInside(false);
+          else recheckFocus();
+        }}
+      >
+        {toasts.map((toast) => (
+          /*
+           * Each toast is wrapped in a pointer-events-auto div so that its
+           * buttons (dismiss, etc.) remain clickable even though the outer
+           * container has pointer-events-none.
+           * The key is the toast's unique id (generated by the store).
+           */
+          <div key={toast.id} className="pointer-events-auto">
+            <ToastItem toast={toast} onDismiss={removeToast} />
+          </div>
+        ))}
+      </div>
+    </>
   );
 }

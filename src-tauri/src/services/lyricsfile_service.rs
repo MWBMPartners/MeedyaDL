@@ -40,132 +40,44 @@
 // schema versioning, forward-compat policy) lives upstream — this
 // service is just the filesystem orchestration layer.
 
-use std::path::Path;
-
 use meedya_lyrics::Lyricsfile;
-
-// ============================================================
-// Public API
-// ============================================================
-
-/// Generate Lyricsfile (`.lyrics`) sidecars for every media file in
-/// `album_dir` that has a companion `.ttml` sidecar and doesn't yet
-/// have a `.lyrics`. Returns the number of sidecars written.
-///
-/// `title` and `artist` are passed through to the shared converter as
-/// the document's metadata header. They come from the Apple Music
-/// API metadata fetched during enrichment (NOT from any embedded
-/// TTML `<metadata>` block — Apple's is unreliable and often empty).
-///
-/// # Arguments
-/// * `album_dir` - Path to the album directory containing media + TTML files
-/// * `default_title` - Fallback track title when the audio filename can't
-///   resolve one (rare; mostly defensive)
-/// * `default_artist` - Fallback artist (typically the album artist)
-///
-/// # Returns
-/// * `Ok(count)` - Number of `.lyrics` sidecars written
-/// * `Err(message)` - Filesystem or shared-crate error
-pub fn generate_lyricsfile_for_directory(
-    album_dir: &str,
-    default_title: &str,
-    default_artist: &str,
-) -> Result<usize, String> {
-    let dir = Path::new(album_dir);
-    if !dir.is_dir() {
-        return Err(format!("Not a directory: {album_dir}"));
-    }
-
-    let entries =
-        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {e}"))?;
-
-    let mut generated = 0usize;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-
-        // Skip macOS AppleDouble shadows + filesystem cruft before
-        // the extension check (same defence as the WebVTT/ASS services).
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-            continue;
-        }
-
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-        if ext != "m4a" && ext != "m4v" && ext != "mp4" {
-            continue;
-        }
-
-        let stem = match path.file_stem().and_then(|s| s.to_str()) {
-            Some(s) => s.to_string(),
-            None => continue,
-        };
-
-        let lyricsfile_path = dir.join(format!("{stem}.lyrics"));
-        if lyricsfile_path.exists() {
-            // Idempotency: don't clobber existing files (may carry
-            // user edits from LRCGET).
-            continue;
-        }
-
-        let ttml_path = dir.join(format!("{stem}.ttml"));
-        let ttml = match std::fs::read_to_string(&ttml_path) {
-            Ok(content) => content,
-            Err(_) => {
-                // No TTML for this track — silently skip. Tracks
-                // without TTML (e.g., instrumental tracks that
-                // GAMDL didn't get lyrics for) don't get a
-                // Lyricsfile either. A separate "mark instrumental
-                // from manifest" pass could decide otherwise; out
-                // of scope for v1 of #596.
-                continue;
-            }
-        };
-
-        // Title comes from the filename stem when we can derive it,
-        // since the audio file's stem is what GAMDL applied the user's
-        // template against. Falls back to the caller-supplied default
-        // (album track-1 title is a sensible last resort).
-        let title = derive_title_from_stem(&stem).unwrap_or_else(|| default_title.to_string());
-
-        let lyricsfile = match Lyricsfile::from_ttml(&ttml, title, default_artist) {
-            Ok(lf) => lf,
-            Err(e) => {
-                log::debug!(
-                    "Lyricsfile: TTML conversion failed for {stem}: {e} — skipping"
-                );
-                continue;
-            }
-        };
-
-        let yaml = match lyricsfile.to_yaml() {
-            Ok(s) => s,
-            Err(e) => {
-                log::debug!(
-                    "Lyricsfile: YAML serialise failed for {stem}: {e} — skipping"
-                );
-                continue;
-            }
-        };
-
-        if let Err(e) = std::fs::write(&lyricsfile_path, &yaml) {
-            log::debug!("Failed to write Lyricsfile for {stem}: {e}");
-            continue;
-        }
-
-        log::debug!("Generated Lyricsfile: {stem}.lyrics");
-        generated += 1;
-    }
-
-    Ok(generated)
-}
 
 // ============================================================
 // Internal helpers
 // ============================================================
+
+/// Builds the text of one Lyricsfile (`.lyrics`) from a TTML document.
+///
+/// The download's per-file lyrics step (`download_queue::lyrics_steps`) and
+/// the extra-format copies (`companion_lyrics.rs`) both use this, so both
+/// produce byte-identical output for the same TTML and file name.
+///
+/// The title comes from the file name stem when one can be derived
+/// ([`derive_title_from_stem`] drops the track number and any trailing
+/// `[...]` labels, so a copy's name gives the same title as the main
+/// download's); otherwise `default_title` is used. `default_artist` is the
+/// artist written into the file.
+///
+/// The `.lyrics` file's language comes entirely from the shared
+/// `meedya-lyrics` code: `from_ttml` copies the TTML's `xml:lang` into it
+/// as written. MeedyaDL deliberately does not rewrite it here (#1250): the
+/// fix to write the policy's standard tag belongs in MeedyaSuite-core.
+///
+/// Returns the file text, or a short reason when the TTML cannot be
+/// converted or written out.
+pub(crate) fn lyricsfile_from_ttml(
+    ttml: &str,
+    stem: &str,
+    default_title: &str,
+    default_artist: &str,
+) -> Result<String, String> {
+    let title = derive_title_from_stem(stem).unwrap_or_else(|| default_title.to_string());
+    let lyricsfile = Lyricsfile::from_ttml(ttml, title, default_artist)
+        .map_err(|e| format!("TTML conversion failed: {e}"))?;
+    lyricsfile
+        .to_yaml()
+        .map_err(|e| format!("YAML serialise failed: {e}"))
+}
 
 /// Best-effort track title extraction from a GAMDL-style filename
 /// stem like `"01 Track Title"` or `"1 - 05 Track Title [Lossless]"`.
@@ -229,10 +141,7 @@ mod tests {
 
     #[test]
     fn derives_title_from_simple_track_number() {
-        assert_eq!(
-            derive_title_from_stem("01 Hello").as_deref(),
-            Some("Hello")
-        );
+        assert_eq!(derive_title_from_stem("01 Hello").as_deref(), Some("Hello"));
     }
 
     #[test]
@@ -276,10 +185,28 @@ mod tests {
         );
     }
 
+    /// The per-track helper (shared with the download's per-file step and
+    /// the extra-format copies) writes a fixed text for a given TTML, and a
+    /// copy with a different label gets the same title. (Before #1443 this
+    /// was compared with a whole-folder function; its exact output is now
+    /// written down instead.)
     #[test]
-    fn non_directory_path_returns_err() {
-        let err = generate_lyricsfile_for_directory("/nonexistent/path", "t", "a")
-            .unwrap_err();
-        assert!(err.contains("Not a directory"));
+    fn the_shared_helper_gives_the_pinned_output() {
+        let ttml = r#"<?xml version="1.0" encoding="UTF-8"?>
+            <tt xmlns="http://www.w3.org/ns/ttml" xml:lang="en-US">
+              <body><div>
+                <p begin="00:12.450" end="00:15.800">Hello world today</p>
+              </div></body>
+            </tt>"#;
+        let from_helper =
+            lyricsfile_from_ttml(ttml, "01 Hello [Lossless]", "Untitled", "Some Artist").unwrap();
+        assert_eq!(
+            from_helper,
+            "version: '1.0'\nmetadata:\n  title: Hello\n  artist: Some Artist\n  language: en-US\n  instrumental: false\nlines:\n- text: Hello world today\n  start_ms: 12450\n  end_ms: 15800\n"
+        );
+        // A copy with a different label gives the same title.
+        let other = lyricsfile_from_ttml(ttml, "01 Hello [Dolby Atmos]", "Untitled", "Some Artist")
+            .unwrap();
+        assert_eq!(from_helper, other);
     }
 }

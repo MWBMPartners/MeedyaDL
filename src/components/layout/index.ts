@@ -14,9 +14,8 @@
  * this barrel needs to be updated -- all external imports remain stable.
  *
  * Exported components and their roles:
- *  - {@link MainLayout}  - Root shell: sidebar + title bar + content + status bar + toasts.
+ *  - {@link MainLayout}  - Root shell: sidebar + content + status bar + toasts.
  *  - {@link Sidebar}     - Left-hand navigation panel with page links & collapse toggle.
- *  - {@link TitleBar}    - Custom window chrome (minimize / maximize / close) for Windows & Linux.
  *  - {@link StatusBar}   - Thin bar at the bottom displaying download counts and app version.
  *  - {@link PageHeader}  - Consistent page-level heading with optional subtitle and action slot.
  *
@@ -29,9 +28,6 @@ export { MainLayout } from './MainLayout';
 
 /** Collapsible left-side navigation sidebar with page links. */
 export { Sidebar } from './Sidebar';
-
-/** Custom window title bar with minimize / maximize / close for non-macOS platforms. */
-export { TitleBar } from './TitleBar';
 
 /** Bottom status bar showing active downloads, queue counts, and version. */
 export { StatusBar } from './StatusBar';

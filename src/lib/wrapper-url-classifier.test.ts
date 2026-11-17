@@ -5,10 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import {
-  classifyWrapperUrl,
-  shouldShowSecurityHint,
-} from './wrapper-url-classifier';
+import { classifyWrapperUrl, shouldShowSecurityHint } from './wrapper-url-classifier';
 
 describe('classifyWrapperUrl', () => {
   describe('loopback (no hint)', () => {

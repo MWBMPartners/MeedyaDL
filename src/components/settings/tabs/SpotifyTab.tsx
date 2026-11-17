@@ -80,6 +80,12 @@ const DEFAULT_SPOTIFY: SpotifyServiceSettings = {
   },
 };
 
+/**
+ * The Settings > Spotify tab (shown only with developer access on).
+ * Edits the Spotify block of `service_settings` (cookies file, session type,
+ * helper files and the anti-ban pacing options) and shows today's download
+ * count against the daily cap.
+ */
 export function SpotifyTab() {
   const settings = useSettingsStore((s) => s.settings);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
@@ -88,8 +94,7 @@ export function SpotifyTab() {
   // DEFAULT_SPOTIFY when the optional service_settings.spotify slot
   // is undefined (e.g. on a freshly-installed app whose settings
   // file predates the M9-1 schema bump).
-  const spotify: SpotifyServiceSettings =
-    settings.service_settings?.spotify ?? DEFAULT_SPOTIFY;
+  const spotify: SpotifyServiceSettings = settings.service_settings?.spotify ?? DEFAULT_SPOTIFY;
   const antiBan: AntiBanSettings = spotify.anti_ban ?? DEFAULT_SPOTIFY.anti_ban;
 
   /**
@@ -116,17 +121,21 @@ export function SpotifyTab() {
   // count is fresh while the user is looking at the tab.
   const [capStatus, setCapStatus] = useState<DailyCapStatus | null>(null);
   useEffect(() => {
+    // `cancelled` stops a slow reply from updating state after the tab is closed.
     let cancelled = false;
     const load = async () => {
-      const result = await withErrorToast(
-        async () => getSpotifyDailyCapStatus(),
-        { errorMsg: 'Failed to read Spotify daily-cap status' }
-      );
+      const result = await withErrorToast(async () => getSpotifyDailyCapStatus(), {
+        errorMsg:
+          "MeedyaDL could not read today's Spotify download count. Open this tab again to retry.",
+      });
       if (!cancelled && result) {
         setCapStatus(result);
       }
     };
     void load();
+    // Re-read the count whenever the window regains focus, so it stays fresh
+    // if downloads ran while the person was elsewhere.
+    // See: https://developer.mozilla.org/en-US/docs/Web/API/Window/focus_event
     const handleFocus = () => void load();
     window.addEventListener('focus', handleFocus);
     return () => {
@@ -143,15 +152,14 @@ export function SpotifyTab() {
       <div className="space-y-2 text-sm text-content-secondary">
         <p>
           <span className="font-medium text-content-primary">
-            This is the flagship anti-ban mitigation.
+            This is the most important account-safety setting.
           </span>{' '}
-          Without it, votify can finish an album in seconds — the
-          most obvious bot signature Spotify's heuristics look for.
+          Without it, a whole album can download in seconds, which is the clearest sign to Spotify
+          that a program, not a person, is listening.
         </p>
         <p>
-          Leaving the throttle on is the safer choice. Only disable
-          it if you're on a throwaway account and you accept the
-          higher account-suspension risk.
+          Leaving it on is the safer choice. Only turn it off on an account you can afford to lose,
+          and accept that Spotify is then more likely to suspend it.
         </p>
       </div>
     ),
@@ -167,12 +175,11 @@ export function SpotifyTab() {
           <span className="font-medium text-content-primary">
             Setting the cap to 0 removes every per-day download limit.
           </span>{' '}
-          A 500-track day looks much more like a bot than a 100-track
-          day.
+          A 500-track day looks much more like a bot than a 100-track day.
         </p>
         <p>
-          Most users should keep the default of 100. Raise it to 200
-          or 300 if you need headroom — don't zero it out.
+          Most users should keep the default of 100. Raise it to 200 or 300 if you need headroom —
+          don't zero it out.
         </p>
       </div>
     ),
@@ -186,13 +193,10 @@ export function SpotifyTab() {
     title: 'Revoke Spotify consent?',
     description: (
       <div className="space-y-2 text-sm text-content-secondary">
-        <p>
-          The consent prompt will appear again the next time you
-          queue a Spotify URL.
-        </p>
+        <p>The consent prompt will appear again the next time you queue a Spotify URL.</p>
         <p className="text-xs text-content-tertiary">
-          Active downloads are not cancelled — only future Spotify
-          queueing requires re-acknowledgement.
+          Active downloads are not cancelled — only future Spotify queueing requires
+          re-acknowledgement.
         </p>
       </div>
     ),
@@ -207,9 +211,8 @@ export function SpotifyTab() {
     description: (
       <div className="space-y-2 text-sm text-content-secondary">
         <p>
-          The daily counter is intended as a fixed safety boundary.
-          Resetting it mid-day defeats the purpose of the cap —
-          use this only when you understand the risk.
+          The daily counter is intended as a fixed safety boundary. Resetting it mid-day defeats the
+          purpose of the cap — use this only when you understand the risk.
         </p>
       </div>
     ),
@@ -224,7 +227,7 @@ export function SpotifyTab() {
           setCapStatus(next);
           useUiStore.getState().addToast('Spotify daily counter reset', 'success');
         },
-        { errorMsg: 'Failed to reset Spotify daily counter' }
+        { errorMsg: 'MeedyaDL could not reset the Spotify download count. Try again in a moment.' }
       );
     },
   });
@@ -236,48 +239,42 @@ export function SpotifyTab() {
       {/* ================================================================ */}
       <SettingsSection
         title="Session"
-        description="Pick how votify authenticates with Spotify. librespot works without a premium account and downloads Ogg Vorbis only. desktop and web both require a premium account and an external file you supply."
+        description="How MeedyaDL signs in to Spotify. The free option works without Premium but downloads Ogg Vorbis only; the other two need Premium and a file you supply yourself."
       >
         <Select
           label="Session type"
           value={spotify.session_type ?? 'librespot'}
-          onChange={(e) =>
-            patchSpotify({ session_type: e.target.value || null })
-          }
+          onChange={(e) => patchSpotify({ session_type: e.target.value || null })}
           options={[
-            { value: 'librespot', label: 'librespot (free-tier, Vorbis only)' },
+            { value: 'librespot', label: 'Free account — Ogg Vorbis only' },
             {
               value: 'desktop',
-              label: 'desktop (premium + Spotify DLL — Windows-only FLAC)',
+              label: 'Premium, Windows only — FLAC (needs the Spotify app’s DLL file)',
             },
-            { value: 'web', label: 'web (premium + Widevine .wvd — cross-platform FLAC)' },
+            { value: 'web', label: 'Premium, any computer — FLAC (needs a Widevine .wvd file)' },
           ]}
         />
         {spotify.session_type === 'desktop' && (
           <FilePickerButton
             label="Spotify desktop DLL"
-            description="Path to the Spotify Windows desktop DLL (verified working: Spotify 1.2.88.483). User-supplied — MeedyaDL does not ship this file."
+            description="The DLL file from the Spotify app for Windows, which you supply; MeedyaDL does not include it. Tested with Spotify 1.2.88.483."
             value={spotify.spotify_dll_path}
             onChange={(v) => patchSpotify({ spotify_dll_path: v })}
-            filters={[
-              { name: 'Spotify DLL', extensions: ['dll', 'exe'] },
-            ]}
+            filters={[{ name: 'Spotify DLL', extensions: ['dll', 'exe'] }]}
           />
         )}
         {spotify.session_type === 'web' && (
           <FilePickerButton
             label="Widevine .wvd"
-            description="Path to a Widevine .wvd file (extracted from rooted Android or via pywidevine). Required for FLAC on macOS / Linux. The acquisition path is intentionally not documented in-app — see the project wiki."
+            description="A Widevine device file (.wvd), which you supply. Needed for FLAC on a Mac or Linux. How to get one is deliberately not explained in the app; see the project wiki."
             value={spotify.wvd_path}
             onChange={(v) => patchSpotify({ wvd_path: v })}
-            filters={[
-              { name: 'Widevine device', extensions: ['wvd'] },
-            ]}
+            filters={[{ name: 'Widevine device', extensions: ['wvd'] }]}
           />
         )}
         <FilePickerButton
           label="Cookies file (optional)"
-          description="Netscape-format cookies file for Spotify. Optional — leave empty unless votify reports a session error."
+          description="A cookies file exported from your browser while signed in to Spotify. Optional: leave it empty unless Spotify downloads fail to sign in."
           value={spotify.cookies_path}
           onChange={(v) => patchSpotify({ cookies_path: v })}
           filters={[{ name: 'Cookies', extensions: ['txt'] }]}
@@ -288,14 +285,14 @@ export function SpotifyTab() {
       {/* Section 2: Anti-ban safeguards                                   */}
       {/* ================================================================ */}
       <SettingsSection
-        title="Anti-ban safeguards"
-        description="These knobs shape votify's traffic pattern to look more like a slow human listener. The defaults are designed to be safe — only disable them on a throwaway account that you accept could be suspended."
+        title="Account Safety"
+        description="These settings slow downloads to a listening pace, so Spotify is less likely to suspend your account. The defaults are the safe choice; turn them off only on an account you can afford to lose."
       >
         <div className="flex items-center justify-between gap-3">
           <div className="flex-1">
             <Toggle
               label="Real-time playback-speed throttle"
-              description="When on, each track download is paced to finish no faster than the track would play. The flagship mitigation."
+              description="Each track takes at least as long to download as it does to play. This is the most important of these settings."
               checked={antiBan.playback_speed_throttle_enabled}
               onChange={(checked) => {
                 if (checked) {
@@ -323,9 +320,7 @@ export function SpotifyTab() {
               value={antiBan.inter_track_delay_seconds.toString()}
               onChange={(e) =>
                 patchAntiBan({
-                  inter_track_delay_seconds: e.target.value
-                    ? parseInt(e.target.value, 10)
-                    : 0,
+                  inter_track_delay_seconds: e.target.value ? parseInt(e.target.value, 10) : 0,
                 })
               }
             />
@@ -337,7 +332,7 @@ export function SpotifyTab() {
           <div className="flex-1">
             <Input
               label="Inter-track jitter (seconds)"
-              description="Maximum random jitter added on top of the base delay. Setting this to 0 removes the random component (don't — fixed intervals are an obvious bot signature)."
+              description="Up to this many extra seconds, chosen at random, on top of the pause above. Not recommended at 0: pauses of exactly the same length are an obvious sign of a program."
               type="number"
               min={0}
               max={600}
@@ -345,9 +340,7 @@ export function SpotifyTab() {
               value={antiBan.inter_track_jitter_seconds.toString()}
               onChange={(e) =>
                 patchAntiBan({
-                  inter_track_jitter_seconds: e.target.value
-                    ? parseInt(e.target.value, 10)
-                    : 0,
+                  inter_track_jitter_seconds: e.target.value ? parseInt(e.target.value, 10) : 0,
                 })
               }
             />
@@ -384,16 +377,14 @@ export function SpotifyTab() {
       {/* Section 3: Daily cap status                                      */}
       {/* ================================================================ */}
       <SettingsSection
-        title="Daily cap status"
+        title="Daily Cap Status"
         description="Live snapshot of today's Spotify download counter. The counter resets at local midnight to match Spotify's listening-session day boundary."
       >
         {capStatus ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-sm text-content-secondary">Today</span>
-              <span className="text-sm font-medium text-content-primary">
-                {capStatus.date}
-              </span>
+              <span className="text-sm font-medium text-content-primary">{capStatus.date}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-sm text-content-secondary">Tracks counted</span>
@@ -402,16 +393,15 @@ export function SpotifyTab() {
                   capStatus.at_cap ? 'text-status-error-text' : 'text-content-primary'
                 }`}
               >
-                {capStatus.count} /{' '}
-                {capStatus.cap === 0 ? 'Unlimited' : capStatus.cap}
+                {capStatus.count} / {capStatus.cap === 0 ? 'Unlimited' : capStatus.cap}
               </span>
             </div>
             {capStatus.at_cap && (
-              <div className="flex gap-2 rounded-lg border border-status-error/40 bg-status-error/5 p-2 text-xs text-status-error-text">
+              <div className="flex gap-2 rounded-platform-lg border border-status-error/40 bg-status-error/5 p-2 text-xs text-status-error-text">
                 <AlertCircle size={14} className="flex-shrink-0 mt-0.5" aria-hidden="true" />
                 <span>
-                  Daily cap reached — new Spotify downloads will be blocked
-                  until the counter resets at local midnight.
+                  Daily cap reached — new Spotify downloads will be blocked until the counter resets
+                  at local midnight.
                 </span>
               </div>
             )}
@@ -438,7 +428,7 @@ export function SpotifyTab() {
       {/* Section 4: Acknowledgement                                       */}
       {/* ================================================================ */}
       <SettingsSection
-        title="Risk acknowledgement"
+        title="Risk Acknowledgement"
         description="Records whether you've accepted the Spotify account-ban-risk consent. Revoking returns you to the first-run modal on the next Spotify queue attempt."
       >
         <div className="flex items-center justify-between">

@@ -19,7 +19,6 @@
 //          when `generate_ass` enabled)
 
 use std::collections::HashMap;
-use std::path::Path;
 
 use super::rich_srt_service::{
     collect_span_text, parse_ttml_time, resolve_element_style, resolve_named_styles,
@@ -40,121 +39,6 @@ const DEFAULT_FONT_SIZE: u32 = 20;
 
 /// Default font name. Arial is available on all platforms.
 const DEFAULT_FONT: &str = "Arial";
-
-// ============================================================
-// ASS Generation (Public API)
-// ============================================================
-
-/// Generate ASS subtitle files from TTML or WebVTT sources for all
-/// tracks in a directory.
-///
-/// Scans `album_dir` for media files (`.m4a`, `.m4v`, `.mp4`). For each
-/// media file, looks for a rich source in priority order:
-///   1. `.ttml` — richest source (Apple Music, has `tts:*` styling + positioning)
-///   2. `.vtt`  — also supports styling (`<b>`, `<i>`, `<u>`)
-///
-/// Skips if `.ass` already exists for a track.
-///
-/// # Returns
-/// * `Ok(count)` — Number of ASS files generated.
-/// * `Err(msg)` — Directory read failure.
-pub fn generate_ass_for_directory(album_dir: &str) -> Result<usize, String> {
-    let dir = Path::new(album_dir);
-    if !dir.is_dir() {
-        return Err(format!("Not a directory: {album_dir}"));
-    }
-
-    let entries =
-        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory {album_dir}: {e}"))?;
-
-    let mut generated = 0;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-
-        // Skip macOS AppleDouble shadows and similar sidecars before
-        // the extension check — `._Track.m4a` would otherwise pass
-        // the allowlist and produce a useless ASS output (#577).
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-            continue;
-        }
-
-        // Only process media files (.m4a, .m4v, .mp4)
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        if ext != "m4a" && ext != "m4v" && ext != "mp4" {
-            continue;
-        }
-
-        let stem = match path.file_stem().and_then(|s| s.to_str()) {
-            Some(s) => s.to_string(),
-            None => continue,
-        };
-
-        // Skip if .ass already exists
-        let ass_path = dir.join(format!("{stem}.ass"));
-        if ass_path.exists() {
-            continue;
-        }
-
-        // Try rich sources in priority order: TTML → WebVTT
-        let ass_content = if let Some(ass) = try_ass_from_ttml(dir, &stem) {
-            ass
-        } else if let Some(ass) = try_ass_from_webvtt(dir, &stem) {
-            ass
-        } else {
-            continue;
-        };
-
-        if let Err(e) = std::fs::write(&ass_path, &ass_content) {
-            log::debug!("Failed to write ASS for {stem}: {e}");
-            continue;
-        }
-
-        log::debug!("Generated ASS: {stem}.ass");
-        generated += 1;
-    }
-
-    Ok(generated)
-}
-
-/// Try to generate ASS from a TTML source file.
-fn try_ass_from_ttml(dir: &Path, stem: &str) -> Option<String> {
-    let ttml_path = dir.join(format!("{stem}.ttml"));
-    if !ttml_path.exists() {
-        return None;
-    }
-
-    let content = std::fs::read_to_string(&ttml_path).ok()?;
-    match ttml_to_ass(&content, stem) {
-        Ok(ass) => Some(ass),
-        Err(e) => {
-            log::debug!("Failed to convert TTML to ASS for {stem}: {e}");
-            None
-        }
-    }
-}
-
-/// Try to generate ASS from a WebVTT source file.
-fn try_ass_from_webvtt(dir: &Path, stem: &str) -> Option<String> {
-    let vtt_path = dir.join(format!("{stem}.vtt"));
-    if !vtt_path.exists() {
-        return None;
-    }
-
-    let content = std::fs::read_to_string(&vtt_path).ok()?;
-    match webvtt_to_ass(&content, stem) {
-        Ok(ass) => Some(ass),
-        Err(e) => {
-            log::debug!("Failed to convert WebVTT to ASS for {stem}: {e}");
-            None
-        }
-    }
-}
 
 // ============================================================
 // TTML → ASS Conversion

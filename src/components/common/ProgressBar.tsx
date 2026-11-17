@@ -86,7 +86,8 @@ export function ProgressBar({ value, label, itemLabel, className = '' }: Progres
    * `itemLabel`, and only fall back to the bare generic text when
    * neither is available.
    */
-  const accessibleLabel = label ?? (itemLabel ? `${itemLabel} download progress` : 'Download progress');
+  const accessibleLabel =
+    label ?? (itemLabel ? `${itemLabel} download progress` : 'Download progress');
 
   /**
    * Clamp the value to [0, 100] to prevent the bar from exceeding its track.

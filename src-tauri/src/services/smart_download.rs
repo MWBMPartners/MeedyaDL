@@ -36,9 +36,7 @@
 
 use tauri::AppHandle;
 
-use crate::models::content_match::{
-    CrossPlatformMatch, QualityTier, SmartDownloadResult,
-};
+use crate::models::content_match::{CrossPlatformMatch, QualityTier, SmartDownloadResult};
 use crate::models::media_service::MediaServiceId;
 use crate::models::settings::AppSettings;
 use crate::services::config_service;
@@ -159,9 +157,11 @@ pub fn get_service_quality_tier(
 /// if the matches list is empty.
 pub fn find_best_match(matches: &[CrossPlatformMatch]) -> Option<&CrossPlatformMatch> {
     matches.iter().max_by(|a, b| {
-        a.best_quality
-            .cmp(&b.best_quality)
-            .then_with(|| a.match_confidence.partial_cmp(&b.match_confidence).unwrap_or(std::cmp::Ordering::Equal))
+        a.best_quality.cmp(&b.best_quality).then_with(|| {
+            a.match_confidence
+                .partial_cmp(&b.match_confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
     })
 }
 

@@ -64,7 +64,7 @@
 //   Response format: { "info": { "version": "X.Y.Z", ... }, "releases": { ... } }
 // - GitHub Releases API: https://docs.github.com/en/rest/releases/releases#get-the-latest-release
 // - Reqwest HTTP client: https://docs.rs/reqwest/latest/reqwest/
-// - Chrono for timestamps: https://docs.rs/chrono/latest/chrono/
+// - `time` for timestamps (through utils/time_compat.rs): https://docs.rs/time/latest/time/
 
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
@@ -78,6 +78,7 @@ use tauri::AppHandle;
 // `LazyLock` matches the pattern used in `apple_music_api.rs` and
 // `process.rs`. Pattern is a static literal so `.expect()` only fires on
 // developer typos at boot — never at runtime.
+/// Finds the first `major.minor` or `major.minor.patch` number in a piece of text.
 static SEMVER_EXTRACT_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"(\d+\.\d+(?:\.\d+)?)").expect("static regex"));
 
@@ -944,10 +945,14 @@ async fn verify_manifest_has_platform(client: &reqwest::Client, tag: &str) -> bo
 /// * `check_pre_releases` - Whether to include pre-release versions when
 ///   checking for app updates. When true, queries all recent GitHub releases
 ///   (including betas/RCs); when false, only checks the latest stable release.
+/// * `developer_previews` - Whether developer access is on. Without it, the
+///   engines of developer-only preview services (votify, for Spotify) are
+///   not checked -- see [`pip_engines_offered`].
 pub async fn check_all_updates(
     app: &AppHandle,
     check_pre_releases: bool,
     user_channel: UpdateChannel,
+    developer_previews: bool,
 ) -> UpdateCheckResult {
     let mut components = Vec::new();
     let mut errors = Vec::new();
@@ -986,8 +991,9 @@ pub async fn check_all_updates(
     }
 
     // Check all enabled pip-based engines from engines.toml for updates.
-    // Skips GAMDL (already checked above) and disabled engines.
-    for (name, package) in get_enabled_pip_engines() {
+    // Skips GAMDL (already checked above), disabled engines, and -- without
+    // developer access -- the engines of developer-only previews.
+    for (name, package) in pip_engines_offered(get_enabled_pip_engines(), developer_previews) {
         // Skip GAMDL — already checked with its own compatibility gate
         if package == "gamdl" {
             continue;
@@ -1128,7 +1134,7 @@ pub async fn check_all_updates(
     };
 
     UpdateCheckResult {
-        checked_at: chrono::Utc::now().to_rfc3339(),
+        checked_at: crate::utils::time_compat::now_rfc3339(),
         has_updates,
         components,
         errors,
@@ -1218,22 +1224,11 @@ fn classify_gamdl_latest(
 ) -> (bool, Option<&'static gamdl_capabilities::KnownBadVersion>) {
     let known_bad = latest.and_then(gamdl_capabilities::known_bad_version);
     let is_untested = known_bad.is_some()
-        || latest.is_some_and(|v| gamdl_capabilities::is_above_ceiling_for_platform(v, platform_id));
+        || latest
+            .is_some_and(|v| gamdl_capabilities::is_above_ceiling_for_platform(v, platform_id));
     (is_untested, known_bad)
 }
 
-/// Builds the `ComponentUpdate.description` sentence for a GAMDL
-/// update, given the already-computed flags.
-///
-/// Priority order (first match wins): **no compatible wheel** (a
-/// guaranteed pip failure — the hardest blocker) > **known-bad** (we
-/// already know exactly what's wrong and what to install instead, so
-/// say that rather than the generic wording below) > **untested**
-/// (generic "we haven't validated this yet" warning) > plain "update
-/// available". The two harder-blocker cases combining in practice
-/// (a known-bad release that also has no wheel) is unlikely but not
-/// impossible; the ordering still makes sense if it happens, since
-/// "not installable at all" is the more urgent fact.
 /// Is this release shut out by a limit belonging to THIS platform,
 /// rather than merely above the general tested ceiling?
 ///
@@ -1253,6 +1248,18 @@ fn platform_specific_cap_blocks(latest: Option<&str>, platform_id: &str) -> Opti
     Some(cap.to_string())
 }
 
+/// Builds the `ComponentUpdate.description` sentence for a GAMDL
+/// update, given the already-computed flags.
+///
+/// Returns `None` when no update is available. Otherwise the first
+/// match wins, in this order: **no compatible wheel** (a guaranteed pip
+/// failure, the hardest blocker) > **known-bad** (we know exactly what
+/// is wrong and what to install instead, so say that) > **held back by
+/// this platform's own ceiling** (it cannot be installed here at all) >
+/// **untested** (generic "not validated yet" warning) > plain "update
+/// available". A known-bad release that also has no wheel is unlikely
+/// but possible; the order still makes sense, since "not installable at
+/// all" is the more urgent fact.
 fn gamdl_update_description(
     update_available: bool,
     no_compatible_wheel: bool,
@@ -1299,7 +1306,9 @@ fn gamdl_update_description(
             installed.unwrap_or(&window.minimum),
             platform_id,
         );
-        format!("New GAMDL version available on PyPI, but this release is known to be broken: {advice}")
+        format!(
+            "New GAMDL version available on PyPI, but this release is known to be broken: {advice}"
+        )
     } else if platform_specific_cap_blocks(latest, platform_id).is_some() {
         // Above what THIS platform can install is a different thing from
         // untested, and an independent review caught the two being told
@@ -1340,12 +1349,20 @@ fn gamdl_update_description(
 async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> {
     // Get the currently installed GAMDL version via `pip show gamdl`.
     // Returns None if GAMDL is not installed (Python not found, or package not installed).
-    let current = gamdl_service::get_gamdl_version(app).await.unwrap_or(None);
+    // If asking fails (rather than finding nothing installed), fall back to
+    // the version remembered from the last check: treating a GAMDL 4 user
+    // as having nothing installed would offer them the tested 3.x release.
+    let current = match gamdl_service::get_gamdl_version(app).await {
+        Ok(v) => v,
+        Err(_) => crate::services::gamdl_capabilities::detected_version(),
+    };
 
     // Get the latest version from PyPI JSON API.
     // Queries https://pypi.org/pypi/gamdl/json and extracts info.version.
     // Returns None if the request failed (network error, PyPI down, etc.).
-    let latest = gamdl_service::check_latest_gamdl_version().await.ok();
+    let latest = gamdl_service::check_latest_gamdl_version(current.as_deref())
+        .await
+        .ok();
 
     // Determine if an update is available:
     // - If both current and latest are known: compare versions (latest > current)
@@ -1362,7 +1379,15 @@ async fn check_gamdl_update(app: &AppHandle) -> Result<ComponentUpdate, String> 
     // Hiding above-ceiling versions silently meant users couldn't see
     // newly released GAMDL versions until we'd audited them; surfacing
     // them with a warning badge is the better default.
-    let is_compatible = latest.as_ref().is_some_and(|v| is_gamdl_compatible(v));
+    //
+    // `latest` stays within the major version the person should be
+    // offered (`gamdl_service::update_major_ceiling`): 3.x for someone on
+    // 3.x, 4.x only for someone who already chose GAMDL 4, never a major
+    // version this build cannot start. The check below is a second line
+    // for the last of those, in case that ever changes.
+    let is_compatible = latest.as_ref().is_some_and(|v| {
+        is_gamdl_compatible(v) && !gamdl_capabilities::is_beyond_drivable_major(v)
+    });
     // See `classify_gamdl_latest`'s doc comment for the known-bad /
     // untested rationale (independent review fix — the update offer
     // used to never consult the known-bad list at all).
@@ -2536,6 +2561,7 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
     // Chosen by the maintainer rather than derived — see issue #273:
     // "offer an update only when the SAME source has a build more than
     // about 30 days newer."
+    /// How many days newer the source's build must be before an update is offered.
     const STALE_AFTER_DAYS: i64 = 30;
 
     // Ownership and the installed version first — see gate_before_comparing.
@@ -2598,7 +2624,7 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         ));
     };
 
-    let Ok(recorded_date) = chrono::DateTime::parse_from_rfc3339(recorded_date) else {
+    let Some(recorded_date) = crate::utils::time_compat::parse_rfc3339(recorded_date) else {
         return Ok(not_checkable_update(
             "FFmpeg",
             "ffmpeg",
@@ -2609,7 +2635,19 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
                 .to_string(),
         ));
     };
-    let recorded_date = recorded_date.with_timezone(&chrono::Utc);
+    // A date past the year 9999 in UTC has no UTC form; treat it as unreadable.
+    let Some(recorded_date) = crate::utils::time_compat::to_utc(recorded_date) else {
+        return Ok(not_checkable_update(
+            "FFmpeg",
+            "ffmpeg",
+            current_version,
+            managed_by,
+            manual_update_command,
+            "Cannot check for an FFmpeg update — the build date could not be read when this \
+             copy was installed."
+                .to_string(),
+        ));
+    };
 
     // The only network call in this function — a real failure here (and
     // only here) is allowed to bubble up as Err, same as every other
@@ -2619,7 +2657,7 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         crate::services::dependency_manager::fetch_ffmpeg_source_build_date(&info.source, false)
             .await?;
 
-    let age_days = (current_build_date - recorded_date).num_days();
+    let age_days = (current_build_date - recorded_date).whole_days();
     let update_available = age_days > STALE_AFTER_DAYS;
 
     Ok(ComponentUpdate {
@@ -2628,7 +2666,7 @@ async fn check_ffmpeg_update(app: &AppHandle) -> Result<ComponentUpdate, String>
         // FFmpeg has no meaningful version number to show as "latest" for
         // two of its three sources — the build date is the only thing
         // that means the same thing every time, so it's shown instead.
-        latest_version: Some(current_build_date.date_naive().to_string()),
+        latest_version: Some(crate::utils::time_compat::ymd(current_build_date)),
         update_available,
         not_checkable_reason: None,
         is_compatible: true,
@@ -2699,14 +2737,12 @@ async fn check_python_update(app: &AppHandle) -> Result<ComponentUpdate, String>
     // the portable PYTHON_VERSION — that would silently replace the interpreter
     // the user deliberately chose (and would be a downgrade for e.g. a 3.14
     // system Python). Suppress the prompt entirely for that provenance.
-    let is_system_venv =
-        python_manager::get_python_source(app).is_some_and(|s| s.is_system_venv());
+    let is_system_venv = python_manager::get_python_source(app).is_some_and(|s| s.is_system_venv());
 
     // Only show an update if Python is installed AND the installed version is
     // older than the target. If Python is not installed, the setup wizard
     // handles installation — we don't show it as an "update".
-    let update_available =
-        !is_system_venv && current.as_ref().is_some_and(|c| is_newer(c, target));
+    let update_available = !is_system_venv && current.as_ref().is_some_and(|c| is_newer(c, target));
 
     // For a reused system Python, report its own version as the "latest" so the
     // Updates page reads "up to date" rather than dangling the portable version.
@@ -2784,6 +2820,26 @@ fn get_enabled_pip_engines() -> Vec<(String, String)> {
         .collect()
 }
 
+/// The pip engines to check for updates, given whether developer access is on.
+///
+/// Without developer access, engines that belong only to a developer-only
+/// preview service are left out (today: votify, for Spotify). Until October
+/// 2026 votify was checked for everyone, so once the setup wizard stopped
+/// installing it for people without developer access, the Updates page would
+/// have shown them an "update" offering to install the engine of a service
+/// they cannot use.
+fn pip_engines_offered(
+    engines: Vec<(String, String)>,
+    developer_previews: bool,
+) -> Vec<(String, String)> {
+    engines
+        .into_iter()
+        .filter(|(_, package)| {
+            developer_previews || !super::spotify_anti_ban::is_developer_preview_package(package)
+        })
+        .collect()
+}
+
 /// Checks for votify (Spotify engine) updates by comparing the installed
 /// version against the latest version on PyPI, gated by the validated
 /// support window in `votify_capabilities` (A4).
@@ -2818,7 +2874,9 @@ async fn check_votify_update(app: &AppHandle) -> Result<ComponentUpdate, String>
     // the strict "is it inside the validated window?" check lives in
     // `is_untested` so above-ceiling releases are still visible to users
     // rather than silently hidden.
-    let is_compatible = latest.as_ref().is_some_and(|v| votify_capabilities::should_offer_upgrade(v));
+    let is_compatible = latest
+        .as_ref()
+        .is_some_and(|v| votify_capabilities::should_offer_upgrade(v));
     let is_untested = latest
         .as_ref()
         .is_some_and(|v| votify_capabilities::is_above_tested_ceiling(v));
@@ -2926,6 +2984,26 @@ async fn check_pip_engine_update(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Without developer access, the Spotify engine (votify) is never
+    /// checked for updates -- otherwise, once the setup wizard stopped
+    /// installing it for everyone, the Updates page would offer people an
+    /// "update" that installs the engine of a service they cannot use.
+    /// Uses the real engines.toml list, so it also notices if votify stops
+    /// being an enabled pip engine there (the `with` half would fail).
+    #[test]
+    fn votify_is_checked_for_updates_only_with_developer_access() {
+        let without = pip_engines_offered(get_enabled_pip_engines(), false);
+        assert!(
+            !without.iter().any(|(_, package)| package == "votify"),
+            "votify offered without developer access: {without:?}"
+        );
+        let with = pip_engines_offered(get_enabled_pip_engines(), true);
+        assert!(
+            with.iter().any(|(_, package)| package == "votify"),
+            "votify missing with developer access: {with:?}"
+        );
+    }
 
     /// Tests that UpdateChannel::from_tag correctly maps release tag suffixes
     /// to their channel. Stable is the fallback for anything unrecognised so
@@ -3164,11 +3242,7 @@ mod tests {
 
         // Pure sdist release: no `.whl` file at all — never installable
         // without a source build, regardless of platform_tags.
-        assert!(!has_compatible_wheel(
-            &["gamdl-1.0.0.tar.gz"],
-            "cp312",
-            &[]
-        ));
+        assert!(!has_compatible_wheel(&["gamdl-1.0.0.tar.gz"], "cp312", &[]));
 
         // Empty file list (e.g. yanked release): no wheel.
         let empty: [&str; 0] = [];
@@ -3375,7 +3449,10 @@ mod tests {
         // ungated update.
         let (is_untested, known_bad) = classify_gamdl_latest(Some("3.9"), "macos");
         assert!(is_untested, "a known-bad release must be flagged untested");
-        assert!(known_bad.is_some(), "must report which known-bad entry matched");
+        assert!(
+            known_bad.is_some(),
+            "must report which known-bad entry matched"
+        );
         assert_eq!(known_bad.unwrap().fixed_in, "3.9.1");
 
         // Written the other way, it is the same release.
@@ -3391,7 +3468,10 @@ mod tests {
         // platform's ceiling).
         let (is_untested, known_bad) = classify_gamdl_latest(Some("3.9.1"), "macos");
         assert!(known_bad.is_none());
-        assert!(!is_untested, "the fix release itself must not read as untested");
+        assert!(
+            !is_untested,
+            "the fix release itself must not read as untested"
+        );
     }
 
     #[test]
@@ -3471,7 +3551,10 @@ mod tests {
         //
         // A newer release on macOS must still read as a choice.
         let window = crate::services::gamdl_capabilities::support_window();
-        let newer = format!("{}.99", window.maximum_tested.split('.').next().unwrap_or("3"));
+        let newer = format!(
+            "{}.99",
+            window.maximum_tested.split('.').next().unwrap_or("3")
+        );
 
         let desc = gamdl_update_description(
             true,
@@ -3503,9 +3586,16 @@ mod tests {
             .expect("3.9 must be on the known-bad list");
 
         for platform_id in ["macos", "windows-aarch64"] {
-            let desc =
-                gamdl_update_description(true, false, Some(bad), true, platform_id, None, Some("3.9"))
-                    .expect("an update is available");
+            let desc = gamdl_update_description(
+                true,
+                false,
+                Some(bad),
+                true,
+                platform_id,
+                None,
+                Some("3.9"),
+            )
+            .expect("an update is available");
             assert!(
                 !desc.contains("move back"),
                 "{platform_id}: nothing is installed, so there is nowhere to move back to: {desc}"
@@ -3556,8 +3646,16 @@ mod tests {
     fn gamdl_update_description_prioritises_no_wheel_over_known_bad() {
         let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
             .expect("3.9 must be on the known-bad list");
-        let desc = gamdl_update_description(true, true, Some(bad), true, "macos", Some("3.8.5"), Some("3.9"))
-            .expect("update_available=true must produce Some description");
+        let desc = gamdl_update_description(
+            true,
+            true,
+            Some(bad),
+            true,
+            "macos",
+            Some("3.8.5"),
+            Some("3.9"),
+        )
+        .expect("update_available=true must produce Some description");
         assert!(
             desc.contains("no compatible wheel"),
             "the harder blocker must win, got: {desc}"
@@ -3571,9 +3669,20 @@ mod tests {
         // correct here.
         let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
             .expect("3.9 must be on the known-bad list");
-        let desc = gamdl_update_description(true, false, Some(bad), true, "macos", Some("3.8.5"), Some("3.9"))
-            .expect("update_available=true must produce Some description");
-        assert!(desc.contains(bad.reason), "must include the actual reason, got: {desc}");
+        let desc = gamdl_update_description(
+            true,
+            false,
+            Some(bad),
+            true,
+            "macos",
+            Some("3.8.5"),
+            Some("3.9"),
+        )
+        .expect("update_available=true must produce Some description");
+        assert!(
+            desc.contains(bad.reason),
+            "must include the actual reason, got: {desc}"
+        );
         assert!(
             desc.contains(bad.fixed_in),
             "must name the fixed-in release, got: {desc}"
@@ -3600,8 +3709,16 @@ mod tests {
         }
         let bad = crate::services::gamdl_capabilities::known_bad_version("3.9")
             .expect("3.9 must be on the known-bad list");
-        let desc = gamdl_update_description(true, false, Some(bad), true, "windows-aarch64", Some("3.9"), Some("3.9"))
-            .expect("update_available=true must produce Some description");
+        let desc = gamdl_update_description(
+            true,
+            false,
+            Some(bad),
+            true,
+            "windows-aarch64",
+            Some("3.9"),
+            Some("3.9"),
+        )
+        .expect("update_available=true must produce Some description");
         assert!(
             !desc.contains("or newer"),
             "windows-aarch64 cannot install past its own ceiling, got: {desc}"
@@ -3632,8 +3749,16 @@ mod tests {
             .expect("3.9 must be on the known-bad list");
 
         for platform_id in ["macos", "windows-aarch64"] {
-            let desc = gamdl_update_description(true, false, Some(bad), true, platform_id, Some("3.9"), Some("3.9"))
-                .expect("update_available=true must produce Some description");
+            let desc = gamdl_update_description(
+                true,
+                false,
+                Some(bad),
+                true,
+                platform_id,
+                Some("3.9"),
+                Some("3.9"),
+            )
+            .expect("update_available=true must produce Some description");
             let expected = gamdl_capabilities::known_bad_advice(
                 bad.reason,
                 bad.fixed_in,
@@ -3652,17 +3777,43 @@ mod tests {
     #[test]
     fn gamdl_update_description_falls_back_through_the_ordinary_states() {
         // Untested (no known-bad match) — generic warning.
-        let desc = gamdl_update_description(true, false, None, true, "macos", Some("3.9.1"), Some("3.9.1")).unwrap();
+        let desc = gamdl_update_description(
+            true,
+            false,
+            None,
+            true,
+            "macos",
+            Some("3.9.1"),
+            Some("3.9.1"),
+        )
+        .unwrap();
         assert!(desc.contains("untested"));
 
         // Fully ordinary update.
-        let desc = gamdl_update_description(true, false, None, false, "macos", Some("3.9.1"), Some("3.9.1")).unwrap();
+        let desc = gamdl_update_description(
+            true,
+            false,
+            None,
+            false,
+            "macos",
+            Some("3.9.1"),
+            Some("3.9.1"),
+        )
+        .unwrap();
         assert_eq!(desc, "New GAMDL version available on PyPI");
 
         // No update available at all — no description regardless of
         // the other flags.
         assert_eq!(
-            gamdl_update_description(false, false, None, false, "macos", Some("3.9.1"), Some("3.9.1")),
+            gamdl_update_description(
+                false,
+                false,
+                None,
+                false,
+                "macos",
+                Some("3.9.1"),
+                Some("3.9.1")
+            ),
             None
         );
     }

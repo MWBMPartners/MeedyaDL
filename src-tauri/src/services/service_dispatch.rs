@@ -101,24 +101,16 @@ pub enum ServiceOutputEvent {
     },
 
     /// A post-download processing step (remuxing, tagging, etc.).
-    ProcessingStep {
-        step: String,
-    },
+    ProcessingStep { step: String },
 
     /// An error occurred during the download.
-    Error {
-        message: String,
-    },
+    Error { message: String },
 
     /// Download completed successfully.
-    Complete {
-        path: String,
-    },
+    Complete { path: String },
 
     /// Unrecognized output line.
-    Unknown {
-        raw: String,
-    },
+    Unknown { raw: String },
 }
 
 /// Converts a `GamdlOutputEvent` into a `ServiceOutputEvent`.
@@ -130,24 +122,32 @@ impl From<crate::utils::process::GamdlOutputEvent> for ServiceOutputEvent {
     fn from(event: crate::utils::process::GamdlOutputEvent) -> Self {
         use crate::utils::process::GamdlOutputEvent;
         match event {
-            GamdlOutputEvent::TrackInfo { title, artist, album, track_number: _, track_total: _ } => {
-                ServiceOutputEvent::TrackInfo { title, artist, album }
-            }
-            GamdlOutputEvent::DownloadProgress { percent, speed, eta } => {
-                ServiceOutputEvent::DownloadProgress { percent, speed, eta }
-            }
+            GamdlOutputEvent::TrackInfo {
+                title,
+                artist,
+                album,
+                track_number: _,
+                track_total: _,
+            } => ServiceOutputEvent::TrackInfo {
+                title,
+                artist,
+                album,
+            },
+            GamdlOutputEvent::DownloadProgress {
+                percent,
+                speed,
+                eta,
+            } => ServiceOutputEvent::DownloadProgress {
+                percent,
+                speed,
+                eta,
+            },
             GamdlOutputEvent::ProcessingStep { step } => {
                 ServiceOutputEvent::ProcessingStep { step }
             }
-            GamdlOutputEvent::Error { message } => {
-                ServiceOutputEvent::Error { message }
-            }
-            GamdlOutputEvent::Complete { path } => {
-                ServiceOutputEvent::Complete { path }
-            }
-            GamdlOutputEvent::Unknown { raw } => {
-                ServiceOutputEvent::Unknown { raw }
-            }
+            GamdlOutputEvent::Error { message } => ServiceOutputEvent::Error { message },
+            GamdlOutputEvent::Complete { path } => ServiceOutputEvent::Complete { path },
+            GamdlOutputEvent::Unknown { raw } => ServiceOutputEvent::Unknown { raw },
             // Two additional GamdlOutputEvent variants that landed in
             // alpha after this branch was forked (#660 traceback-noise
             // suppression + #698 codec-skip handling). Map both to the
@@ -158,9 +158,7 @@ impl From<crate::utils::process::GamdlOutputEvent> for ServiceOutputEvent {
             // GamdlOutputEvent enum, not via this conversion). When a
             // future per-service parser produces structured equivalents
             // we can grow the enum then.
-            GamdlOutputEvent::TracebackFrame { raw } => {
-                ServiceOutputEvent::Unknown { raw }
-            }
+            GamdlOutputEvent::TracebackFrame { raw } => ServiceOutputEvent::Unknown { raw },
             GamdlOutputEvent::CodecSkip { message, .. } => {
                 ServiceOutputEvent::Unknown { raw: message }
             }
@@ -208,7 +206,11 @@ mod tests {
 
         let service_event: ServiceOutputEvent = gamdl_event.into();
         match service_event {
-            ServiceOutputEvent::DownloadProgress { percent, speed, eta } => {
+            ServiceOutputEvent::DownloadProgress {
+                percent,
+                speed,
+                eta,
+            } => {
                 assert!((percent - 42.5).abs() < f64::EPSILON);
                 assert_eq!(speed, "1.2MiB/s");
                 assert_eq!(eta, "00:30");

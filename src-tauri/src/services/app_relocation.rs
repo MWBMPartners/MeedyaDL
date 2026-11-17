@@ -145,17 +145,26 @@ pub fn is_eligible_for_relocation(bundle_path: &Path) -> bool {
 #[must_use]
 pub fn compute_startup_state() -> AppRelocationState {
     let Some(bundle) = current_bundle_path() else {
-        return AppRelocationState { eligible: false, destination: None };
+        return AppRelocationState {
+            eligible: false,
+            destination: None,
+        };
     };
     if !is_eligible_for_relocation(&bundle) {
-        return AppRelocationState { eligible: false, destination: None };
+        return AppRelocationState {
+            eligible: false,
+            destination: None,
+        };
     }
     match proposed_destination(&bundle) {
         Some(dest) => AppRelocationState {
             eligible: true,
             destination: Some(dest.display().to_string()),
         },
-        None => AppRelocationState { eligible: false, destination: None },
+        None => AppRelocationState {
+            eligible: false,
+            destination: None,
+        },
     }
 }
 
@@ -163,7 +172,10 @@ pub fn compute_startup_state() -> AppRelocationState {
 #[cfg(not(target_os = "macos"))]
 #[must_use]
 pub fn compute_startup_state() -> AppRelocationState {
-    AppRelocationState { eligible: false, destination: None }
+    AppRelocationState {
+        eligible: false,
+        destination: None,
+    }
 }
 
 /// Performs the actual relocation: creates `/Applications/MeedyaSuite`
@@ -196,7 +208,10 @@ pub fn perform_relocation(app: &tauri::AppHandle) -> Result<(), String> {
              unexpected location).",
             current_bundle.display()
         );
-        emit_app_log(app, &format!("App relocation declined by eligibility check: {msg}"));
+        emit_app_log(
+            app,
+            &format!("App relocation declined by eligibility check: {msg}"),
+        );
         return Err(msg);
     }
 
@@ -229,7 +244,10 @@ pub fn perform_relocation(app: &tauri::AppHandle) -> Result<(), String> {
         Ok(()) => {
             emit_app_log(
                 app,
-                &format!("Relocated MeedyaDL to {}. Relaunching...", destination.display()),
+                &format!(
+                    "Relocated MeedyaDL to {}. Relaunching...",
+                    destination.display()
+                ),
             );
             relaunch_and_exit(&destination)
         }
@@ -296,7 +314,11 @@ fn current_bundle_path() -> Option<std::path::PathBuf> {
 #[cfg(target_os = "macos")]
 fn proposed_destination(bundle_path: &Path) -> Option<std::path::PathBuf> {
     let file_name = bundle_path.file_name()?;
-    Some(Path::new("/Applications").join(MEEDYASUITE_SUBDIR).join(file_name))
+    Some(
+        Path::new("/Applications")
+            .join(MEEDYASUITE_SUBDIR)
+            .join(file_name),
+    )
 }
 
 /// Relaunches MeedyaDL from `new_bundle_path` and terminates the
@@ -316,7 +338,11 @@ fn proposed_destination(bundle_path: &Path) -> Option<std::path::PathBuf> {
 /// here instead.
 #[cfg(target_os = "macos")]
 fn relaunch_and_exit(new_bundle_path: &Path) -> ! {
-    if let Err(e) = std::process::Command::new("open").arg("-n").arg(new_bundle_path).spawn() {
+    if let Err(e) = std::process::Command::new("open")
+        .arg("-n")
+        .arg(new_bundle_path)
+        .spawn()
+    {
         log::error!(
             "Failed to relaunch MeedyaDL at its new location {}: {e}. The app has still been \
              moved successfully -- it can be launched manually from there.",
@@ -371,7 +397,9 @@ mod tests {
     /// this whole feature exists for -- must be offered.
     #[test]
     fn eligible_path_is_offered() {
-        assert!(is_eligible_for_relocation(Path::new("/Applications/MeedyaDL.app")));
+        assert!(is_eligible_for_relocation(Path::new(
+            "/Applications/MeedyaDL.app"
+        )));
     }
 
     /// Already living under the consolidated folder: nothing to do.
@@ -395,7 +423,9 @@ mod tests {
     /// tidy-up step.
     #[test]
     fn mounted_dmg_volume_is_not_offered() {
-        assert!(!is_eligible_for_relocation(Path::new("/Volumes/MeedyaDL/MeedyaDL.app")));
+        assert!(!is_eligible_for_relocation(Path::new(
+            "/Volumes/MeedyaDL/MeedyaDL.app"
+        )));
     }
 
     /// A per-user `~/Applications` install is not the system-wide

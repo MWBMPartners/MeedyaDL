@@ -17,124 +17,19 @@
 //
 // ## Integration
 //
-// Called from the enrichment pipeline (Step 2c) via `spawn_blocking()`.
-// This function is intentionally synchronous (no `.await` calls) because
-// it only does filesystem I/O — the async runtime wrapper prevents
-// blocking the tokio event loop on slow FUSE mounts.
+// This file holds the conversions (TTML, SRT and LRC to WebVTT). The
+// enrichment pipeline (Step 2c) calls them one music file at a time through
+// `download_queue::lyrics_steps`, on a blocking thread. They are plain
+// synchronous functions (no `.await`) because they only do text work.
 //
 // ## Opt-In
 //
 // Controlled by the `generate_webvtt` setting (default: false). Toggle
 // in Settings > Lyrics > "Generate WebVTT Subtitles".
 
-use std::path::Path;
-
-// ============================================================
-// Public API
-// ============================================================
-
-/// Generate WebVTT subtitle files for all media files in a directory.
-///
-/// Scans the directory for media files (`.m4a`, `.m4v`, `.mp4`) and
-/// attempts to create a `.vtt` sidecar for each one by converting the
-/// best available lyrics source file.
-///
-/// Source priority: `.ttml` → `.srt` → `.lrc`
-///
-/// Skips tracks that already have a `.vtt` file.
-///
-/// # Arguments
-/// * `album_dir` - Path to the album directory containing media and lyrics files
-///
-/// # Returns
-/// The number of `.vtt` files successfully generated.
-pub fn generate_webvtt_for_directory(album_dir: &str) -> Result<usize, String> {
-    let dir = Path::new(album_dir);
-    if !dir.is_dir() {
-        return Err(format!("Not a directory: {album_dir}"));
-    }
-
-    // Collect all media file stems (unique base names without extension)
-    let entries = std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory: {e}"))?;
-
-    let mut generated = 0;
-
-    // Iterate over directory entries looking for media files
-    for entry in entries.flatten() {
-        let path = entry.path();
-
-        // Skip macOS AppleDouble shadows and similar sidecars before
-        // the extension check — `._Track.m4a` would otherwise pass
-        // the allowlist below (#577).
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-            continue;
-        }
-
-        // Only process media files (.m4a, .m4v, .mp4)
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        if ext != "m4a" && ext != "m4v" && ext != "mp4" {
-            continue;
-        }
-
-        // Get the file stem (e.g., "01 Song Title")
-        let stem = match path.file_stem().and_then(|s| s.to_str()) {
-            Some(s) => s.to_string(),
-            None => continue,
-        };
-
-        // Skip if .vtt already exists for this track
-        let vtt_path = dir.join(format!("{stem}.vtt"));
-        if vtt_path.exists() {
-            continue;
-        }
-
-        // Try source formats in priority order: TTML → SRT → LRC
-        let vtt_content = if let Some(content) = try_convert_ttml(dir, &stem) {
-            content
-        } else if let Some(content) = try_convert_srt(dir, &stem) {
-            content
-        } else if let Some(content) = try_convert_lrc(dir, &stem) {
-            content
-        } else {
-            // No source lyrics found for this track
-            continue;
-        };
-
-        // Write the .vtt file
-        if let Err(e) = std::fs::write(&vtt_path, &vtt_content) {
-            log::debug!("Failed to write VTT for {stem}: {e}");
-            continue;
-        }
-
-        log::debug!("Generated WebVTT: {stem}.vtt");
-        generated += 1;
-    }
-
-    Ok(generated)
-}
-
 // ============================================================
 // TTML → WebVTT Conversion
 // ============================================================
-
-/// Try to convert a TTML file to WebVTT for the given track stem.
-///
-/// Returns `Some(vtt_content)` if a `.ttml` file exists and was
-/// successfully parsed, or `None` if no TTML file exists or parsing failed.
-fn try_convert_ttml(dir: &Path, stem: &str) -> Option<String> {
-    let ttml_path = dir.join(format!("{stem}.ttml"));
-    if !ttml_path.exists() {
-        return None;
-    }
-
-    let ttml_content = std::fs::read_to_string(&ttml_path).ok()?;
-    ttml_to_webvtt(&ttml_content).ok()
-}
 
 /// Convert TTML XML content to WebVTT format.
 ///
@@ -189,6 +84,33 @@ pub fn ttml_to_webvtt(ttml_content: &str) -> Result<String, String> {
 
     // Build WebVTT output
     let mut vtt = String::from("WEBVTT\n\n");
+
+    // The language the TTML states, recorded as a WebVTT comment block
+    // (#1250). WebVTT has no language field; the shared language policy
+    // (TRACK-070) says such a file carries its language in the file name
+    // and, where the format allows a note, the tag. MeedyaDL's lyric files
+    // are deliberately named exactly like the song (`Song.vtt`) — the name
+    // music players look for — so they are NOT renamed; this note is the
+    // part that can be done.
+    //
+    // A `NOTE` block, not an extra line under `WEBVTT`: the WebVTT
+    // standard defines `NOTE` blocks as comments every reader skips,
+    // whereas a bare header line is only tolerated. Checked against every
+    // reader that could be checked: FFmpeg 9.0.1 reads a file with this
+    // block and returns only the real cues, and MeedyaDL's own WebVTT
+    // reader (`rich_srt_service::webvtt_to_rich_srt`) skips it — see the
+    // test below. A standard tag holds only letters, digits and hyphens,
+    // so the note can never contain `-->` and be mistaken for a cue.
+    // Nothing is written when the language is missing, unreadable or
+    // `und` — never a guess (LANG-003).
+    if let Some(tag) = doc
+        .root_element()
+        .attribute(("http://www.w3.org/XML/1998/namespace", "lang"))
+        .and_then(crate::utils::language::known_file_language)
+    {
+        vtt.push_str(&format!("NOTE language: {tag}\n\n"));
+    }
+
     for (begin, end, text) in &cues {
         vtt.push_str(&format!(
             "{} --> {}\n{}\n\n",
@@ -242,17 +164,6 @@ fn collect_text_content(node: &roxmltree::Node) -> String {
 // SRT → WebVTT Conversion
 // ============================================================
 
-/// Try to convert an SRT file to WebVTT for the given track stem.
-fn try_convert_srt(dir: &Path, stem: &str) -> Option<String> {
-    let srt_path = dir.join(format!("{stem}.srt"));
-    if !srt_path.exists() {
-        return None;
-    }
-
-    let srt_content = std::fs::read_to_string(&srt_path).ok()?;
-    Some(srt_to_webvtt(&srt_content))
-}
-
 /// Convert SRT content to WebVTT format.
 ///
 /// SRT and WebVTT are nearly identical formats. The main differences:
@@ -280,22 +191,6 @@ pub fn srt_to_webvtt(srt_content: &str) -> String {
 // ============================================================
 // LRC → WebVTT Conversion
 // ============================================================
-
-/// Try to convert an LRC file to WebVTT for the given track stem.
-fn try_convert_lrc(dir: &Path, stem: &str) -> Option<String> {
-    let lrc_path = dir.join(format!("{stem}.lrc"));
-    if !lrc_path.exists() {
-        return None;
-    }
-
-    let lrc_content = std::fs::read_to_string(&lrc_path).ok()?;
-    let vtt = lrc_to_webvtt(&lrc_content);
-    if vtt == "WEBVTT\n\n" {
-        // Empty conversion — no valid cues found
-        return None;
-    }
-    Some(vtt)
-}
 
 /// Convert LRC content to WebVTT format.
 ///
@@ -553,6 +448,32 @@ mod tests {
         assert!(vtt.contains("00:00:12.450 --> 00:00:15.200"));
         assert!(vtt.contains("Hello world"));
         assert!(vtt.contains("Second line"));
+    }
+
+    #[test]
+    fn ttml_to_webvtt_notes_the_stated_language_and_readers_skip_it() {
+        // #1250: the TTML's language, in standard form, as a NOTE block.
+        let ttml = r#"<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml" xml:lang="eng">
+  <body><div><p begin="00:01.000" end="00:02.000">Hello</p></div></body>
+</tt>"#;
+        let vtt = ttml_to_webvtt(ttml).unwrap();
+        assert!(vtt.starts_with("WEBVTT\n\nNOTE language: en\n\n00:00:01.000 --> "));
+        // MeedyaDL's own WebVTT reader skips the note: one cue, no "NOTE".
+        let srt = crate::services::rich_srt_service::webvtt_to_rich_srt(&vtt).unwrap();
+        assert!(!srt.contains("NOTE"), "{srt}");
+        assert_eq!(srt.matches("-->").count(), 1, "{srt}");
+    }
+
+    #[test]
+    fn ttml_to_webvtt_writes_no_note_when_the_language_is_not_known() {
+        for lang in ["", r#" xml:lang="und""#, r#" xml:lang="English""#] {
+            let ttml = format!(
+                r#"<tt xmlns="http://www.w3.org/ns/ttml"{lang}><body><div><p begin="00:01.000" end="00:02.000">Hi</p></div></body></tt>"#
+            );
+            let vtt = ttml_to_webvtt(&ttml).unwrap();
+            assert!(!vtt.contains("NOTE"), "{lang:?}: {vtt}");
+        }
     }
 
     #[test]

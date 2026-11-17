@@ -3,7 +3,7 @@
  * Licensed under the MIT License. See LICENSE file in the project root.
  *
  * @file SettingsPage.tsx -- Settings page container. Holds the eleven tabs
- * listed in TABS below, arranged into the groups in SETTINGS_GROUPS.
+ * listed in TABS below, arranged into the groups in settingsGroups.ts.
  *
  * This is the top-level settings component rendered when the user navigates to
  * the "Settings" page via the application sidebar. It provides:
@@ -68,11 +68,11 @@
 // React hooks: useState for active tab tracking, useEffect for loading settings on mount.
 // @see https://react.dev/reference/react/useState
 // @see https://react.dev/reference/react/useEffect
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 // This page's tab list and page heading are on screen every time someone
 // opens Settings, so they go through i18next rather than staying as typed
-// English strings in the TABS/SETTINGS_GROUPS arrays below.
+// English strings in the TABS array below and SETTINGS_GROUPS in settingsGroups.ts.
 import { useTranslation } from 'react-i18next';
 
 // Lucide icon components used for the tab sidebar and header action buttons.
@@ -98,12 +98,13 @@ import {
 // uiStore provides toast notification capabilities.
 // @see https://zustand.docs.pmnd.rs/getting-started/introduction
 import { useSettingsStore } from '@/stores/settingsStore';
+import { visibleSettingsGroups, type SettingsGroup } from './settingsGroups';
 import { useUiStore } from '@/stores/uiStore';
 import { withErrorToast } from '@/lib/withErrorToast';
 import { useConfirmation } from '@/lib/useConfirmation';
 
 // Shared UI components used in the header action bar.
-import { Button, Modal } from '@/components/common';
+import { Button, Modal, NavListItem } from '@/components/common';
 import { PageHeader } from '@/components/layout';
 
 // Individual tab components -- each renders its own section of settings.
@@ -120,6 +121,7 @@ import { TemplatesTab } from './tabs/TemplatesTab';
 import { AdvancedTab } from './tabs/AdvancedTab';
 import { MetadataTab } from './tabs/MetadataTab';
 import { SpotifyTab } from './tabs/SpotifyTab';
+import { showError } from '@/lib/errorMessages';
 
 /**
  * Shape of a single tab entry in the TABS configuration array.
@@ -189,32 +191,6 @@ function tabTranslationKey(id: string): string {
 }
 
 /**
- * Groups settings tabs into logical sections for the sidebar navigation.
- * Each group has an id (used to look up its translated heading under
- * `settings.groups.*`), an English fallback label, and a list of tab IDs
- * that belong to that group. The tab IDs must match entries in the TABS array.
- *
- * Groups are rendered as static (non-collapsible) sections with visually
- * distinct headers -- with only 5 groups, collapsible behaviour would add
- * UI complexity without meaningful benefit.
- */
-const SETTINGS_GROUPS: { id: string; label: string; tabs: string[] }[] = [
-  { id: 'general', label: 'General', tabs: ['general'] },
-  {
-    id: 'download',
-    label: 'Download',
-    tabs: ['quality', 'fallback', 'lyrics', 'cover-art', 'metadata', 'templates'],
-  },
-  { id: 'authentication', label: 'Authentication', tabs: ['cookies'] },
-  // M9-UI: Spotify tab joins a new 'Services' group between
-  // Authentication and System. YouTube + BBC iPlayer placeholder
-  // tabs will land in the same group as their integrations
-  // (M10 / M8 respectively) ship.
-  { id: 'services', label: 'Services', tabs: ['spotify'] },
-  { id: 'system', label: 'System', tabs: ['tools', 'advanced'] },
-];
-
-/**
  * SettingsPage -- Top-level settings page component.
  *
  * Renders the full settings page with a vertical tab sidebar on the left
@@ -242,6 +218,15 @@ export function SettingsPage() {
    */
   const [activeTab, setActiveTab] = useState('general');
 
+  /**
+   * The tab list for this person: developer-only tabs (the Spotify
+   * preview) appear only with developer access on. If developer access is
+   * switched off while one of those tabs is open, the General tab is shown
+   * instead (see `ActiveComponent` below).
+   */
+  const developerAccess = useSettingsStore((s) => s.settings.dev_access_enabled === true);
+  const groups = useMemo(() => visibleSettingsGroups(developerAccess), [developerAccess]);
+
   /** i18n translation function for the tab list and page heading. */
   const { t } = useTranslation();
 
@@ -259,7 +244,7 @@ export function SettingsPage() {
   };
 
   /** Same fallback pattern as {@link tabLabel}, for a group's section heading. */
-  const groupLabel = (group: (typeof SETTINGS_GROUPS)[number]): string => {
+  const groupLabel = (group: SettingsGroup): string => {
     const key = `settings.groups.${group.id}`;
     const translated = t(key);
     return translated === key ? group.label : translated;
@@ -279,6 +264,8 @@ export function SettingsPage() {
   const isDirty = useSettingsStore((s) => s.isDirty);
   /** True while a load or save operation is in-flight */
   const isLoading = useSettingsStore((s) => s.isLoading);
+  /** True once settings have been read from disk at least once (#1237) */
+  const hasLoaded = useSettingsStore((s) => s.hasLoaded);
   /** Pushes a toast notification to the UI toast queue */
   const addToast = useUiStore((s) => s.addToast);
 
@@ -385,16 +372,15 @@ export function SettingsPage() {
       },
       {
         successMsg: 'Settings saved successfully',
-        errorMsg: 'Failed to save settings',
-      },
+        errorMsg:
+          'MeedyaDL could not save your settings, so your changes are not saved yet. Press Save Changes again.',
+      }
     );
     if (!saved) return;
     const post = useSettingsStore.getState().settings;
     const changed =
       preSaveSnapshot !== null &&
-      RESTART_REQUIRED_KEYS.some(
-        (k) => ((post[k] ?? '') as string) !== preSaveSnapshot[k],
-      );
+      RESTART_REQUIRED_KEYS.some((k) => ((post[k] ?? '') as string) !== preSaveSnapshot[k]);
     // Refresh snapshot so a second click of Save Changes (with no
     // further template edits) won't re-trigger the prompt.
     const next = {} as Record<RestartKey, string>;
@@ -418,10 +404,9 @@ export function SettingsPage() {
       const { relaunch } = await import('@tauri-apps/plugin-process');
       await relaunch();
     } catch (e) {
-      addToast(
-        `Failed to restart: ${e instanceof Error ? e.message : String(e)}. \
-Please quit and reopen MeedyaDL manually.`,
-        'error',
+      showError(
+        'MeedyaDL could not restart itself. Quit MeedyaDL and open it again to use the new setting.',
+        e
       );
     }
   };
@@ -450,8 +435,8 @@ Please quit and reopen MeedyaDL manually.`,
     description: (
       <div className="space-y-3">
         <p>
-          This clears everything you have set up, including things that are not
-          on this screen and are awkward to get back:
+          This clears everything you have set up, including things that are not on this screen and
+          are awkward to get back:
         </p>
         <ul className="list-disc pl-5 space-y-1">
           <li>where your cookies file is</li>
@@ -461,9 +446,8 @@ Please quit and reopen MeedyaDL manually.`,
           <li>the folder your music is saved to</li>
         </ul>
         <p>
-          Nothing is written until you press <strong>Save Changes</strong>. Until
-          then you can close Settings and open it again to get your
-          settings back as they were.
+          Nothing is written until you press <strong>Save Changes</strong>. Until then you can close
+          Settings and open it again to get your settings back as they were.
         </p>
       </div>
     ),
@@ -478,7 +462,10 @@ Please quit and reopen MeedyaDL manually.`,
           await resetToDefaults();
           return true;
         },
-        { errorMsg: 'Could not reset the settings' },
+        {
+          errorMsg:
+            'MeedyaDL could not reset the settings. Try again; if it keeps happening, restart MeedyaDL.',
+        }
       );
       if (!reset) return;
       addToast(
@@ -494,7 +481,10 @@ Please quit and reopen MeedyaDL manually.`,
    * `component` property. Falls back to GeneralTab if the activeTab ID
    * does not match any entry (defensive guard, should not happen in practice).
    */
-  const ActiveComponent = TABS.find((t) => t.id === activeTab)?.component || GeneralTab;
+  const ActiveComponent =
+    (groups.some((g) => g.tabs.includes(activeTab))
+      ? TABS.find((t) => t.id === activeTab)?.component
+      : undefined) || GeneralTab;
 
   return (
     <div className="flex flex-col h-full">
@@ -513,16 +503,14 @@ Please quit and reopen MeedyaDL manually.`,
         title="Restart Required"
       >
         <p className="text-sm text-content-primary mb-3">
-          Your template changes have been saved, but they only take effect
-          for downloads queued <em>after</em> MeedyaDL restarts. Items
-          already in flight will continue using the previous templates
-          until they finish.
+          Your template changes have been saved, but they only take effect for downloads queued{' '}
+          <em>after</em> MeedyaDL restarts. Items already in flight will continue using the previous
+          templates until they finish.
         </p>
         <p className="text-xs text-content-tertiary mb-4">
-          GAMDL reads its template configuration when it starts. MeedyaDL
-          writes the config once at app launch and doesn't re-spawn GAMDL
-          mid-download, so a template edit can't be picked up by an
-          already-running subprocess.
+          GAMDL reads its template configuration when it starts. MeedyaDL writes the config once at
+          app launch and doesn't re-spawn GAMDL mid-download, so a template edit can't be picked up
+          by an already-running subprocess.
         </p>
         <div className="flex justify-end gap-2">
           <Button
@@ -577,13 +565,29 @@ Please quit and reopen MeedyaDL manually.`,
               size="sm"
               icon={<Save size={14} />}
               onClick={handleSave}
-              disabled={!isDirty || isLoading}
+              disabled={!hasLoaded || !isDirty || isLoading}
             >
-              {isDirty ? 'Save Changes' : 'Saved'}
+              {!hasLoaded ? 'Save Changes' : isDirty ? 'Save Changes' : 'Saved'}
             </Button>
           </div>
         }
       />
+
+      {/* Settings could not be read (#1237): Save stays off, because it
+          would overwrite the real settings with placeholders. */}
+      {!hasLoaded && !isLoading && (
+        <div
+          role="alert"
+          className="mx-4 mb-2 flex items-center gap-3 rounded-platform border border-status-warning bg-status-warning-bg p-3 text-sm text-status-warning-text"
+        >
+          <span className="flex-1">
+            Settings could not be loaded, so they cannot be saved. Try again or restart MeedyaDL.
+          </span>
+          <Button variant="secondary" size="sm" onClick={() => void loadSettings()}>
+            Try loading again
+          </Button>
+        </div>
+      )}
 
       {/* ================================================================
           Tab navigation (sidebar) + content area
@@ -604,11 +608,14 @@ Please quit and reopen MeedyaDL manually.`,
         {/* Fix 14 (a11y audit): the app already has a "Main navigation"
             landmark (the sidebar) -- this second, unnamed <nav> was
             indistinguishable from it in a screen reader's landmark list. */}
-        <nav aria-label="Settings tabs" className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2">
-          {SETTINGS_GROUPS.map((group, groupIndex) => (
+        <nav
+          aria-label="Settings tabs"
+          className="w-44 flex-shrink-0 border-r border-border-light overflow-y-auto p-2"
+        >
+          {groups.map((group, groupIndex) => (
             <div key={group.id} className={groupIndex > 0 ? 'mt-3' : ''}>
               {/* Group section header -- uppercase, small, muted colour */}
-              <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-content-tertiary select-none">
+              <div className="px-3 py-1.5 text-2xs font-semibold uppercase tracking-wider text-content-tertiary select-none">
                 {groupLabel(group)}
               </div>
 
@@ -619,28 +626,20 @@ Please quit and reopen MeedyaDL manually.`,
                   if (!tab) return null;
                   const { id, icon: Icon } = tab;
                   return (
-                    <button
+                    // The shared NavListItem (polish pass M17): the same
+                    // entry as the sidebar and the Help topics. Its label
+                    // is left-aligned -- a two-line label ("Codec &
+                    // Resolution") used to be centred, because a <button>
+                    // centres its text unless told otherwise.
+                    // `aria-current` (Fix 6, a11y audit) marks the open tab.
+                    <NavListItem
                       key={id}
+                      active={activeTab === id}
                       onClick={() => setActiveTab(id)}
-                      // Fix 6 (a11y audit): aria-current tells assistive
-                      // tech which tab is the current one, the same way
-                      // the accent background tells a sighted user.
-                      aria-current={activeTab === id ? 'page' : undefined}
-                      className={`
-                        w-full flex items-center gap-2.5 px-3 py-2
-                        rounded-platform text-sm transition-colors
-                        ${
-                          activeTab === id
-                            ? 'bg-accent-light text-accent-hover font-medium' /* Active tab styling -- text-accent-hover, not the plain accent, clears 4.5:1 as small text (see base.css) */
-                            : 'text-content-secondary hover:text-content-primary hover:bg-surface-secondary' /* Inactive tab styling */
-                        }
-                      `}
+                      icon={<Icon size={16} className="flex-shrink-0" />}
                     >
-                      {/* Tab icon -- flex-shrink-0 prevents it from collapsing */}
-                      <Icon size={16} className="flex-shrink-0" />
-                      {/* Tab label text */}
                       {tabLabel(tab)}
-                    </button>
+                    </NavListItem>
                   );
                 })}
               </div>

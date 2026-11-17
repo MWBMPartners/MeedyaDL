@@ -19,6 +19,7 @@ import {
   useUiStore,
   __resetToastWorkerForTests,
   __resetSidebarSaveForTests,
+  setToastDismissalPaused,
   MAX_TOASTS,
 } from '@/stores/uiStore';
 import { useSettingsStore } from '@/stores/settingsStore';
@@ -38,19 +39,16 @@ vi.mock('@/lib/tauri-commands', () => ({
   getSettings: vi.fn(),
   saveSettings: vi.fn().mockResolvedValue(undefined),
   saveSidebarCollapsed: vi.fn().mockResolvedValue(undefined),
+  // #1431: the backend's one notification rule. Default answer: not sent,
+  // keep the in-app copy.
+  notifySystem: vi.fn().mockResolvedValue({ sent: false, in_app: true }),
 }));
 
 /**
- * Mock the Tauri notification plugin (#993).
+ * Mock the Tauri notification plugin.
  *
- * `addToast` dynamically imports this module (`import('@tauri-apps/plugin-notification')`)
- * to send native OS notifications when `notification_style` includes 'native'.
- * `vi.mock()` calls are hoisted by Vitest to the top of the module, so this
- * mock is already registered by the time that dynamic import executes --
- * hoisting applies to dynamic `import()` the same way it does to static
- * `import` declarations.
- *
- * Default: permission already granted, so `sendNotification` is reachable.
+ * Since #1431 `addToast` never touches this plugin -- system notifications
+ * are the backend's job. The mock stays so the tests can prove that.
  */
 vi.mock('@tauri-apps/plugin-notification', () => ({
   isPermissionGranted: vi.fn().mockResolvedValue(true),
@@ -86,6 +84,8 @@ beforeEach(() => {
   vi.mocked(notificationPlugin.isPermissionGranted).mockClear();
   vi.mocked(notificationPlugin.requestPermission).mockClear();
   vi.mocked(notificationPlugin.sendNotification).mockClear();
+  vi.mocked(commands.notifySystem).mockReset();
+  vi.mocked(commands.notifySystem).mockResolvedValue({ sent: false, in_app: true });
   // Reset settings to a known baseline (master switch on, style native +
   // in-app) so notification tests aren't affected by a prior test's
   // `useSettingsStore.setState()`. Both fields are reset here, not just
@@ -209,7 +209,7 @@ describe('uiStore', () => {
           return copy;
         };
         expect(strip(after as unknown as Record<string, unknown>)).toEqual(
-          strip(before as unknown as Record<string, unknown>),
+          strip(before as unknown as Record<string, unknown>)
         );
       } finally {
         vi.useRealTimers();
@@ -288,6 +288,15 @@ describe('uiStore', () => {
   // Toast Notifications
   // =========================================================================
   describe('addToast', () => {
+    // These tests are about the in-app toast list only, so they run with
+    // the style set to in-app only. (The backend is mocked anyway, and
+    // answers "not sent", so no toast is ever taken away here.)
+    beforeEach(() => {
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, notification_style: 'in_app_only' },
+      }));
+    });
+
     it('adds a success toast to the queue', () => {
       useUiStore.getState().addToast('Download complete', 'success');
 
@@ -432,189 +441,199 @@ describe('uiStore', () => {
   });
 
   // =========================================================================
-  // Native OS Notification Dedup (#993)
+  // System notifications (#1431)
+  //
+  // `addToast` asks the backend's one notification rule (`notifySystem`),
+  // which reads the SAVED settings and whether the person is looking at
+  // MeedyaDL, and sends any system notification itself. The page never
+  // calls the notification plugin. These tests replace ones that mocked
+  // plugin behaviour that cannot happen on desktop (a permission refusal,
+  // a throwing send): there the plugin always says "granted" and never
+  // reports a failed send.
   // =========================================================================
-  describe('addToast — native notification dedup', () => {
-    it('sends exactly one native notification for a duplicate in-app message', async () => {
-      useSettingsStore.setState((state) => ({
-        settings: { ...state.settings, notification_style: 'native_and_in_app' },
-      }));
+  describe('addToast — system notifications', () => {
+    const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-      useUiStore.getState().addToast('Same message', 'warning');
-      useUiStore.getState().addToast('Same message', 'warning');
-
-      // The native send is fired-and-forget inside async promise chains
-      // (dynamic import -> isPermissionGranted -> requestPermission ->
-      // sendNotification), so poll until they settle instead of asserting
-      // synchronously.
-      await vi.waitFor(() => {
-        expect(notificationPlugin.sendNotification).toHaveBeenCalledTimes(1);
-      });
-
-      // The in-app dedup (pre-existing behaviour, `state.toasts.some(...)`
-      // in the `set()` updater) should still leave exactly one toast.
-      const { toasts } = useUiStore.getState();
-      expect(toasts).toHaveLength(1);
-      expect(toasts[0].message).toBe('Same message');
-    });
-
-    it('still sends a native notification for two distinct messages', async () => {
-      useSettingsStore.setState((state) => ({
-        settings: { ...state.settings, notification_style: 'native_and_in_app' },
-      }));
-
-      useUiStore.getState().addToast('First message', 'info');
-      // Let the first call's fire-and-forget dynamic import
-      // (`import('@tauri-apps/plugin-notification')`) settle before firing
-      // the second. Two same-specifier dynamic imports issued in the same
-      // tick race in Vitest's mock resolution (a test-harness quirk, not a
-      // real-app concern -- the browser/Tauri runtime has no such race);
-      // sequencing them here keeps the assertion meaningful instead of flaky.
-      await vi.waitFor(() => {
-        expect(notificationPlugin.sendNotification).toHaveBeenCalledTimes(1);
-      });
-
-      useUiStore.getState().addToast('Second message', 'info');
-      await vi.waitFor(() => {
-        expect(notificationPlugin.sendNotification).toHaveBeenCalledTimes(2);
-      });
-
-      expect(useUiStore.getState().toasts).toHaveLength(2);
-    });
-
-    it('sends a native notification for every repeat in native_only mode (state-based dedup is impossible)', async () => {
-      useSettingsStore.setState((state) => ({
-        settings: { ...state.settings, notification_style: 'native_only' },
-      }));
-
-      useUiStore.getState().addToast('Repeated native-only', 'warning');
-      // See the sequencing note above -- avoid firing two same-specifier
-      // dynamic imports in the same tick.
-      await vi.waitFor(() => {
-        expect(notificationPlugin.sendNotification).toHaveBeenCalledTimes(1);
-      });
-
-      useUiStore.getState().addToast('Repeated native-only', 'warning');
-
-      // native_only never populates the in-app `toasts` array, so
-      // `isDuplicateInApp` can never be true -- the carve-out in the
-      // gate must let both sends through.
-      await vi.waitFor(() => {
-        expect(notificationPlugin.sendNotification).toHaveBeenCalledTimes(2);
-      });
-
-      expect(useUiStore.getState().toasts).toHaveLength(0);
-    });
-
-    it('does not send a native notification in in_app_only mode', async () => {
-      useSettingsStore.setState((state) => ({
-        settings: { ...state.settings, notification_style: 'in_app_only' },
-      }));
-
-      useUiStore.getState().addToast('In-app only', 'info');
-
-      // Give any stray microtasks a chance to run, then assert the spy
-      // was never invoked (nothing to wait FOR here, so a short real-timer
-      // flush is used instead of vi.waitFor).
-      await new Promise((resolve) => setTimeout(resolve, 0));
+    it('never calls the notification plugin directly, whatever the style', async () => {
+      for (const style of ['in_app_only', 'native_and_in_app', 'native_only'] as const) {
+        useSettingsStore.setState((state) => ({
+          settings: { ...state.settings, notification_style: style },
+        }));
+        useUiStore.getState().addToast(`Message for ${style}`, 'info');
+        useUiStore.getState().addToast(`Error for ${style}`, 'error');
+      }
+      await flush();
       expect(notificationPlugin.sendNotification).not.toHaveBeenCalled();
+      expect(notificationPlugin.isPermissionGranted).not.toHaveBeenCalled();
+      expect(notificationPlugin.requestPermission).not.toHaveBeenCalled();
+    });
+
+    it('asks the backend with the right kind: general, error, or the one the caller names', async () => {
+      useUiStore.getState().addToast('Saved', 'success');
+      useUiStore.getState().addToast('Broke', 'error');
+      useUiStore
+        .getState()
+        .addToast('Copied link', 'info', 10000, 'clipboard-url', undefined, undefined, {
+          kind: 'clipboard_link',
+          systemTitle: 'Copied link found',
+          systemBody: 'Open MeedyaDL to add it.',
+        });
+      await flush();
+      expect(commands.notifySystem).toHaveBeenCalledWith('general', 'MeedyaDL', 'Saved');
+      expect(commands.notifySystem).toHaveBeenCalledWith(
+        'error',
+        'MeedyaDL: something went wrong',
+        'Broke'
+      );
+      expect(commands.notifySystem).toHaveBeenCalledWith(
+        'clipboard_link',
+        'Copied link found',
+        'Open MeedyaDL to add it.'
+      );
+    });
+
+    it('does not ask again for a message already on screen (#993)', async () => {
+      useUiStore.getState().addToast('Same message', 'warning');
+      useUiStore.getState().addToast('Same message', 'warning');
+      await flush();
+      expect(commands.notifySystem).toHaveBeenCalledTimes(1);
       expect(useUiStore.getState().toasts).toHaveLength(1);
+    });
+
+    it('does not ask at all when the caller says the system half is already decided', async () => {
+      useUiStore
+        .getState()
+        .addToast('From the backend', 'success', undefined, undefined, undefined, undefined, {
+          kind: 'download_complete',
+          system: false,
+        });
+      await flush();
+      expect(commands.notifySystem).not.toHaveBeenCalled();
+      expect(useUiStore.getState().toasts.map((t) => t.message)).toEqual(['From the backend']);
+    });
+
+    it('in "System only", removes a plain message once the system has shown it', async () => {
+      vi.mocked(commands.notifySystem).mockResolvedValue({ sent: true, in_app: false });
+      useUiStore.getState().addToast('Plain note', 'info');
+      await vi.waitFor(() => {
+        expect(useUiStore.getState().toasts).toHaveLength(0);
+      });
+    });
+
+    it('in "System only", keeps anything a system notification cannot carry or that must stay', async () => {
+      vi.mocked(commands.notifySystem).mockResolvedValue({ sent: true, in_app: false });
+      const ui = useUiStore.getState();
+      ui.addToast('Has a button', 'info', 5000, undefined, { label: 'Go', onClick: () => {} });
+      ui.addToast('Has details', 'info', 5000, undefined, undefined, 'technical text');
+      ui.addToast('Has a key', 'info', 5000, 'some-key');
+      ui.addToast('Persistent', 'info', 0);
+      ui.addToast('An error', 'error');
+      ui.addToast('A warning', 'warning');
+      await flush();
+      expect(useUiStore.getState().toasts.map((t) => t.message)).toEqual([
+        'Has a button',
+        'Has details',
+        'Has a key',
+        'Persistent',
+        'An error',
+        'A warning',
+      ]);
+    });
+
+    it('keeps a message the system notification points to until it is dismissed, once sent', async () => {
+      vi.mocked(commands.notifySystem).mockResolvedValue({ sent: true, in_app: true });
+      useUiStore
+        .getState()
+        .addToast('Copied link', 'info', 10000, 'clipboard-url', undefined, undefined, {
+          kind: 'clipboard_link',
+          keepUntilDismissedIfSent: true,
+        });
+      await vi.waitFor(() => {
+        expect(useUiStore.getState().toasts[0].expiresAt).toBeNull();
+      });
+      expect(useUiStore.getState().toasts[0].duration).toBe(0);
+    });
+
+    it('lets such a message time out as usual when the system copy was not sent', async () => {
+      vi.mocked(commands.notifySystem).mockResolvedValue({ sent: false, in_app: true });
+      useUiStore
+        .getState()
+        .addToast('Copied link', 'info', 10000, 'clipboard-url', undefined, undefined, {
+          kind: 'clipboard_link',
+          keepUntilDismissedIfSent: true,
+        });
+      await flush();
+      expect(useUiStore.getState().toasts[0].expiresAt).not.toBeNull();
+    });
+
+    it('keeps the message in the app when the backend did not send it', async () => {
+      vi.mocked(commands.notifySystem).mockResolvedValue({ sent: false, in_app: true });
+      useUiStore.getState().addToast('Window is in front', 'info');
+      await flush();
+      expect(useUiStore.getState().toasts.map((t) => t.message)).toEqual(['Window is in front']);
+    });
+
+    it('keeps the message, and adds nothing, when asking the backend fails', async () => {
+      vi.mocked(commands.notifySystem).mockRejectedValue(new Error('no backend'));
+      useUiStore.getState().addToast('Still here', 'success');
+      await flush();
+      // No second "could not notify" message: a failure is never turned
+      // into another message (that is how a loop used to be possible).
+      expect(useUiStore.getState().toasts.map((t) => t.message)).toEqual(['Still here']);
+    });
+
+    it('never changes a saved setting', () => {
+      useSettingsStore.setState((state) => ({
+        settings: {
+          ...state.settings,
+          desktop_notifications: false,
+          notification_style: 'native_only',
+        },
+      }));
+      useUiStore.getState().addToast('Does not rewrite settings', 'info');
+      expect(useSettingsStore.getState().settings.notification_style).toBe('native_only');
+      expect(useSettingsStore.getState().settings.desktop_notifications).toBe(false);
     });
   });
 
   // =========================================================================
-  // Desktop Notifications master switch
-  //
-  // `desktop_notifications` is the on/off toggle shown in Settings >
-  // General; `notification_style` is the dropdown underneath it that only
-  // appears -- and can only be changed -- while the toggle is on. Before
-  // this fix, `addToast` looked only at `notification_style` and never at
-  // `desktop_notifications`, so turning the toggle off did not stop a
-  // single OS banner. These tests go red against that specific mistake,
-  // not just against "the switch is missing" -- each one turns the switch
-  // off and checks the native path stayed off, the same way the sidebar
-  // tests above go red against the two ways remembering the sidebar broke
-  // before.
+  // Auto-dismiss waits while the person is reading (#1431)
   // =========================================================================
-  describe('addToast — desktop notifications master switch', () => {
-    it('sends no native notification when the switch is off, even though the style is "native + in-app"', async () => {
-      useSettingsStore.setState((state) => ({
-        settings: {
-          ...state.settings,
-          desktop_notifications: false,
-          notification_style: 'native_and_in_app',
-        },
-      }));
-
-      useUiStore.getState().addToast('Switch is off', 'warning');
-
-      // Nothing to wait FOR here (the assertion is that nothing ever
-      // fires), so give stray microtasks a moment to run instead of
-      // asserting synchronously.
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(notificationPlugin.sendNotification).not.toHaveBeenCalled();
-
-      // The switch only concerns the native OS banner. The in-app toast
-      // is unaffected and must still appear.
-      const { toasts } = useUiStore.getState();
-      expect(toasts).toHaveLength(1);
-      expect(toasts[0].message).toBe('Switch is off');
+  describe('addToast — auto-dismiss pause', () => {
+    it('extends a toast that arrived during the pause only from its arrival', () => {
+      vi.useFakeTimers();
+      try {
+        setToastDismissalPaused(true);
+        vi.advanceTimersByTime(5000);
+        useUiStore.getState().addToast('Arrived late', 'info', 1000);
+        const before = useUiStore.getState().toasts[0].expiresAt as number;
+        vi.advanceTimersByTime(500);
+        setToastDismissalPaused(false);
+        // 500 ms paused since it arrived -- not the 5.5 s since the pause began.
+        expect(useUiStore.getState().toasts[0].expiresAt).toBe(before + 500);
+      } finally {
+        setToastDismissalPaused(false);
+        vi.useRealTimers();
+      }
     });
 
-    it('still shows an in-app toast when the switch is off and the saved style is "native only" -- otherwise the message reaches the user nowhere at all', async () => {
-      useSettingsStore.setState((state) => ({
-        settings: {
-          ...state.settings,
-          desktop_notifications: false,
-          notification_style: 'native_only',
-        },
-      }));
-
-      useUiStore.getState().addToast('Would otherwise vanish', 'error');
-
-      await new Promise((resolve) => setTimeout(resolve, 0));
-      expect(notificationPlugin.sendNotification).not.toHaveBeenCalled();
-
-      // Before the fix, "native only" always returned early and skipped
-      // the in-app toast. Combined with the switch being off (so no OS
-      // banner either), that message reached the user nowhere -- silently.
-      // This is the exact case the fix exists to prevent.
-      const { toasts } = useUiStore.getState();
-      expect(toasts).toHaveLength(1);
-      expect(toasts[0].message).toBe('Would otherwise vanish');
-    });
-
-    it('leaves the saved notification_style untouched -- the switch-off behaviour only changes what this one call does', () => {
-      useSettingsStore.setState((state) => ({
-        settings: {
-          ...state.settings,
-          desktop_notifications: false,
-          notification_style: 'native_only',
-        },
-      }));
-
-      useUiStore.getState().addToast('Does not rewrite settings', 'info');
-
-      expect(useSettingsStore.getState().settings.notification_style).toBe('native_only');
-    });
-
-    it('still sends the native notification when the switch is on and the style is "native only" (unaffected by this fix)', async () => {
-      useSettingsStore.setState((state) => ({
-        settings: {
-          ...state.settings,
-          desktop_notifications: true,
-          notification_style: 'native_only',
-        },
-      }));
-
-      useUiStore.getState().addToast('Switch is on', 'warning');
-
-      await vi.waitFor(() => {
-        expect(notificationPlugin.sendNotification).toHaveBeenCalledTimes(1);
-      });
-      // "Native only" with the switch on keeps its pre-existing meaning:
-      // no in-app toast.
-      expect(useUiStore.getState().toasts).toHaveLength(0);
+    it('keeps a toast past its deadline while paused, then gives back the time it had left', () => {
+      vi.useFakeTimers();
+      try {
+        useUiStore.getState().addToast('Reading this', 'info', 1000);
+        vi.advanceTimersByTime(500);
+        setToastDismissalPaused(true);
+        vi.advanceTimersByTime(5000);
+        expect(useUiStore.getState().toasts).toHaveLength(1);
+        setToastDismissalPaused(false);
+        vi.advanceTimersByTime(250);
+        expect(useUiStore.getState().toasts).toHaveLength(1);
+        vi.advanceTimersByTime(500);
+        expect(useUiStore.getState().toasts).toHaveLength(0);
+      } finally {
+        setToastDismissalPaused(false);
+        vi.useRealTimers();
+      }
     });
   });
 
@@ -622,6 +641,19 @@ describe('uiStore', () => {
   // Toast list ceiling
   // =========================================================================
   describe('addToast — list ceiling (MAX_TOASTS)', () => {
+    // These tests are about the in-app toast list only. Run them with
+    // system notifications off: firing dozens of toasts at once also fires
+    // dozens of system-notification attempts, whose mocked dynamic imports
+    // race in Vitest (see the sequencing note in the dedup tests below).
+    // Those failed attempts used to vanish into a console warning; since a
+    // failed system notification now shows a notice in the app, one would
+    // otherwise land in whichever test happened to run next.
+    beforeEach(() => {
+      useSettingsStore.setState((state) => ({
+        settings: { ...state.settings, notification_style: 'in_app_only' },
+      }));
+    });
+
     it('keeps only the newest MAX_TOASTS entries once the list overflows, dropping the oldest first', () => {
       // Every message here is different, so the message-based dedup a few
       // lines up in `addToast` does nothing -- and these are persistent
@@ -640,9 +672,7 @@ describe('uiStore', () => {
       // newest MAX_TOASTS entries remain, still in the order they arrived.
       const messages = toasts.map((t) => t.message);
       expect(messages).not.toContain('Failure 0');
-      expect(messages).toEqual(
-        Array.from({ length: MAX_TOASTS }, (_, i) => `Failure ${i + 1}`),
-      );
+      expect(messages).toEqual(Array.from({ length: MAX_TOASTS }, (_, i) => `Failure ${i + 1}`));
     });
 
     it('drops a message that would go away by itself before a lasting one', () => {

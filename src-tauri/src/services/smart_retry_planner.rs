@@ -191,10 +191,7 @@ pub fn plan_retry(output_path: &Path, item_url: &str) -> PlanOutcome {
         // we'd have to fall back to the album URL anyway. If *every*
         // missing track lacks a URL, there's no smart plan to be had
         // and we return NotApplicable.
-        let urls_to_fetch: Vec<String> = missing
-            .iter()
-            .filter_map(|t| t.url.clone())
-            .collect();
+        let urls_to_fetch: Vec<String> = missing.iter().filter_map(|t| t.url.clone()).collect();
 
         if urls_to_fetch.is_empty() {
             return PlanOutcome::NotApplicable;
@@ -482,10 +479,7 @@ fn parse_track_number_from_filename(path: &Path) -> Option<(u32, u32)> {
         let a = a.trim();
         // `b` continues with the track number, then a separator and title.
         let track_part: String = b.chars().take_while(char::is_ascii_digit).collect();
-        if !a.is_empty()
-            && a.chars().all(|c| c.is_ascii_digit())
-            && !track_part.is_empty()
-        {
+        if !a.is_empty() && a.chars().all(|c| c.is_ascii_digit()) && !track_part.is_empty() {
             if let (Ok(d), Ok(t)) = (a.parse::<u32>(), track_part.parse::<u32>()) {
                 if d > 0 && t > 0 {
                     return Some((d, t));
@@ -588,7 +582,7 @@ mod tests {
                 ],
                 enrichment: None,
                 cross_platform_urls: None,
-            is_library: false,
+                is_library: false,
             },
         );
         // Tracks 1 and 3 made it; 2 and 4 are missing.
@@ -603,10 +597,7 @@ mod tests {
                 assert_eq!(plan.source_url, url);
                 assert_eq!(
                     plan.urls_to_fetch,
-                    vec![
-                        format!("{url}?i=1002"),
-                        format!("{url}?i=1004"),
-                    ],
+                    vec![format!("{url}?i=1002"), format!("{url}?i=1004"),],
                 );
             }
             other => panic!("expected Plan, got {other:?}"),
@@ -630,7 +621,7 @@ mod tests {
                 tracks: vec![track(1, 1, "1001", url), track(2, 1, "1002", url)],
                 enrichment: None,
                 cross_platform_urls: None,
-            is_library: false,
+                is_library: false,
             },
         );
         touch(dir.path(), "01 Track 1.m4a");
@@ -664,17 +655,19 @@ mod tests {
                 codec: None,
                 last_modified_date: None,
                 companion_tiers: None,
-                tracks: vec![track(1, 1, "1001", "https://music.apple.com/gb/album/foo/123")],
+                tracks: vec![track(
+                    1,
+                    1,
+                    "1001",
+                    "https://music.apple.com/gb/album/foo/123",
+                )],
                 enrichment: None,
                 cross_platform_urls: None,
-            is_library: false,
+                is_library: false,
             },
         );
         // Different album URL than what the manifest recorded.
-        let outcome = plan_retry(
-            dir.path(),
-            "https://music.apple.com/gb/album/bar/999",
-        );
+        let outcome = plan_retry(dir.path(), "https://music.apple.com/gb/album/bar/999");
         assert_eq!(outcome, PlanOutcome::NotApplicable);
     }
 
@@ -698,14 +691,16 @@ mod tests {
                 tracks: vec![track(1, 1, "1001", album), track(2, 1, "1002", album)],
                 enrichment: None,
                 cross_platform_urls: None,
-            is_library: false,
+                is_library: false,
             },
         );
         // Disk has track 1 only.
         touch(dir.path(), "01 foo.m4a");
         let outcome = plan_retry(dir.path(), &format!("{album}?i=1002"));
         match outcome {
-            PlanOutcome::Plan(plan) => assert_eq!(plan.urls_to_fetch, vec![format!("{album}?i=1002")]),
+            PlanOutcome::Plan(plan) => {
+                assert_eq!(plan.urls_to_fetch, vec![format!("{album}?i=1002")])
+            }
             other => panic!("expected Plan, got {other:?}"),
         }
     }
@@ -732,7 +727,7 @@ mod tests {
                 tracks: vec![t],
                 enrichment: None,
                 cross_platform_urls: None,
-            is_library: false,
+                is_library: false,
             },
         );
         assert_eq!(plan_retry(dir.path(), url), PlanOutcome::NotApplicable);
@@ -758,9 +753,18 @@ mod tests {
 
     #[test]
     fn rejects_filenames_without_digit_prefix() {
-        assert_eq!(parse_track_number_from_filename(Path::new("Cover.jpg")), None);
-        assert_eq!(parse_track_number_from_filename(Path::new("manifest.meedyadl")), None);
-        assert_eq!(parse_track_number_from_filename(Path::new(".DS_Store")), None);
+        assert_eq!(
+            parse_track_number_from_filename(Path::new("Cover.jpg")),
+            None
+        );
+        assert_eq!(
+            parse_track_number_from_filename(Path::new("manifest.meedyadl")),
+            None
+        );
+        assert_eq!(
+            parse_track_number_from_filename(Path::new(".DS_Store")),
+            None
+        );
     }
 
     #[test]
@@ -769,7 +773,10 @@ mod tests {
         // intro tracks numbered as 0) is accepted as track 0 by the parser
         // but our domain rule says manifest track numbers are 1-based, so
         // we treat 0 as invalid to avoid spurious matches against tests.
-        assert_eq!(parse_track_number_from_filename(Path::new("00 Hidden.m4a")), None);
+        assert_eq!(
+            parse_track_number_from_filename(Path::new("00 Hidden.m4a")),
+            None
+        );
     }
 
     #[test]
@@ -806,10 +813,7 @@ mod tests {
             enrichment: None,
             cross_platform_urls: None,
             is_library: false,
-            tracks: vec![
-                track(1, 1, "1001", url),
-                track(2, 1, "1002", url),
-            ],
+            tracks: vec![track(1, 1, "1001", url), track(2, 1, "1002", url)],
         }
     }
 
@@ -836,11 +840,7 @@ mod tests {
                 // each missing tier.
                 assert_eq!(
                     plan.missing_codecs,
-                    vec![
-                        "ac3".to_string(),
-                        "alac".to_string(),
-                        "aac-hq".to_string(),
-                    ],
+                    vec!["ac3".to_string(), "alac".to_string(), "aac-hq".to_string(),],
                 );
             }
             other => panic!("expected PartialCodecs, got {other:?}"),
@@ -937,10 +937,7 @@ mod tests {
                 enrichment: None,
                 cross_platform_urls: None,
                 is_library: false,
-                tracks: vec![
-                    track(1, 1, "1001", url),
-                    track(2, 1, "1002", url),
-                ],
+                tracks: vec![track(1, 1, "1001", url), track(2, 1, "1002", url)],
             },
         );
         // Atmos primary landed; no other codecs. With None

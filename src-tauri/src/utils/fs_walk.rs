@@ -22,6 +22,8 @@
 // helper; the value of the helper grows as more callsites adopt it
 // AND as new services land (Spotify M9, YouTube M10, BBC iPlayer M8
 // will all need similar walkers — this is the shared foundation).
+//
+// See: https://doc.rust-lang.org/std/fs/fn.read_dir.html
 
 use std::path::Path;
 
@@ -69,13 +71,11 @@ where
     results
 }
 
-fn walk_inner<T, F>(
-    dir: &Path,
-    depth: u32,
-    max_depth: u32,
-    visit: &mut F,
-    results: &mut Vec<T>,
-) where
+/// Recursive worker for the walk helper above. Visits every entry in `dir`,
+/// keeps whatever `visit` returns as `Some`, and goes into sub-folders until
+/// `depth` passes `max_depth`. Unreadable folders are skipped silently.
+fn walk_inner<T, F>(dir: &Path, depth: u32, max_depth: u32, visit: &mut F, results: &mut Vec<T>)
+where
     F: FnMut(&Path) -> Option<T>,
 {
     if depth > max_depth {
@@ -91,6 +91,63 @@ fn walk_inner<T, F>(
         }
         if path.is_dir() {
             walk_inner(&path, depth + 1, max_depth, visit, results);
+        }
+    }
+}
+
+/// Same walk as [`walk_dir_depth`], but also says whether it was COMPLETE.
+///
+/// `walk_dir_depth` silently skips a folder it cannot read, which is wrong
+/// for a caller that treats "not in the list" as meaningful (a list of the
+/// files that existed before a download). This variant returns `false` as
+/// the second value when any folder (the base included) or any entry could
+/// not be read. A folder that does not exist (or vanishes mid-walk) counts
+/// as empty, not as a failure. `walk_dir_depth` itself is unchanged.
+pub fn walk_dir_depth_reporting<T, F>(base: &Path, max_depth: u32, mut visit: F) -> (Vec<T>, bool)
+where
+    F: FnMut(&Path) -> Option<T>,
+{
+    let mut results = Vec::new();
+    let mut complete = true;
+    walk_inner_reporting(base, 0, max_depth, &mut visit, &mut results, &mut complete);
+    (results, complete)
+}
+
+/// Recursive worker for [`walk_dir_depth_reporting`]: the same walk as
+/// `walk_inner`, noting every read failure other than "not found".
+fn walk_inner_reporting<T, F>(
+    dir: &Path,
+    depth: u32,
+    max_depth: u32,
+    visit: &mut F,
+    results: &mut Vec<T>,
+    complete: &mut bool,
+) where
+    F: FnMut(&Path) -> Option<T>,
+{
+    if depth > max_depth {
+        return;
+    }
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) => {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                *complete = false;
+            }
+            return;
+        }
+    };
+    for entry in entries {
+        let Ok(entry) = entry else {
+            *complete = false;
+            continue;
+        };
+        let path = entry.path();
+        if let Some(value) = visit(&path) {
+            results.push(value);
+        }
+        if path.is_dir() {
+            walk_inner_reporting(&path, depth + 1, max_depth, visit, results, complete);
         }
     }
 }
@@ -121,12 +178,9 @@ where
     walk_inner_find(base, 0, max_depth, &mut visit)
 }
 
-fn walk_inner_find<T, F>(
-    dir: &Path,
-    depth: u32,
-    max_depth: u32,
-    visit: &mut F,
-) -> Option<T>
+/// Recursive worker for the find-first helper above. Same walk, but stops
+/// and returns as soon as `visit` returns `Some`.
+fn walk_inner_find<T, F>(dir: &Path, depth: u32, max_depth: u32, visit: &mut F) -> Option<T>
 where
     F: FnMut(&Path) -> Option<T>,
 {
@@ -162,10 +216,7 @@ mod tests {
         ext: &'a str,
     ) -> impl FnMut(&Path) -> Option<std::path::PathBuf> + 'a {
         move |p: &Path| {
-            if p.is_file()
-                && p.extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case(ext))
-            {
+            if p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext)) {
                 Some(p.to_path_buf())
             } else {
                 None
@@ -216,8 +267,11 @@ mod tests {
 
     #[test]
     fn returns_empty_on_missing_dir() {
-        let result =
-            walk_dir_depth(Path::new("/definitely/does/not/exist"), 10, collect_files_with_ext("m4a"));
+        let result = walk_dir_depth(
+            Path::new("/definitely/does/not/exist"),
+            10,
+            collect_files_with_ext("m4a"),
+        );
         assert!(result.is_empty());
     }
 
@@ -266,9 +320,7 @@ mod tests {
         target: &'a str,
     ) -> impl FnMut(&Path) -> Option<std::path::PathBuf> + 'a {
         move |p: &Path| {
-            if p.is_file()
-                && p.file_name().and_then(|n| n.to_str()) == Some(target)
-            {
+            if p.is_file() && p.file_name().and_then(|n| n.to_str()) == Some(target) {
                 Some(p.to_path_buf())
             } else {
                 None
@@ -349,8 +401,11 @@ mod tests {
 
     #[test]
     fn find_first_returns_none_on_missing_dir() {
-        let result =
-            walk_dir_find_first(Path::new("/definitely/does/not/exist"), 5, match_file_named("x"));
+        let result = walk_dir_find_first(
+            Path::new("/definitely/does/not/exist"),
+            5,
+            match_file_named("x"),
+        );
         assert!(result.is_none());
     }
 }

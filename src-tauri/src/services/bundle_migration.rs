@@ -45,7 +45,12 @@ const MIGRATION_MARKER_FILENAME: &str = ".migrated-from-io.github.meedyadl";
 
 /// Top-level flat files copied from the old app-data root into the new
 /// one, if the new copy doesn't already exist.
-const DATA_FILES: &[&str] = &["settings.json", "settings.json.sha256", "queue.json", "history.json"];
+const DATA_FILES: &[&str] = &[
+    "settings.json",
+    "settings.json.sha256",
+    "queue.json",
+    "history.json",
+];
 
 /// Directories merged (per-file, skip-if-exists) from the old app-data
 /// root into the new one. Unlike `RUNTIME_DIRS`, these are small and
@@ -191,7 +196,10 @@ fn run_inner(old_app_data_dir: Option<PathBuf>, new_app_data_dir: &Path) -> Vec<
              provisioned -- nothing new migrated."
         );
     } else {
-        log::info!("Bundle-identifier migration complete: {}", summary.join("; "));
+        log::info!(
+            "Bundle-identifier migration complete: {}",
+            summary.join("; ")
+        );
     }
 
     summary
@@ -201,7 +209,11 @@ fn run_inner(old_app_data_dir: Option<PathBuf>, new_app_data_dir: &Path) -> Vec<
 /// crashes, and the portable Python + tools installations. Only called
 /// once `run()` has already confirmed `old_app_data_dir` genuinely has
 /// our data and the migration marker is absent.
-fn migrate_filesystem_data(old_app_data_dir: &Path, new_app_data_dir: &Path, summary: &mut Vec<String>) {
+fn migrate_filesystem_data(
+    old_app_data_dir: &Path,
+    new_app_data_dir: &Path,
+    summary: &mut Vec<String>,
+) {
     // Only migrate into a genuinely fresh new-identifier install. If
     // `settings.json` already exists in the new directory, either a
     // previous launch already migrated it (but somehow lost the marker --
@@ -233,7 +245,9 @@ fn migrate_filesystem_data(old_app_data_dir: &Path, new_app_data_dir: &Path, sum
                 summary.push(format!("copied {name}"));
             }
             Err(e) => {
-                log::warn!("Failed to migrate {name} from legacy app data directory: {e} (non-fatal)");
+                log::warn!(
+                    "Failed to migrate {name} from legacy app data directory: {e} (non-fatal)"
+                );
             }
         }
     }
@@ -429,7 +443,8 @@ mod tests {
 
     #[test]
     fn copy_dir_recursive_copies_nested_files() {
-        let tmp = std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
         let src = tmp.join("src");
         let dst = tmp.join("dst");
         make_tree(&src, &["a.txt", "sub/b.txt", "sub/deeper/c.txt"]);
@@ -445,7 +460,8 @@ mod tests {
 
     #[test]
     fn copy_dir_recursive_skip_existing_does_not_overwrite() {
-        let tmp = std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
         let src = tmp.join("src");
         let dst = tmp.join("dst");
         make_tree(&src, &["a.txt"]);
@@ -454,14 +470,18 @@ mod tests {
 
         let copied = copy_dir_recursive(&src, &dst, true).unwrap();
         assert_eq!(copied, 0);
-        assert_eq!(std::fs::read_to_string(dst.join("a.txt")).unwrap(), "already-here");
+        assert_eq!(
+            std::fs::read_to_string(dst.join("a.txt")).unwrap(),
+            "already-here"
+        );
 
         std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
     fn copy_dir_recursive_no_skip_overwrites() {
-        let tmp = std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
         let src = tmp.join("src");
         let dst = tmp.join("dst");
         make_tree(&src, &["a.txt"]);
@@ -492,7 +512,8 @@ mod tests {
 
     #[test]
     fn run_inner_is_a_true_noop_when_old_dir_does_not_exist() {
-        let tmp = std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
         let old_dir = tmp.join("old-does-not-exist");
         let new_dir = tmp.join("new");
         std::fs::create_dir_all(&new_dir).unwrap();
@@ -510,7 +531,8 @@ mod tests {
 
     #[test]
     fn run_inner_is_a_true_noop_when_old_dir_exists_but_has_no_settings_json() {
-        let tmp = std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
         let old_dir = tmp.join("old");
         let new_dir = tmp.join("new");
         // Old directory exists but is empty / foreign (no settings.json)
@@ -530,7 +552,8 @@ mod tests {
 
     #[test]
     fn run_inner_short_circuits_when_marker_already_present() {
-        let tmp = std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
         let old_dir = tmp.join("old");
         let new_dir = tmp.join("new");
         // Old directory DOES have genuine legacy data...
@@ -553,7 +576,8 @@ mod tests {
 
     #[test]
     fn does_not_migrate_filesystem_when_new_settings_already_exists() {
-        let tmp = std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
         let old_dir = tmp.join("old");
         let new_dir = tmp.join("new");
         std::fs::create_dir_all(&old_dir).unwrap();
@@ -575,7 +599,8 @@ mod tests {
 
     #[test]
     fn migrate_filesystem_data_copies_flat_files_and_merged_dirs() {
-        let tmp = std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
+        let tmp =
+            std::env::temp_dir().join(format!("meedyadl-migration-test-{}", uuid::Uuid::new_v4()));
         let old_dir = tmp.join("old");
         let new_dir = tmp.join("new");
         std::fs::create_dir_all(&old_dir).unwrap();

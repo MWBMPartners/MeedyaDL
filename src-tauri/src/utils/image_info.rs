@@ -122,10 +122,8 @@ fn read_jpeg(bytes: &[u8]) -> Option<ImageInfo> {
         // The frame-describing markers. Height and width sit three and five
         // bytes into the segment's contents. The four excluded values in this
         // range are not frame markers.
-        let describes_the_frame = (0xC0..=0xCF).contains(&marker)
-            && marker != 0xC4
-            && marker != 0xC8
-            && marker != 0xCC;
+        let describes_the_frame =
+            (0xC0..=0xCF).contains(&marker) && marker != 0xC4 && marker != 0xC8 && marker != 0xCC;
         let length = u16::from_be_bytes([bytes[i + 2], bytes[i + 3]]) as usize;
         if describes_the_frame {
             if i + 9 >= bytes.len() {
@@ -189,7 +187,7 @@ mod tests {
     /// genuinely exercised rather than finding it immediately.
     fn jpeg_with_leading_segment(width: u16, height: u16) -> Vec<u8> {
         let mut v = vec![0xFF, 0xD8]; // start of image
-        // A short application segment, of the kind real JPEGs begin with.
+                                      // A short application segment, of the kind real JPEGs begin with.
         v.extend_from_slice(&[0xFF, 0xE0, 0x00, 0x06, b'J', b'F', b'I', b'F']);
         // The frame marker.
         v.extend_from_slice(&[0xFF, 0xC0, 0x00, 0x11, 0x08]);
@@ -208,8 +206,8 @@ mod tests {
 
     #[test]
     fn reads_a_jpeg_size_and_calls_it_jpg() {
-        let info = read_image_info(&jpeg_with_leading_segment(1400, 1400))
-            .expect("should read a JPEG");
+        let info =
+            read_image_info(&jpeg_with_leading_segment(1400, 1400)).expect("should read a JPEG");
         assert_eq!((info.width, info.height), (1400, 1400));
         assert_eq!(info.extension, "jpg");
     }

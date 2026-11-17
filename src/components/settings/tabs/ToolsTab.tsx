@@ -56,7 +56,6 @@ import {
   Download,
   AlertCircle,
   RefreshCw,
-  ChevronDown,
   ChevronRight,
   RotateCcw,
 } from 'lucide-react';
@@ -84,9 +83,25 @@ import { useConfirmation } from '@/lib/useConfirmation';
 import { withErrorToast } from '@/lib/withErrorToast';
 import { sourceLabel } from '@/lib/pm-source';
 
-import { Button, LoadingSpinner, FilePickerButton, SettingsSection, Modal } from '@/components/common';
+import {
+  Button,
+  ExpandChevron,
+  IconButton,
+  Input,
+  LoadingSpinner,
+  FilePickerButton,
+  InlineError,
+  SettingsSection,
+  Modal,
+} from '@/components/common';
 
 import { useState } from 'react';
+import { GAMDL_INSTALL_FAILED, explainError, showError } from '@/lib/errorMessages';
+import { GamdlFourNote } from '@/components/settings/GamdlFourNote';
+import { useGamdlCapabilities } from '@/hooks/useGamdlCapabilities';
+
+/** Tools GAMDL 4 no longer uses; MeedyaDL itself still uses FFmpeg and MediaInfo. */
+const NOT_USED_BY_GAMDL_FOUR = new Set(['mp4decrypt', 'N_m3u8DL-RE', 'MP4Box']);
 
 /**
  * Maps tool names from the dependency store to their corresponding
@@ -105,11 +120,16 @@ const TOOL_PATH_KEYS: Record<string, string> = {
  * User-friendly descriptions for each tool's custom path override.
  */
 const TOOL_PATH_DESCRIPTIONS: Record<string, string> = {
-  FFmpeg: 'Audio/video processing and remuxing. Required for most operations.',
-  mp4decrypt: 'Decrypting DRM-protected streams (Bento4 toolkit).',
-  'N_m3u8DL-RE': 'HLS/DASH stream downloader. Used when download mode is set to N_m3u8DL-RE.',
-  MP4Box: 'MP4 muxing and remuxing (GPAC toolkit). Used when remux mode is set to MP4Box.',
-  MediaInfo: 'Accurate codec detection for the enrichment pipeline. Identifies Dolby Atmos, AC-3, ALAC, and AAC variants.',
+  // Plain words first (polish pass L8); each says what the tool does for
+  // you, then where in Settings it is chosen, if anywhere.
+  FFmpeg: 'Converts and packages audio and video. Needed for most downloads.',
+  mp4decrypt: 'Unlocks the protected files Apple Music sends (part of Bento4).',
+  'N_m3u8DL-RE':
+    'Fetches audio and video. Used when Settings > Advanced > Download Mode is set to N_m3u8DL-RE.',
+  MP4Box:
+    'Packages music videos into their final file (part of GPAC). Used when Settings > Advanced > Remux Mode is set to MP4Box.',
+  MediaInfo:
+    'Works out exactly which format each downloaded file is in, such as Dolby Atmos, AC-3, ALAC or AAC.',
 };
 
 /**
@@ -121,6 +141,7 @@ const TOOL_PATH_DESCRIPTIONS: Record<string, string> = {
 export function ToolsTab() {
   // --- Dependency store ---
   const python = useDependencyStore((s) => s.python);
+  const { capabilities: gamdlCaps } = useGamdlCapabilities();
   const gamdl = useDependencyStore((s) => s.gamdl);
   const tools = useDependencyStore((s) => s.tools);
   const isChecking = useDependencyStore((s) => s.isChecking);
@@ -190,8 +211,9 @@ export function ToolsTab() {
       },
       {
         successMsg: `${name} has been reinstalled.`,
-        errorMsg: (err) => `Could not reinstall ${name}. ${err instanceof Error ? err.message : String(err)}`,
-      },
+        // A working copy is never lost (#1225), so the message can say so.
+        errorMsg: `MeedyaDL could not reinstall ${name}. If your copy was working, it has been kept. Check your internet connection, then try again.`,
+      }
     );
     // `installTool` already refreshes the tool list after a success. After
     // a failure it does not, but the backend may have put the previous
@@ -219,9 +241,9 @@ export function ToolsTab() {
     title: reinstallTarget ? `Reinstall ${reinstallTarget}?` : 'Reinstall this tool?',
     description: reinstallManager ? (
       <p>
-        This copy of {reinstallTarget ?? 'this tool'} came from {reinstallManager}. MeedyaDL may
-        ask {reinstallManager} to update it, which can ask for your password. If your copy will
-        not start afterwards, MeedyaDL tells you.
+        This copy of {reinstallTarget ?? 'this tool'} came from {reinstallManager}. MeedyaDL may ask{' '}
+        {reinstallManager} to update it, which can ask for your password. If your copy will not
+        start afterwards, MeedyaDL tells you.
       </p>
     ) : (
       // "Kept" is promised only when it is true. The backend keeps the
@@ -298,9 +320,8 @@ export function ToolsTab() {
         title="Core Dependencies"
         description="Python and GAMDL are required for the app to function. They are automatically installed during first-time setup."
       >
-
         {isChecking && !python && !gamdl ? (
-          <LoadingSpinner label="Checking dependencies..." />
+          <LoadingSpinner label="Checking dependencies…" />
         ) : (
           <div className="space-y-2">
             {/* Python status. Fix 7 (a11y audit): colour alone used to
@@ -311,12 +332,20 @@ export function ToolsTab() {
               <div className="flex items-center gap-3 p-3 rounded-platform border border-border-light bg-surface-elevated">
                 {python.installed ? (
                   <>
-                    <CheckCircle size={18} className="text-status-success flex-shrink-0" aria-hidden="true" />
+                    <CheckCircle
+                      size={18}
+                      className="text-status-success flex-shrink-0"
+                      aria-hidden="true"
+                    />
                     <span className="sr-only">Installed: </span>
                   </>
                 ) : (
                   <>
-                    <XCircle size={18} className="text-status-error flex-shrink-0" aria-hidden="true" />
+                    <XCircle
+                      size={18}
+                      className="text-status-error flex-shrink-0"
+                      aria-hidden="true"
+                    />
                     <span className="sr-only">Not installed: </span>
                   </>
                 )}
@@ -346,12 +375,20 @@ export function ToolsTab() {
               <div className="flex items-center gap-3 p-3 rounded-platform border border-border-light bg-surface-elevated">
                 {gamdl.installed ? (
                   <>
-                    <CheckCircle size={18} className="text-status-success flex-shrink-0" aria-hidden="true" />
+                    <CheckCircle
+                      size={18}
+                      className="text-status-success flex-shrink-0"
+                      aria-hidden="true"
+                    />
                     <span className="sr-only">Installed: </span>
                   </>
                 ) : (
                   <>
-                    <XCircle size={18} className="text-status-error flex-shrink-0" aria-hidden="true" />
+                    <XCircle
+                      size={18}
+                      className="text-status-error flex-shrink-0"
+                      aria-hidden="true"
+                    />
                     <span className="sr-only">Not installed: </span>
                   </>
                 )}
@@ -395,9 +432,8 @@ export function ToolsTab() {
       {/* ============================================================ */}
       <SettingsSection
         title="External Tools"
-        description="Required tools must be installed for downloads to work. Optional tools provide additional features. Click a tool to configure a custom binary path."
+        description="Required tools must be installed for downloads to work. To use a copy of a tool that you installed yourself, open it with the arrow on its right."
       >
-
         {/* Action buttons */}
         <div className="flex gap-2 mb-3">
           <Button
@@ -418,7 +454,7 @@ export function ToolsTab() {
               onClick={handleInstallAll}
             >
               {isInstalling
-                ? `Installing ${installingName}...`
+                ? `Installing ${installingName}…`
                 : `Install All (${missingCount} missing)`}
             </Button>
           )}
@@ -426,7 +462,7 @@ export function ToolsTab() {
 
         {/* Tool list */}
         {isChecking && tools.length === 0 ? (
-          <LoadingSpinner label="Checking tools..." />
+          <LoadingSpinner label="Checking tools…" />
         ) : (
           <div className="space-y-2">
             {tools.map((tool) => {
@@ -448,17 +484,29 @@ export function ToolsTab() {
                         carry installed/missing/optional. */}
                     {tool.installed ? (
                       <>
-                        <CheckCircle size={18} className="text-status-success flex-shrink-0" aria-hidden="true" />
+                        <CheckCircle
+                          size={18}
+                          className="text-status-success flex-shrink-0"
+                          aria-hidden="true"
+                        />
                         <span className="sr-only">Installed: </span>
                       </>
                     ) : tool.required ? (
                       <>
-                        <XCircle size={18} className="text-status-error flex-shrink-0" aria-hidden="true" />
+                        <XCircle
+                          size={18}
+                          className="text-status-error flex-shrink-0"
+                          aria-hidden="true"
+                        />
                         <span className="sr-only">Missing (required): </span>
                       </>
                     ) : (
                       <>
-                        <AlertCircle size={18} className="text-content-tertiary flex-shrink-0" aria-hidden="true" />
+                        <AlertCircle
+                          size={18}
+                          className="text-content-tertiary flex-shrink-0"
+                          aria-hidden="true"
+                        />
                         <span className="sr-only">Missing (optional): </span>
                       </>
                     )}
@@ -470,11 +518,13 @@ export function ToolsTab() {
                           {tool.name}
                         </span>
                         {tool.required ? (
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-status-error/10 text-status-error-text">
+                          // Neutral, not the error colour (polish pass L3): it was red on
+                          // every healthy tool. A missing tool is shown by the icon on the left.
+                          <span className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-surface-secondary text-content-secondary">
                             Required
                           </span>
                         ) : (
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-surface-secondary text-content-tertiary">
+                          <span className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-surface-secondary text-content-tertiary">
                             Optional
                           </span>
                         )}
@@ -485,12 +535,12 @@ export function ToolsTab() {
                            * is the real token; `text-accent-hover` is its
                            * darkened-for-text sibling (plain `text-accent`
                            * falls short of 4.5:1 as small text). */
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent-hover">
+                          <span className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent-hover">
                             System
                           </span>
                         )}
                         {customPath && (
-                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                          <span className="text-2xs font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
                             Custom
                           </span>
                         )}
@@ -550,16 +600,13 @@ export function ToolsTab() {
                         title since the button has no visible text of
                         its own for its accessible name to fall back on. */}
                     {pathKey && (
-                      <button
-                        type="button"
-                        className="p-1 rounded text-content-tertiary hover:text-content-secondary transition-colors"
+                      <IconButton
+                        size="sm"
                         onClick={() => togglePathExpanded(tool.name)}
-                        title="Configure custom binary path"
-                        aria-label="Configure custom binary path"
+                        label={`Use your own copy of ${tool.name}`}
                         aria-expanded={isExpanded}
-                      >
-                        {isExpanded ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
-                      </button>
+                        icon={<ExpandChevron open={isExpanded} size={16} />}
+                      />
                     )}
                   </div>
 
@@ -567,9 +614,15 @@ export function ToolsTab() {
                   {isExpanded && pathKey && (
                     <div className="px-3 pb-3 pt-0 border-t border-border-light">
                       <p className="text-xs text-content-secondary mt-2 mb-2">{description}</p>
+                      <GamdlFourNote
+                        show={gamdlCaps.gamdl_v4 && NOT_USED_BY_GAMDL_FOUR.has(tool.name)}
+                      >
+                        Apple Music downloads do not use this tool; GAMDL 4 does this work itself.
+                        Keep it installed if you might go back to GAMDL 3.
+                      </GamdlFourNote>
                       <FilePickerButton
-                        label="Custom Path"
-                        description="Override the managed version with a custom binary. Leave empty to use the auto-installed version."
+                        label="Your Own Copy"
+                        description="Choose a copy of this tool that you installed yourself. Leave empty to use the copy MeedyaDL installs."
                         value={customPath}
                         onChange={(path) => setToolPath(tool.name, path)}
                         placeholder={placeholder}
@@ -609,9 +662,13 @@ export function ToolsTab() {
       {/* Error display                                                 */}
       {/* ============================================================ */}
       {depError && (
-        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error-text">
-          {depError}
-        </div>
+        <InlineError
+          look="box"
+          {...explainError(
+            'MeedyaDL could not check or install a tool. Check your internet connection, then try again.',
+            depError
+          )}
+        />
       )}
     </div>
   );
@@ -631,7 +688,7 @@ export function ToolsTab() {
  * styling already in this file.
  */
 function classifyFromBackend(
-  classification: string | null | undefined,
+  classification: string | null | undefined
 ): { label: string; tone: 'success' | 'warning' | 'error' | 'neutral' } | null {
   switch (classification) {
     case 'supported':
@@ -659,7 +716,7 @@ function classifyFromBackend(
 function classifyLocally(
   v: string | null,
   minimum: string,
-  maximumTested: string,
+  maximumTested: string
 ): { label: string; tone: 'success' | 'warning' | 'error' | 'neutral' } {
   if (!v) return { label: 'Unknown', tone: 'neutral' };
   if (compareVersions(v, minimum) < 0) return { label: 'Unsupported', tone: 'error' };
@@ -751,10 +808,7 @@ function GamdlVersionManagement({
       addToast(`GAMDL v${installed} (recommended) installed successfully.`, 'success');
       await fetchAll();
     } catch (e) {
-      addToast(
-        `GAMDL install failed: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      showError(GAMDL_INSTALL_FAILED, e);
     } finally {
       setIsInstallingRecommended(false);
     }
@@ -770,10 +824,7 @@ function GamdlVersionManagement({
       setVersionInput('');
       await fetchAll();
     } catch (e) {
-      addToast(
-        `GAMDL install failed: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      showError(GAMDL_INSTALL_FAILED, e);
     } finally {
       setIsInstallingSpecific(false);
     }
@@ -827,14 +878,16 @@ function GamdlVersionManagement({
         {/* Install recommended button */}
         <div className="flex items-center gap-2">
           <Button
-            variant="primary"
+            variant={installedVersion === recommended ? 'secondary' : 'primary'}
             size="sm"
             icon={<Download size={14} />}
             loading={isInstallingRecommended}
             disabled={anyBusy}
             onClick={handleInstallRecommended}
           >
-            Install recommended (v{recommended})
+            {installedVersion === recommended
+              ? `Reinstall (v${recommended})`
+              : `Install recommended (v${recommended})`}
           </Button>
           {installedVersion === recommended && (
             <span className="text-xs text-content-secondary">
@@ -845,24 +898,21 @@ function GamdlVersionManagement({
 
         {/* Install specific version input */}
         <div>
-          <label htmlFor="gamdl-version-input" className="block text-xs font-medium text-content-secondary mb-1">
-            Advanced: install specific version
-          </label>
-          <div className="flex gap-2">
-            <input
-              id="gamdl-version-input"
-              type="text"
-              value={versionInput}
-              onChange={(e) => setVersionInput(e.target.value)}
-              placeholder="e.g. 2.9.3"
-              disabled={anyBusy}
-              /* `focus:ring-accent-primary` was never a defined colour,
-               * so this field had no visible focus ring at all beyond
-               * whatever the browser drew by default. `focus:ring-accent`
-               * is the real token. */
-              className="flex-1 px-3 py-1.5 text-sm rounded-platform border border-border-light bg-surface-elevated text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-2 focus:ring-accent"
-              aria-describedby="gamdl-version-help"
-            />
+          <div className="flex items-end gap-2">
+            {/* The shared Input (polish pass M17), in a flex-1 box beside
+                the Install button. */}
+            <div className="flex-1">
+              <Input
+                id="gamdl-version-input"
+                label="Advanced: install specific version"
+                type="text"
+                value={versionInput}
+                onChange={(e) => setVersionInput(e.target.value)}
+                placeholder="e.g. 3.9.1"
+                disabled={anyBusy}
+                aria-describedby="gamdl-version-help"
+              />
+            </div>
             <Button
               variant="secondary"
               size="sm"
@@ -874,7 +924,8 @@ function GamdlVersionManagement({
             </Button>
           </div>
           <p id="gamdl-version-help" className="mt-1 text-xs text-content-tertiary">
-            Any PyPI-compatible GAMDL version. Versions outside the tested range install with a warning.
+            Any PyPI-compatible GAMDL version. Versions outside the tested range install with a
+            warning.
           </p>
         </div>
       </div>
@@ -944,10 +995,10 @@ function BackupManagement() {
       const list = await listBackups();
       setSnapshots(list);
     } catch (e) {
-      addToast(`Failed to list backups: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      showError('MeedyaDL could not list the saved snapshots. Open this tab again to retry.', e);
       setSnapshots([]);
     }
-  }, [addToast]);
+  }, []);
 
   useEffect(() => {
     void refresh();
@@ -959,11 +1010,14 @@ function BackupManagement() {
       const summary = await createBackup();
       addToast(
         `Snapshot created with ${summary.files.length} file${summary.files.length === 1 ? '' : 's'}`,
-        'success',
+        'success'
       );
       await refresh();
     } catch (e) {
-      addToast(`Snapshot failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      showError(
+        'MeedyaDL could not take a snapshot. Check there is free space on this computer, then try again.',
+        e
+      );
     } finally {
       setBusy(false);
     }
@@ -978,10 +1032,13 @@ function BackupManagement() {
       const summary = await restoreFromBackup(target.path);
       addToast(
         `Restored ${summary.restored.length} file${summary.restored.length === 1 ? '' : 's'} — please restart MeedyaDL to apply.`,
-        'warning',
+        'warning'
       );
     } catch (e) {
-      addToast(`Restore failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      showError(
+        'MeedyaDL could not restore that snapshot. Try again; the details say what went wrong.',
+        e
+      );
     } finally {
       setBusy(false);
     }
@@ -1004,7 +1061,7 @@ function BackupManagement() {
       addToast('Snapshot deleted.', 'info');
       await refresh();
     } catch (e) {
-      addToast(`Delete failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      showError('MeedyaDL could not delete that snapshot. Try again in a moment.', e);
     } finally {
       setBusy(false);
     }
@@ -1012,8 +1069,8 @@ function BackupManagement() {
 
   return (
     <SettingsSection
-      title="Backups"
-      description="Snapshots include settings, queue, and history. A snapshot is taken automatically when MeedyaDL exits; only the most recent 10 are kept on disk."
+      title="Automatic Snapshots"
+      description="MeedyaDL keeps a snapshot of your settings, queue and history each time it closes, and you can take one at any time. Only the 10 most recent are kept."
     >
       <div className="space-y-3">
         <div className="flex items-center gap-2">
@@ -1027,13 +1084,18 @@ function BackupManagement() {
           >
             Create snapshot now
           </Button>
-          <Button variant="ghost" size="sm" icon={<RefreshCw size={14} />} onClick={() => refresh()}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<RefreshCw size={14} />}
+            onClick={() => refresh()}
+          >
             Refresh
           </Button>
         </div>
 
         {snapshots === null ? (
-          <LoadingSpinner label="Loading snapshots..." />
+          <LoadingSpinner label="Loading snapshots…" />
         ) : snapshots.length === 0 ? (
           <p className="text-sm text-content-tertiary">
             No snapshots yet. Click "Create snapshot now" or quit MeedyaDL to take one
@@ -1130,9 +1192,9 @@ function BackupManagement() {
               cannot be undone.
             </p>
             <p className="text-sm text-content-secondary mb-6">
-              Only the 10 most recent snapshots are kept, and each one holds your settings,
-              queue, and history together. If this was the snapshot you'd need to undo a
-              mistake, deleting it removes that option.
+              Only the 10 most recent snapshots are kept, and each one holds your settings, queue,
+              and history together. If this was the snapshot you'd need to undo a mistake, deleting
+              it removes that option.
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="ghost" onClick={() => setDeleteTarget(null)}>

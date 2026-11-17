@@ -58,10 +58,8 @@ pub fn atomic_write_json<T: Serialize + ?Sized>(
             .map(|e| format!("{e}.tmp"))
             .unwrap_or_else(|| "tmp".to_string()),
     );
-    std::fs::write(&tmp, &json)
-        .map_err(|e| format!("Failed to write {context}: {e}"))?;
-    std::fs::rename(&tmp, path)
-        .map_err(|e| format!("Failed to rename {context}: {e}"))?;
+    std::fs::write(&tmp, &json).map_err(|e| format!("Failed to write {context}: {e}"))?;
+    std::fs::rename(&tmp, path).map_err(|e| format!("Failed to rename {context}: {e}"))?;
     Ok(())
 }
 
@@ -124,7 +122,8 @@ mod tests {
         )
         .unwrap();
 
-        let parsed: Sample = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        let parsed: Sample =
+            serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(parsed.name, "second");
         assert_eq!(parsed.count, 2);
 

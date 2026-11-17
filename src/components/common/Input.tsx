@@ -168,7 +168,11 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
          * so that typed text does not overlap the icon.
          */}
         {icon && (
-          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary">
+          // `z-10` and `pointer-events-none` (polish pass L2): the icon
+          // always draws above the box, and a click on it still reaches
+          // the box. Some search fields used to draw their own icon
+          // behind the box, where it could not be seen.
+          <div className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-content-tertiary">
             {icon}
           </div>
         )}

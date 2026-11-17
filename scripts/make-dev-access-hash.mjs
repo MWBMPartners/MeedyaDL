@@ -51,10 +51,14 @@ const KEY_BYTES = 32;
 function askHidden(question) {
   return new Promise((resolve) => {
     const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
-    // Show the prompt itself, then stop echoing keystrokes.
-    process.stdout.write(question);
-    rl._writeToOutput = () => {};
-    rl.question('', (answer) => {
+    // Readline clears the line and redraws "prompt + what was typed" whenever
+    // it refreshes, so the prompt is handed to readline (writing it ourselves
+    // first got it wiped straight away), and every redraw shows the prompt
+    // alone. Typed characters are never shown.
+    rl._writeToOutput = (text) => {
+      if (text.startsWith(question)) process.stdout.write(question);
+    };
+    rl.question(question, (answer) => {
       rl.close();
       process.stdout.write('\n');
       resolve(answer);

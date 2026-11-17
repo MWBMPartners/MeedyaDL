@@ -42,8 +42,8 @@ use crate::services::spotify_anti_ban;
 /// `src/lib/tauri-commands.ts`.
 #[tauri::command]
 pub async fn acknowledge_spotify_consent(app: AppHandle) -> Result<(), String> {
-    let mut settings = config_service::load_settings(&app)
-        .map_err(|e| format!("Failed to load settings: {e}"))?;
+    let mut settings =
+        config_service::load_settings(&app).map_err(|e| format!("Failed to load settings: {e}"))?;
     if settings.spotify_consent_acknowledged {
         return Ok(());
     }
@@ -84,10 +84,14 @@ pub struct DailyCapStatus {
 /// fresh-today counter with count 0.
 #[tauri::command]
 pub async fn get_spotify_daily_cap_status(app: AppHandle) -> Result<DailyCapStatus, String> {
-    let settings = config_service::load_settings(&app)
-        .map_err(|e| format!("Failed to load settings: {e}"))?;
+    let settings =
+        config_service::load_settings(&app).map_err(|e| format!("Failed to load settings: {e}"))?;
     let counter = spotify_anti_ban::load_counter(&app);
-    let cap = settings.service_settings.spotify.anti_ban.daily_download_cap;
+    let cap = settings
+        .service_settings
+        .spotify
+        .anti_ban
+        .daily_download_cap;
     let at_cap = counter.would_exceed(&settings.service_settings.spotify.anti_ban);
 
     Ok(DailyCapStatus {
@@ -108,8 +112,8 @@ pub async fn get_spotify_daily_cap_status(app: AppHandle) -> Result<DailyCapStat
 /// authentication; the keychain sentinel is the real auth layer.
 #[tauri::command]
 pub async fn reset_spotify_daily_cap_counter(app: AppHandle) -> Result<(), String> {
-    let settings = config_service::load_settings(&app)
-        .map_err(|e| format!("Failed to load settings: {e}"))?;
+    let settings =
+        config_service::load_settings(&app).map_err(|e| format!("Failed to load settings: {e}"))?;
     if !settings.dev_access_enabled {
         return Err(
             "Resetting the Spotify daily-cap counter requires developer access. \
@@ -134,9 +138,11 @@ pub async fn reset_spotify_daily_cap_counter(app: AppHandle) -> Result<(), Strin
 pub enum DispatchGateOutcome {
     /// All gates cleared — caller may dispatch.
     Allowed,
-    /// `dev_access_enabled` is `false`. Surfaced as the
-    /// "Spotify is in active development" copy with the Konami
-    /// unlock hint.
+    /// `dev_access_enabled` is `false`. Surfaced as
+    /// [`crate::services::spotify_anti_ban::SPOTIFY_NOT_AVAILABLE`] -- the
+    /// same "cannot download from Spotify yet" answer any other
+    /// not-yet-supported service gets. It used to carry an unlock hint
+    /// naming the hidden key sequence; it must not.
     DevAccessRequired,
     /// `dev_access_enabled` is `true` but the first-run consent
     /// modal hasn't been acknowledged yet. The React layer should
@@ -198,7 +204,11 @@ pub fn evaluate_dispatch_gate(
     if counter.would_exceed(&settings.service_settings.spotify.anti_ban) {
         return DispatchGateOutcome::DailyCapReached {
             count: counter.count,
-            cap: settings.service_settings.spotify.anti_ban.daily_download_cap,
+            cap: settings
+                .service_settings
+                .spotify
+                .anti_ban
+                .daily_download_cap,
         };
     }
     DispatchGateOutcome::Allowed
@@ -281,11 +291,9 @@ pub fn check_session_artifacts(
 /// consent / cap warning) fires before the user clicks "Add to
 /// Queue."
 #[tauri::command]
-pub async fn check_spotify_dispatch_allowed(
-    app: AppHandle,
-) -> Result<DispatchGateOutcome, String> {
-    let settings = config_service::load_settings(&app)
-        .map_err(|e| format!("Failed to load settings: {e}"))?;
+pub async fn check_spotify_dispatch_allowed(app: AppHandle) -> Result<DispatchGateOutcome, String> {
+    let settings =
+        config_service::load_settings(&app).map_err(|e| format!("Failed to load settings: {e}"))?;
     let counter = spotify_anti_ban::load_counter(&app);
     Ok(evaluate_dispatch_gate(&settings, &counter))
 }
@@ -300,11 +308,7 @@ mod tests {
     use crate::models::settings::AppSettings;
     use crate::services::spotify_anti_ban::DailyCapCounter;
 
-    fn settings_with(
-        dev: bool,
-        consent: bool,
-        cap: u32,
-    ) -> AppSettings {
+    fn settings_with(dev: bool, consent: bool, cap: u32) -> AppSettings {
         let mut s = AppSettings {
             dev_access_enabled: dev,
             spotify_consent_acknowledged: consent,

@@ -63,7 +63,9 @@ import { useUiStore } from '@/stores/uiStore';
 
 // Shared form components: Select for format dropdown, Toggle for the save switch,
 // Input for the size number field.
-import { Select, Toggle, Input, SettingsSection } from '@/components/common';
+import { Select, Toggle, Input, SettingsSection, TextButton } from '@/components/common';
+import { GamdlFourNote } from '@/components/settings/GamdlFourNote';
+import { useGamdlCapabilities } from '@/hooks/useGamdlCapabilities';
 
 // TypeScript union types for cover settings.
 import type { CoverFormat, CoverArtName, AnimatedArtworkResolution } from '@/types';
@@ -108,6 +110,8 @@ const ANIMATED_ARTWORK_RESOLUTION_OPTIONS = [
 export function CoverArtTab() {
   // Per-field Zustand bindings (audit v2 #6).
   const saveCover = useSettingsField('save_cover');
+  const { capabilities: gamdlCaps } = useGamdlCapabilities();
+  const gamdlFour = gamdlCaps.gamdl_v4;
   const coverFormat = useSettingsField('cover_format');
   const coverSize = useSettingsField('cover_size');
   const coverArtName = useSettingsField('cover_art_name');
@@ -177,140 +181,147 @@ export function CoverArtTab() {
       {/* Section 1: Static Cover Art (GAMDL) */}
       {/* ============================================================ */}
       <SettingsSection title="Cover Art">
-          {/* Save cover art */}
-          <Toggle
-            label="Save Cover Art"
-            description="Download and save album cover art as a separate file"
-            checked={saveCover.value}
-            onChange={saveCover.set}
-          />
+        {/* Save cover art */}
+        <Toggle
+          label="Save Cover Art"
+          description="Download and save album cover art as a separate file"
+          checked={saveCover.value}
+          onChange={saveCover.set}
+        />
+        <GamdlFourNote show={gamdlFour && !gamdlCaps.gamdl_four_saves_album_cover}>
+          this switch has no effect. GAMDL 4 would save a picture beside every song, so MeedyaDL
+          saves one album picture itself instead, when it can get the album's details from Apple
+          Music.
+        </GamdlFourNote>
 
-          {/* Cover format (only shown when save_cover is enabled) */}
-          {saveCover.value && (
-            <>
-              <Select
-                label="Cover Format"
-                description="Image format for saved cover art files"
-                options={COVER_FORMAT_OPTIONS}
-                value={coverFormat.value}
-                onChange={(e) => coverFormat.set(e.target.value as CoverFormat)}
-              />
+        {/* Cover format (only shown when save_cover is enabled) */}
+        {/* On GAMDL 4 the switch above has no effect, but the format
+              below still decides the picture inside each song, so it
+              stays visible there. */}
+        {(saveCover.value || gamdlFour) && (
+          <>
+            <Select
+              label="Cover Format"
+              description="Image format for saved cover art files"
+              options={COVER_FORMAT_OPTIONS}
+              value={coverFormat.value}
+              onChange={(e) => coverFormat.set(e.target.value as CoverFormat)}
+            />
+            <GamdlFourNote show={gamdlFour && coverFormat.value === 'raw'}>
+              the original-file choice is not available, so the picture inside each song is a JPEG
+              (from GAMDL 4.0.1, at the Cover Size below).
+            </GamdlFourNote>
 
-              {/* Cover size -- numeric input, validated on blur (Fix 11,
+            {/* Cover size -- numeric input, validated on blur (Fix 11,
                   a11y audit -- see the long comment above coverSizeDraft
                   for why validating on every keystroke made the field
                   impossible to type into). The `step={100}` prop
                   controls the increment when using the browser's
                   native spinner arrows. */}
-              <Input
-                label="Cover Size (pixels)"
-                description="Width and height of the cover art image (max 10000)"
-                error={coverSizeError ?? undefined}
-                type="number"
-                min={100}
-                max={10000}
-                step={100}
-                value={coverSizeDraft}
-                onChange={(e) => {
-                  setCoverSizeDraft(e.target.value);
-                  // Clear a stale error the moment the user starts
-                  // correcting it -- it's re-checked on the next blur.
-                  if (coverSizeError !== null) setCoverSizeError(null);
-                }}
-                onBlur={handleCoverSizeBlur}
-              />
+            <Input
+              label="Cover Size (pixels)"
+              description="Width and height of the cover art image (max 10000)"
+              error={coverSizeError ?? undefined}
+              type="number"
+              min={100}
+              max={10000}
+              step={100}
+              value={coverSizeDraft}
+              onChange={(e) => {
+                setCoverSizeDraft(e.target.value);
+                // Clear a stale error the moment the user starts
+                // correcting it -- it's re-checked on the next blur.
+                if (coverSizeError !== null) setCoverSizeError(null);
+              }}
+              onBlur={handleCoverSizeBlur}
+            />
+            {/* Cover art filename */}
+            <Select
+              label="Cover Art Filename"
+              description="Filename for saved cover art images. GAMDL writes 'Cover' by default; this renames the file after download."
+              options={COVER_ART_NAME_OPTIONS}
+              value={coverArtName.value}
+              onChange={(e) => coverArtName.set(e.target.value as CoverArtName)}
+            />
 
-              {/* Cover art filename */}
-              <Select
-                label="Cover Art Filename"
-                description="Filename for saved cover art images. GAMDL writes 'Cover' by default; this renames the file after download."
-                options={COVER_ART_NAME_OPTIONS}
-                value={coverArtName.value}
-                onChange={(e) => coverArtName.set(e.target.value as CoverArtName)}
-              />
-
-              {/* #1159: cross-service cover art upgrade. Placed alongside the
+            {/* #1159: cross-service cover art upgrade. Placed alongside the
                   other cover-file settings because it can only act on a cover
                   art file that this section is responsible for -- it has
                   nothing to compare against, or replace, when there is no
                   saved cover art at all. */}
-              <Toggle
-                label="Upgrade Cover Art From Other Services"
-                description="Checks Deezer's public catalogue for a bigger picture of the same album, matched by its release barcode. The saved cover art file is only replaced when Deezer's picture has more pixels than what is already there -- a same-size or smaller picture is left alone, and only pixel count is compared, never which picture looks nicer. The picture already embedded inside each track file is not touched. Off by default because it sends the album's barcode to Deezer for every download."
-                checked={bestCoverArtEnabled.value}
-                onChange={bestCoverArtEnabled.set}
-              />
+            <Toggle
+              label="Upgrade Cover Art From Other Services"
+              description="Checks Deezer's public catalogue for a bigger picture of the same album, matched by its release barcode. The saved cover art file is only replaced when Deezer's picture has more pixels than what is already there -- a same-size or smaller picture is left alone, and only pixel count is compared, never which picture looks nicer. The picture already embedded inside each track file is not touched. Off by default because it sends the album's barcode to Deezer for every download."
+              checked={bestCoverArtEnabled.value}
+              onChange={bestCoverArtEnabled.set}
+            />
 
-              {/* #533 / #569: embed MV cover sidecar into MP4 + delete. */}
-              <Toggle
-                label="Embed Music Video Cover Thumbnail"
-                description="Embed the music-video cover thumbnail into the MP4 as a poster atom and delete the sidecar .jpg/.png. Most modern players (VLC, mpv, QuickTime, Plex, Jellyfin) read the embedded poster directly, so the sidecar just clutters the library. When the embed fails for any reason, the sidecar is kept on disk and a warning is logged."
-                checked={mvEmbedCoverSidecar.value}
-                onChange={mvEmbedCoverSidecar.set}
-              />
-            </>
-          )}
+            {/* #533 / #569: embed MV cover sidecar into MP4 + delete. */}
+            <Toggle
+              label="Embed Music Video Cover Thumbnail"
+              description="Embed the music-video cover thumbnail into the MP4 as a poster atom and delete the sidecar .jpg/.png. Most modern players (VLC, mpv, QuickTime, Plex, Jellyfin) read the embedded poster directly, so the sidecar just clutters the library. When the embed fails for any reason, the sidecar is kept on disk and a warning is logged."
+              checked={mvEmbedCoverSidecar.value}
+              onChange={mvEmbedCoverSidecar.set}
+            />
+          </>
+        )}
       </SettingsSection>
 
       {/* ============================================================ */}
       {/* Section 2: Animated Artwork (Apple MusicKit API) */}
       {/* ============================================================ */}
       <SettingsSection title="Animated Artwork">
-          {/* Master toggle for animated artwork downloading */}
-          <Toggle
-            label="Download Animated Cover Art"
-            description="Download animated (motion) cover art from Apple Music when available. Saves FrontCover.mp4 and FrontCoverPortrait.mp4 alongside album files."
-            checked={animatedEnabled.value}
-            onChange={animatedEnabled.set}
-            helpTopic="settings"
+        {/* Master toggle for animated artwork downloading */}
+        <Toggle
+          label="Download Animated Cover Art"
+          description="Download animated (motion) cover art from Apple Music when available. Saves FrontCover.mp4 and FrontCoverPortrait.mp4 alongside album files."
+          checked={animatedEnabled.value}
+          onChange={animatedEnabled.set}
+          helpTopic="settings"
+        />
+
+        {/* Animated artwork resolution ceiling (#972, only shown when enabled) */}
+        {animatedEnabled.value && (
+          <Select
+            label="Animated Artwork Resolution"
+            description="Resolution ceiling for animated (motion) artwork downloads. Lower resolutions produce much smaller files with little visible difference at typical artwork display sizes."
+            options={ANIMATED_ARTWORK_RESOLUTION_OPTIONS}
+            value={animatedResolution.value}
+            onChange={(e) => animatedResolution.set(e.target.value as AnimatedArtworkResolution)}
           />
+        )}
 
-          {/* Animated artwork resolution ceiling (#972, only shown when enabled) */}
-          {animatedEnabled.value && (
-            <Select
-              label="Animated Artwork Resolution"
-              description="Resolution ceiling for animated (motion) artwork downloads. Lower resolutions produce much smaller files with little visible difference at typical artwork display sizes."
-              options={ANIMATED_ARTWORK_RESOLUTION_OPTIONS}
-              value={animatedResolution.value}
-              onChange={(e) => animatedResolution.set(e.target.value as AnimatedArtworkResolution)}
-            />
-          )}
+        {/* Hide animated artwork files toggle (only shown when enabled) */}
+        {animatedEnabled.value && (
+          <Toggle
+            label="Hide Animated Artwork Files"
+            description="Set the OS hidden attribute on FrontCover.mp4 and FrontCoverPortrait.mp4 to keep album folders clean. On macOS/Windows, files keep their original names. On Linux, files are renamed with a dot prefix."
+            checked={hideAnimated.value}
+            onChange={hideAnimated.set}
+          />
+        )}
 
-          {/* Hide animated artwork files toggle (only shown when enabled) */}
-          {animatedEnabled.value && (
-            <Toggle
-              label="Hide Animated Artwork Files"
-              description="Set the OS hidden attribute on FrontCover.mp4 and FrontCoverPortrait.mp4 to keep album folders clean. On macOS/Windows, files keep their original names. On Linux, files are renamed with a dot prefix."
-              checked={hideAnimated.value}
-              onChange={hideAnimated.set}
-            />
-          )}
+        {/* Artist promo video toggle (only shown when animated artwork is enabled) */}
+        {animatedEnabled.value && (
+          <Toggle
+            label="Download Artist Promo Video"
+            description="Download the animated background video from the artist's Apple Music page and save it as ArtistSpotlightCover.mp4 in the artist folder. Not all artists have a promo video. Skipped automatically if already downloaded."
+            checked={artistPromo.value}
+            onChange={artistPromo.set}
+          />
+        )}
 
-          {/* Artist promo video toggle (only shown when animated artwork is enabled) */}
-          {animatedEnabled.value && (
-            <Toggle
-              label="Download Artist Promo Video"
-              description="Download the animated background video from the artist's Apple Music page and save it as ArtistCover.mp4 in the artist folder. Not all artists have a promo video. Skipped automatically if already downloaded."
-              checked={artistPromo.value}
-              onChange={artistPromo.set}
-            />
-          )}
-
-          {/* MusicKit credentials note (credentials are in Settings > Advanced) */}
-          {animatedEnabled.value && (
-            <p className="text-xs text-content-secondary">
-              Requires MusicKit credentials (Apple Developer account). Configure them in
-              Settings &gt; Advanced &gt; API Credentials. See the{' '}
-              <button
-                type="button"
-                className="text-accent underline cursor-pointer hover:opacity-80"
-                onClick={() => navigateToHelp('animated-artwork')}
-              >
-                Animated Artwork help page
-              </button>{' '}
-              for setup instructions.
-            </p>
-          )}
+        {/* MusicKit credentials note (credentials are in Settings > Advanced) */}
+        {animatedEnabled.value && (
+          <p className="text-xs text-content-secondary">
+            Requires MusicKit credentials (Apple Developer account). Configure them in Settings &gt;
+            Advanced &gt; API Credentials. See the{' '}
+            <TextButton onClick={() => navigateToHelp('animated-artwork')}>
+              Animated Artwork help page
+            </TextButton>{' '}
+            for setup instructions.
+          </p>
+        )}
       </SettingsSection>
     </div>
   );

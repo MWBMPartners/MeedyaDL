@@ -61,7 +61,7 @@
 // ## References
 //
 // - serde_json for JSON serialization: https://docs.rs/serde_json/latest/serde_json/
-// - configparser crate (GAMDL uses Python's configparser): https://docs.rs/configparser/latest/configparser/
+// - Python's configparser, which GAMDL 3 uses to read config.ini: https://docs.python.org/3/library/configparser.html
 // - GAMDL config file format: https://github.com/glomatico/gamdl#configuration
 // - dirs crate for platform-standard directories: https://docs.rs/dirs/latest/dirs/
 
@@ -316,6 +316,38 @@ fn migrate_settings(settings: &mut AppSettings) {
     // equivalent. This only stamps the version.
     if settings.settings_version == 10 {
         settings.settings_version = 11;
+    }
+
+    // v11 -> v12: the notifications rework (#1431) adds
+    // `native_notification_when`, `native_notification_scope` and four
+    // per-event switches (`notify_download_complete`,
+    // `notify_download_failed`, `notify_queue_finished`,
+    // `notify_clipboard_link`).
+    //
+    // Nothing to convert. Every new field takes its default through
+    // `#[serde(default)]` when an older file is read, and those defaults
+    // are the maintainer's chosen starting point (system notifications
+    // only for important messages, only while MeedyaDL is not in front,
+    // every per-event switch on). The three existing notification fields
+    // (`desktop_notifications`, `notification_style`,
+    // `notification_auto_dismiss_seconds`) keep whatever the person had.
+    // This only stamps the version.
+    if settings.settings_version == 11 {
+        settings.settings_version = 12;
+    }
+
+    // v12 -> v13: the wrapper decryption address becomes AUTOMATIC when
+    // empty (#1433): it is then worked out from the wrapper address in use
+    // plus the standard port. The old default `127.0.0.1:10020` was what
+    // every untouched install stored; for a local wrapper the automatic
+    // value is the very same address, so clearing it changes nothing for
+    // them, and for a remote wrapper it now follows the wrapper address.
+    // Any other value was typed by the person and is kept.
+    if settings.settings_version == 12 {
+        if settings.wrapper_decrypt_ip.trim() == "127.0.0.1:10020" {
+            settings.wrapper_decrypt_ip = String::new();
+        }
+        settings.settings_version = 13;
     }
 
     if old_version != settings.settings_version {
@@ -623,7 +655,11 @@ pub fn load_settings_at_startup(app: &AppHandle) -> Result<AppSettings, String> 
     if previous_version != current_version {
         log::info!(
             "Version changed: {} → {}",
-            if previous_version.is_empty() { "(first run)" } else { &previous_version },
+            if previous_version.is_empty() {
+                "(first run)"
+            } else {
+                &previous_version
+            },
             current_version
         );
         settings.last_seen_version = current_version.to_string();
@@ -922,6 +958,11 @@ fn one_off_in_memory(app: &AppHandle) -> Option<Option<AfterQueueAction>> {
 /// the file as it is at this moment; `in_memory` is the running app's
 /// settings cache, which may know something the file does not (see
 /// `commands::settings::keep_fields_the_settings_screen_cannot_change`).
+/// `keep` may also REFUSE the save by returning `Err`; nothing is written
+/// then, and the error is returned. It exists so a decision that depends
+/// on what is on disk — whether a metadata language that is not a language
+/// tag was already there (#1246) — is made against the file as it is
+/// inside this lock, not a copy read before it.
 ///
 /// # Why the whole sequence is under one lock
 ///
@@ -942,7 +983,7 @@ pub fn save_settings_from_screen<F>(
     keep: F,
 ) -> Result<AppSettings, String>
 where
-    F: FnOnce(&mut AppSettings, Option<&AppSettings>, Option<&AppSettings>),
+    F: FnOnce(&mut AppSettings, Option<&AppSettings>, Option<&AppSettings>) -> Result<(), String>,
 {
     use tauri::Manager as _;
     let _guard = SETTINGS_WRITE_LOCK
@@ -953,7 +994,7 @@ where
     let in_memory = app
         .try_state::<crate::services::settings_cache::SettingsCache>()
         .and_then(|cache| cache.peek());
-    keep(&mut incoming, on_disk.as_ref(), in_memory.as_ref());
+    keep(&mut incoming, on_disk.as_ref(), in_memory.as_ref())?;
 
     save_settings_while_locked(app, &incoming)?;
     if let Some(cache) = app.try_state::<crate::services::settings_cache::SettingsCache>() {
@@ -1210,8 +1251,20 @@ pub fn sync_gamdl_config(app: &AppHandle, settings: &AppSettings) -> Result<(), 
 /// Strips newline and carriage return characters that could inject
 /// additional INI keys when parsed by Python's configparser.
 /// See: https://github.com/MWBMPartners/MeedyaDL/issues/226
+///
+/// Also strips a NUL byte (`\0`), which cannot inject a new INI key the
+/// way a line break can, but has no legitimate place in a text
+/// configuration file either — some downstream C-based readers treat it
+/// as an end-of-string marker, silently truncating everything after it,
+/// which is a subtler failure than an obviously-broken file. A value
+/// already on disk that is kept exactly as it is (policy COMPAT-030 —
+/// see `language_arg_for_gamdl` and its callers) can still hold a NUL
+/// from a hand-edited or corrupted settings file, since nothing on the
+/// LOAD path rejects one; this is the one place before the INI file
+/// itself that stops it going any further (independent review, round 4
+/// of #1244).
 fn sanitize_ini_value(value: &str) -> String {
-    value.replace(['\n', '\r'], "")
+    value.replace(['\n', '\r', '\0'], "")
 }
 
 /// Substitute MeedyaDL-introduced template variables before handing the
@@ -1269,14 +1322,57 @@ pub fn validate_path_safe(path: &str) -> Result<&str, String> {
     let p = std::path::Path::new(path);
     for component in p.components() {
         if matches!(component, Component::ParentDir) {
-            return Err(format!(
-                "Path contains directory traversal (..): {path}"
-            ));
+            return Err(format!("Path contains directory traversal (..): {path}"));
         }
     }
     Ok(path)
 }
 
+/// The ONE plain-English refusal for a download folder MeedyaDL will not
+/// use because it contains a ".." step (#1419).
+///
+/// Returns `None` when the folder is blank (a blank or spaces-only setting
+/// means "use the usual Music folder", and is never reported as containing
+/// "..") or is safe. Every place that decides whether a folder may be used
+/// (GAMDL 3 and 4 downloads, the config.ini writer, the before-download
+/// check) goes through this so the wording lives here and nowhere else.
+pub fn download_folder_refusal(folder: &str) -> Option<String> {
+    let trimmed = folder.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    // Checked with the outer spaces removed, as the GAMDL 4 path and the
+    // INI reader (which drops spaces at the ends of a value) both see it;
+    // the message still names the folder exactly as typed.
+    validate_path_safe(trimmed).err().map(|_| {
+        format!(
+            "The download folder \"{folder}\" {}. \
+             Choose a folder in Settings, then try again.",
+            crate::utils::process::DOWNLOAD_FOLDER_REFUSAL_MARK
+        )
+    })
+}
+
+/// The folder as long as it is non-blank and not refused; otherwise `None`.
+/// Used where a folder is handed on to a GAMDL run (extra-format runs) so a
+/// refused folder is never passed along (#1419).
+pub fn usable_download_folder(folder: &str) -> Option<String> {
+    if folder.trim().is_empty() || download_folder_refusal(folder).is_some() {
+        None
+    } else {
+        Some(folder.to_string())
+    }
+}
+
+/// Builds the full text of GAMDL's `config.ini` from the app settings.
+///
+/// Only the settings GAMDL understands are written; everything else stays in
+/// `settings.json`. String values are cleaned (`sanitize_ini_value`) so a
+/// crafted setting cannot add extra INI lines, and some keys are written only
+/// when the detected GAMDL version supports them. Returns the file contents;
+/// the caller writes them to disk.
+///
+/// See: https://github.com/glomatico/gamdl
 fn settings_to_ini(settings: &AppSettings) -> String {
     let mut lines = Vec::new();
 
@@ -1426,11 +1522,22 @@ fn ini_cover_section(lines: &mut Vec<String>, settings: &AppSettings) {
     lines.push(format!("cover_size = {}", settings.cover_size));
 }
 
-/// Appends output/path INI key-value pairs (`output_path`, `temp_path`, overwrite, truncate).
+/// Appends output/path INI key-value pairs (`output_path`, `temp_path`, truncate).
+/// `overwrite` is never written: it is a command-line-only option (see below).
 fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Output directory for downloaded files. Only written if non-empty.
+    // A folder MeedyaDL refuses (a ".." step) is left out: GAMDL 3 reads
+    // this file as its defaults, so writing it would use the folder anyway
+    // (#1419). The download itself refuses it by name.
     if !settings.output_path.is_empty() {
-        lines.push(format!("output_path = {}", sanitize_ini_value(&settings.output_path)));
+        if let Some(why) = download_folder_refusal(&settings.output_path) {
+            log::warn!("Download folder left out of GAMDL's config.ini: {why}");
+        } else {
+            lines.push(format!(
+                "output_path = {}",
+                sanitize_ini_value(&settings.output_path)
+            ));
+        }
     }
     // Temp directory for intermediate files. If the user left this empty,
     // resolve to a "MeedyaDL" subdirectory within the OS temp directory so
@@ -1441,12 +1548,19 @@ fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
             sanitize_ini_value(&std::env::temp_dir().join("MeedyaDL").to_string_lossy())
         ));
     } else {
-        lines.push(format!("temp_path = {}", sanitize_ini_value(&settings.temp_path)));
+        lines.push(format!(
+            "temp_path = {}",
+            sanitize_ini_value(&settings.temp_path)
+        ));
     }
-    // Boolean flag: when true, existing files are overwritten without prompting.
-    if settings.overwrite {
-        lines.push("overwrite = true".to_string());
-    }
+    // `overwrite` is deliberately NOT written here (16 Nov 2026). GAMDL 3
+    // reads this file as defaults and has no `--no-overwrite` to cancel
+    // one, so `overwrite = true` here made EVERY run overwrite — including
+    // the extra-format copies, the gap-fill and the Library re-download,
+    // which must never replace a file. The command line is the only place
+    // it is said: runs that should overwrite get `--overwrite` from their
+    // own options (`GamdlOptions.overwrite`, set from the setting by
+    // `merge_options` and by the other runs that honour it).
     // Truncate file/folder names to this many characters (avoids filesystem limits).
     if let Some(truncate) = settings.truncate {
         lines.push(format!("truncate = {truncate}"));
@@ -1457,7 +1571,36 @@ fn ini_output_section(lines: &mut Vec<String>, settings: &AppSettings) {
 fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     // Language code for metadata (e.g., "en-US", "ja-JP").
     // Affects how track/album names are retrieved from Apple Music.
-    lines.push(format!("language = {}", settings.language));
+    //
+    // Passed through `language_arg_for_gamdl` and then `sanitize_ini_value`
+    // like every other text value here (independent review of #1246,
+    // extended round 4 of #1244). A NEW value can no longer carry a line
+    // break — save and import only accept a real language tag — but a
+    // value already in an existing settings file is deliberately kept
+    // exactly as it is (policy COMPAT-030). Only the INI line is cleaned;
+    // the stored setting is left as it is.
+    //
+    // `language_arg_for_gamdl` runs FIRST so this line always carries the
+    // standard form of the tag, whatever form the stored value happens to
+    // be in (mixed case, a stray leading space) — the same value GAMDL's
+    // own `--language` CLI flag is given. Before this, the INI line sent
+    // the setting exactly as stored, unstandardised, so the GAMDL
+    // lyrics-fallback retry path — which reads config.ini rather than
+    // being passed `--language` directly — could receive a different
+    // form of the same language than the primary run did (independent
+    // review, round 4 of #1244). A value that cannot be read as a tag at
+    // all — old data COMPAT-030 keeps as it is — passes through
+    // largely unchanged: `language_arg_for_gamdl` itself now removes a NUL,
+    // carriage return or line feed from that path too (round 5 of #1244),
+    // so `sanitize_ini_value` is normally a no-op here, kept so this line
+    // is cleaned like every other and the command line and this INI line
+    // can never disagree.
+    lines.push(format!(
+        "language = {}",
+        sanitize_ini_value(&crate::utils::language::language_arg_for_gamdl(
+            &settings.language
+        ))
+    ));
 
     // Storefront — historically MeedyaDL emitted `storefront = us` (or
     // similar) into config.ini. Git archaeology against GAMDL upstream
@@ -1486,20 +1629,28 @@ fn ini_metadata_section(lines: &mut Vec<String>, settings: &AppSettings) {
     if !storefront_is_dead_ini_data {
         // Logic for the legacy path:
         //   - If the user has set an explicit storefront → use it as-is
-        //   - If empty (auto-detect) → derive from language region code
-        //     (e.g., "en-GB" → "gb", "ja-JP" → "jp", fallback "us")
+        //   - If empty (auto-detect) → the two-letter country (region)
+        //     part of the language tag (e.g., "en-GB" → "gb",
+        //     "zh-Hant-TW" → "tw"), fallback "us"
+        //
+        // The country is read from the PARSED tag (#1248, shared
+        // language policy LANG-001). This used to take the last
+        // hyphen-separated piece if it had two characters, so a bare
+        // "en" became the storefront "en" — not a country at all.
+        // No region, a multi-country area such as "419", or a value
+        // that is not a tag now gives the existing "us" fallback, which
+        // is a product rule about which storefront to try, not a guess
+        // at the person's language.
         let storefront = if !settings.storefront.is_empty() {
             settings.storefront.to_ascii_lowercase()
         } else {
-            settings
-                .language
-                .split('-')
-                .next_back()
-                .filter(|s| s.len() == 2)
-                .map(|s| s.to_ascii_lowercase())
+            crate::utils::language::storefront_from_language(&settings.language)
                 .unwrap_or_else(|| "us".to_string())
         };
-        lines.push(format!("storefront = {storefront}"));
+        // Same guard as the language line above: an explicit storefront
+        // comes from the settings file as it is, so a line break in an old
+        // value must not become a second INI line.
+        lines.push(format!("storefront = {}", sanitize_ini_value(&storefront)));
     }
     // Artist auto-selection mode (GAMDL >= 2.9.1). Controls which content
     // type is automatically downloaded when the user provides an artist URL.
@@ -1670,9 +1821,22 @@ fn ini_advanced_section(lines: &mut Vec<String>, settings: &AppSettings) {
             // colon is skipped cleanly rather than writing a partial
             // key pair.
             if supports(GamdlFeature::WrapperDecryptHostPort) {
-                if let Some((host, port)) = settings.wrapper_decrypt_ip.rsplit_once(':') {
-                    lines.push(format!("wrapper_decrypt_host = {}", sanitize_ini_value(host)));
-                    lines.push(format!("wrapper_decrypt_port = {}", sanitize_ini_value(port)));
+                if let Some((host, port)) = crate::utils::wrapper_address::split_decrypt_address(
+                    &crate::utils::wrapper_address::effective_decrypt_address(
+                        &settings.wrapper_decrypt_ip,
+                        &settings.wrapper_url,
+                        &settings.wrapper_account_url,
+                        true,
+                    ),
+                ) {
+                    lines.push(format!(
+                        "wrapper_decrypt_host = {}",
+                        sanitize_ini_value(&host)
+                    ));
+                    lines.push(format!(
+                        "wrapper_decrypt_port = {}",
+                        sanitize_ini_value(&port)
+                    ));
                 }
             }
         } else {
@@ -1691,7 +1855,12 @@ fn ini_advanced_section(lines: &mut Vec<String>, settings: &AppSettings) {
             // back to its compile-time 127.0.0.1:10020 default).
             lines.push(format!(
                 "wrapper_decrypt_ip = {}",
-                sanitize_ini_value(&settings.wrapper_decrypt_ip)
+                sanitize_ini_value(&crate::utils::wrapper_address::effective_decrypt_address(
+                    &settings.wrapper_decrypt_ip,
+                    &settings.wrapper_url,
+                    &settings.wrapper_account_url,
+                    false,
+                ))
             ));
             // `wrapper_m3u8_ip` was added in GAMDL v3.1. Gating the write
             // keeps the emitted INI self-consistent with the detected
@@ -1867,12 +2036,18 @@ mod tests {
         // an enum. This is what "exercising the writer" has to mean now
         // that the codec chain itself can't carry hostile text.
         let hostile = "h264\nffmpeg_path = /tmp/attacker";
-        let line = format!("music_video_codec_priority = {}", sanitize_ini_value(hostile));
+        let line = format!(
+            "music_video_codec_priority = {}",
+            sanitize_ini_value(hostile)
+        );
 
         // What matters is whether a NEW SETTING was created, and a
         // setting is only a setting when it starts its own line.
         assert!(
-            !line.lines().skip(1).any(|l| l.trim_start().starts_with("ffmpeg_path")),
+            !line
+                .lines()
+                .skip(1)
+                .any(|l| l.trim_start().starts_with("ffmpeg_path")),
             "a line break in the codec priority value started a new setting:\n{line}"
         );
     }
@@ -1885,7 +2060,8 @@ mod tests {
         };
         let ini = super::settings_to_ini(&settings);
         assert!(
-            !ini.lines().any(|l| l.trim_start().starts_with("ffmpeg_path")),
+            !ini.lines()
+                .any(|l| l.trim_start().starts_with("ffmpeg_path")),
             "a carriage return in the remux format started a new setting:\n{ini}"
         );
     }
@@ -1902,7 +2078,10 @@ mod tests {
             ..Default::default()
         };
         let ini = super::settings_to_ini(&settings);
-        assert!(ini.contains("music_video_codec_priority = h265,h264"), "{ini}");
+        assert!(
+            ini.contains("music_video_codec_priority = h265,h264"),
+            "{ini}"
+        );
         assert!(ini.contains("music_video_remux_format = mp4"), "{ini}");
     }
 
@@ -1988,7 +2167,10 @@ mod tests {
             );
             // No spaces: they cause trouble for scripts and older tools people
             // point at their library. Part of the reason this shape was chosen.
-            assert!(!expected.contains(' '), "{expected} must not contain a space");
+            assert!(
+                !expected.contains(' '),
+                "{expected} must not contain a space"
+            );
         }
     }
 
@@ -2208,6 +2390,30 @@ mod tests {
     }
 
     #[test]
+    fn ini_leaves_out_a_folder_with_a_parent_step() {
+        // GAMDL 3 reads output_path from this file, so it must not be here (#1419).
+        let mut settings = default_settings();
+        settings.output_path = "/tmp/a/../music".to_string();
+        assert!(!settings_to_ini(&settings).contains("output_path"));
+    }
+
+    #[test]
+    fn download_folder_refusal_names_the_folder_and_ignores_blanks() {
+        let why = download_folder_refusal("/a/../b").unwrap();
+        assert!(why.contains("/a/../b") && why.contains("\"..\""), "{why}");
+        assert!(download_folder_refusal("   ").is_none());
+        assert!(download_folder_refusal("").is_none());
+        assert!(download_folder_refusal("/fine/folder").is_none());
+        // Outer spaces are ignored for the check (as GAMDL 4 and the INI
+        // reader see it) but the message names the folder as typed.
+        let spaced = download_folder_refusal(" ../music").unwrap();
+        assert!(spaced.contains("\" ../music\""), "{spaced}");
+        assert_eq!(usable_download_folder("/a/../b"), None);
+        assert_eq!(usable_download_folder("  "), None);
+        assert_eq!(usable_download_folder("/ok").as_deref(), Some("/ok"));
+    }
+
+    #[test]
     fn ini_includes_output_path_when_set() {
         let mut settings = default_settings();
         settings.output_path = "/tmp/music".to_string();
@@ -2227,11 +2433,13 @@ mod tests {
     }
 
     #[test]
-    fn ini_includes_overwrite_when_true() {
+    fn ini_never_contains_overwrite() {
+        // GAMDL 3 cannot cancel an INI `overwrite = true` from the command
+        // line, so it is said on the command line only.
         let mut settings = default_settings();
         settings.overwrite = true;
         let ini = settings_to_ini(&settings);
-        assert!(ini.contains("overwrite = true"));
+        assert!(!ini.contains("overwrite"));
     }
 
     // ----------------------------------------------------------
@@ -2347,6 +2555,65 @@ mod tests {
     }
 
     #[test]
+    fn the_ini_language_line_carries_the_standard_form_not_the_stored_form() {
+        // "EN-us" is a well-formed but non-standard-cased tag -- exactly
+        // the shape a value written before #1246 could still have on
+        // disk (policy COMPAT-030 keeps it, never rewrites it). The INI
+        // line now carries the clean `en-US` GAMDL's own `--language`
+        // flag would be given, so the lyrics-fallback run -- which reads
+        // config.ini rather than being passed `--language` directly --
+        // sees the same language the primary run did (independent
+        // review, round 4 of #1244).
+        let mut settings = default_settings();
+        settings.language = "EN-us".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("language = en-US"), "{ini}");
+        // Only what is WRITTEN is standardised -- the stored setting
+        // itself is left exactly as it was (COMPAT-030).
+        assert_eq!(settings.language, "EN-us");
+
+        // A value that cannot be read as a tag at all carries a NUL byte
+        // here -- something only a hand-edited or corrupted settings
+        // file could hold, since both save and import refuse it
+        // (#1246). It is not a tag, so it is sent to the INI file
+        // unchanged (same COMPAT-030 rule as any other unreadable
+        // value) -- EXCEPT for the NUL itself, which `sanitize_ini_value`
+        // strips along with `\n`/`\r`, so it never reaches the file no
+        // matter which field carries it.
+        let mut settings = default_settings();
+        settings.language = "en-US\0evil".to_string();
+        let ini = settings_to_ini(&settings);
+        assert!(!ini.contains('\0'), "{ini:?}");
+        assert!(ini.contains("language = en-USevil"), "{ini}");
+    }
+
+    #[test]
+    fn an_old_language_value_with_a_line_break_cannot_add_an_ini_line() {
+        // Independent review of #1246: a value already on disk is kept as
+        // it is (COMPAT-030), so the INI writer must not trust it. The
+        // storefront line (legacy GAMDL only) is checked the same way.
+        let _guard = VersionGuard::new(None);
+        let mut settings = default_settings();
+        settings.language = "en-US\nffmpeg_path = /tmp/evil".to_string();
+        settings.storefront = "gb\r\nmp4box_path = /tmp/evil".to_string();
+        let ini = settings_to_ini(&settings);
+        let injected: Vec<&str> = ini
+            .lines()
+            .filter(|l| l.starts_with("ffmpeg_path") || l.starts_with("mp4box_path"))
+            .collect();
+        assert!(
+            injected.is_empty(),
+            "injected INI line(s) {injected:?} in:\n{ini}"
+        );
+        let language_line = "language = en-USffmpeg_path = /tmp/evil";
+        assert!(ini.lines().any(|l| l == language_line), "{ini}");
+        let storefront_line = "storefront = gbmp4box_path = /tmp/evil";
+        assert!(ini.lines().any(|l| l == storefront_line), "{ini}");
+        // Only the INI line is cleaned; the setting itself is untouched.
+        assert_eq!(settings.language, "en-US\nffmpeg_path = /tmp/evil");
+    }
+
+    #[test]
     fn ini_includes_storefront_auto_from_language_on_unknown_gamdl() {
         // #881: the auto-derive-from-language path (empty storefront +
         // language like "en-US" → "us") still runs on the legacy /
@@ -2360,6 +2627,29 @@ mod tests {
             ini.contains("storefront = us"),
             "unknown GAMDL: should auto-detect 'us' from 'en-US': {ini}"
         );
+    }
+
+    #[test]
+    fn ini_auto_storefront_is_the_country_part_of_the_language_tag() {
+        // #1248: the auto-derived storefront is the parsed tag's two-letter
+        // region. Before, a bare "en" gave the storefront "en" (not a
+        // country) and "es-419" gave "us" only by luck.
+        let _guard = VersionGuard::new(None);
+        for (language, expected) in [
+            ("zh-Hant-TW", "storefront = tw"),
+            ("en-GB", "storefront = gb"),
+            ("en", "storefront = us"),
+            ("es-419", "storefront = us"),
+            ("not a tag", "storefront = us"),
+        ] {
+            let mut settings = default_settings();
+            settings.language = language.to_string();
+            let ini = settings_to_ini(&settings);
+            assert!(
+                ini.contains(expected),
+                "{language}: expected {expected:?} in:\n{ini}"
+            );
+        }
     }
 
     #[test]
@@ -2477,7 +2767,7 @@ mod tests {
         let ini = settings_to_ini(&settings);
         // All booleans must have " = true"
         assert!(ini.contains("save_cover = true"));
-        assert!(ini.contains("overwrite = true"));
+        assert!(!ini.contains("overwrite"));
         assert!(ini.contains("no_synced_lyrics = true"));
         assert!(ini.contains("use_wrapper = true"));
         // No bare keys (lines that are just the key with no " = ")
@@ -2757,6 +3047,153 @@ mod tests {
         assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
     }
 
+    // ----------------------------------------------------------
+    // migrate_settings: v12 → v13 automatic decryption address (#1433)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migrate_v12_to_v13_makes_the_old_default_decrypt_address_automatic() {
+        let mut s = AppSettings {
+            settings_version: 12,
+            wrapper_decrypt_ip: "127.0.0.1:10020".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(s.wrapper_decrypt_ip, "");
+    }
+
+    #[test]
+    fn migrate_v12_to_v13_keeps_a_typed_decrypt_address() {
+        let mut s = AppSettings {
+            settings_version: 12,
+            wrapper_decrypt_ip: "192.168.1.50:10020".to_string(),
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.wrapper_decrypt_ip, "192.168.1.50:10020");
+    }
+
+    #[test]
+    fn automatic_decrypt_address_follows_the_wrapper_url_in_the_ini() {
+        let _guard = VersionGuard::new(Some("3.8.2"));
+        let mut settings = default_settings();
+        settings.use_wrapper = true;
+        settings.wrapper_url = "http://[::1]:80".to_string();
+        settings.wrapper_decrypt_ip = String::new();
+        let ini = settings_to_ini(&settings);
+        assert!(ini.contains("wrapper_decrypt_host = ::1"));
+        assert!(ini.contains("wrapper_decrypt_port = 10020"));
+    }
+
+    // ----------------------------------------------------------
+    // migrate_settings: v11 → v12 notifications rework (#1431)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn migrate_v11_to_v12_stamps_version_and_keeps_old_notification_fields() {
+        use crate::models::settings::{NativeNotificationScope, NativeNotificationWhen};
+        let mut s = AppSettings {
+            settings_version: 11,
+            desktop_notifications: false,
+            notification_style: "native_only".to_string(),
+            notification_auto_dismiss_seconds: 30,
+            ..default_settings()
+        };
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        // The person's existing choices are untouched.
+        assert!(!s.desktop_notifications);
+        assert_eq!(s.notification_style, "native_only");
+        assert_eq!(s.notification_auto_dismiss_seconds, 30);
+        // The new fields hold their defaults.
+        assert_eq!(
+            s.native_notification_when,
+            NativeNotificationWhen::BackgroundOrOtherScreen
+        );
+        assert_eq!(
+            s.native_notification_scope,
+            NativeNotificationScope::Important
+        );
+        assert!(s.notify_download_complete);
+        assert!(s.notify_download_failed);
+        assert!(s.notify_queue_finished);
+        assert!(s.notify_clipboard_link);
+    }
+
+    #[test]
+    fn a_v11_settings_file_reads_the_new_notification_fields_as_their_defaults() {
+        // An upgrading person's file has none of the new keys: serde must
+        // fill them in, not fail the whole file.
+        use crate::models::settings::{NativeNotificationScope, NativeNotificationWhen};
+        let mut value = serde_json::to_value(default_settings()).unwrap();
+        let obj = value.as_object_mut().unwrap();
+        for key in [
+            "native_notification_when",
+            "native_notification_scope",
+            "notify_download_complete",
+            "notify_download_failed",
+            "notify_queue_finished",
+            "notify_clipboard_link",
+        ] {
+            assert!(
+                obj.remove(key).is_some(),
+                "{key} should be a settings field"
+            );
+        }
+        obj.insert("settings_version".into(), serde_json::json!(11));
+        let mut s: AppSettings = serde_json::from_value(value).unwrap();
+        migrate_settings(&mut s);
+        assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
+        assert_eq!(
+            s.native_notification_when,
+            NativeNotificationWhen::BackgroundOrOtherScreen
+        );
+        assert_eq!(
+            s.native_notification_scope,
+            NativeNotificationScope::Important
+        );
+        assert!(s.notify_download_complete && s.notify_download_failed);
+        assert!(s.notify_queue_finished && s.notify_clipboard_link);
+    }
+
+    #[test]
+    fn an_unknown_notification_setting_word_falls_back_without_losing_the_file() {
+        // A hand-edited typo, or a value from a newer MeedyaDL, must reset
+        // only that one setting -- not make the whole file unreadable.
+        use crate::models::settings::{NativeNotificationScope, NativeNotificationWhen};
+        let mut value = serde_json::to_value(AppSettings {
+            output_path: "/kept/as/it/was".to_string(),
+            ..default_settings()
+        })
+        .unwrap();
+        let obj = value.as_object_mut().unwrap();
+        obj.insert(
+            "native_notification_when".into(),
+            serde_json::json!("sometimes"),
+        );
+        obj.insert("native_notification_scope".into(), serde_json::json!(42));
+        let s: AppSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(s.output_path, "/kept/as/it/was");
+        assert_eq!(
+            s.native_notification_when,
+            NativeNotificationWhen::BackgroundOrOtherScreen
+        );
+        assert_eq!(
+            s.native_notification_scope,
+            NativeNotificationScope::Important
+        );
+
+        // A known word is still read as itself.
+        let mut value = serde_json::to_value(default_settings()).unwrap();
+        value.as_object_mut().unwrap().insert(
+            "native_notification_when".into(),
+            serde_json::json!("always"),
+        );
+        let s: AppSettings = serde_json::from_value(value).unwrap();
+        assert_eq!(s.native_notification_when, NativeNotificationWhen::Always);
+    }
+
     #[test]
     fn migration_v3_to_v4_runs_from_v0_with_every_legacy_default() {
         // End-to-end: a v0 settings file with the v0 / v2 broken defaults
@@ -2803,7 +3240,10 @@ mod tests {
         };
         migrate_settings(&mut s);
         assert_eq!(s.settings_version, CURRENT_SETTINGS_VERSION);
-        assert_eq!(s.compilation_folder_template, "Compilations/{album} ({album_id})");
+        assert_eq!(
+            s.compilation_folder_template,
+            "Compilations/{album} ({album_id})"
+        );
     }
 
     #[test]
@@ -2881,7 +3321,10 @@ mod tests {
             serde_json::from_str(&std::fs::read_to_string(&path).expect("reload"))
                 .expect("parse reloaded");
 
-        assert!(reloaded.sidebar_collapsed, "the one field we changed must be changed");
+        assert!(
+            reloaded.sidebar_collapsed,
+            "the one field we changed must be changed"
+        );
         assert_eq!(
             reloaded.output_path, before.output_path,
             "the output folder must be exactly as it was"
@@ -2956,7 +3399,10 @@ mod tests {
 
         write_settings_to_path(&path, &distinctive_settings()).expect("write");
 
-        let mode = std::fs::metadata(&path).expect("metadata").permissions().mode();
+        let mode = std::fs::metadata(&path)
+            .expect("metadata")
+            .permissions()
+            .mode();
         assert_eq!(
             mode & 0o777,
             0o600,
@@ -2993,7 +3439,10 @@ mod tests {
         // Each is found by its exact name -- the second's name begins with
         // the first's, so a plain prefix search used to find the wrong one.
         for (name, plain_read) in [
-            ("pub fn update_settings_field<", "read_settings_from_disk(app)?"),
+            (
+                "pub fn update_settings_field<",
+                "read_settings_from_disk(app)?",
+            ),
             (
                 "pub fn update_settings_field_and_memory<",
                 "read_settings_from_disk(app).map(",

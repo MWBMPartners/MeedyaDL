@@ -439,7 +439,13 @@ pub(crate) async fn fetch_mirror_versions() -> Result<serde_json::Value, String>
     // Even a fresh read cannot promise the date belongs to the exact bytes
     // just downloaded: the mirror could publish between the download and
     // this read. That window is seconds wide and existed before the store.
+    /// How long one download of the mirror's `versions.json` is reused before it is
+    /// fetched again (five minutes), so several tool checks in a row make one request.
     const MIRROR_VERSIONS_REUSE_FOR: std::time::Duration = std::time::Duration::from_secs(300);
+    /// The last copy of the mirror's `versions.json` and when it was read. `None`
+    /// until the first read. A `Mutex` because several checks can run at once.
+    ///
+    /// See: https://doc.rust-lang.org/std/sync/struct.Mutex.html
     static CACHED: std::sync::Mutex<Option<(std::time::Instant, serde_json::Value)>> =
         std::sync::Mutex::new(None);
     if let Ok(guard) = CACHED.lock() {
@@ -578,7 +584,7 @@ pub(crate) fn ffmpeg_build_info_path(app: &AppHandle) -> PathBuf {
 pub(crate) async fn fetch_ffmpeg_source_build_date(
     source: &str,
     fresh: bool,
-) -> Result<chrono::DateTime<chrono::Utc>, String> {
+) -> Result<time::OffsetDateTime, String> {
     match source {
         "btbn" => fetch_btbn_ffmpeg_build_date().await,
         "evermeet" => fetch_evermeet_ffmpeg_build_date().await,
@@ -596,7 +602,7 @@ pub(crate) async fn fetch_ffmpeg_source_build_date(
 /// (2026-09-23 14:55)" reported `published_at` from the same day), so
 /// that field is a trustworthy build date even though the tag itself
 /// never changes.
-async fn fetch_btbn_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>, String> {
+async fn fetch_btbn_ffmpeg_build_date() -> Result<time::OffsetDateTime, String> {
     let client = crate::utils::http_client::build_simple(15)?;
     let response = client
         .get("https://api.github.com/repos/BtbN/FFmpeg-Builds/releases/tags/latest")
@@ -622,9 +628,9 @@ async fn fetch_btbn_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>,
         .and_then(|v| v.as_str())
         .ok_or("BtbN's release response had no published_at field")?;
 
-    chrono::DateTime::parse_from_rfc3339(published_at)
-        .map(|dt| dt.with_timezone(&chrono::Utc))
-        .map_err(|e| format!("Could not parse BtbN's published_at '{published_at}': {e}"))
+    crate::utils::time_compat::parse_rfc3339(published_at)
+        .and_then(crate::utils::time_compat::to_utc)
+        .ok_or_else(|| format!("Could not parse BtbN's published_at '{published_at}'"))
 }
 
 /// evermeet.cx doesn't publish a JSON date field for its "release" build
@@ -635,7 +641,7 @@ async fn fetch_btbn_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>,
 /// header reported the same date (18 September 2026) as the build's own
 /// RSS feed entry, so it's a trustworthy stand-in for "when was this
 /// build made" without needing to parse the feed's XML.
-async fn fetch_evermeet_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::Utc>, String> {
+async fn fetch_evermeet_ffmpeg_build_date() -> Result<time::OffsetDateTime, String> {
     // No User-Agent header here, matching every other evermeet.cx request
     // this app already makes (the actual FFmpeg download in
     // `archive::download_file()` sends none either, and evermeet.cx has
@@ -660,9 +666,9 @@ async fn fetch_evermeet_ffmpeg_build_date() -> Result<chrono::DateTime<chrono::U
         .and_then(|v| v.to_str().ok())
         .ok_or("evermeet.cx's response had no Last-Modified header")?;
 
-    chrono::DateTime::parse_from_rfc2822(header)
-        .map(|dt| dt.with_timezone(&chrono::Utc))
-        .map_err(|e| format!("Could not parse evermeet.cx's Last-Modified '{header}': {e}"))
+    crate::utils::time_compat::parse_rfc2822(header)
+        .and_then(crate::utils::time_compat::to_utc)
+        .ok_or_else(|| format!("Could not parse evermeet.cx's Last-Modified '{header}'"))
 }
 
 /// Does the mirror record a build DATE for the FFmpeg it serves to this
@@ -692,9 +698,7 @@ pub(crate) fn mirror_records_ffmpeg_build_date_for(os: &str) -> bool {
 /// `"2026-09-22T13:38:08Z"`) — the simplest of the three sources to read,
 /// since no reshaping is needed at all. On a Mac this refuses: see
 /// [`mirror_records_ffmpeg_build_date_for`].
-async fn fetch_mirror_ffmpeg_build_date(
-    fresh: bool,
-) -> Result<chrono::DateTime<chrono::Utc>, String> {
+async fn fetch_mirror_ffmpeg_build_date(fresh: bool) -> Result<time::OffsetDateTime, String> {
     if !mirror_records_ffmpeg_build_date_for(std::env::consts::OS) {
         return Err(
             "The mirror records a version number, not a build date, for its macOS FFmpeg — \
@@ -713,9 +717,9 @@ async fn fetch_mirror_ffmpeg_build_date(
         .filter(|s| !s.is_empty())
         .ok_or("The mirror's versions.json has no 'ffmpeg' entry")?;
 
-    chrono::DateTime::parse_from_rfc3339(raw)
-        .map(|dt| dt.with_timezone(&chrono::Utc))
-        .map_err(|e| format!("Could not parse the mirror's ffmpeg build date '{raw}': {e}"))
+    crate::utils::time_compat::parse_rfc3339(raw)
+        .and_then(crate::utils::time_compat::to_utc)
+        .ok_or_else(|| format!("Could not parse the mirror's ffmpeg build date '{raw}'"))
 }
 
 // Regex caches.
@@ -736,9 +740,8 @@ static SEMVER_RE: LazyLock<regex::Regex> =
 static MP4BOX_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"(?:GPAC|version)\s+(\d+\.\d+(?:\.\d+)?)").expect("static regex")
 });
-static MP4DECRYPT_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"Bento4 Version (\d+\.\d+\.\d+)").expect("static regex")
-});
+static MP4DECRYPT_RE: LazyLock<regex::Regex> =
+    LazyLock::new(|| regex::Regex::new(r"Bento4 Version (\d+\.\d+\.\d+)").expect("static regex"));
 static NM3U8DL_RE: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"v?(\d+\.\d+\.\d+)").expect("static regex"));
 static MEDIAINFO_RE: LazyLock<regex::Regex> =
@@ -930,6 +933,9 @@ pub(crate) fn is_trusted_binary(path: &Path) -> bool {
     !world_writable(&real) && real.parent().is_none_or(|parent| !world_writable(parent))
 }
 
+/// Non-Unix version of `is_trusted_binary`: there are no file permission bits to
+/// check here, so every candidate is accepted. (The Unix version rejects
+/// world-writable files and folders.)
 #[cfg(not(unix))]
 pub(crate) fn is_trusted_binary(_path: &Path) -> bool {
     true
@@ -1269,9 +1275,7 @@ async fn get_mirror_download_url(
     // mislabeled `.tar.xz` assets (e.g. BtbN's Linux FFmpeg build) and fed
     // XZ bytes into the gzip decoder.
     let format = archive::detect_archive_format_from_url(&filename).unwrap_or_else(|| {
-        log::warn!(
-            "Unrecognised archive extension on mirror asset '{filename}' — assuming tar.gz"
-        );
+        log::warn!("Unrecognised archive extension on mirror asset '{filename}' — assuming tar.gz");
         archive::ArchiveFormat::TarGz
     });
 
@@ -1747,6 +1751,11 @@ static TOOLS_BEING_INSTALLED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::
 struct ToolInstallClaim(String);
 
 impl Drop for ToolInstallClaim {
+    /// Gives up the claim: removes the tool from the busy list. Runs however the
+    /// install ends (success, error or panic), and recovers from a poisoned lock
+    /// rather than leave the tool blocked for good.
+    ///
+    /// See: https://doc.rust-lang.org/std/ops/trait.Drop.html
     fn drop(&mut self) {
         let mut busy = TOOLS_BEING_INSTALLED
             .lock()
@@ -2183,7 +2192,7 @@ pub struct ToolInfo {
 /// The first four tools are required for full functionality: `FFmpeg` for remuxing,
 /// mp4decrypt for DRM decryption, N_m3u8DL-RE for HLS/DASH streams, and
 /// `MP4Box` for MP4 muxing.
-/// This list is returned by `get_all_tools()` for the setup wizard UI.
+/// The tools offered to people are returned by `get_offered_tools()`.
 const TOOLS: &[ToolInfo] = &[
     ToolInfo {
         name: "FFmpeg",
@@ -2219,6 +2228,8 @@ const TOOLS: &[ToolInfo] = &[
     // upload (M11, #859). `required: false` keeps the setup wizard non-blocking
     // when rclone is absent. Cloud Destination settings will trigger
     // `install_tool(app, "rclone")` on-demand when the feature is enabled.
+    // That feature does not exist yet, so rclone is NOT offered to anyone
+    // until it does -- see `NOT_OFFERED_YET` below.
     ToolInfo {
         name: "rclone",
         id: "rclone",
@@ -2440,10 +2451,7 @@ fn get_mediainfo_url(_os: &str, _arch: &str) -> Result<(String, archive::Archive
 /// The version (`vX.YY.Z`) changes per release, so we use
 /// `resolve_github_release_asset()` to find the platform-matching asset
 /// against the `latest` tag dynamically.
-async fn get_rclone_url(
-    os: &str,
-    arch: &str,
-) -> Result<(String, archive::ArchiveFormat), String> {
+async fn get_rclone_url(os: &str, arch: &str) -> Result<(String, archive::ArchiveFormat), String> {
     // rclone uses its own asset-name suffix scheme distinct from .NET RIDs.
     // Map (os, arch) → rclone's platform-arch suffix.
     let platform_arch = match (os, arch) {
@@ -2483,6 +2491,9 @@ pub fn get_tool_dir(app: &AppHandle, tool_id: &str) -> PathBuf {
     platform::get_tools_dir(app).join(tool_id)
 }
 
+/// Reads the `.external-path` pointer in a tool folder. That file is written when
+/// MeedyaDL reuses a copy already on the computer instead of downloading one.
+/// Returns the path only if it is absolute and still exists; otherwise `None`.
 fn read_external_tool_path(tool_dir: &Path) -> Option<PathBuf> {
     let path = std::fs::read_to_string(tool_dir.join(".external-path")).ok()?;
     let path = PathBuf::from(path.trim());
@@ -2860,7 +2871,9 @@ async fn install_new_copy(
         }
         let info = FfmpegBuildInfo {
             source: ffmpeg_source.to_string(),
-            build_date: build_date.ok().map(|dt| dt.to_rfc3339()),
+            build_date: build_date
+                .ok()
+                .map(crate::utils::time_compat::to_stored_rfc3339),
         };
         if let Err(e) = crate::utils::atomic_write::atomic_write_json(
             &ffmpeg_build_info_path(app),
@@ -3847,7 +3860,10 @@ async fn install_mp4box_via_apt(app: &AppHandle) -> Result<String, String> {
         {
             return Err(actionable_elevation_error());
         }
-        return Err(format!("'apt-get install -y gpac' failed: {}", stderr.trim()));
+        return Err(format!(
+            "'apt-get install -y gpac' failed: {}",
+            stderr.trim()
+        ));
     }
 
     log::info!("'apt-get install gpac' completed successfully");
@@ -4116,6 +4132,10 @@ async fn install_mp4box_full_route(
     install_mp4box_full_route_inner(app).await
 }
 
+/// Runs the MP4Box install for this computer's operating system (macOS, Windows
+/// or Linux). If that fails, it falls back to the copy on the MeedyaSuite mirror,
+/// passing along the first error so the mirror step can report both. Returns the
+/// installed version. The caller has already set any old copy aside.
 async fn install_mp4box_full_route_inner(app: &AppHandle) -> Result<String, String> {
     let platform_result = match std::env::consts::OS {
         "macos" => install_mp4box_macos(app).await,
@@ -4440,7 +4460,11 @@ async fn install_companion_ffprobe(tool_dir: &std::path::Path) {
             match std::fs::copy(&found, &dest) {
                 Ok(_) => {
                     archive::set_executable(&dest).ok();
-                    log::info!("Copied companion {base_name} from {} to {}", found.display(), dest.display());
+                    log::info!(
+                        "Copied companion {base_name} from {} to {}",
+                        found.display(),
+                        dest.display()
+                    );
                     continue;
                 }
                 Err(e) => log::warn!("Failed to copy {base_name} from archive: {e}"),
@@ -4449,13 +4473,11 @@ async fn install_companion_ffprobe(tool_dir: &std::path::Path) {
 
         // Not in the archive — download separately (macOS evermeet.cx case)
         if cfg!(target_os = "macos") {
-            log::info!("{base_name} not in ffmpeg archive — downloading separately from evermeet.cx");
-            match archive::download_and_extract(
-                macos_url,
-                tool_dir,
-                archive::ArchiveFormat::Zip,
-            )
-            .await
+            log::info!(
+                "{base_name} not in ffmpeg archive — downloading separately from evermeet.cx"
+            );
+            match archive::download_and_extract(macos_url, tool_dir, archive::ArchiveFormat::Zip)
+                .await
             {
                 Ok(()) => {
                     if dest.exists() {
@@ -4595,13 +4617,30 @@ pub fn is_tool_installed(app: &AppHandle, tool_id: &str) -> bool {
     get_tool_binary_path(app, tool_id).exists()
 }
 
-/// Returns the list of all tool dependencies with their metadata.
+/// Tools registered in [`TOOLS`] whose feature does not exist yet, so they
+/// are offered to nobody: not listed in Settings > Tools or the setup
+/// wizard, not counted by "Install All", not installed, and not listed in
+/// the version list.
 ///
-/// Used by the setup wizard and dependency status UI to display
-/// the full list of tools with their installation requirements.
+/// rclone is here until direct-to-cloud upload lands (#859). Until October
+/// 2026 it was listed for everyone as "Optional -- Direct-to-cloud upload"
+/// with an Install button, and the wizard's "Install All (1 missing)" with
+/// every required tool present was counting it -- inviting people to
+/// install a tool nothing in the app uses. Remove an id from this list in
+/// the same change that ships the feature behind it.
+const NOT_OFFERED_YET: &[&str] = &["rclone"];
+
+/// Returns the tools offered to people, with their metadata: every entry in
+/// [`TOOLS`] except those in [`NOT_OFFERED_YET`].
+///
+/// Used by the setup wizard and dependency status UI to display the list of
+/// tools with their installation requirements.
 #[must_use]
-pub const fn get_all_tools() -> &'static [ToolInfo] {
+pub fn get_offered_tools() -> Vec<&'static ToolInfo> {
     TOOLS
+        .iter()
+        .filter(|tool| !NOT_OFFERED_YET.contains(&tool.id))
+        .collect()
 }
 
 /// Removes a tool's installation directory and all its contents.
@@ -4638,6 +4677,19 @@ pub async fn uninstall_tool(app: &AppHandle, tool_id: &str) -> Result<(), String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// rclone is not offered to anyone until direct-to-cloud upload exists
+    /// (#859), while all five tools a download needs still are.
+    #[test]
+    fn rclone_is_not_offered_until_cloud_upload_exists() {
+        let offered: Vec<&str> = get_offered_tools().iter().map(|t| t.id).collect();
+        assert!(!offered.contains(&"rclone"), "rclone offered: {offered:?}");
+        for id in ["ffmpeg", "mp4decrypt", "nm3u8dlre", "mp4box", "mediainfo"] {
+            assert!(offered.contains(&id), "{id} missing from {offered:?}");
+        }
+        // Still registered, so cloud upload can offer it the day it lands.
+        assert!(TOOLS.iter().any(|t| t.id == "rclone"));
+    }
     use tempfile::TempDir;
 
     /// Every probed system dir must be absolute (a relative CWD can never inject
@@ -4773,10 +4825,7 @@ mod tests {
         promote_staged_install(&staging, &tool_dir, None).unwrap();
 
         assert!(!staging.exists());
-        assert_eq!(
-            std::fs::read(tool_dir.join("existing.txt")).unwrap(),
-            b"v2"
-        );
+        assert_eq!(std::fs::read(tool_dir.join("existing.txt")).unwrap(), b"v2");
     }
 
     // ---- Keeping a working copy while a new one goes in (#1225) ----
@@ -5802,21 +5851,23 @@ sha256 = "zzzz1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234abcd1234"
     /// 2026-09-23 (see `fetch_btbn_ffmpeg_build_date()`,
     /// `fetch_evermeet_ffmpeg_build_date()`, and
     /// `fetch_mirror_ffmpeg_build_date()`'s doc comments) and proves
-    /// `chrono` actually parses each one — most notably evermeet.cx's
+    /// the date reader actually parses each one — most notably evermeet.cx's
     /// `Last-Modified` header, which uses the obsolete "GMT" zone name
     /// (RFC 7231 IMF-fixdate) rather than a numeric offset, which is
     /// the one case that could plausibly fail to parse.
     #[test]
     fn ffmpeg_source_date_formats_all_parse() {
         // BtbN's GitHub release `published_at` — plain RFC 3339.
-        assert!(chrono::DateTime::parse_from_rfc3339("2026-09-23T15:14:33Z").is_ok());
+        assert!(crate::utils::time_compat::parse_rfc3339("2026-09-23T15:14:33Z").is_some());
 
         // evermeet.cx's `Last-Modified` HTTP header — RFC 2822 with the
         // "GMT" zone name instead of a numeric offset.
-        assert!(chrono::DateTime::parse_from_rfc2822("Fri, 18 Sep 2026 19:34:47 GMT").is_ok());
+        assert!(
+            crate::utils::time_compat::parse_rfc2822("Fri, 18 Sep 2026 19:34:47 GMT").is_some()
+        );
 
         // The mirror's own versions.json "ffmpeg" entry — also RFC 3339.
-        assert!(chrono::DateTime::parse_from_rfc3339("2026-09-22T13:38:08Z").is_ok());
+        assert!(crate::utils::time_compat::parse_rfc3339("2026-09-22T13:38:08Z").is_some());
     }
 
     /// The exact real-world case named in issue #273: the mirror's

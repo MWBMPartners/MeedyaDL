@@ -169,12 +169,128 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.event.pull_request.head.ref, 'release-please--')
     steps:
-      # Default checkout on a pull_request event resolves to the PR's
-      # merge ref (base + head merged) -- so a tier-1 file merged to main
-      # via a separate PR shows up here even though release-please's own
-      # branch never touches .github/release-notes/.
+      # Check out the BASE branch by name (main, as it is when this job
+      # runs), not the PR's merge ref. The next step then works out the
+      # notes file as it will be after merging into that main.
+      #
+      # The default checkout (the PR's merge ref) went stale on #1345:
+      # GitHub built that trial merge before the notes landed on main and
+      # did not rebuild it afterwards, and a re-run reuses the same trial
+      # merge, so the check kept reporting the file missing while it was
+      # on main. A branch name is resolved at run time, so a re-run now
+      # always sees the current main. It also means this job runs none of
+      # the PR's own code.
       - name: Checkout code
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Work out the notes file exactly as it will be after merging the PR
+      # into today's main, and put it in the working tree for the next step
+      # to check. This covers every way the notes can arrive or go: merged
+      # to main by a separate PR, committed on the release branch itself
+      # (as for 1.10.9), changed on both, or deleted on the release branch
+      # (then the file is removed here, so the next step fails).
+      #
+      # The PR's commits are never fetched or checked out. Only two things
+      # come from the PR side, both through GitHub's API: the point where
+      # the PR branched off main, and the one notes file as it is on the
+      # PR. Main's copy and the branch point's copy are read from the main
+      # checkout above. That is enough for a three-way merge of the one
+      # file: if only one side changed it, that side wins; if both changed
+      # it, the changes are merged, and a conflict turns the check red.
+      # (Fetching the PR's commits, as this step used to, is what code
+      # scanning alert #65 flagged, even though nothing from them was run.)
+      - name: Work out the notes file as it will be after merging into main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          VER=$(printf '%s' "$PR_TITLE" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+          [ -n "$VER" ] || exit 0   # the next step reports an unparseable title
+          NOTES_FILE=".github/release-notes/v${VER}.md"
+          if ! [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::The release PR's head commit ID '${HEAD_SHA}' is not a commit ID. Re-run this check."
+            exit 1
+          fi
+          BASE_SHA=$(git rev-parse HEAD)
+          WORK=$(mktemp -d)
+
+          # The point where the PR branched off main. It is part of main's
+          # history, so main's checkout has it. Anything other than a
+          # commit we hold is an error, never "no notes".
+          MERGE_BASE=$(gh api "repos/${REPO}/compare/${BASE_SHA}...${HEAD_SHA}" --jq '.merge_base_commit.sha')
+          if ! [[ "$MERGE_BASE" =~ ^[0-9a-f]{40}$ ]] || ! git cat-file -e "${MERGE_BASE}^{commit}" 2>/dev/null; then
+            echo "::error::Could not find where the release PR branched off main (got '${MERGE_BASE}'). Re-run this check; if it fails again, the release PR's branch needs looking at."
+            exit 1
+          fi
+
+          # Each copy is written to a file, or the file is left absent when
+          # the notes file does not exist on that side.
+          if git cat-file -e "${BASE_SHA}:${NOTES_FILE}" 2>/dev/null; then
+            git show "${BASE_SHA}:${NOTES_FILE}" > "$WORK/main"
+          fi
+          if git cat-file -e "${MERGE_BASE}:${NOTES_FILE}" 2>/dev/null; then
+            git show "${MERGE_BASE}:${NOTES_FILE}" > "$WORK/branch-point"
+          fi
+          # The PR's copy, read through the API. 404 means the PR has no
+          # such file; any other answer is an error, never "no notes".
+          STATUS=$(curl -sS -o "$WORK/pr" -w '%{http_code}' \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github.raw+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${REPO}/contents/${NOTES_FILE}?ref=${HEAD_SHA}") || STATUS=000
+          case "$STATUS" in
+            200) ;;
+            404) rm -f "$WORK/pr" ;;
+            *)
+              echo "::error::Could not read ${NOTES_FILE} from the release PR (GitHub answered ${STATUS}). Re-run this check."
+              exit 1 ;;
+          esac
+
+          # Two copies are the same when both are absent, or both exist
+          # with identical contents.
+          same() {
+            if [ -e "$WORK/$1" ] && [ -e "$WORK/$2" ]; then
+              cmp -s "$WORK/$1" "$WORK/$2"
+            else
+              [ ! -e "$WORK/$1" ] && [ ! -e "$WORK/$2" ]
+            fi
+          }
+          if same pr branch-point || same main pr; then
+            RESULT=main          # the PR left it alone, or both agree
+          elif same main branch-point; then
+            RESULT=pr            # only the PR changed it
+          elif [ -e "$WORK/main" ] && [ -e "$WORK/pr" ] && [ -e "$WORK/branch-point" ]; then
+            # Both changed it: merge the changes. git merge-file exits 0
+            # for a clean merge, 1 or more for conflicts, below 0 on error.
+            cp "$WORK/main" "$WORK/merged"
+            rc=0
+            git merge-file -q "$WORK/merged" "$WORK/branch-point" "$WORK/pr" || rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::${NOTES_FILE} was changed on both main and the release PR in ways that conflict. Settle it on one side, then re-run this check."
+              exit 1
+            fi
+            RESULT=merged
+          else
+            # Both changed it and one side added or deleted the file.
+            echo "::error::${NOTES_FILE} was changed on both main and the release PR in ways that conflict (one side added or deleted it). Settle it on one side, then re-run this check."
+            exit 1
+          fi
+
+          if [ -e "$WORK/$RESULT" ]; then
+            mkdir -p "$(dirname "$NOTES_FILE")"
+            cp "$WORK/$RESULT" "$NOTES_FILE"
+            echo "Checking ${NOTES_FILE} as it will be after merging into today's main."
+          else
+            rm -f "$NOTES_FILE"
+            echo "${NOTES_FILE} will not exist after merging into today's main."
+          fi
 
       - name: Require a populated tier-1 notes file for this version
         env:

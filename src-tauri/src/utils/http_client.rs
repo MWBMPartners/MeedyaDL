@@ -21,6 +21,8 @@
 // Migration is opt-in per callsite (#716 follow-ups). The helper does
 // NOT change behaviour for any existing call: the timeout, UA, and
 // error-message string match what the existing sites produce.
+//
+// See: https://docs.rs/reqwest/latest/reqwest/struct.ClientBuilder.html
 
 use std::sync::LazyLock;
 use std::time::Duration;
@@ -234,7 +236,11 @@ const CHROME_MAJOR: &str = match option_env!("MEEDYADL_CHROME_MAJOR") {
 /// panicking.
 fn sanitise_chrome_major(raw: &'static str) -> &'static str {
     let ok = (2..=4).contains(&raw.len()) && raw.bytes().all(|b| b.is_ascii_digit());
-    if ok { raw } else { CHROME_MAJOR_FALLBACK }
+    if ok {
+        raw
+    } else {
+        CHROME_MAJOR_FALLBACK
+    }
 }
 
 /// Fallback Safari version number, compiled in for every build that doesn't
@@ -314,7 +320,11 @@ fn sanitise_safari_version(raw: &'static str) -> &'static str {
         && parts
             .iter()
             .all(|p| !p.is_empty() && p.len() <= 3 && p.bytes().all(|b| b.is_ascii_digit()));
-    if ok { raw } else { SAFARI_VERSION_FALLBACK }
+    if ok {
+        raw
+    } else {
+        SAFARI_VERSION_FALLBACK
+    }
 }
 
 /// Lazily-built Windows Chrome User-Agent string. Built once per process;
@@ -433,6 +443,8 @@ pub struct ClientConfig {
 }
 
 impl Default for ClientConfig {
+    /// Default settings: 15 second timeout, no separate connect timeout, no
+    /// custom User-Agent.
     fn default() -> Self {
         Self {
             timeout: Duration::from_secs(15),

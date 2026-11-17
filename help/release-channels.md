@@ -6,47 +6,64 @@
 
 # Release Channels
 
-MeedyaDL publishes builds on four release channels, ordered from **least stable** to **most stable**. You pick one in **Settings > General > Preferences**, in the group of update settings near the bottom of that section, and the in-app updater stays on that channel.
+MeedyaDL comes in four release channels, from **least finished** to **most finished**. You pick one in **Settings > General > Preferences**, in the update settings near the bottom of that section. The app then offers you updates from that channel.
+
+**If you are not sure, stay on Stable.**
 
 ## The four channels
 
-| Channel | Cadence | Version suffix | Who it's for |
-| ------- | ------- | -------------- | ------------ |
-| **Alpha** | Ad-hoc | `-alpha.N` | Feature-complete previews with known rough edges. Hidden from the channel picker unless developer access is unlocked. |
-| **Beta** | Ad-hoc | `-beta.N` | Polishing-stage features, closer to Stable than Alpha. |
-| **RC** (Release Candidate) | Ad-hoc | `-rc.N` | Final validation pass before a Stable release. |
-| **Stable** | Release-please merges | _(no suffix)_ | Most users. Production-ready. |
+| Channel | Who it is for |
+| --- | --- |
+| **Alpha** | Early previews that still have rough edges. Not shown in the picker by default. |
+| **Beta** | Features that are nearly ready. Closer to Stable than Alpha. |
+| **RC** (Release Candidate) | The last check before a release becomes Stable. |
+| **Stable** | Most people. The finished, tested version. |
 
-Picking a channel opts you into everything at least that stable: choosing Beta also lets Stable and RC releases reach you, but nothing less stable than Beta.
+Choosing a channel also includes everything more finished than it. For example, Beta also offers you RC and Stable releases, but never Alpha ones.
 
 ## Switching channels
 
-1. Open **Settings > General** and scroll down to the update settings at the bottom of the **Preferences** section.
-2. Pick a channel from the **Update Channel** dropdown.
-3. Save. The app will start offering updates from that channel on the next update check.
+1. Open **Settings > General** and scroll to the update settings at the bottom of **Preferences**.
+2. Choose a channel from the **Update Channel** list.
+3. Save. The next update check uses the new channel.
 
-Moving to a less-stable channel (e.g., Stable → Beta) is always an explicit choice. Moving back up (e.g., Beta → Stable) is equally explicit — the app will not auto-upgrade your channel selection.
+Moving to a less finished channel is always your choice, and the app asks you to confirm. Moving back is your choice too. MeedyaDL never changes your channel for you.
 
-## The auto-update guard
+## You are never moved to a less finished version
 
-MeedyaDL will never **auto-downgrade** your stability tier. Concretely:
+MeedyaDL will not switch you to a less finished build by itself.
 
-- The update check only ever shows you a release from your selected channel (or a more stable one).
-- If somebody hands you a URL or deep link pointing at a less-stable build (for example, an Alpha link while you're on Stable), the installer refuses to apply it and surfaces a clear error instead. Change channel first if you actually want that build.
+- An update check only shows releases from your channel, or a more finished one.
+- If someone sends you a link to a less finished build (for example an Alpha link while you are on Stable), the installer refuses it and says why. If you really want that build, change your channel first.
 
 ## Which channel should I use?
 
-- **Stable** — pick this unless you have a reason not to. It receives fewer updates but has been tested in the other channels first.
-- **RC** — pick this if you want to help catch problems in the last build before it becomes Stable.
-- **Beta** — pick this if you want to help shake out features a bit earlier, before they reach RC.
-- **Alpha** — only if you're comfortable filing bug reports and rolling back to a working build. Expect regressions. Requires developer access to select.
+- **Stable.** The best choice for nearly everyone. Updates come less often, and they have been tested in the other channels first.
+- **RC.** Choose it to help catch problems in the very last build before Stable.
+- **Beta.** Choose it to try new features a little earlier, before they reach RC.
+- **Alpha.** Only if you are happy to report problems and go back to a working version. Expect things to break.
+
+<details>
+<summary>More detail: how builds are named</summary>
+
+The version number shows the channel. Stable has no ending, for example `1.13.0`. The other channels add an ending:
+
+- Alpha: `-alpha.N`, for example `1.13.0-alpha.56`
+- Beta: `-beta.N`
+- RC: `-rc.N`
+
+New builds in Alpha, Beta and RC come out whenever new work is ready, not on a fixed schedule.
+
+</details>
 
 ## Reporting problems on pre-release builds
 
-When reporting an issue for any pre-release channel, please include:
+If you find a problem on Alpha, Beta or RC, please include:
 
-- The **exact version** shown in _Help > About_ (includes the channel suffix, e.g., `1.13.0-alpha.56`).
-- Your selected **Update Channel**.
-- Reproduction steps and relevant log output (the **Open folder** button in **Settings > Advanced > Diagnostics** shows you where the log files are).
+- The **exact version**, as shown on the **About** page in Help (it includes the channel ending, for example `1.13.0-alpha.56`).
+- Which **Update Channel** you chose.
+- The steps that cause the problem, and the relevant lines from the logs. The **Open folder** button in **Settings > Advanced > Diagnostics** shows where the logs are.
 
-See [Troubleshooting](troubleshooting.md) for log-collection tips.
+See [Troubleshooting](troubleshooting.md) for more on collecting logs.
+
+[Back to Help Index](index.md)

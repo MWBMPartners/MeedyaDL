@@ -80,14 +80,7 @@ export type SongCodec =
  * @see {@link https://www.typescriptlang.org/docs/handbook/2/everyday-types.html#literal-types}
  */
 export type VideoResolution =
-  | '2160p'
-  | '1440p'
-  | '1080p'
-  | '720p'
-  | '540p'
-  | '480p'
-  | '360p'
-  | '240p';
+  '2160p' | '1440p' | '1080p' | '720p' | '540p' | '480p' | '360p' | '240p';
 
 /**
  * Video codec options for GAMDL's `--music-video-codec-priority` CLI flag.
@@ -167,12 +160,7 @@ export type AnimatedArtworkResolution = 'fhd' | 'uhd' | 'max';
  * - `three_digits`: 3 digits (`001`, ..., `999`).
  * - `four_digits`: 4 digits (`0001`, ..., `9999`).
  */
-export type TrackNumberPadding =
-  | 'auto'
-  | 'none'
-  | 'two_digits'
-  | 'three_digits'
-  | 'four_digits';
+export type TrackNumberPadding = 'auto' | 'none' | 'two_digits' | 'three_digits' | 'four_digits';
 
 /**
  * Zero-padding strategy for the `{disc}` placeholder in filename templates (#587).
@@ -265,11 +253,7 @@ export type LogLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR';
  * Ordered from least to most stable; the updater blocks installs whose
  * channel is less stable than the user's selection.
  */
-export type UpdateChannel =
-  | 'alpha'
-  | 'beta'
-  | 'rc'
-  | 'stable';
+export type UpdateChannel = 'alpha' | 'beta' | 'rc' | 'stable';
 
 /**
  * Channels that are gated behind Dev Access (Konami-code activation).
@@ -279,19 +263,13 @@ export type UpdateChannel =
  *
  * Nightly/Weekly/Monthly were removed in v1.11.0 (cron-channel cleanup).
  */
-export const DEV_ACCESS_CHANNELS: ReadonlyArray<UpdateChannel> = [
-  'alpha',
-];
+export const DEV_ACCESS_CHANNELS: ReadonlyArray<UpdateChannel> = ['alpha'];
 
 /**
  * Channels less stable than `stable`. Switching to any of these triggers
  * a stability-warning confirmation modal in the UI.
  */
-export const PRE_RELEASE_CHANNELS: ReadonlyArray<UpdateChannel> = [
-  'alpha',
-  'beta',
-  'rc',
-];
+export const PRE_RELEASE_CHANNELS: ReadonlyArray<UpdateChannel> = ['alpha', 'beta', 'rc'];
 
 /**
  * Numeric stability rank used for "is channel A more stable than channel B"
@@ -350,7 +328,7 @@ export const COMPANION_MODE_LABELS: Record<CompanionMode, string> = {
   atmos_to_lossless_and_lossy: 'Atmos → Lossless + Lossy; ALAC → Lossy',
   specialist_to_lossy: 'Specialist → Lossy (AAC)',
   atmos_to_all_formats: 'Atmos → All Formats (AC3 + ALAC + AAC)',
-  custom: 'Custom...',
+  custom: 'Custom…',
 };
 
 /**
@@ -492,7 +470,7 @@ export interface GamdlOptions {
    * See https://github.com/glomatico/wrapper-v2 for the daemon spec.
    */
   wrapper_url?: string;
-  /** Language/locale for metadata (e.g., "en-US", "ja-JP") */
+  /** Metadata language as a BCP 47 language tag (e.g., "en-US", "zh-Hant-TW") */
   language?: string;
   /** Comma-separated list of metadata tags to exclude from output */
   exclude_tags?: string;
@@ -576,7 +554,11 @@ export interface AppSettings {
   output_path: string;
   /** Temp directory for intermediate files (empty = OS default) */
   temp_path: string;
-  /** Language/locale code for metadata (e.g., "en-US") */
+  /**
+   * Metadata language as a BCP 47 language tag (e.g., "en-US", "zh-Hant-TW").
+   * The backend stores it in its standard form when it is saved or imported
+   * (#1246); a value from an older version that is not a tag is kept as it is.
+   */
   language: string;
   /** Apple Music storefront code (e.g., "gb", "us"). Empty = auto-detect from language */
   storefront: string;
@@ -608,14 +590,30 @@ export interface AppSettings {
    * aborts from the button / keyboard shortcut.
    */
   abort_queue_confirm: boolean;
-  /** Whether to send native OS desktop notifications for download events (completion/failure).
-   * Notifications are only sent when the app window is not focused. */
+  /** Master switch for SYSTEM notifications (shown by the operating
+   * system, outside the app). In-app messages always show. When and for
+   * what is decided by the backend's one rule
+   * (`services/notification_service.rs`, #1431) from the SAVED settings. */
   desktop_notifications: boolean;
   /** Notification style controlling how notifications are delivered.
    * 'in_app_only' = in-app toasts only
-   * 'native_and_in_app' = both native OS notifications and in-app toasts (default)
-   * 'native_only' = native OS notifications only (no in-app toasts) */
+   * 'native_and_in_app' = both system notifications and in-app toasts (default)
+   * 'native_only' = a plain information/success message that WAS sent to
+   *   the system is not repeated in the app; anything with a button,
+   *   details, a key, an error or warning, or not sent, still shows in the app. */
   notification_style: 'in_app_only' | 'native_and_in_app' | 'native_only';
+  /** When a system notification is shown (#1431). */
+  native_notification_when: NativeNotificationWhen;
+  /** Which messages may become system notifications (#1431). */
+  native_notification_scope: NativeNotificationScope;
+  /** System notification when a download finishes (#1431). */
+  notify_download_complete: boolean;
+  /** System notification when a download fails or finishes with warnings (#1431). */
+  notify_download_failed: boolean;
+  /** System notification when the whole queue finishes (#1431). */
+  notify_queue_finished: boolean;
+  /** System notification when a copied Apple Music link is found (#1431). */
+  notify_clipboard_link: boolean;
   /** Smart re-download detection via Apple Music API lastModifiedDate.
    * When enabled, compares stored manifest data against fresh API response
    * to detect if an album has changed since the user's last download. */
@@ -825,7 +823,7 @@ export interface AppSettings {
    * wrapper triangle alongside `wrapper_account_url` + `wrapper_m3u8_ip`).
    * Without this surfaced, remote-wrapper LAN setups silently fail at the
    * decryption stage because GAMDL falls back to its built-in default
-   * (#743). Default: `"127.0.0.1:10020"`.
+   * (#743). Empty means automatic: worked out from the wrapper address (#1433).
    */
   wrapper_decrypt_ip: string;
   /**
@@ -915,7 +913,7 @@ export interface AppSettings {
   high_contrast: boolean;
   /** Colour vision deficiency mode: '' (disabled), 'deuteranopia', 'protanopia', or 'tritanopia' */
   colour_blind_mode: string;
-  /** Auto-dismiss duration for transient notifications (seconds). Range: 3-60. Default: 5. */
+  /** Auto-dismiss duration for transient in-app messages (seconds). Range: 3-60. Default: 5. */
   notification_auto_dismiss_seconds?: number;
   /** Whether the user has accepted the Terms of Service. Shown on first launch. */
   terms_accepted?: boolean;
@@ -1097,12 +1095,7 @@ export interface StartDownloadResult {
  * - cancelled -> queued (on retry)
  */
 export type DownloadState =
-  | 'queued'
-  | 'downloading'
-  | 'processing'
-  | 'complete'
-  | 'error'
-  | 'cancelled';
+  'queued' | 'downloading' | 'processing' | 'complete' | 'error' | 'cancelled';
 
 /**
  * Detailed status of a single download queue item.
@@ -1493,6 +1486,26 @@ export interface CookieCheckResult {
 }
 
 // ============================================================
+// Language identity (Codex's catch-up review of #1244)
+// ============================================================
+
+/**
+ * One tag's standard form and grouping identity, as the shared language
+ * policy defines them (not as `Intl.Locale` guesses them).
+ *
+ * Mirrors: Rust struct `LanguageIdentity` in `src-tauri/src/commands/language.rs`.
+ * Returned by `language_identities`; fetched only through `useLanguageIdentities`.
+ */
+export interface LanguageIdentity {
+  /** The value exactly as asked about. */
+  raw: string;
+  /** Its standard form (`raw` itself when it is not a tag). */
+  standard: string;
+  /** The identity to group it by (its primary language, for a real tag). */
+  primary: string;
+}
+
+// ============================================================
 // Browser Cookie Import Types
 // ============================================================
 
@@ -1564,7 +1577,14 @@ export interface CookieImportResult {
  * @see {@link https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions} - Discriminated unions
  */
 export type GamdlOutputEvent =
-  | { type: 'track_info'; title: string; artist: string; album: string; track_number?: number; track_total?: number }
+  | {
+      type: 'track_info';
+      title: string;
+      artist: string;
+      album: string;
+      track_number?: number;
+      track_total?: number;
+    }
   | { type: 'download_progress'; percent: number; speed: string; eta: string }
   | { type: 'processing_step'; step: string }
   | { type: 'error'; message: string }
@@ -1762,14 +1782,7 @@ export interface CrashReport {
  * structure doesn't match any known pattern.
  */
 export type AppleMusicContentType =
-  | 'song'
-  | 'album'
-  | 'playlist'
-  | 'music-video'
-  | 'artist'
-  | 'library'
-  | 'recording'
-  | 'unknown';
+  'song' | 'album' | 'playlist' | 'music-video' | 'artist' | 'library' | 'recording' | 'unknown';
 
 /**
  * Artist content auto-selection modes for GAMDL's --artist-auto-select flag.
@@ -1791,20 +1804,14 @@ export type ArtistAutoSelect =
  * Mirrors `DuplicateDetectionScope` in `src-tauri/src/models/settings.rs`.
  */
 export type DuplicateDetectionScope =
-  | 'off'
-  | 'intra_session'
-  | 'intra_and_queued'
-  | 'intra_and_queued_and_history';
+  'off' | 'intra_session' | 'intra_and_queued' | 'intra_and_queued_and_history';
 
 /**
  * Which key is used to match two tracks as duplicates (#510).
  *
  * Mirrors `DedupKeyStrategy` in `src-tauri/src/models/settings.rs`.
  */
-export type DedupKeyStrategy =
-  | 'song_id_isrc_fallback'
-  | 'isrc_only'
-  | 'song_id_only';
+export type DedupKeyStrategy = 'song_id_isrc_fallback' | 'isrc_only' | 'song_id_only';
 
 /**
  * Pre-queue duplicate detection settings (#510).
@@ -1918,6 +1925,56 @@ export type AppPage =
 export type ToastType = 'success' | 'error' | 'warning' | 'info';
 
 /**
+ * When a system notification is shown (#1431). Mirrors the Rust
+ * `NativeNotificationWhen` enum in `models/settings.rs`.
+ * - `background_or_other_screen` (default): when MeedyaDL's window is not
+ *   in front, is minimised or hidden, or the pointer is on another screen.
+ * - `other_screen_only`: only when the pointer is on another screen.
+ * - `always`: every time.
+ */
+export type NativeNotificationWhen = 'background_or_other_screen' | 'other_screen_only' | 'always';
+
+/**
+ * Which messages may become system notifications (#1431). Mirrors the Rust
+ * `NativeNotificationScope` enum.
+ */
+export type NativeNotificationScope = 'important' | 'important_and_errors' | 'everything';
+
+/**
+ * What a message is about, for the notification rule (#1431). Mirrors the
+ * Rust `NotifyKind` enum in `services/notification_service.rs`. Page
+ * messages without a kind are `error` (for error toasts) or `general`.
+ */
+export type NotifyKind =
+  | 'download_complete'
+  | 'download_failed'
+  | 'download_warnings'
+  | 'queue_finished'
+  | 'clipboard_link'
+  | 'power_action'
+  | 'update_ready'
+  | 'error'
+  | 'general';
+
+/** Extra, optional facts about a toast, for the notification rule (#1431). */
+export interface ToastOptions {
+  /** What the message is about. Default: `error` for error toasts, else `general`. */
+  kind?: NotifyKind;
+  /** Title for the system notification. Default: "MeedyaDL" (with a word for errors and warnings). */
+  systemTitle?: string;
+  /** Text for the system notification, when it should differ from the
+   * in-app message (for example because the in-app one has a button). */
+  systemBody?: string;
+  /** `false` = never ask for a system notification (used for messages the
+   * backend has already decided about). Default: ask. */
+  system?: boolean;
+  /** When the system copy is sent, keep the in-app message until it is
+   * dismissed (for a message the system notification tells the person to
+   * go and find, such as the copied-link prompt with its Download button). */
+  keepUntilDismissedIfSent?: boolean;
+}
+
+/**
  * Toast notification data structure.
  *
  * Managed by the uiStore's toast queue. Toasts auto-dismiss after
@@ -1943,6 +2000,9 @@ export interface Toast {
    * setTimeout closures.
    */
   expiresAt?: number | null;
+  /** When the toast was added (Unix ms). Used to give back exactly the
+   * time a toast spent paused while the pointer or focus was on the stack. */
+  createdAt?: number;
   /**
    * Optional deduplication/category key. When set:
    * - Only one toast per key can be on screen at a time (new replaces old).
@@ -1959,6 +2019,13 @@ export interface Toast {
     label: string;
     onClick: () => void;
   };
+  /**
+   * Optional technical text (a backend error, a traceback) shown folded
+   * under "Details" below the message. The message itself must make sense
+   * without it -- see lib/errorMessages.ts. Never sent to the OS
+   * notification, which shows the message only.
+   */
+  details?: string;
 }
 
 /**
@@ -1993,7 +2060,8 @@ export type SetupStep = 'welcome' | 'python' | 'gamdl' | 'dependencies' | 'cooki
  * Used by the DownloadForm to determine which URL patterns and options
  * are applicable for a given download.
  */
-export type MediaServiceId = 'apple-music' | 'youtube-music' | 'youtube' | 'spotify' | 'bbc-iplayer';
+export type MediaServiceId =
+  'apple-music' | 'youtube-music' | 'youtube' | 'spotify' | 'bbc-iplayer';
 
 /**
  * Display labels for music services, shown in UI dropdowns and badges.

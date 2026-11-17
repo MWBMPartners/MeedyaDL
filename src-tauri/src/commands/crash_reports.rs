@@ -102,7 +102,7 @@ pub fn log_frontend_error(
 
     let report = CrashReport {
         id: uuid::Uuid::new_v4().to_string(),
-        timestamp: chrono::Utc::now().to_rfc3339(),
+        timestamp: crate::utils::time_compat::now_rfc3339(),
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
@@ -216,6 +216,17 @@ pub fn redact_url_for_public_report(url: String) -> String {
     crate::services::diagnostic_bundle::redact_path_usernames(&cleaned)
 }
 
+/// Cleans free text so it can go into a PUBLIC bug report (for example a
+/// GitHub issue).
+///
+/// Two things are removed: user names inside file paths (`/Users/<name>/...`
+/// becomes `/Users/{user}/...`) and the query string of every web address
+/// (the part after `?`, where tokens and account details can hide).
+///
+/// **Frontend caller:** the "Report this problem" dialog, through
+/// `src/lib/tauri-commands.ts`.
+///
+/// See: <https://v2.tauri.app/develop/calling-rust/#commands>
 #[tauri::command]
 pub fn redact_for_public_report(text: String) -> String {
     let without_usernames = crate::services::diagnostic_bundle::redact_path_usernames(&text);

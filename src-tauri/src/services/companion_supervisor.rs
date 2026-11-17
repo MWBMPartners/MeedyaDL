@@ -34,10 +34,10 @@
 // activity-log emission of progress lines, and metadata tagging stay
 // in `download_queue.rs` and `services/`.
 
-use std::pin::Pin;
 use std::future::Future;
-use std::sync::Arc;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tauri::AppHandle;
@@ -87,8 +87,7 @@ type EmitFuture = Pin<Box<dyn Future<Output = Option<String>> + Send>>;
 /// the supervisor can record the most recent one for error surfacing.
 ///
 /// Arguments to the callback are `(app, dl_id, stream_label, line)`.
-pub type LineEmitter =
-    Arc<dyn Fn(AppHandle, String, String, String) -> EmitFuture + Send + Sync>;
+pub type LineEmitter = Arc<dyn Fn(AppHandle, String, String, String) -> EmitFuture + Send + Sync>;
 
 // ============================================================
 // Public entry point
@@ -232,11 +231,20 @@ pub async fn run_supervised(
         String::new()
     };
 
-    let exit_success = matches!(exit_status, Ok(s) if s.success());
-
     let stdout_text = accumulated_stdout.lock().await.clone();
     let stderr_text = accumulated_stderr.lock().await.clone();
     let combined = format!("{stdout_text}\n{stderr_text}");
+
+    // GAMDL 4.x exits with a failure code when any item is not offered in
+    // the format asked for; 3.x warned and exited 0. A 4.x extra-format
+    // run that saved every track it could is a success here, as it is on
+    // 3.x — see `gamdl_v4_run_was_partial_success` (review round 5).
+    let exit_success = matches!(exit_status, Ok(s) if s.success())
+        || (exit_status.is_ok()
+            && !watchdog_killed
+            && crate::services::gamdl_capabilities::detected_cli_generation()
+                == crate::services::gamdl_capabilities::GamdlCliGeneration::V4
+            && crate::utils::process::gamdl_v4_run_was_partial_success(combined.lines()));
 
     let error_count = parse_gamdl_error_count(&combined).unwrap_or(0);
     let friendly = classify_gamdl_traceback(&combined).map(std::string::ToString::to_string);
@@ -255,6 +263,14 @@ pub async fn run_supervised(
 // Helpers
 // ============================================================
 
+/// The current time as milliseconds since the Unix epoch.
+///
+/// Used to stamp "last output seen" for the idle watchdog. It never panics:
+/// a clock set before 1970 gives 0, and a value too big for `u64` is capped
+/// at `u64::MAX`.
+///
+/// See:
+/// https://doc.rust-lang.org/std/time/struct.SystemTime.html#method.duration_since
 fn now_ms() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     SystemTime::now()

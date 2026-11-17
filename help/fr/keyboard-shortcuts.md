@@ -13,9 +13,9 @@ MeedyaDL prend en charge des raccourcis clavier pour naviguer rapidement et effe
 | Raccourci | Action |
 |----------|--------|
 | **Cmd/Ctrl + D** | Ouvre la page Download et place le curseur dans le champ d'URL |
-| **Cmd/Ctrl + Q** | Ouvre la page Queue |
+| **Cmd/Ctrl + J** | Ouvre la page Queue |
 | **Cmd/Ctrl + L** | Ouvre la page Library |
-| **Cmd/Ctrl + H** | Ouvre la page History |
+| **Cmd/Ctrl + Y** | Ouvre la page History |
 | **Cmd/Ctrl + K** | Ouvre la page Activity |
 | **Cmd/Ctrl + ,** | Ouvre la page Settings |
 
@@ -25,7 +25,7 @@ MeedyaDL prend en charge des raccourcis clavier pour naviguer rapidement et effe
 |----------|--------|
 | **Enter** | Lance le téléchargement (quand le champ d'URL a le focus) |
 | **Shift + Enter** | Insère un retour à la ligne dans le champ d'URL (mode multi-URL) |
-| **Cmd/Ctrl + Shift + .** | Annule tous les téléchargements actifs et en attente |
+| **Cmd/Ctrl + Shift + .** | Annule tous les téléchargements actifs et en attente. Une confirmation est demandée d'abord, sauf si vous avez coché **Don't ask again** dans la fenêtre d'annulation de la file. Vous pouvez réactiver la question dans **Settings > General > Preferences**. |
 | **Cmd/Ctrl + Shift + ?** | Ouvre cette liste de raccourcis clavier depuis n'importe où dans l'application |
 | **Escape** | Ferme la fenêtre modale ou la boîte de dialogue active |
 

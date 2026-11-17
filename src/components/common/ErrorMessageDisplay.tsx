@@ -11,8 +11,9 @@
  *
  * - Truncates the visible text to the configured number of lines via
  *   Tailwind `line-clamp-N`.
- * - Wraps in a {@link Tooltip} that surfaces the FULL message on
- *   hover/focus. The truncated text is a `<p>`, which cannot normally
+ * - Wraps in a {@link Tooltip} that surfaces the plain summary text
+ *   (the whole of it, with no line cut-off) on hover/focus. The raw
+ *   technical text is folded under "Details" instead. The truncated text is a `<p>`, which cannot normally
  *   receive keyboard focus at all — `tabIndex={0}` is added below
  *   specifically so Tab can reach it and the tooltip's focus/blur
  *   handling actually fires. Without that, the "works on the keyboard
@@ -48,8 +49,10 @@ import { open as openExternal } from '@tauri-apps/plugin-shell';
 import { ContextMenu } from './ContextMenu';
 import type { ContextMenuItem } from './ContextMenu';
 import { Tooltip } from './Tooltip';
+import { ErrorDetails } from './ErrorDetails';
 import { useUiStore } from '@/stores/uiStore';
 import { redactForPublicReport, redactUrlForPublicReport } from '@/lib/tauri-commands';
+import { summariseDownloadError } from '@/lib/errorMessages';
 
 export interface ErrorMessageDisplayProps {
   /** The error message to render. */
@@ -123,10 +126,10 @@ function buildGamdlIssueUrl(message: string, sourceUrl?: string): string {
     ? message.slice(GAMDL_BUG_MARKER.length)
     : message;
   // Take the first sentence (or first ~80 chars) for the title.
+  // The split happens after . ! or ? followed by a space (a lookbehind keeps the punctuation).
   const firstSentence = stripped.split(/(?<=[.!?])\s/)[0] ?? stripped;
-  const title = firstSentence.length > 80
-    ? firstSentence.slice(0, 77).trimEnd() + '…'
-    : firstSentence;
+  const title =
+    firstSentence.length > 80 ? firstSentence.slice(0, 77).trimEnd() + '…' : firstSentence;
 
   const bodyLines: string[] = [];
   bodyLines.push('### What happened');
@@ -153,6 +156,8 @@ function buildGamdlIssueUrl(message: string, sourceUrl?: string): string {
   bodyLines.push('- Operating system: ');
   bodyLines.push('- Python version: <!-- `python --version` -->');
 
+  // `URLSearchParams` percent-encodes the title and body for us.
+  // See: https://developer.mozilla.org/en-US/docs/Web/API/URLSearchParams
   const params = new URLSearchParams({
     title,
     body: bodyLines.join('\n'),
@@ -160,30 +165,47 @@ function buildGamdlIssueUrl(message: string, sourceUrl?: string): string {
   return `https://github.com/glomatico/gamdl/issues/new?${params.toString()}`;
 }
 
+/**
+ * Shows a failed item's error as a short plain summary, with the full
+ * technical text folded under "Details".
+ *
+ * Right-click (or the small "..." button, for keyboard users) opens a menu
+ * to copy the original message and, for a known GAMDL defect, report it
+ * upstream. Renders nothing when `message` is empty.
+ */
 export function ErrorMessageDisplay({
   message,
   sourceUrl,
   truncateLines = 2,
   className = 'text-xs text-status-error-text',
 }: ErrorMessageDisplayProps): ReactElement | null {
+  // Only the `addToast` function is picked, so this component does not re-render on other store changes.
   const addToast = useUiStore((s) => s.addToast);
+  // Where the menu is open on screen (null = closed).
   const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
 
+  // Right-click: stop the browser's own menu and open ours at the pointer.
   const handleContextMenu = useCallback((e: MouseEvent) => {
     e.preventDefault();
     setMenuPos({ x: e.clientX, y: e.clientY });
   }, []);
   const closeMenu = useCallback(() => setMenuPos(null), []);
 
+  // Copies the ORIGINAL message (not the shortened summary) so a bug report has everything.
+  // See: https://developer.mozilla.org/en-US/docs/Web/API/Clipboard/writeText
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(message);
       addToast('Error message copied to clipboard', 'info');
     } catch {
-      addToast('Could not copy to clipboard', 'error');
+      addToast(
+        'MeedyaDL could not copy the message. Open Details below it, select the text and copy it with Cmd/Ctrl+C.',
+        'error'
+      );
     }
   }, [addToast, message]);
 
+  // Cleans the text, builds the GitHub issue address and opens it in the system browser.
   const handleReportToGamdl = useCallback(async () => {
     // Clean the text BEFORE it is ever placed in a URL — the error
     // message can carry the person's own account name inside a file
@@ -211,14 +233,21 @@ export function ErrorMessageDisplay({
       // 9257863f).
       cleanedSourceUrl = sourceUrl ? await redactUrlForPublicReport(sourceUrl) : undefined;
     } catch {
-      addToast('Could not prepare the report safely', 'error');
+      addToast(
+        'MeedyaDL could not remove your personal details from the report, so it has not opened it. Try again in a moment.',
+        'error'
+      );
       return;
     }
+    // Only now, with cleaned text in hand, is the address built.
     const url = buildGamdlIssueUrl(cleaned, cleanedSourceUrl);
     try {
       await openExternal(url);
     } catch {
-      addToast('Could not open browser', 'error');
+      addToast(
+        'MeedyaDL could not open your web browser. Check that a default browser is set, then try again.',
+        'error'
+      );
     }
   }, [addToast, message, sourceUrl]);
 
@@ -230,6 +259,7 @@ export function ErrorMessageDisplay({
   // written after a conditional `return` would skip entirely on the
   // `!message` render, which is exactly the "Hooks must not be called
   // conditionally" rule this tripped when it lived below instead.
+  // Keyboard route to the same menu: open it under the button.
   const handleOverflowClick = useCallback((e: MouseEvent<HTMLButtonElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     setMenuPos({ x: rect.left, y: rect.bottom });
@@ -237,6 +267,16 @@ export function ErrorMessageDisplay({
 
   if (!message) return null;
 
+  // Polish pass (M8): a technical error (a traceback, an exception name,
+  // an error number, a file path) is shown as a short plain summary with
+  // a next step, and the original is folded under "Details". It used to
+  // be shown as it came, so a failed row read "GAMDL bug — Traceback (most
+  // recent call last): File "/Users/…". A message that is already a plain
+  // sentence is shown as it is. "Copy error message" and the GAMDL report
+  // still use the original text.
+  const { summary, details } = summariseDownloadError(message);
+
+  // The "Copy" item is always there; the report item is added below only for known GAMDL bugs.
   const items: ContextMenuItem[] = [
     {
       label: 'Copy error message',
@@ -265,12 +305,13 @@ export function ErrorMessageDisplay({
     5: 'line-clamp-5',
     6: 'line-clamp-6',
   };
+  // An unknown line count falls back to 2 lines.
   const clampClass = truncateLines === null ? '' : (CLAMP_CLASSES[truncateLines] ?? 'line-clamp-2');
 
   return (
     <>
       <div className="flex items-start gap-1">
-        <Tooltip content={message} position="top">
+        <Tooltip content={summary} position="top">
           <p
             className={`${className} ${clampClass} cursor-default select-text`}
             onContextMenu={handleContextMenu}
@@ -279,7 +320,7 @@ export function ErrorMessageDisplay({
             // hovering with a mouse — tabIndex={0} lets Tab reach it too.
             tabIndex={0}
           >
-            {message}
+            {summary}
           </p>
         </Tooltip>
         <button
@@ -287,14 +328,13 @@ export function ErrorMessageDisplay({
           onClick={handleOverflowClick}
           aria-label="More actions for this error message"
           title="More actions"
-          className="flex-shrink-0 p-0.5 rounded text-content-tertiary hover:text-content-primary opacity-60 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+          className="flex-shrink-0 p-0.5 rounded-platform-sm text-content-tertiary hover:text-content-primary opacity-60 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
         >
           <MoreVertical size={12} aria-hidden="true" />
         </button>
       </div>
-      {menuPos && (
-        <ContextMenu items={items} x={menuPos.x} y={menuPos.y} onClose={closeMenu} />
-      )}
+      <ErrorDetails details={details} className="mt-0.5" />
+      {menuPos && <ContextMenu items={items} x={menuPos.x} y={menuPos.y} onClose={closeMenu} />}
     </>
   );
 }

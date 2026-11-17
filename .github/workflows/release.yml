@@ -576,6 +576,9 @@ jobs:
     name: Resolve Safari version (Apple Music identity)
     needs: ensure-release
     runs-on: macos-latest
+    # This job only reads a file on the build machine. It never touches the
+    # repository or GitHub, so it is given no access at all.
+    permissions: {}
     outputs:
       safari_version: ${{ steps.resolve.outputs.safari_version }}
     steps:

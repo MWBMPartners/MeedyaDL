@@ -682,17 +682,14 @@ fn parse_master_playlist(body: &str) -> Vec<HlsVariant> {
 /// `RESOLUTION`) are excluded entirely — an unknown height can't be
 /// judged "close" to anything.
 fn pick_variant(variants: &[HlsVariant], target_height: u32) -> Option<&HlsVariant> {
-    variants
-        .iter()
-        .filter(|v| v.height != 0)
-        .min_by(|a, b| {
-            let diff_a = a.height.abs_diff(target_height);
-            let diff_b = b.height.abs_diff(target_height);
-            diff_a
-                .cmp(&diff_b)
-                .then_with(|| b.width.cmp(&a.width))
-                .then_with(|| b.bandwidth.cmp(&a.bandwidth))
-        })
+    variants.iter().filter(|v| v.height != 0).min_by(|a, b| {
+        let diff_a = a.height.abs_diff(target_height);
+        let diff_b = b.height.abs_diff(target_height);
+        diff_a
+            .cmp(&diff_b)
+            .then_with(|| b.width.cmp(&a.width))
+            .then_with(|| b.bandwidth.cmp(&a.bandwidth))
+    })
 }
 
 /// Resolves an HLS master playlist URL to a specific rendition's
@@ -760,18 +757,14 @@ async fn resolve_hls_variant_url(master_url: &str, target_height: Option<u32>) -
     let body = match response.text().await {
         Ok(b) => b,
         Err(e) => {
-            log::warn!(
-                "Failed to read HLS master playlist body: {e} — using master playlist URL"
-            );
+            log::warn!("Failed to read HLS master playlist body: {e} — using master playlist URL");
             return master_url.to_string();
         }
     };
 
     let variants = parse_master_playlist(&body);
     let Some(variant) = pick_variant(&variants, target_height) else {
-        log::warn!(
-            "No parseable ABR variants in HLS master playlist — using master playlist URL"
-        );
+        log::warn!("No parseable ABR variants in HLS master playlist — using master playlist URL");
         return master_url.to_string();
     };
 
@@ -973,20 +966,20 @@ async fn download_hls_native_concat(
     // `resolve_hls_variant_url`'s own selection logic (#972).
     let (media_url, media_body) = if is_master_playlist(&root_text) {
         let variants = parse_master_playlist(&root_text);
-        let variant = pick_variant(&variants, target_height.unwrap_or(u32::MAX)).ok_or_else(|| {
-            "No parseable ABR variants in HLS master playlist (native concat)".to_string()
-        })?;
+        let variant =
+            pick_variant(&variants, target_height.unwrap_or(u32::MAX)).ok_or_else(|| {
+                "No parseable ABR variants in HLS master playlist (native concat)".to_string()
+            })?;
 
         let master = url::Url::parse(m3u8_url)
             .map_err(|e| format!("Failed to parse HLS master playlist URL {m3u8_url}: {e}"))?;
-        let variant_url = master.join(&variant.uri).map_err(|e| {
-            format!("Failed to resolve HLS variant URI {}: {e}", variant.uri)
-        })?;
+        let variant_url = master
+            .join(&variant.uri)
+            .map_err(|e| format!("Failed to resolve HLS variant URI {}: {e}", variant.uri))?;
 
         let body = fetch_cdn_bytes(&client, variant_url.as_str()).await?;
-        let text = String::from_utf8(body).map_err(|e| {
-            format!("HLS media playlist at {variant_url} is not valid UTF-8: {e}")
-        })?;
+        let text = String::from_utf8(body)
+            .map_err(|e| format!("HLS media playlist at {variant_url} is not valid UTF-8: {e}"))?;
         (variant_url.to_string(), text)
     } else {
         (m3u8_url.to_string(), root_text)
@@ -1192,7 +1185,8 @@ async fn download_hls_to_mp4(
     // Apple Music always gets the fixed macOS Safari UA regardless of host
     // OS (single source of truth in utils::http_client).
     let browser_user_agent = crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str();
-    let apple_music_headers = "Origin: https://music.apple.com\r\nReferer: https://music.apple.com/\r\n";
+    let apple_music_headers =
+        "Origin: https://music.apple.com\r\nReferer: https://music.apple.com/\r\n";
 
     let output = Command::new(&ffmpeg_bin)
         .args([
@@ -1353,9 +1347,7 @@ pub async fn download_artist_promo_video(
     let artist_dir = match album_path.parent() {
         Some(p) if p.exists() => p,
         _ => {
-            log::debug!(
-                "Cannot derive artist directory from album dir: {album_dir}"
-            );
+            log::debug!("Cannot derive artist directory from album dir: {album_dir}");
             return Ok(false);
         }
     };
@@ -1713,7 +1705,10 @@ seg2.m4s\n\
     fn parse_fmp4_media_playlist_extracts_init_and_ordered_segments() {
         let playlist = parse_fmp4_media_playlist(MEDIA_PLAYLIST).unwrap();
         assert_eq!(playlist.init_uri.as_deref(), Some("init.mp4"));
-        assert_eq!(playlist.segment_uris, vec!["seg0.m4s", "seg1.m4s", "seg2.m4s"]);
+        assert_eq!(
+            playlist.segment_uris,
+            vec!["seg0.m4s", "seg1.m4s", "seg2.m4s"]
+        );
     }
 
     #[test]

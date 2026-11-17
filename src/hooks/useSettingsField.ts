@@ -90,7 +90,7 @@ export interface SettingsField<T> {
  *   />
  */
 export function useSettingsField<K extends keyof AppSettings>(
-  key: K,
+  key: K
 ): SettingsField<AppSettings[K]> {
   const value = useSettingsStore((s) => s.settings[key]);
   const updateSettings = useSettingsStore((s) => s.updateSettings);
@@ -101,7 +101,7 @@ export function useSettingsField<K extends keyof AppSettings>(
     (next: AppSettings[K]) => {
       updateSettings({ [key]: next } as Partial<AppSettings>);
     },
-    [key, updateSettings],
+    [key, updateSettings]
   );
   return { value, set };
 }

@@ -107,6 +107,42 @@ tauri-build = { version = "2", features = [] }
 #   4. Run the full test suite — upstream may have changed APIs.
 meedya-core = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = "0a4654ff4db30d27fc0e29699f342a93ebc86d94", features = ["full"] }
 
+# meedya-lang -- The shared implementation of the Media Language & BCP 47
+# Policy (MWBM-MEDIA-LANG 1.0.0): reading, putting into standard form,
+# ordering, matching and naming language tags (#1244, #1245). MeedyaDL
+# carries exact copies of the policy, its reference data and its test cases
+# (docs/standards/, tests/fixtures/), and src-tauri/tests/
+# media_language_conformance.rs proves this pinned version of the crate
+# gives the answers those test cases expect. Pure logic: no I/O, no network,
+# and nothing it depends on beyond serde / serde_json, which MeedyaDL
+# already has.
+#
+# @see https://github.com/MWBMPartners/MeedyaSuite-core/tree/feature/bcp47-language-policy/crates/meedya-lang
+#
+# **Pinned to a commit on core's `feature/bcp47-language-policy` branch**
+# (rev = …), because that is the only place the crate exists until core
+# merges the work into `main`. Same reason as meedya-core above for pinning
+# by `rev` rather than `branch`: a feature branch is deleted after merging,
+# and a branch pin would then break every fresh clone with "failed to
+# resolve git reference". Re-pin to the merge commit on core `main` once it
+# lands — tracked in #1255.
+#
+# Pin history: `995becb7` (first use, 28 Sept 2026); `aaaa585a` (the reviewed
+# revision 6 of the crate and policy, same day — its item traits share a
+# `RoleItem` parent, `LanguageTag` equality compares tag and kind only, the
+# sidecar builder reads its language with the three-letter reader, and a
+# malformed value matches nothing). The policy copies in docs/standards/ and
+# tests/fixtures/ are pinned to the same commit.
+#
+# **Bumping this commit:** replace the `rev`, run `cargo update -p
+# meedya-lang` (only that package), then the conformance test and the whole
+# backend suite. If core's policy files changed at the new commit, take
+# them in the same change with
+# `python3 scripts/media-lang/check_copies.py --update <commit>` — the crate
+# and the copies of the test cases must move together, or the conformance
+# test is checking the crate against the wrong answers.
+meedya-lang = { git = "https://github.com/MWBMPartners/MeedyaSuite-core", rev = "aaaa585aa145634c057c0bbdd9bd5fc11c3274a0" }
+
 # ---- Tauri Framework & Plugins ----
 # These provide the core application framework and platform-specific capabilities.
 # Each plugin must also be registered in the Tauri app builder (main.rs) and may
@@ -259,14 +295,6 @@ sha2 = "0.10"
 
 # ---- Configuration ----
 
-# configparser -- INI-style configuration file parser.
-# GAMDL (the Python CLI tool) uses an INI-format config.ini file for settings
-# like codec preferences, download paths, and Apple Music cookies.
-# This crate reads and writes that config file from Rust, allowing the GUI
-# to manage GAMDL's configuration without spawning a Python process.
-# @see https://docs.rs/configparser/ -- configparser API reference
-configparser = "3"
-
 # toml -- TOML configuration file parser.
 # Used to read the tool-versions.toml file that defines minimum supported
 # versions for external tool dependencies (FFmpeg, mp4decrypt, N_m3u8DL-RE,
@@ -301,16 +329,14 @@ uuid = { version = "1", features = ["v4"] }
 
 # ---- Date/Time ----
 
-# chrono -- Date and time library with timezone support.
-# Used for:
-#   - Parsing cookie expiration timestamps from Apple Music cookies
-#   - Formatting timestamps in download history and logs
-#   - Calculating time-based UI displays (e.g., "downloaded 5 minutes ago")
-#
-# Feature "serde" enables #[derive(Serialize, Deserialize)] for chrono types,
-# allowing dates to be included in IPC responses and persisted state.
-# @see https://docs.rs/chrono/ -- chrono documentation
-chrono = { version = "0.4", features = ["serde"] }
+# time -- Date and time library (replaces chrono, #1449). Used through
+# `utils/time_compat.rs`, which writes every stored date in exactly the
+# text form chrono used to write, so old files keep working.
+# `local-offset` is needed to read the computer's own time zone (labels,
+# the session file name, the Spotify daily-cap day); if it cannot be read
+# the code falls back to UTC. `time` was already part of the build through
+# other crates, so this adds one tiny crate (`num_threads`).
+time = { version = "0.3.55", features = ["std", "formatting", "parsing", "macros", "local-offset"] }
 
 # ---- Logging & Telemetry ----
 
@@ -391,15 +417,14 @@ thiserror = "2"
 # `.meedyadl` manifests on disk REMAIN the source of truth — the DB
 # is rebuildable from them via scan_folder_for_manifests.
 #
-# Features:
+# Feature:
 #   - `bundled` -- ships SQLite source statically, no system dep
-#   - `chrono` -- ISO-8601 timestamp marshalling for activity_events
-# Both required for a zero-deployment-friction story (no system
-# SQLite shared-library lookup; chrono types we already use across
-# the project marshal directly into TEXT columns).
+#     (a zero-deployment-friction story: no system SQLite shared-library
+#     lookup). Dates are stored as plain TEXT written by
+#     `utils/time_compat.rs`, so no date-type feature is needed (#1449).
 # @see https://docs.rs/rusqlite/ -- rusqlite documentation
 # @see #875 -- EPIC A: SQLite-backed download index + activity log
-rusqlite = { version = "0.31", features = ["bundled", "chrono"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 
 # ---- Shared MeedyaSuite-core fingerprint + ReplayGain crate (#353) ----
 
@@ -454,7 +479,8 @@ pbkdf2 = { version = "0.12", features = ["hmac"] }
 # rand -- Cryptographically secure random number generator. Used to
 # produce salt (32 bytes) + GCM nonce (12 bytes) on every encrypt.
 # `OsRng` reads from the OS entropy pool — no userspace state to
-# leak.
+# leak. Also gives the random part of temporary subtitle file names
+# (64 bits from `OsRng`), so a name is never handed out twice.
 rand = "0.8"
 
 # ---- Platform Directories ----
@@ -667,5 +693,54 @@ tempfile = "3"
 # `open_downloaded_file` in `commands/history.rs` for why that matters.
 # Already compiled as part of the dependency tree; naming it here just
 # makes it callable directly.
+#
+# Also used on macOS for `renamex_np(…, RENAME_EXCL)`: putting a finished
+# subtitle in place only if nothing is already there, as one step the
+# system does without a gap (`utils::fs_safe::rename_no_replace`; Codex's
+# review of round 5, finding 3).
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
+
+# Linux: the same crate as above, for the Linux form of that step,
+# `renameat2(…, RENAME_NOREPLACE)`. Already in the dependency tree.
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+
+# Windows: the Windows form of that step, `MoveFileExW` WITHOUT
+# `MOVEFILE_REPLACE_EXISTING` (Rust's own rename passes that flag, so it
+# replaces). The same crate and version are already in the dependency tree
+# through Tauri; this only names the parts used. File information (in
+# `Win32_Storage_FileSystem`) tells which file a name, or an open handle,
+# refers to (`utils::fs_safe::file_identity`, `handle_identity`), so a
+# temporary subtitle file is deleted only while it is still the one
+# MeedyaDL made (Codex's review of rounds 6-7, finding 2). `Win32_System_Threading` (asking
+# whether a process is still running) was dropped with the clean-up of
+# other runs' temporary files that used it (Codex's review of rounds 6-7,
+# findings 3 and 4).
+[target.'cfg(windows)'.dependencies]
+#
+# `Win32_System_Diagnostics_Debug` + `Win32_UI_WindowsAndMessaging`:
+# `MessageBeep`, the system alert sound the after-queue "Play a sound"
+# action plays (`services::notification_service::play_alert_sound`, #1431).
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_UI_WindowsAndMessaging"] }
+
+# ============================================================
+# [patch.crates-io] -- our own copy of rookie (#1413)
+# ============================================================
+# rookie (browser cookie import) has had no release since Nov 2024 and
+# pins rusqlite ^0.31, whose bundled SQLite (libsqlite3-sys 0.28) is
+# covered by RUSTSEC-2026-0459. `vendor/rookie` is rookie 0.5.6 exactly as
+# published (MIT; its licence travels with it in MIT-LICENSE.txt), with
+# four changes: its rusqlite dependency is 0.43, which bundles a fixed
+# SQLite; two cookie expiry reads take a signed number (rusqlite 0.43 no
+# longer reads into u64); its manifest declares `license = "MIT"`
+# instead of pointing at a licence file outside the folder; and Internet
+# Explorer support is removed (#1449): MeedyaDL never imports from it, and
+# it was the only reason the Windows build pulled in `libesedb` (LGPL, plus
+# a C build step) and, through it, `chrono` (RUSTSEC-2026-0543). rookie only
+# opens the browser's cookie database read-only, prepares a query and
+# reads rows, which works the same on both rusqlite versions.
+# Remove this patch (and the vendor folder) once rookie publishes a
+# release on a current rusqlite.
+[patch.crates-io]
+rookie = { path = "vendor/rookie" }

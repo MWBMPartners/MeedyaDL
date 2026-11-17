@@ -351,8 +351,7 @@ mod tests {
         let path = dir.path().join("Cover.jpg");
         fs::write(&path, vec![0u8; 5 * 1024]).unwrap();
         let metadata = metadata_with_template(Some("https://example.com/{w}x{h}.{f}"));
-        let outcome =
-            ensure_cover_present(dir.path(), &metadata, &CoverFormat::Jpg, "Cover").await;
+        let outcome = ensure_cover_present(dir.path(), &metadata, &CoverFormat::Jpg, "Cover").await;
         match outcome {
             CoverFallbackOutcome::AlreadyPresent { existing_path } => {
                 assert_eq!(existing_path, path);
@@ -372,8 +371,7 @@ mod tests {
         let png_path = dir.path().join("Cover.png");
         fs::write(&png_path, vec![0u8; 5 * 1024]).unwrap();
         let metadata = metadata_with_template(Some("https://example.com/{w}x{h}.{f}"));
-        let outcome =
-            ensure_cover_present(dir.path(), &metadata, &CoverFormat::Raw, "Cover").await;
+        let outcome = ensure_cover_present(dir.path(), &metadata, &CoverFormat::Raw, "Cover").await;
         match outcome {
             CoverFallbackOutcome::AlreadyPresent { existing_path } => {
                 assert_eq!(existing_path, png_path);
@@ -387,8 +385,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         // No file present, no template — nothing we can do.
         let metadata = metadata_with_template(None);
-        let outcome =
-            ensure_cover_present(dir.path(), &metadata, &CoverFormat::Raw, "Cover").await;
+        let outcome = ensure_cover_present(dir.path(), &metadata, &CoverFormat::Raw, "Cover").await;
         assert_eq!(outcome, CoverFallbackOutcome::NoTemplate);
     }
 

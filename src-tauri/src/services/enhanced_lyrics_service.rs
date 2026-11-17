@@ -131,7 +131,11 @@ struct TtmlMetadata {
     title: Option<String>,
     /// Artist name from `<ttm:agent>` with `type="person"`
     artist: Option<String>,
-    /// Language code from `xml:lang` on `<tt>`
+    /// The language `xml:lang` on `<tt>` states, as a standard tag — or
+    /// `None` when it is missing, unreadable or `und` (not known). Read with
+    /// the shared policy's reader for values from files (#1250, LANG-002),
+    /// so an old three-letter code (`eng`) becomes `en`; see
+    /// `utils::language::known_file_language`.
     language: Option<String>,
     /// Songwriter names from `<iTunesMetadata>/<songwriters>`
     songwriters: Vec<String>,
@@ -140,127 +144,6 @@ struct TtmlMetadata {
 // ============================================================
 // Public API
 // ============================================================
-
-/// Processes all TTML files in a directory, converting each to Enhanced LRC.
-///
-/// For each `.ttml` file found:
-/// 1. Reads and parses the TTML content
-/// 2. Converts to Enhanced LRC (word-level if available, line-level fallback)
-/// 3. Writes a `.lrc` sidecar file (same name, different extension)
-/// 4. Embeds the Enhanced LRC in the corresponding `.m4a` or `.m4v` file
-///
-/// Returns the number of files successfully processed.
-///
-/// **Note:** This function is intentionally `fn` (not `async fn`) because it
-/// performs only synchronous file I/O (std::fs, mp4ameta). Callers in the
-/// enrichment pipeline wrap it in `tokio::task::spawn_blocking()` to prevent
-/// blocking the async runtime on slow filesystems (FUSE mounts, NFS, etc.).
-pub fn process_enhanced_lyrics_for_directory(
-    album_dir: &str,
-    save_sidecar_files: bool,
-) -> Result<usize, String> {
-    let dir = Path::new(album_dir);
-    if !dir.is_dir() {
-        return Err(format!("Not a directory: {album_dir}"));
-    }
-
-    let mut processed = 0;
-
-    // Collect .ttml files in the directory. Skip filesystem sidecars
-    // (macOS AppleDouble `._*.ttml`, etc.) so we don't try to parse
-    // resource-fork blobs as TTML XML (#577).
-    let entries: Vec<_> = std::fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read directory: {e}"))?
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            let path = entry.path();
-            if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-                return false;
-            }
-            path.extension()
-                .is_some_and(|ext| ext.eq_ignore_ascii_case("ttml"))
-        })
-        .collect();
-
-    for entry in entries {
-        let ttml_path = entry.path();
-        let stem = match ttml_path.file_stem() {
-            Some(s) => s.to_string_lossy().to_string(),
-            None => continue,
-        };
-
-        // Read the TTML content
-        let ttml_content = match std::fs::read_to_string(&ttml_path) {
-            Ok(c) => c,
-            Err(e) => {
-                log::debug!("Failed to read {}: {e}", ttml_path.display());
-                continue;
-            }
-        };
-
-        // Convert TTML → Enhanced LRC
-        let result = match ttml_to_enhanced_lrc(&ttml_content) {
-            Ok(r) => r,
-            Err(e) => {
-                log::debug!("Failed to convert {}: {e}", ttml_path.display());
-                continue;
-            }
-        };
-
-        if result.has_word_timing {
-            log::info!(
-                "Enhanced LRC (word-level) generated for {}",
-                ttml_path.display()
-            );
-        } else {
-            log::debug!(
-                "Standard LRC (line-level) generated for {} (no word timing in TTML)",
-                ttml_path.display()
-            );
-        }
-
-        // Write the .lrc sidecar file — unless the user has asked not to have
-        // separate lyrics files (#1155).
-        //
-        // Only the FILE is skipped. The lyrics still go into the music file
-        // itself further down, which is the point: someone who turns this off
-        // wants their music folder kept tidy, not their lyrics thrown away.
-        //
-        // Nothing existing is ever removed. A file already on disk stays
-        // there, because it might be one the person wrote or corrected
-        // themselves in a lyrics editor.
-        let lrc_path = dir.join(format!("{stem}.lrc"));
-        if !save_sidecar_files {
-            log::debug!(
-                "not writing {} — separate lyrics files are switched off",
-                lrc_path.display()
-            );
-        } else if let Err(e) = std::fs::write(&lrc_path, &result.lrc_content) {
-            log::debug!("Failed to write {}: {e}", lrc_path.display());
-            continue;
-        }
-
-        // Embed in corresponding audio/video file (.m4a or .m4v)
-        for ext in &["m4a", "m4v", "mp4"] {
-            let media_path = dir.join(format!("{stem}.{ext}"));
-            if media_path.exists() {
-                if let Err(e) = embed_enhanced_lrc_in_file(&media_path, &result.lrc_content) {
-                    log::debug!(
-                        "Failed to embed Enhanced LRC in {}: {e}",
-                        media_path.display()
-                    );
-                } else {
-                    log::debug!("Embedded Enhanced LRC in {}", media_path.display());
-                }
-                break; // Only embed in the first matching media file
-            }
-        }
-
-        processed += 1;
-    }
-
-    Ok(processed)
-}
 
 /// Converts a TTML string to Enhanced LRC format.
 ///
@@ -395,6 +278,10 @@ pub fn ttml_has_word_timing(ttml_content: &str) -> bool {
 /// Uses the `mp4ameta` crate to read the existing tag, set the lyrics data,
 /// and write back. This preserves all other existing metadata (artwork, track
 /// info, etc.) while updating only the lyrics atom.
+///
+/// Takes no write lock itself. The caller's per-file loop must hold the
+/// app-wide lock for `file_path` (`utils::file_locks::global()`), because
+/// the lock is not re-entrant.
 pub fn embed_enhanced_lrc_in_file(file_path: &Path, lrc_content: &str) -> Result<(), String> {
     let mut tag = Tag::read_from_path(file_path)
         .map_err(|e| format!("Failed to read M4A tags from {}: {e}", file_path.display()))?;
@@ -449,10 +336,13 @@ fn detect_timing_mode(root: &roxmltree::Node) -> TimingMode {
 /// Extracts metadata from the TTML `<head>` section for the LRC header.
 fn extract_ttml_metadata(doc: &roxmltree::Document, root: &roxmltree::Node) -> TtmlMetadata {
     let mut metadata = TtmlMetadata {
-        // Language from xml:lang on <tt>
+        // Language from xml:lang on <tt>, read as a language value from a
+        // file (#1250). It used to be copied through raw — whatever case,
+        // three-letter code or non-language text the file held went
+        // straight into the LRC `[la:]` line.
         language: root
             .attribute(("http://www.w3.org/XML/1998/namespace", "lang"))
-            .map(|s| s.to_string()),
+            .and_then(crate::utils::language::known_file_language),
         ..Default::default()
     };
 
@@ -526,6 +416,11 @@ fn build_lrc_header(metadata: &TtmlMetadata) -> String {
     if let Some(ref artist) = metadata.artist {
         header.push_str(&format!("[ar:{artist}]\n"));
     }
+    // Only a known language is written (#1250). When the TTML states none,
+    // or one that cannot be read, or `und`, the line is left out — never
+    // filled in with `en` or any other guess (policy LANG-003). LRC has no
+    // "unknown" marker of its own; an absent `[la:]` line is how it says
+    // "not stated".
     if let Some(ref lang) = metadata.language {
         header.push_str(&format!("[la:{lang}]\n"));
     }
@@ -839,6 +734,49 @@ mod tests {
         assert!(result.lrc_content.contains("[00:30.00]\n"));
     }
 
+    /// Wraps one timed line in a TTML document whose `<tt>` carries
+    /// `lang_attribute` verbatim (or no `xml:lang` at all when empty).
+    fn ttml_with_lang(lang_attribute: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<tt xmlns="http://www.w3.org/ns/ttml" {lang_attribute}>
+  <body><div><p begin="00:01.000" end="00:02.000">Hello</p></div></body>
+</tt>"#
+        )
+    }
+
+    #[test]
+    fn la_line_carries_the_standard_tag() {
+        // #1250: a three-letter code or odd case is put into standard form.
+        for (attribute, expected) in [
+            (r#"xml:lang="en-US""#, "[la:en-US]"),
+            (r#"xml:lang="EN-us""#, "[la:en-US]"),
+            (r#"xml:lang="eng""#, "[la:en]"),
+            (r#"xml:lang="ja""#, "[la:ja]"),
+        ] {
+            let lrc = ttml_to_enhanced_lrc(&ttml_with_lang(attribute))
+                .unwrap()
+                .lrc_content;
+            assert!(lrc.contains(expected), "{attribute}: {lrc}");
+        }
+    }
+
+    #[test]
+    fn la_line_is_left_out_when_the_language_is_not_known() {
+        // Never an invented `en` (policy LANG-003).
+        for attribute in [
+            "",
+            r#"xml:lang="""#,
+            r#"xml:lang="und""#,
+            r#"xml:lang="English""#,
+        ] {
+            let lrc = ttml_to_enhanced_lrc(&ttml_with_lang(attribute))
+                .unwrap()
+                .lrc_content;
+            assert!(!lrc.contains("[la:"), "{attribute:?}: {lrc}");
+        }
+    }
+
     #[test]
     fn header_includes_songwriter() {
         let ttml = r#"<?xml version="1.0" encoding="UTF-8"?>
@@ -977,9 +915,7 @@ mod tests {
 
         let result = ttml_to_enhanced_lrc(ttml).unwrap();
         assert!(!result.has_word_timing);
-        assert!(result
-            .lrc_content
-            .contains("[00:12.45]Hello world today"));
+        assert!(result.lrc_content.contains("[00:12.45]Hello world today"));
     }
 
     // ----------------------------------------------------------

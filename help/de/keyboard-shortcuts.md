@@ -13,9 +13,9 @@ MeedyaDL unterstützt Tastaturkürzel für schnelles Navigieren und häufige Akt
 | Tastenkombination | Aktion |
 |----------|--------|
 | **Cmd/Ctrl + D** | Wechselt zur Download-Seite und setzt den Fokus in das URL-Feld |
-| **Cmd/Ctrl + Q** | Wechselt zur Queue-Seite |
+| **Cmd/Ctrl + J** | Wechselt zur Queue-Seite |
 | **Cmd/Ctrl + L** | Wechselt zur Library-Seite |
-| **Cmd/Ctrl + H** | Wechselt zur History-Seite |
+| **Cmd/Ctrl + Y** | Wechselt zur History-Seite |
 | **Cmd/Ctrl + K** | Wechselt zur Activity-Seite |
 | **Cmd/Ctrl + ,** | Wechselt zur Settings-Seite |
 
@@ -25,7 +25,7 @@ MeedyaDL unterstützt Tastaturkürzel für schnelles Navigieren und häufige Akt
 |----------|--------|
 | **Enter** | Startet den Download (wenn das URL-Feld fokussiert ist) |
 | **Shift + Enter** | Fügt im URL-Feld einen Zeilenumbruch ein (Modus für mehrere URLs) |
-| **Cmd/Ctrl + Shift + .** | Bricht jeden aktiven und wartenden Download ab |
+| **Cmd/Ctrl + Shift + .** | Bricht jeden aktiven und wartenden Download ab. Zuerst wird um Bestätigung gebeten, außer Sie haben im Fenster zum Abbrechen der Warteschlange **Don't ask again** angekreuzt. Die Frage lässt sich unter **Settings > General > Preferences** wieder einschalten. |
 | **Cmd/Ctrl + Shift + ?** | Öffnet diese Tastaturkürzel-Übersicht von überall in der App aus |
 | **Escape** | Schließt das aktive Modal-Fenster oder den aktiven Dialog |
 

@@ -16,6 +16,8 @@
 
 import { useMemo, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+/** Renumbers the release notes' headings to fit under "Release Notes". */
+import { remarkFitHeadings } from '@/lib/markdownHeadings';
 import {
   RefreshCw,
   ExternalLink,
@@ -34,9 +36,16 @@ import {
 } from '@/stores/updateStore';
 import { useUiStore } from '@/stores/uiStore';
 import { PageHeader } from '@/components/layout';
-import { Button } from '@/components/common';
+import { Button, IconButton, InlineError, TextButton } from '@/components/common';
 import { upgradeGenericComponent } from '@/lib/upgrade-generic-component';
 import type { ComponentUpdate } from '@/types';
+import {
+  GAMDL_UPDATE_FAILED,
+  RESTART_FAILED,
+  UPDATE_FAILED,
+  componentUpdateFailed,
+  showError,
+} from '@/lib/errorMessages';
 
 /**
  * Strips the "Choose your download" section and everything after it from
@@ -96,7 +105,11 @@ function NotCheckableNotice({ items }: { items: ComponentUpdate[] }) {
   );
 }
 
-
+/**
+ * The Updates page: shows the app update (with progress and install), GAMDL
+ * and tool updates, and anything that could not be checked, using the update
+ * store's last check result.
+ */
 export function UpdatesPage() {
   const lastResult = useUpdateStore((s) => s.lastResult);
   const dismissed = useUpdateStore((s) => s.dismissed);
@@ -117,6 +130,7 @@ export function UpdatesPage() {
   // affecting the others or the bulk "Update All" button.
   const [upgradingComponent, setUpgradingComponent] = useState<string | null>(null);
 
+  // Components with a compatible update that the person has not dismissed.
   const activeUpdates = useMemo(() => {
     if (!lastResult) return [];
     return lastResult.components.filter(
@@ -148,6 +162,8 @@ export function UpdatesPage() {
     () => activeUpdates.filter((c) => CORE_COMPONENTS.includes(c.name)),
     [activeUpdates]
   );
+  // Engine and tool updates: anything other than the app, GAMDL and Python
+  // (which have their own rows) that names a pip package or a tool to update.
   const engineUpdates = useMemo(
     () =>
       activeUpdates.filter(
@@ -164,6 +180,7 @@ export function UpdatesPage() {
     return app?.current_version ?? null;
   }, [lastResult]);
 
+  // Upgrades GAMDL, then shows a success or error message.
   const handleUpgradeGamdl = async (target?: string | null) => {
     try {
       // Pass the explicit target only for above-ceiling "Untested"
@@ -177,8 +194,7 @@ export function UpdatesPage() {
       // a swallowed error makes upgrade failures un-diagnosable in the
       // field. The activity log already gets the same string from the
       // Rust handler.
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || 'Failed to upgrade GAMDL', 'error');
+      showError(GAMDL_UPDATE_FAILED, e);
     }
   };
 
@@ -194,43 +210,61 @@ export function UpdatesPage() {
       addToast(`${c.name} updated successfully`, 'success');
       checkForUpdates().catch(() => {});
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || `Failed to update ${c.name}`, 'error');
+      showError(componentUpdateFailed(c.name), e);
     } finally {
       setUpgradingComponent(null);
     }
   };
 
+  // Downloads and installs the app update with the given release tag.
   const handleDownloadAndInstall = async (tag: string) => {
     try {
       await downloadAndInstallAppUpdate(tag);
-      addToast('Update installed! Restart to apply.', 'success');
+      addToast(
+        'Update installed! Restart to apply.',
+        'success',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          // An important message (#1431): may also be a system notification.
+          kind: 'update_ready',
+          systemBody: 'A MeedyaDL update is installed. Restart MeedyaDL to use it.',
+        }
+      );
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || 'Failed to download and install update', 'error');
+      showError(UPDATE_FAILED, e);
     }
   };
 
+  // Restarts the app so an installed update takes effect.
   const handleRestart = async () => {
     try {
       await relaunch();
     } catch {
-      addToast('Failed to restart. Please restart manually.', 'error');
+      addToast(RESTART_FAILED, 'error');
     }
   };
 
+  // Runs a fresh update check; errors are handled by the store.
   const handleCheck = () => {
     checkForUpdates().catch(() => {});
   };
 
+  // Opens a release page in the system browser.
   const handleViewRelease = (url: string) => {
     import('@tauri-apps/plugin-shell').then(({ open }) => open(url)).catch(() => {});
   };
 
   return (
     <div className="flex flex-col h-full">
+      {/* Every page header has a one-line subtitle (polish pass L1): this
+          one had none, so its divider sat about 20px higher than on the
+          other pages. */}
       <PageHeader
         title="Updates"
+        subtitle="New versions of MeedyaDL and of the tools it uses"
         actions={
           <Button
             variant="secondary"
@@ -239,7 +273,7 @@ export function UpdatesPage() {
             loading={isChecking}
             onClick={handleCheck}
           >
-            {isChecking ? 'Checking...' : 'Check for Updates'}
+            {isChecking ? 'Checking…' : 'Check for Updates'}
           </Button>
         }
       />
@@ -253,9 +287,9 @@ export function UpdatesPage() {
                 something could not be checked it would be claiming that
                 for those too, so the heading steps back to what is
                 actually known: nothing newer was found. */}
-            <h3 className="text-lg font-semibold text-content-primary mb-1">
+            <h2 className="text-lg font-semibold text-content-primary mb-1">
               {notCheckable.length > 0 ? 'No updates found' : <>You&apos;re up to date!</>}
-            </h3>
+            </h2>
             {currentVersion && (
               <p className="text-sm text-content-secondary">Current version: v{currentVersion}</p>
             )}
@@ -280,25 +314,24 @@ export function UpdatesPage() {
                       Running pre-release — stable v{lastResult.rollback_version} available
                     </p>
                     <p className="text-xs text-content-tertiary mt-1">
-                      Roll back to the latest stable release if you experience issues with this pre-release.
+                      Roll back to the latest stable release if you experience issues with this
+                      pre-release.
                     </p>
                   </div>
-                  <button
-                    /* `bg-surface-quaternary` was never a defined colour
-                     * (there is no fourth surface tier) -- this button's
-                     * hover state did nothing visible. `border-strong` is
-                     * the existing token one step further than
-                     * `surface-tertiary` in both light and dark mode. */
-                    className="px-3 py-1.5 text-xs font-medium rounded-platform bg-surface-tertiary hover:bg-border-strong text-content-primary transition-colors"
+                  <Button
+                    variant="secondary"
+                    size="sm"
                     onClick={async () => {
                       if (lastResult.rollback_tag) {
                         const { open } = await import('@tauri-apps/plugin-shell');
-                        await open(`https://github.com/MWBMPartners/MeedyaDL/releases/tag/${lastResult.rollback_tag}`);
+                        await open(
+                          `https://github.com/MWBMPartners/MeedyaDL/releases/tag/${lastResult.rollback_tag}`
+                        );
                       }
                     }}
                   >
                     View Stable Release
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
@@ -308,9 +341,7 @@ export function UpdatesPage() {
           <div className="space-y-6">
             <div className="flex items-center gap-2 text-sm font-medium text-content-primary">
               <ArrowUpCircle size={18} className="text-accent" />
-              {activeUpdates.length === 1
-                ? 'Update Available'
-                : 'Updates Available'}
+              {activeUpdates.length === 1 ? 'Update Available' : 'Updates Available'}
             </div>
 
             {/* Engine/tool updates: aggregated card with a bulk action plus
@@ -349,11 +380,20 @@ export function UpdatesPage() {
                       }
 
                       if (failCount === 0) {
-                        addToast(`${successCount} component${successCount > 1 ? 's' : ''} updated successfully`, 'success');
+                        addToast(
+                          `${successCount} component${successCount > 1 ? 's' : ''} updated successfully`,
+                          'success'
+                        );
                       } else if (successCount === 0) {
-                        addToast(`Failed to update ${failCount} component${failCount > 1 ? 's' : ''}`, 'error');
+                        addToast(
+                          `MeedyaDL could not install ${failCount === 1 ? 'the update' : `any of the ${failCount} updates`}. Check your internet connection, then try again.`,
+                          'error'
+                        );
                       } else {
-                        addToast(`${successCount} updated, ${failCount} failed`, 'warning');
+                        addToast(
+                          `${successCount} updated; ${failCount} could not be updated. Check your internet connection, then update ${failCount === 1 ? 'that one' : 'those'} again.`,
+                          'warning'
+                        );
                       }
 
                       checkForUpdates().catch(() => {});
@@ -363,7 +403,8 @@ export function UpdatesPage() {
                   </Button>
                 </div>
                 <p className="text-sm text-content-secondary mt-2">
-                  Newer versions of internal components are available. Updating ensures the best compatibility and performance.
+                  Newer versions of internal components are available. Updating ensures the best
+                  compatibility and performance.
                 </p>
 
                 {/* Per-tool row list. Each row's button label reflects the
@@ -381,7 +422,10 @@ export function UpdatesPage() {
                           <span className="font-medium text-content-primary">{update.name}</span>
                           {update.current_version && <span> v{update.current_version}</span>}
                           {update.latest_version && (
-                            <span className="text-accent-hover"> &rarr; v{update.latest_version}</span>
+                            <span className="text-accent-hover">
+                              {' '}
+                              &rarr; v{update.latest_version}
+                            </span>
                           )}
                         </span>
                         {/*
@@ -392,7 +436,7 @@ export function UpdatesPage() {
                          * to run it themselves.
                          */}
                         {update.manual_update_command && (
-                          <p className="text-[11px] text-content-secondary mt-0.5 truncate">
+                          <p className="text-2xs text-content-secondary mt-0.5 truncate">
                             Runs: {update.manual_update_command}
                           </p>
                         )}
@@ -434,13 +478,13 @@ export function UpdatesPage() {
                       </span>
                     )}
                     {update.is_prerelease && (
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text">
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-platform-sm text-2xs font-semibold bg-status-warning-bg text-status-warning-text">
                         Pre-Release
                       </span>
                     )}
                     {update.is_untested && !update.no_compatible_wheel && (
                       <span
-                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text"
+                        className="inline-flex items-center px-1.5 py-0.5 rounded-platform-sm text-2xs font-semibold bg-status-warning-bg text-status-warning-text"
                         title="This version was released after MeedyaDL's last validation pass. Install at your own risk."
                       >
                         Untested
@@ -457,7 +501,7 @@ export function UpdatesPage() {
                      */}
                     {update.no_compatible_wheel && (
                       <span
-                        className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text"
+                        className="inline-flex items-center px-1.5 py-0.5 rounded-platform-sm text-2xs font-semibold bg-status-warning-bg text-status-warning-text"
                         title="No compatible wheel has been published for this platform yet -- installing would fail."
                       >
                         Not Installable
@@ -524,8 +568,8 @@ export function UpdatesPage() {
                                 }}
                               />
                             </div>
-                            <span className="text-[10px] text-content-tertiary tabular-nums">
-                              {downloadProgress != null ? `${downloadProgress}%` : '...'}
+                            <span className="text-2xs text-content-tertiary tabular-nums">
+                              {downloadProgress != null ? `${downloadProgress}%` : '…'}
                             </span>
                           </div>
                         ) : (
@@ -545,14 +589,11 @@ export function UpdatesPage() {
 
                     {/* View release link */}
                     {update.release_url && (
-                      <button
-                        type="button"
+                      <IconButton
+                        icon={<ExternalLink size={14} />}
+                        label="View release on GitHub"
                         onClick={() => handleViewRelease(update.release_url!)}
-                        className="p-1.5 rounded hover:bg-surface-secondary transition-colors"
-                        title="View release on GitHub"
-                      >
-                        <ExternalLink size={14} className="text-content-tertiary" />
-                      </button>
+                      />
                     )}
 
                     {/* Dismiss */}
@@ -564,7 +605,7 @@ export function UpdatesPage() {
 
                 {/* Pre-release warning */}
                 {update.is_prerelease && (
-                  <p className="text-[11px] text-status-warning-text mb-3">
+                  <p className="text-2xs text-status-warning-text mb-3">
                     This is a pre-release version and may contain bugs or incomplete features. Not
                     recommended for regular use.
                   </p>
@@ -581,10 +622,11 @@ export function UpdatesPage() {
                  * blocker with its own paragraph below.
                  */}
                 {update.is_untested && !update.is_prerelease && !update.no_compatible_wheel && (
-                  <p className="text-[11px] text-status-warning-text mb-3">
-                    This GAMDL release was published after MeedyaDL&apos;s last compatibility verification.
-                    The upgrade is installable, but compatibility with MeedyaDL&apos;s functionality isn&apos;t
-                    guaranteed — install at your own risk, or wait for the next MeedyaDL version to validate it.
+                  <p className="text-2xs text-status-warning-text mb-3">
+                    This GAMDL release was published after MeedyaDL&apos;s last compatibility
+                    verification. The upgrade is installable, but compatibility with MeedyaDL&apos;s
+                    functionality isn&apos;t guaranteed — install at your own risk, or wait for the
+                    next MeedyaDL version to validate it.
                   </p>
                 )}
 
@@ -596,26 +638,22 @@ export function UpdatesPage() {
                  * blocker: the Upgrade button is disabled, not just risky).
                  */}
                 {update.no_compatible_wheel && (
-                  <p className="text-[11px] text-status-warning-text mb-3">
+                  <p className="text-2xs text-status-warning-text mb-3">
                     Not installable — no compatible wheel has been published for this platform yet.
-                    Installing would fall back to a source build MeedyaDL&apos;s bundled Python runtime
-                    can&apos;t perform. Wait for a future GAMDL release, or a MeedyaDL build with a
-                    matching Python runtime.
+                    Installing would fall back to a source build MeedyaDL&apos;s bundled Python
+                    runtime can&apos;t perform. Wait for a future GAMDL release, or a MeedyaDL build
+                    with a matching Python runtime.
                   </p>
                 )}
 
                 {/* Download error with manual fallback */}
                 {update.name === APP_COMPONENT_NAME && downloadError && !updateInstalled && (
                   <div className="rounded-platform border border-status-error/30 bg-status-error/5 p-3 mb-3">
-                    <p className="text-xs text-status-error-text mb-2">{downloadError}</p>
+                    <InlineError message={UPDATE_FAILED} details={downloadError} className="mb-2" />
                     {update.release_url && (
-                      <button
-                        type="button"
-                        onClick={() => handleViewRelease(update.release_url!)}
-                        className="text-xs text-accent-hover hover:underline cursor-pointer"
-                      >
+                      <TextButton size="xs" onClick={() => handleViewRelease(update.release_url!)}>
                         Download manually from GitHub
-                      </button>
+                      </TextButton>
                     )}
                   </div>
                 )}
@@ -623,11 +661,14 @@ export function UpdatesPage() {
                 {/* Full release notes (markdown) for MeedyaDL */}
                 {update.name === APP_COMPONENT_NAME && update.release_body && (
                   <div className="mt-4 pt-4 border-t border-border-light">
-                    <h4 className="text-xs font-semibold text-content-secondary uppercase tracking-wider mb-3">
+                    <h2 className="text-xs font-semibold text-content-secondary uppercase tracking-wider mb-3">
                       Release Notes
-                    </h4>
+                    </h2>
                     <div className="prose prose-sm max-w-none text-content-primary">
                       <ReactMarkdown
+                        // The release notes' own headings ("#", then "###")
+                        // go beneath "Release Notes", with no level skipped.
+                        remarkPlugins={[[remarkFitHeadings, { top: 3 }]]}
                         // Release notes come from a GitHub release body, not
                         // a file we wrote ourselves, so a link in them
                         // should never be trusted with the window. This
@@ -653,7 +694,10 @@ export function UpdatesPage() {
                               {...props}
                               href={href}
                               onClick={(e) => {
-                                if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+                                if (
+                                  href &&
+                                  (href.startsWith('http://') || href.startsWith('https://'))
+                                ) {
                                   e.preventDefault();
                                   import('@tauri-apps/plugin-shell')
                                     .then(({ open }) => open(href))

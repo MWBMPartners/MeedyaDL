@@ -83,7 +83,7 @@ import * as commands from '@/lib/tauri-commands';
 const DEFAULT_SETTINGS: AppSettings = {
   output_path: '', // Resolved to ~/Music (or platform equivalent) by backend
   temp_path: '', // Resolved to {OS temp}/MeedyaDL by backend
-  language: 'en-US', // Apple Music storefront language
+  language: 'en-US', // Metadata language, a BCP 47 language tag
   storefront: '', // Auto-detect from language region (e.g., en-GB → gb)
   overwrite: false, // Do not overwrite existing files by default
   ui_language: '', // Auto-detect UI language from OS locale
@@ -94,8 +94,14 @@ const DEFAULT_SETTINGS: AppSettings = {
   gamdl_idle_timeout_minutes: 5, // Kill hung GAMDL after 5 min of silent output (#505)
   auto_start_queue: true, // Start processing immediately when items are enqueued
   abort_queue_confirm: true, // Show confirmation modal before abort fires (#620)
-  desktop_notifications: true, // OS-native notifications for download events when window not focused
+  desktop_notifications: true, // Master switch for system notifications (#1431)
   notification_style: 'native_and_in_app' as const, // Both native + in-app by default
+  native_notification_when: 'background_or_other_screen' as const, // System notification only while MeedyaDL is not in front (#1431)
+  native_notification_scope: 'important' as const, // Only important messages become system notifications (#1431)
+  notify_download_complete: true, // System notification when a download finishes (#1431)
+  notify_download_failed: true, // ...when one fails or finishes with warnings (#1431)
+  notify_queue_finished: true, // ...when the queue finishes (#1431)
+  notify_clipboard_link: true, // ...when a copied link is found (#1431)
   smart_redownload_detection: true, // Detect changes via API lastModifiedDate before re-downloading
   clipboard_monitoring: true, // Monitor clipboard for supported URLs
   default_song_codec: 'alac', // Preferred audio codec: Apple Lossless
@@ -203,7 +209,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   storefront_fallback_on_failure: true, // Retry once with account region when URL storefront 404s (#666)
   wrapper_account_url: 'http://127.0.0.1:30020', // wrapper-v1 account URL (GAMDL <= 3.5.x)
   wrapper_m3u8_ip: '127.0.0.1:20020', // wrapper-v1 m3u8 address (GAMDL 3.1–3.5.x)
-  wrapper_decrypt_ip: '127.0.0.1:10020', // wrapper-v1 decryption address (#743, GAMDL <= 3.5.x)
+  wrapper_decrypt_ip: '', // wrapper decryption address; empty = automatic, worked out from the wrapper address (#743, #1433)
   wrapper_url: 'http://127.0.0.1', // wrapper-v2 HTTP base URL (#853, GAMDL >= 3.6)
   drm_backend: 'widevine', // Which method GAMDL uses to unlock Apple Music tracks; built-in, needs no setup (#1189, GAMDL >= 3.9 adds 'playready')
   prd_path: '', // PlayReady device file (.prd) path; only used when drm_backend is 'playready'
@@ -307,6 +313,13 @@ interface SettingsState {
   isLoading: boolean;
 
   /**
+   * `true` once a `loadSettings()` has succeeded. Until then `settings` is
+   * the built-in placeholder, and saving it would overwrite the person's
+   * real file with placeholder values (#1237), so `saveSettings()` refuses.
+   */
+  hasLoaded: boolean;
+
+  /**
    * `true` when `updateSettings()` has been called but `saveSettings()` has not
    * yet been called (or has failed). The `<SettingsPage>` uses this to
    * conditionally enable the "Save" button and show an unsaved-changes indicator.
@@ -394,6 +407,34 @@ interface SettingsState {
    * saying so is recoverable, and half-resetting is not.
    */
   resetToDefaults: () => Promise<void>;
+
+  /**
+   * Metadata language values that are NOT in the offered list (an old
+   * `zh-CN`, or anything a settings file brought in) which the Metadata
+   * Language list has shown as the setting during this run of the app
+   * (#1249).
+   *
+   * Kept here rather than in the list's own component state so that such a
+   * value stays in the list after the person picks a different entry AND
+   * leaves the Settings tab and comes back: the component is unmounted on a
+   * tab switch, which threw its own state away, and the old value then
+   * vanished (independent review). Policy UI-050 says choosing an entry must
+   * not change the menu.
+   *
+   * Deliberately NOT part of `savedSettings` (whose other fields are not
+   * exact), never written to disk, and never cleared during a run -- it only
+   * grows. On the next launch it starts empty, and the list then shows
+   * whatever is saved.
+   */
+  seenMetadataLanguages: string[];
+
+  /**
+   * Record a metadata language value the list has shown. A no-op for an
+   * empty value or one already recorded, so it is safe to call on every
+   * render of the list. The caller decides which values are worth
+   * recording (only those not in the offered list).
+   */
+  noteMetadataLanguageSeen: (value: string) => void;
 }
 
 /**
@@ -441,8 +482,10 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   savedSettings: DEFAULT_SETTINGS, // Nothing has been loaded from disk yet, so this is the same placeholder
   isLoading: false, // No load in progress at creation time
+  hasLoaded: false, // No successful load yet: saving is refused until there is one (#1237)
   isDirty: false, // No unsaved changes at creation time
   error: null, // No error at creation time
+  seenMetadataLanguages: [], // Nothing shown yet this run (#1249)
 
   // -------------------------------------------------------------------------
   // Actions
@@ -497,7 +540,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       const savedSettings: AppSettings = { ...fromFile, ...(queueSays ?? {}) };
 
       // Replace the entire settings object and mark as clean (not dirty).
-      set({ settings, savedSettings, isLoading: false, isDirty: false });
+      set({ settings, savedSettings, isLoading: false, isDirty: false, hasLoaded: true });
     } catch (e) {
       // Normalize the error to a string regardless of its runtime type.
       const message = e instanceof Error ? e.message : String(e);
@@ -531,6 +574,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
    * (e.g., showing a toast notification).
    */
   saveSettings: async () => {
+    // Never write the placeholder values over the real file (#1237).
+    if (!get().hasLoaded) {
+      const message =
+        'Settings could not be loaded, so they were not saved. Try again or restart MeedyaDL.';
+      set({ error: message });
+      throw new Error(message);
+    }
     // Clear any stale error before attempting the save.
     set({ error: null });
     // Snapshot `settings` BEFORE the `await` below, not after. The
@@ -697,4 +747,22 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       isDirty: true,
     }));
   },
+
+  /**
+   * See the declaration in `SettingsState`. Returning the unchanged state
+   * when there is nothing to add means Zustand notifies nobody, so calling
+   * this after every render of the list costs nothing.
+   */
+  noteMetadataLanguageSeen: (value) =>
+    set((state) => {
+      if (value === '') return state;
+      // Case-insensitive: all a synchronous action can do without the
+      // backend (Codex's catch-up review of #1244, finding 2). The real
+      // check is the caller's, by standard form; this is a backstop so
+      // `"EN-us"` is not remembered beside an already-remembered `"en-us"`.
+      const already = state.seenMetadataLanguages.some(
+        (seen) => seen.toLowerCase() === value.toLowerCase()
+      );
+      return already ? state : { seenMetadataLanguages: [...state.seenMetadataLanguages, value] };
+    }),
 }));

@@ -31,12 +31,36 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use chrono::{Local, NaiveDate};
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
 use crate::models::spotify_anti_ban::AntiBanSettings;
 use crate::utils::atomic_write::atomic_write_json;
+
+/// What someone without developer access is told when a Spotify link
+/// reaches the backend (a deep link, the clipboard watcher, a dropped link,
+/// a queue file, or a download restored from a previous run).
+///
+/// Spotify is a developer-only preview, so it is answered exactly like any
+/// other service MeedyaDL cannot download from yet -- the same words the
+/// Download page uses. It deliberately says nothing about developer access
+/// or how to switch it on: until October 2026 this message told everyone to
+/// "unlock" Spotify in a settings section only developers can see, and named
+/// the hidden key sequence that opens it.
+pub const SPOTIFY_NOT_AVAILABLE: &str = "MeedyaDL cannot download from Spotify yet. The link \
+     itself is fine — support for that service is planned.";
+
+/// pip packages that only matter to a developer-only preview service, and
+/// so are not installed, checked for updates or listed for anyone without
+/// developer access. Today that is votify, the Spotify engine.
+pub const DEVELOPER_PREVIEW_PIP_PACKAGES: &[&str] = &["votify"];
+
+/// True when `package` belongs to a developer-only preview service -- see
+/// [`DEVELOPER_PREVIEW_PIP_PACKAGES`].
+#[must_use]
+pub fn is_developer_preview_package(package: &str) -> bool {
+    DEVELOPER_PREVIEW_PIP_PACKAGES.contains(&package)
+}
 
 // ============================================================
 // Throttle math — pure functions
@@ -195,14 +219,14 @@ impl DailyCapCounter {
 /// Wrapped here so the test below can mock the clock via the
 /// internal [`today_iso_for_now`] sibling.
 fn today_iso() -> String {
-    today_iso_for_now(Local::now().date_naive())
+    today_iso_for_now(crate::utils::time_compat::now_local_or_utc().date())
 }
 
 /// Pure variant of [`today_iso`] — takes the date instead of
 /// reading the wall clock. Lets tests pin the rollover edges
 /// without time-travel hacks.
-fn today_iso_for_now(d: NaiveDate) -> String {
-    d.format("%Y-%m-%d").to_string()
+fn today_iso_for_now(d: time::Date) -> String {
+    crate::utils::time_compat::ymd_of_date(d)
 }
 
 // ============================================================
@@ -256,9 +280,7 @@ pub fn load_counter(app: &AppHandle) -> DailyCapCounter {
     let parsed: DailyCapCounter = match serde_json::from_str(&raw) {
         Ok(c) => c,
         Err(e) => {
-            log::warn!(
-                "spotify_daily_counter.json was unreadable; starting fresh — {e}"
-            );
+            log::warn!("spotify_daily_counter.json was unreadable; starting fresh — {e}");
             return DailyCapCounter::fresh_today();
         }
     };
@@ -321,7 +343,31 @@ pub fn increment_counter(app: &AppHandle, tracks: u32) -> Result<DailyCapCounter
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
+
+    /// The refusal a person without developer access sees must read like
+    /// any other "not supported yet" answer, and must never point at the
+    /// hidden switch. It used to say "Unlock via Settings > Advanced >
+    /// Developer Tools (Konami code)" -- a section ordinary users cannot see,
+    /// and the name of the key sequence that reveals it.
+    #[test]
+    fn spotify_refusal_never_points_at_the_hidden_switch() {
+        let lower = SPOTIFY_NOT_AVAILABLE.to_lowercase();
+        for hint in ["konami", "developer", "unlock", "advanced >", "dev access"] {
+            assert!(
+                !lower.contains(hint),
+                "the Spotify refusal mentions {hint:?}: {SPOTIFY_NOT_AVAILABLE}"
+            );
+        }
+        assert!(SPOTIFY_NOT_AVAILABLE.contains("cannot download from Spotify yet"));
+    }
+
+    /// votify is the Spotify engine, so it is a developer-preview package;
+    /// GAMDL (Apple Music) is not.
+    #[test]
+    fn only_the_spotify_engine_is_a_developer_preview_package() {
+        assert!(is_developer_preview_package("votify"));
+        assert!(!is_developer_preview_package("gamdl"));
+    }
 
     fn settings_default() -> AntiBanSettings {
         AntiBanSettings::default()
@@ -369,20 +415,14 @@ mod tests {
         s.inter_track_delay_seconds = 8;
         s.inter_track_jitter_seconds = 0;
         // rng_value irrelevant when jitter is 0.
-        assert_eq!(
-            compute_inter_track_delay(&s, 0.0),
-            Duration::from_secs(8)
-        );
-        assert_eq!(
-            compute_inter_track_delay(&s, 0.999),
-            Duration::from_secs(8)
-        );
+        assert_eq!(compute_inter_track_delay(&s, 0.0), Duration::from_secs(8));
+        assert_eq!(compute_inter_track_delay(&s, 0.999), Duration::from_secs(8));
     }
 
     #[test]
     fn inter_track_delay_clamps_within_jitter_window() {
         let s = settings_default(); // 10 + uniform [0,5)
-        // Minimum: rng_value=0 → base
+                                    // Minimum: rng_value=0 → base
         assert_eq!(compute_inter_track_delay(&s, 0.0), Duration::from_secs(10));
         // Maximum (clamped): rng_value=1.0 → just under base+jitter
         assert_eq!(compute_inter_track_delay(&s, 1.0), Duration::from_secs(14));
@@ -394,7 +434,10 @@ mod tests {
     fn inter_track_delay_handles_nan_safely() {
         let s = settings_default();
         // NaN clamps to 0 → minimum delay.
-        assert_eq!(compute_inter_track_delay(&s, f64::NAN), Duration::from_secs(10));
+        assert_eq!(
+            compute_inter_track_delay(&s, f64::NAN),
+            Duration::from_secs(10)
+        );
     }
 
     // ---- DailyCapCounter ----
@@ -445,7 +488,10 @@ mod tests {
             date: today_iso(),
             count: 99,
         };
-        assert!(!counter.would_exceed(&s), "below cap → next download allowed");
+        assert!(
+            !counter.would_exceed(&s),
+            "below cap → next download allowed"
+        );
     }
 
     #[test]
@@ -465,7 +511,7 @@ mod tests {
 
     #[test]
     fn today_iso_for_now_formats_correctly() {
-        let d = NaiveDate::from_ymd_opt(2026, 6, 9).unwrap();
+        let d = time::Date::from_calendar_date(2026, time::Month::June, 9).unwrap();
         assert_eq!(today_iso_for_now(d), "2026-06-09");
     }
 

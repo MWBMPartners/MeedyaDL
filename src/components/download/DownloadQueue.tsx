@@ -54,6 +54,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
  */
 import {
   Download,
+  MoreHorizontal,
   Pause,
   Play,
   RefreshCw,
@@ -88,7 +89,17 @@ import {
 } from '@/lib/tauri-commands';
 
 /** Reusable UI components from the common library. */
-import { Button, Modal, getStatusLabel } from '@/components/common';
+import {
+  Button,
+  Checkbox,
+  FilterChip,
+  IconButton,
+  Input,
+  MenuButton,
+  Modal,
+  TextButton,
+  getStatusLabel,
+} from '@/components/common';
 
 /** Page header component for consistent page-level headings. */
 import { PageHeader } from '@/components/layout';
@@ -102,6 +113,7 @@ import { formatPrimaryIdentifier } from './QueueItem';
 
 /** Per-item snapshot type used by the Delete confirmation modal (#685). */
 import type { DownloadState, QueueItemStatus } from '@/types';
+import { MOVE_FAILED, RETRY_FAILED, showBackendError, showError } from '@/lib/errorMessages';
 
 /**
  * Renders the download queue page showing all download items with their
@@ -223,8 +235,6 @@ export function DownloadQueue() {
    */
   const [abortDontAskAgain, setAbortDontAskAgain] = useState(false);
 
-  const settings = useSettingsStore((s) => s.settings);
-
   /**
    * Queue-level status announcer (a11y audit Fix 3).
    *
@@ -306,24 +316,30 @@ export function DownloadQueue() {
    */
   const [isPaused, setIsPaused] = useState<boolean>(false);
 
+  // Adds or removes one state from the set of states the list is filtered by.
   const toggleStatusFilter = useCallback((state: DownloadState) => {
     setStatusFilters((prev) => {
       const next = new Set(prev);
-      if (next.has(state)) next.delete(state); else next.add(state);
+      if (next.has(state)) next.delete(state);
+      else next.add(state);
       return next;
     });
   }, []);
 
+  // Ticks or unticks one row for bulk actions.
   const toggleSelected = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   }, []);
 
+  // Unticks every row.
   const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
 
+  // Aborts every non-finished download. Saves "don't ask again" first if it was ticked.
   const handleAbortAll = useCallback(async () => {
     setShowAbortConfirm(false);
     if (abortDontAskAgain) {
@@ -371,12 +387,13 @@ export function DownloadQueue() {
    * single-click aborts).
    */
   const triggerAbort = useCallback(() => {
-    if (settings.abort_queue_confirm) {
+    // The saved value, not the Settings screen's unsaved edit (#1233).
+    if (useSettingsStore.getState().savedSettings.abort_queue_confirm) {
       setShowAbortConfirm(true);
     } else {
       void abortAll();
     }
-  }, [abortAll, settings.abort_queue_confirm]);
+  }, [abortAll]);
 
   /**
    * Pause/Resume click handler (#889).
@@ -402,7 +419,10 @@ export function DownloadQueue() {
         addToast('Queue paused — running items will complete', 'info');
       }
     } catch (err) {
-      addToast(`Failed to ${isPaused ? 'resume' : 'pause'} queue: ${err}`, 'error');
+      showError(
+        `MeedyaDL could not ${isPaused ? 'resume' : 'pause'} the queue. Try again in a moment.`,
+        err
+      );
     }
   }, [isPaused, addToast]);
 
@@ -500,32 +520,39 @@ export function DownloadQueue() {
       try {
         await cancelDownload(id);
         addToast('Download cancelled', 'info');
-      } catch {
-        addToast('Failed to cancel download', 'error');
+      } catch (err) {
+        showBackendError(
+          'MeedyaDL could not cancel that download. It may already have finished; choose Refresh in the More menu to see.',
+          err
+        );
       }
     },
     [cancelDownload, addToast]
   );
 
+  // Re-queues one failed or cancelled item and shows the backend's reason if refused.
   const handleRetry = useCallback(
     async (id: string) => {
       try {
         await retryDownload(id);
         addToast('Download requeued', 'info');
-      } catch {
-        addToast('Failed to retry download', 'error');
+      } catch (err) {
+        // The backend says why a retry is refused (for example, every
+        // track is already on disk) in a plain sentence; that is shown.
+        showBackendError(RETRY_FAILED, err);
       }
     },
     [retryDownload, addToast]
   );
 
+  // Re-queues one item with the wrapper switched off for that attempt.
   const handleRetryWithoutWrapper = useCallback(
     async (id: string) => {
       try {
         await retryWithoutWrapper(id);
         addToast('Download requeued without wrapper', 'info');
-      } catch {
-        addToast('Failed to retry download without wrapper', 'error');
+      } catch (err) {
+        showBackendError(RETRY_FAILED, err);
       }
     },
     [retryWithoutWrapper, addToast]
@@ -549,46 +576,34 @@ export function DownloadQueue() {
    * themselves are module-level imports, so `[addToast]` is the only
    * real dep.
    */
-  const handleMoveToTop = useCallback(
-    async (id: string) => {
-      try {
-        await moveQueueItemToTop(id);
-      } catch {
-        addToast('Failed to move item', 'error');
-      }
-    },
-    [addToast]
-  );
-  const handleMoveUp = useCallback(
-    async (id: string) => {
-      try {
-        await moveQueueItemUp(id);
-      } catch {
-        addToast('Failed to move item', 'error');
-      }
-    },
-    [addToast]
-  );
-  const handleMoveDown = useCallback(
-    async (id: string) => {
-      try {
-        await moveQueueItemDown(id);
-      } catch {
-        addToast('Failed to move item', 'error');
-      }
-    },
-    [addToast]
-  );
-  const handleMoveToBottom = useCallback(
-    async (id: string) => {
-      try {
-        await moveQueueItemToBottom(id);
-      } catch {
-        addToast('Failed to move item', 'error');
-      }
-    },
-    [addToast]
-  );
+  const handleMoveToTop = useCallback(async (id: string) => {
+    try {
+      await moveQueueItemToTop(id);
+    } catch (err) {
+      showError(MOVE_FAILED, err);
+    }
+  }, []);
+  const handleMoveUp = useCallback(async (id: string) => {
+    try {
+      await moveQueueItemUp(id);
+    } catch (err) {
+      showError(MOVE_FAILED, err);
+    }
+  }, []);
+  const handleMoveDown = useCallback(async (id: string) => {
+    try {
+      await moveQueueItemDown(id);
+    } catch (err) {
+      showError(MOVE_FAILED, err);
+    }
+  }, []);
+  const handleMoveToBottom = useCallback(async (id: string) => {
+    try {
+      await moveQueueItemToBottom(id);
+    } catch (err) {
+      showError(MOVE_FAILED, err);
+    }
+  }, []);
 
   /**
    * Export the current queue to a `.meedyadl` file.
@@ -617,7 +632,10 @@ export function DownloadQueue() {
         addToast('There is nothing in the queue to export yet', 'info');
         return;
       }
-      addToast(msg, 'error');
+      showBackendError(
+        'MeedyaDL could not save the queue file. Choose a folder you can save to, then try again.',
+        e
+      );
     }
   };
 
@@ -633,12 +651,23 @@ export function DownloadQueue() {
    */
   const handleImport = async () => {
     try {
-      const count = await importQueue();
+      const { count, refreshError } = await importQueue();
       addToast(`Imported ${count} item${count !== 1 ? 's' : ''}`, 'success');
+      if (refreshError !== undefined) {
+        // The import worked; only the list on screen is out of date.
+        showBackendError(
+          'The import finished, but MeedyaDL could not refresh the queue on screen. Choose Refresh in the More menu to see the new items.',
+          refreshError,
+          { type: 'warning' }
+        );
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (msg === 'Import cancelled') return;
-      addToast(msg, 'error');
+      showBackendError(
+        'MeedyaDL could not import that queue file. Check that it is a queue file saved by MeedyaDL (.meedyadl), then try again.',
+        e
+      );
     }
   };
 
@@ -657,8 +686,7 @@ export function DownloadQueue() {
     await withErrorToast(() => processQueue(), {
       successMsg: 'Queue processing started',
       successVariant: 'info',
-      errorMsg: (err) =>
-        `Could not start the queue: ${err instanceof Error ? err.message : String(err)}`,
+      errorMsg: 'MeedyaDL could not start the queue. Try again in a moment.',
     });
   };
 
@@ -676,8 +704,7 @@ export function DownloadQueue() {
    */
   const handleClearFinished = async () => {
     const removed = await withErrorToast(() => clearFinished(), {
-      errorMsg: (err) =>
-        `Could not clear finished downloads: ${err instanceof Error ? err.message : String(err)}`,
+      errorMsg: 'MeedyaDL could not clear the finished downloads. Try again in a moment.',
     });
     if (removed !== undefined) {
       addToast(`Cleared ${removed} item${removed !== 1 ? 's' : ''}`, 'info');
@@ -695,8 +722,7 @@ export function DownloadQueue() {
    */
   const handleClearAllConfirmed = async () => {
     const removed = await withErrorToast(() => clearAll(), {
-      errorMsg: (err) =>
-        `Could not clear the queue: ${err instanceof Error ? err.message : String(err)}`,
+      errorMsg: 'MeedyaDL could not clear the queue. Try again in a moment.',
     });
     if (removed !== undefined) {
       addToast(`Cleared all ${removed} item${removed !== 1 ? 's' : ''}`, 'info');
@@ -715,9 +741,7 @@ export function DownloadQueue() {
     // (~10×/sec for active downloads), defeating the React.memo
     // comparator on QueueItem. The getState read happens at click
     // time, so the lookup is still correct against current state.
-    const target = useDownloadStore
-      .getState()
-      .queueItems.find((i) => i.id === id);
+    const target = useDownloadStore.getState().queueItems.find((i) => i.id === id);
     if (!target) return;
     setDeleteTarget(target);
   }, []);
@@ -735,9 +759,11 @@ export function DownloadQueue() {
       await deleteItem(target.id);
       addToast('Item removed from queue', 'info');
     } catch (e) {
-      addToast(
-        e instanceof Error ? e.message : 'Failed to delete item',
-        'error',
+      // The backend's refusal ("cannot remove an item that is
+      // downloading") is a plain sentence and is shown as it is.
+      showBackendError(
+        'MeedyaDL could not remove that item. Choose Refresh in the More menu, then try again.',
+        e
       );
     }
   };
@@ -766,7 +792,7 @@ export function DownloadQueue() {
     // the bulk IPC.
     addToast(
       `Retrying ${failedItems.length} failed download${failedItems.length !== 1 ? 's' : ''}…`,
-      'info',
+      'info'
     );
 
     // Single bulk IPC (#835). Replaces the N-parallel `retryDownload`
@@ -779,7 +805,7 @@ export function DownloadQueue() {
       if (report.skipped.length === 0) {
         addToast(
           `Re-queued ${report.retried} failed download${report.retried !== 1 ? 's' : ''}`,
-          'success',
+          'success'
         );
       } else {
         // Two-line breakdown so the user can act on the skips. Skips
@@ -791,18 +817,14 @@ export function DownloadQueue() {
           .map((s) => s.reason)
           .filter((r, i, arr) => arr.indexOf(r) === i)
           .join('; ');
-        const extra =
-          report.skipped.length > 3 ? ` (and ${report.skipped.length - 3} more)` : '';
+        const extra = report.skipped.length > 3 ? ` (and ${report.skipped.length - 3} more)` : '';
         addToast(
           `Re-queued ${report.retried} of ${report.requested}. ${report.skipped.length} skipped: ${reasonSummary}${extra}`,
-          'warning',
+          'warning'
         );
       }
     } catch (e) {
-      addToast(
-        `Bulk retry failed: ${e instanceof Error ? e.message : String(e)}`,
-        'error',
-      );
+      showError('MeedyaDL could not retry the failed downloads. Try again in a moment.', e);
     }
   };
 
@@ -874,42 +896,79 @@ export function DownloadQueue() {
    * success — a single network glitch shouldn't halt the rest). The
    * selection is cleared on success so the bulk-action bar collapses.
    */
+  /**
+   * One message for a bulk action: how many worked, and -- when some did
+   * not -- how many, with the first failure's text under "Details".
+   */
+  const reportBulkResult = useCallback(
+    (past: string, total: number, failures: unknown[], whyNot: string) => {
+      const done = total - failures.length;
+      const noun = (n: number) => `${n} item${n === 1 ? '' : 's'}`;
+      if (failures.length === 0) {
+        addToast(`${past} ${noun(total)}`, 'info');
+      } else {
+        showError(
+          `${past} ${done} of ${noun(total)}; ${failures.length} ${whyNot}. Choose Refresh in the More menu to see where things stand.`,
+          failures[0],
+          { type: done > 0 ? 'warning' : 'error' }
+        );
+      }
+    },
+    [addToast]
+  );
+
+  // Cancels every ticked row that is waiting or running, then reports how many worked.
   const handleBulkCancel = useCallback(async () => {
     const targets = useDownloadStore
       .getState()
       .queueItems.filter(
         (i) =>
           selectedVisibleIds.includes(i.id) &&
-          (i.state === 'queued' || i.state === 'downloading' || i.state === 'processing'),
+          (i.state === 'queued' || i.state === 'downloading' || i.state === 'processing')
       );
+    // Per-item failures do not stop the loop (one glitch should not halt
+    // the rest), but they are counted: the message used to say "Cancelled N
+    // items" whatever happened.
+    const failures: unknown[] = [];
     for (const t of targets) {
       try {
         await cancelDownload(t.id);
       } catch (e) {
-        console.warn(`bulk cancel: failed for ${t.id}:`, e);
+        failures.push(e);
       }
     }
-    addToast(`Cancelled ${targets.length} item${targets.length === 1 ? '' : 's'}`, 'info');
+    reportBulkResult(
+      'Cancelled',
+      targets.length,
+      failures,
+      'could not be cancelled — they may already have finished'
+    );
     clearSelection();
-  }, [cancelDownload, addToast, selectedVisibleIds, clearSelection]);
+  }, [cancelDownload, reportBulkResult, selectedVisibleIds, clearSelection]);
 
+  // Retries every ticked row that failed or was cancelled, then reports how many worked.
   const handleBulkRetry = useCallback(async () => {
     const targets = useDownloadStore
       .getState()
       .queueItems.filter(
-        (i) => selectedVisibleIds.includes(i.id) && (i.state === 'error' || i.state === 'cancelled'),
+        (i) => selectedVisibleIds.includes(i.id) && (i.state === 'error' || i.state === 'cancelled')
       );
+    // Per-item failures do not stop the loop (one glitch should not halt
+    // the rest), but they are counted: the message used to say "Retried N
+    // items" whatever happened.
+    const failures: unknown[] = [];
     for (const t of targets) {
       try {
         await retryDownload(t.id);
       } catch (e) {
-        console.warn(`bulk retry: failed for ${t.id}:`, e);
+        failures.push(e);
       }
     }
-    addToast(`Retried ${targets.length} item${targets.length === 1 ? '' : 's'}`, 'info');
+    reportBulkResult('Retried', targets.length, failures, 'could not be retried');
     clearSelection();
-  }, [retryDownload, addToast, selectedVisibleIds, clearSelection]);
+  }, [retryDownload, reportBulkResult, selectedVisibleIds, clearSelection]);
 
+  // Removes every ticked row that is not actively downloading, then reports how many worked.
   const handleBulkDelete = useCallback(async () => {
     // Bulk delete removes finished/queued/cancelled rows in one pass.
     // Active rows (downloading/processing) are protected — same rule
@@ -919,20 +978,32 @@ export function DownloadQueue() {
       .getState()
       .queueItems.filter(
         (i) =>
-          selectedVisibleIds.includes(i.id) &&
-          i.state !== 'downloading' &&
-          i.state !== 'processing',
+          selectedVisibleIds.includes(i.id) && i.state !== 'downloading' && i.state !== 'processing'
       );
+    // Per-item failures do not stop the loop (one glitch should not halt
+    // the rest), but they are counted: the message used to say "Removed N
+    // items" whatever happened.
+    const failures: unknown[] = [];
+    const failedIds = new Set<string>();
     for (const t of targets) {
       try {
         await deleteItem(t.id);
       } catch (e) {
-        console.warn(`bulk delete: failed for ${t.id}:`, e);
+        failures.push(e);
+        failedIds.add(t.id);
       }
     }
-    addToast(`Removed ${targets.length} item${targets.length === 1 ? '' : 's'}`, 'info');
-    clearSelection();
-  }, [deleteItem, addToast, selectedVisibleIds, clearSelection]);
+    reportBulkResult(
+      'Removed',
+      targets.length,
+      failures,
+      'could not be removed — items that are downloading cannot be removed'
+    );
+    // Keep the rows that were NOT removed selected, so the person can see
+    // which ones they are and try again; everything else leaves the
+    // selection (#1232).
+    setSelectedIds((prev) => new Set([...prev].filter((id) => failedIds.has(id))));
+  }, [deleteItem, reportBulkResult, selectedVisibleIds]);
 
   /**
    * Select all rows currently visible in `filteredItems`. Honours the
@@ -1004,11 +1075,14 @@ export function DownloadQueue() {
      * state icon colours from QueueItem's STATE_CONFIG.
      */
     const segments: { label: string; colorClass: string }[] = [];
-    if (active > 0) segments.push({ label: `${active} active`, colorClass: 'text-status-info-text' });
-    if (queued > 0) segments.push({ label: `${queued} queued`, colorClass: 'text-content-tertiary' });
+    if (active > 0)
+      segments.push({ label: `${active} active`, colorClass: 'text-status-info-text' });
+    if (queued > 0)
+      segments.push({ label: `${queued} queued`, colorClass: 'text-content-tertiary' });
     if (completed > 0)
       segments.push({ label: `${completed} completed`, colorClass: 'text-status-success-text' });
-    if (failed > 0) segments.push({ label: `${failed} failed`, colorClass: 'text-status-error-text' });
+    if (failed > 0)
+      segments.push({ label: `${failed} failed`, colorClass: 'text-status-error-text' });
 
     return { total, completed, overallProgress, segments };
   }, [queueItems]);
@@ -1034,13 +1108,12 @@ export function DownloadQueue() {
       <>
         <p className="mb-4">
           This will re-queue {failedCount} failed download
-          {failedCount !== 1 ? 's' : ''}. The smart retry path skips
-          already-downloaded tracks via the manifest, so only the
-          actually-failed tracks will be re-fetched.
+          {failedCount !== 1 ? 's' : ''}. The smart retry path skips already-downloaded tracks via
+          the manifest, so only the actually-failed tracks will be re-fetched.
         </p>
         <p>
-          For wrapper-related failures, use the per-item &quot;Retry
-          without Wrapper&quot; option instead.
+          For wrapper-related failures, use the per-item &quot;Retry without Wrapper&quot; option
+          instead.
         </p>
       </>
     ),
@@ -1048,14 +1121,29 @@ export function DownloadQueue() {
     onConfirm: handleRetryAllFailedConfirmed,
   });
 
+  const bulkDeleteConfirm = useConfirmation({
+    title: 'Remove Selected Items',
+    description: (
+      <>
+        <p className="mb-4">
+          This will remove {selectedVisibleIds.length} selected item
+          {selectedVisibleIds.length === 1 ? '' : 's'} from the download queue. Items that are
+          downloading or processing are not removed.
+        </p>
+        <p>This action cannot be undone.</p>
+      </>
+    ),
+    confirmLabel: 'Remove',
+    onConfirm: handleBulkDelete,
+  });
+
   const clearAllConfirm = useConfirmation({
     title: 'Clear All Queue Items',
     description: (
       <>
         <p className="mb-4">
-          This will remove all queued, completed, failed, and cancelled
-          items from the download queue. Active downloads will not be
-          interrupted.
+          This will remove all queued, completed, failed, and cancelled items from the download
+          queue. Active downloads will not be interrupted.
         </p>
         <p>This action cannot be undone.</p>
       </>
@@ -1085,15 +1173,29 @@ export function DownloadQueue() {
        * The `actions` slot contains "Clear Finished" and "Refresh" buttons.
        * @see PageHeader in @/components/layout/PageHeader.tsx
        */}
+      {/*
+       * Page header: the item count, then the actions.
+       *
+       * Only the three actions that change what is running stay as
+       * buttons: Start, Pause/Resume and Abort. Everything else is in the
+       * "More" menu. There used to be up to nine buttons here; at the
+       * smallest window (800x550) they pushed Clear All, Abort Queue and
+       * Refresh off the right edge, "Retry All Failed (1)" broke onto
+       * four lines, and at the default size every label broke in two
+       * (polish audit H5). One-word labels keep the row on one line at
+       * the minimum window; each button's tooltip says what it does in
+       * full. PageHeader wraps the row under the title if it still does
+       * not fit, so nothing can be pushed out of reach.
+       */}
       <PageHeader
         title="Queue"
         subtitle={`${queueItems.length} item${queueItems.length !== 1 ? 's' : ''} in queue`}
         actions={
-          <div className="flex gap-2">
+          <>
             {/*
-             * "Start Queue" button -- shown when there are queued items
-             * waiting to be processed and no downloads are currently active.
-             * Always visible in manual mode; also shown in auto mode as a
+             * Start -- shown when there are queued items waiting to be
+             * processed and no downloads are currently active. Always
+             * visible in manual mode; also shown in auto mode as a
              * fallback if processing stalled.
              */}
             {queuedCount > 0 && activeCount === 0 && (
@@ -1102,81 +1204,18 @@ export function DownloadQueue() {
                 size="sm"
                 icon={<Play size={14} />}
                 onClick={handleStartQueue}
+                title="Start downloading the items waiting in the queue"
               >
-                Start Queue ({queuedCount})
+                Start ({queuedCount})
               </Button>
             )}
 
             {/*
-             * "Import" button -- always shown, opens a native file picker
-             * to import queue items from a .meedyadl file.
-             */}
-            <Button variant="ghost" size="sm" icon={<Download size={14} />} onClick={handleImport}>
-              Import
-            </Button>
-
-            {/*
-             * "Export" button -- always visible when queue has items.
-             * Disabled when there are no non-terminal items to export.
-             */}
-            {queueItems.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Upload size={14} />}
-                onClick={handleExport}
-                disabled={exportableCount === 0}
-              >
-                Export{exportableCount > 0 ? ` (${exportableCount})` : ''}
-              </Button>
-            )}
-
-            {/*
-             * "Clear Completed" button -- only rendered when there are
-             * completed or cancelled items to clear. Errored items are
-             * kept so the user can review and retry them.
-             */}
-            {finishedCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Trash2 size={14} />}
-                onClick={handleClearFinished}
-              >
-                Clear Completed ({finishedCount})
-              </Button>
-            )}
-
-            {/*
-             * "Retry All Failed" button (#665) — appears when at least one
-             * failed item exists. Each retry goes through the smart manifest
-             * planner (#667), so already-downloaded tracks are skipped at
-             * the planner layer. Confirmation-gated to prevent a misclick
-             * from re-queueing twelve items at once.
-             */}
-            {failedCount > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<RotateCcw size={14} />}
-                onClick={retryAllConfirm.open}
-              >
-                Retry All Failed ({failedCount})
-              </Button>
-            )}
-
-            {/*
-             * "Pause Queue" / "Resume Queue" button (#889). Shown
-             * whenever there is at least one item that the scheduler
-             * could potentially pick up (queued or active). This is
-             * the non-destructive complement to Abort Queue — pausing
-             * lets running items finish naturally but stops the
-             * scheduler from pulling the next item. Resume picks up
-             * where it left off.
-             *
-             * Label and icon flip in place based on the current state
-             * (`Pause` icon when running, `Play` icon when paused).
-             * No confirmation modal — the action is reversible.
+             * Pause / Resume (#889). Shown whenever there is at least one
+             * item that the scheduler could potentially pick up (queued or
+             * active). The non-destructive complement to Abort: running
+             * items finish naturally, but nothing new starts. No
+             * confirmation -- the action is reversible.
              */}
             {(activeCount > 0 || queuedCount > 0 || isPaused) && (
               <Button
@@ -1186,30 +1225,19 @@ export function DownloadQueue() {
                 onClick={() => void togglePause()}
                 title={
                   isPaused
-                    ? 'Resume the scheduler — items in Queued state will start as slots free up'
-                    : 'Pause the scheduler — running items will complete, but no new items will start'
+                    ? 'Resume the queue — waiting items start again as soon as there is room'
+                    : 'Pause the queue — what is running finishes, but nothing new starts'
                 }
               >
-                {isPaused ? 'Resume Queue' : 'Pause Queue'}
-              </Button>
-            )}
-
-            {queueItems.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<Trash2 size={14} />}
-                onClick={clearAllConfirm.open}
-              >
-                Clear All
+                {isPaused ? 'Resume' : 'Pause'}
               </Button>
             )}
 
             {/*
-             * "Abort Queue" button (#620). Shown whenever there is at least
-             * one item in a non-terminal state that could be stopped.
-             * Destructive-styled + confirmation-gated — a misclick here
-             * would cancel an entire batch download.
+             * Abort (#620). Shown whenever there is at least one item in a
+             * non-terminal state that could be stopped. Destructive-styled
+             * and confirmation-gated -- a misclick here would cancel an
+             * entire batch download.
              */}
             {(activeCount > 0 || queuedCount > 0) && (
               <Button
@@ -1218,26 +1246,67 @@ export function DownloadQueue() {
                 icon={<Square size={14} />}
                 onClick={triggerAbort}
                 className="text-status-error-text hover:bg-status-error/10"
-                title="Stop every active and queued download immediately (Cmd/Ctrl+Shift+.)"
+                title="Abort the queue: stop every active and waiting download now (Cmd/Ctrl+Shift+.)"
               >
-                Abort Queue
+                Abort
               </Button>
             )}
 
             {/*
-             * Manual refresh button -- fetches the latest queue state
-             * from the backend. Useful if real-time events are delayed
-             * or if the user wants an instant update.
+             * Everything else. The menu always lists the same actions, in
+             * the same order; one that cannot be used right now is shown
+             * greyed out rather than removed, so people can learn where
+             * things are.
              */}
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<RefreshCw size={14} />}
-              onClick={() => refreshQueue()}
-            >
-              Refresh
-            </Button>
-          </div>
+            <MenuButton
+              label="More"
+              title="More queue actions"
+              icon={<MoreHorizontal size={14} />}
+              items={[
+                {
+                  label: 'Import a queue file…',
+                  icon: <Download size={14} />,
+                  onClick: () => void handleImport(),
+                },
+                {
+                  label:
+                    exportableCount > 0
+                      ? `Export the queue (${exportableCount})`
+                      : 'Export the queue',
+                  icon: <Upload size={14} />,
+                  onClick: () => void handleExport(),
+                  disabled: exportableCount === 0,
+                },
+                {
+                  label: failedCount > 0 ? `Retry all failed (${failedCount})` : 'Retry all failed',
+                  icon: <RotateCcw size={14} />,
+                  onClick: retryAllConfirm.open,
+                  disabled: failedCount === 0,
+                  separator: true,
+                },
+                {
+                  label:
+                    finishedCount > 0 ? `Clear completed (${finishedCount})` : 'Clear completed',
+                  icon: <Trash2 size={14} />,
+                  onClick: () => void handleClearFinished(),
+                  disabled: finishedCount === 0,
+                  separator: true,
+                },
+                {
+                  label: 'Clear all…',
+                  icon: <Trash2 size={14} />,
+                  onClick: clearAllConfirm.open,
+                  disabled: queueItems.length === 0,
+                },
+                {
+                  label: 'Refresh',
+                  icon: <RefreshCw size={14} />,
+                  onClick: () => void refreshQueue(),
+                  separator: true,
+                },
+              ]}
+            />
+          </>
         }
       />
 
@@ -1249,66 +1318,62 @@ export function DownloadQueue() {
        */}
       {queueItems.length > 0 && (
         <div className="px-6 py-3 border-b border-border-light flex flex-col gap-2">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by artist, album, track, or URL..."
-              /* `bg-input-bg` / `border-input-border` were never defined
-               * colours -- the real tokens for a search field, matching
-               * every other text input in the app, are
-               * `bg-surface-elevated` / `border-border-light`. */
-              className="w-full pl-9 pr-8 py-2 text-sm rounded-platform bg-surface-elevated border border-border-light text-content-primary placeholder:text-content-tertiary focus:outline-none focus:ring-1 focus:ring-accent"
-              aria-label="Search queue"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-content-tertiary hover:text-content-primary"
-                aria-label="Clear search"
-              >
-                <X size={14} />
-              </button>
-            )}
-          </div>
+          {/* The shared Input (polish pass M17, L2): the magnifying glass
+              was drawn behind a hand-made box and could not be seen. */}
+          <Input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search by artist, album, track, or URL…"
+            aria-label="Search queue"
+            icon={<Search size={16} aria-hidden="true" />}
+            suffix={
+              searchQuery ? (
+                <IconButton
+                  size="sm"
+                  icon={<X size={14} />}
+                  label="Clear search"
+                  onClick={() => setSearchQuery('')}
+                />
+              ) : undefined
+            }
+          />
           <div className="flex items-center gap-2 flex-wrap text-xs">
             <span className="text-content-tertiary">Filter:</span>
-            {(['downloading', 'processing', 'queued', 'complete', 'error', 'cancelled'] as DownloadState[]).map(
-              (state) => {
-                const active = statusFilters.has(state);
-                const count = queueItems.filter((i) => i.state === state).length;
-                if (count === 0 && !active) return null;
-                return (
-                  <button
-                    key={state}
-                    type="button"
-                    onClick={() => toggleStatusFilter(state)}
-                    className={`px-2 py-0.5 rounded-full border transition-colors ${
-                      active
-                        ? 'bg-accent text-content-on-accent border-accent'
-                        : 'bg-surface-elevated text-content-secondary border-border-light hover:border-accent'
-                    }`}
-                    aria-pressed={active}
-                  >
-                    {state} ({count})
-                  </button>
-                );
-              },
-            )}
+            {(
+              [
+                'downloading',
+                'processing',
+                'queued',
+                'complete',
+                'error',
+                'cancelled',
+              ] as DownloadState[]
+            ).map((state) => {
+              const active = statusFilters.has(state);
+              const count = queueItems.filter((i) => i.state === state).length;
+              if (count === 0 && !active) return null;
+              return (
+                // The shared FilterChip (also used on the Activity page).
+                // The label uses the same words as the status pills on
+                // each row ("Complete", "Cancelled"); it used to show the
+                // program's own lowercase state names.
+                <FilterChip key={state} pressed={active} onClick={() => toggleStatusFilter(state)}>
+                  {getStatusLabel(state)} ({count})
+                </FilterChip>
+              );
+            })}
             {(statusFilters.size > 0 || searchQuery) && (
-              <button
-                type="button"
+              <TextButton
+                size="xs"
+                className="ml-1"
                 onClick={() => {
                   setStatusFilters(new Set());
                   setSearchQuery('');
                 }}
-                className="text-content-tertiary hover:text-content-primary underline ml-1"
               >
                 Reset
-              </button>
+              </TextButton>
             )}
             {filteredItems.length !== queueItems.length && (
               <span className="text-content-tertiary ml-auto">
@@ -1343,10 +1408,20 @@ export function DownloadQueue() {
           <Button variant="ghost" size="sm" icon={<Square size={14} />} onClick={handleBulkCancel}>
             Cancel selected
           </Button>
-          <Button variant="ghost" size="sm" icon={<RotateCcw size={14} />} onClick={handleBulkRetry}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<RotateCcw size={14} />}
+            onClick={handleBulkRetry}
+          >
             Retry selected
           </Button>
-          <Button variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={handleBulkDelete}>
+          <Button
+            variant="ghost"
+            size="sm"
+            icon={<Trash2 size={14} />}
+            onClick={bulkDeleteConfirm.open}
+          >
             Remove selected
           </Button>
         </div>
@@ -1401,6 +1476,7 @@ export function DownloadQueue() {
       */}
       {retryAllConfirm.modal}
       {clearAllConfirm.modal}
+      {bulkDeleteConfirm.modal}
 
       {/* Confirmation modal for per-item Delete (#685) */}
       <Modal
@@ -1409,8 +1485,8 @@ export function DownloadQueue() {
         title="Remove queue item"
       >
         <p className="text-sm text-content-secondary mb-4">
-          Remove this item from the download queue? Already-downloaded
-          files on disk are not deleted — only the queue entry.
+          Remove this item from the download queue? Already-downloaded files on disk are not deleted
+          — only the queue entry.
         </p>
         {deleteTarget && (
           <p className="text-xs text-content-tertiary mb-6 break-all">
@@ -1428,33 +1504,26 @@ export function DownloadQueue() {
       </Modal>
 
       {/* Confirmation modal for "Abort Queue" (#620) */}
-      <Modal
-        open={showAbortConfirm}
-        onClose={() => setShowAbortConfirm(false)}
-        title="Abort Queue"
-      >
+      <Modal open={showAbortConfirm} onClose={() => setShowAbortConfirm(false)} title="Abort Queue">
         <p className="text-sm text-content-secondary mb-4">
-          This will stop the current download <em>immediately</em> and cancel
-          every item that is still queued or processing. Already-completed
-          downloads are kept so you don&apos;t lose your history.
+          This will stop the current download <em>immediately</em> and cancel every item that is
+          still queued or processing. Already-completed downloads are kept so you don&apos;t lose
+          your history.
         </p>
         <p className="text-sm text-content-secondary mb-4">
-          This action cannot be undone. Cancelled items can be retried
-          individually from the queue.
+          This action cannot be undone. Cancelled items can be retried individually from the queue.
         </p>
-        <label className="flex items-center gap-2 text-sm text-content-secondary mb-6 cursor-pointer select-none">
-          <input
-            type="checkbox"
-            checked={abortDontAskAgain}
-            onChange={(e) => setAbortDontAskAgain(e.target.checked)}
-            className="h-4 w-4 cursor-pointer"
-          />
-          <span>
-            Don&apos;t ask again — single-click abort from now on. You can
-            turn this question back on in Settings &gt; General &gt;
-            Preferences.
-          </span>
-        </label>
+        <Checkbox
+          className="mb-6"
+          checked={abortDontAskAgain}
+          onChange={setAbortDontAskAgain}
+          label={
+            <>
+              Don&apos;t ask again — single-click abort from now on. You can turn this question back
+              on in Settings &gt; General &gt; Preferences.
+            </>
+          }
+        />
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={() => setShowAbortConfirm(false)}>
             Cancel

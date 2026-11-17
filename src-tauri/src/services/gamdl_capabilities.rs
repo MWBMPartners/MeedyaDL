@@ -281,14 +281,45 @@ pub struct KnownBadVersion {
 /// is a refusal and not a warning. Upstream fixed it the next day in
 /// 3.9.1, which restores the old behaviour whenever the labelled
 /// lookup comes back empty.
-pub const KNOWN_BAD_VERSIONS: &[KnownBadVersion] = &[KnownBadVersion {
-    version: "3.9",
-    reason: "GAMDL 3.9 cannot download Apple's web AAC formats at all — it looks for the \
+pub const KNOWN_BAD_VERSIONS: &[KnownBadVersion] = &[
+    KnownBadVersion {
+        version: "3.9",
+        reason: "GAMDL 3.9 cannot download Apple's web AAC formats at all — it looks for the \
              track's copy-protection key by a label that Apple's web streams do not put on \
              it, and stops when it finds none. Those formats are the last resort in MeedyaDL's \
              fallback chain, so downloads that would otherwise have recovered simply fail.",
-    fixed_in: "3.9.1",
-}];
+        fixed_in: "3.9.1",
+    },
+    KnownBadVersion {
+        // Read in GAMDL 4.0.0's own source (`download/publication.py`,
+        // `download/organizer.py`), 15 Nov 2026. When a file is saved without
+        // overwriting, 4.0.0 copies it beside its destination and then makes a
+        // hard link to it, with no fallback if the drive cannot hold hard
+        // links. exFAT and FAT32 drives (the usual format for portable drives)
+        // and many network shares and cloud folders cannot, so every download
+        // to them fails. 4.0.1 replaced the link with an ordinary copy and
+        // rename ("unsupported hard links" in its release notes).
+        version: "4.0.0",
+        reason: "GAMDL 4.0.0 cannot save downloads to drives that do not support hard links, \
+             which includes most portable drives and many network or cloud folders, so \
+             downloads to them fail. It can also save some short songs still locked, so \
+             they will not play, while reporting them as downloaded.",
+        fixed_in: "4.0.2",
+    },
+    KnownBadVersion {
+        // Read in GAMDL's own source, 16 Nov 2026. Upstream's filter that
+        // discards Apple's generic key address came in with commit 9a78275,
+        // already in 4.0.0, and 4.0.0 has the pass-through test too, so
+        // 4.0.0 AND 4.0.1 both have the fault: some songs can be saved still
+        // locked (they will not play) while the run reports them as
+        // downloaded. Commits a06ea3cd and fd725b6c (4.0.2) recognise that
+        // address again and the pass-through test is removed.
+        version: "4.0.1",
+        reason: "GAMDL 4.0.1 can save some short songs still locked, so they will not play, \
+             while reporting them as downloaded.",
+        fixed_in: "4.0.2",
+    },
+];
 
 /// Splits a version string into its first three numbers, or `None` if
 /// any of them is not a plain number.
@@ -678,7 +709,9 @@ fn is_parseable_semver(version: &str) -> bool {
     if parts.len() < 2 || parts.len() > 3 {
         return false;
     }
-    parts.iter().all(|p| !p.is_empty() && p.parse::<u32>().is_ok())
+    parts
+        .iter()
+        .all(|p| !p.is_empty() && p.parse::<u32>().is_ok())
 }
 
 /// Pip version specifier string for `pip install --upgrade`.
@@ -712,10 +745,7 @@ pub fn pip_version_spec() -> String {
 pub fn pip_version_spec_for_platform(platform_id: &str) -> String {
     let window = support_window();
     let maximum = effective_maximum_tested(platform_id);
-    let mut spec = format!(
-        "gamdl>={minimum},<={maximum}",
-        minimum = window.minimum,
-    );
+    let mut spec = format!("gamdl>={minimum},<={maximum}", minimum = window.minimum,);
 
     // Shut out every release we know to be broken, by name.
     //
@@ -763,6 +793,18 @@ pub fn pip_version_spec_for_platform(platform_id: &str) -> String {
 /// ceiling, with a reason the user can act on.
 #[must_use]
 pub fn pip_target_spec(target: &str) -> String {
+    // GAMDL 4.0 made the Widevine unlocking library an optional extra
+    // (`pywidevine` moved from the main requirements to
+    // `[project.optional-dependencies] widevine`). Widevine is still its
+    // default way of unlocking tracks, so a plain `gamdl==4.x` install
+    // would download nothing protected. Asking for the extra keeps the
+    // install equivalent to what 3.x gave. The PlayReady extra is NOT
+    // added: it pulls in `cryptography` at a range with no Windows ARM64
+    // build (see the per-platform ceiling notes), and only the few people
+    // who choose PlayReady need it — a follow-up in the 4.0 audit.
+    if cli_generation_of(target) == GamdlCliGeneration::V4 {
+        return format!("gamdl[widevine]=={target}");
+    }
     format!("gamdl=={target}")
 }
 
@@ -879,7 +921,9 @@ pub fn recommended_upgrade_target_for_platform(
 #[must_use]
 pub fn known_bad_upgrade_target_for_platform(installed: &str, platform_id: &str) -> Option<String> {
     let bad = known_bad_version(installed)?;
-    if is_version_at_least(&effective_maximum_tested(platform_id), bad.fixed_in) {
+    if is_version_at_least(&effective_maximum_tested(platform_id), bad.fixed_in)
+        || fix_is_an_untested_release_this_platform_may_install(bad.fixed_in, platform_id)
+    {
         Some(bad.fixed_in.to_string())
     } else {
         Some(recommended_for_platform(platform_id))
@@ -969,7 +1013,12 @@ pub fn known_bad_upgrade_target_for_platform(installed: &str, platform_id: &str)
 /// future ceiling entry would quietly get wrong. The user's options are
 /// the same either way, so the sentence stays true for all of them.
 #[must_use]
-pub fn known_bad_advice(reason: &str, fixed_in: &str, installed: &str, platform_id: &str) -> String {
+pub fn known_bad_advice(
+    reason: &str,
+    fixed_in: &str,
+    installed: &str,
+    platform_id: &str,
+) -> String {
     let ceiling = effective_maximum_tested(platform_id);
 
     if is_version_at_least(&ceiling, fixed_in) {
@@ -985,6 +1034,20 @@ pub fn known_bad_advice(reason: &str, fixed_in: &str, installed: &str, platform_
         // was fine. It does not; it only proves the fix itself is not
         // on the list.
         return format!("{reason} Update to GAMDL {fixed_in} or newer.");
+    }
+
+    // Case 1b — the fix is above the tested limit, but this computer may
+    // still install it on purpose, the way the broken release was
+    // installed: today, a GAMDL 4.0.0 or 4.0.1 someone chose to try, fixed
+    // by 4.0.2. Cases 2 and 3 are for a platform that cannot have the fix at
+    // all, and would tell this person something false ("no version that
+    // works here has been published").
+    if fix_is_an_untested_release_this_platform_may_install(fixed_in, platform_id) {
+        let recommended = recommended_for_platform(platform_id);
+        return format!(
+            "{reason} Install GAMDL {fixed_in}, which fixes this (it is not tested yet either), \
+             or use the recommended GAMDL {recommended} instead."
+        );
     }
 
     let platform_name = platform_display_name(platform_id);
@@ -1009,6 +1072,33 @@ pub fn known_bad_advice(reason: &str, fixed_in: &str, installed: &str, platform_
     }
 }
 
+/// Is `fixed_in` a release above the tested limit that this platform may
+/// still install on purpose?
+///
+/// True for a fix in a newer major version this build can drive (GAMDL 4
+/// since 13 Nov 2026) on a platform that is not held back below it. Such a
+/// release is installed only when someone asks for it, which is how the
+/// broken release it fixes got installed in the first place. False for a
+/// fix this platform cannot install at all, which the other advice
+/// wordings describe.
+#[must_use]
+pub fn fix_is_an_untested_release_this_platform_may_install(
+    fixed_in: &str,
+    platform_id: &str,
+) -> bool {
+    let window = support_window();
+    let above_tested_major = match (
+        major_version_of(fixed_in),
+        major_version_of(&window.maximum_tested),
+    ) {
+        (Some(fix), Some(tested)) => fix > tested,
+        _ => false,
+    };
+    above_tested_major
+        && !is_beyond_drivable_major(fixed_in)
+        && platform_held_back_at(platform_id).is_none()
+}
+
 /// Process-global cache of the last detected GAMDL version string.
 ///
 /// Populated by [`set_detected_version`] from:
@@ -1019,8 +1109,7 @@ pub fn known_bad_advice(reason: &str, fixed_in: &str, installed: &str, platform_
 ///
 /// `None` means "we haven't probed yet or GAMDL isn't installed". See the
 /// module-level docs for how unknown versions are handled.
-static DETECTED_VERSION: LazyLock<RwLock<Option<String>>> =
-    LazyLock::new(|| RwLock::new(None));
+static DETECTED_VERSION: LazyLock<RwLock<Option<String>>> = LazyLock::new(|| RwLock::new(None));
 
 /// Records the currently installed GAMDL version.
 ///
@@ -1042,10 +1131,7 @@ pub fn set_detected_version(version: Option<String>) {
 /// Returns the currently cached GAMDL version string, if any.
 #[must_use]
 pub fn detected_version() -> Option<String> {
-    DETECTED_VERSION
-        .read()
-        .ok()
-        .and_then(|guard| guard.clone())
+    DETECTED_VERSION.read().ok().and_then(|guard| guard.clone())
 }
 
 /// Individual CLI / config.ini features whose availability differs across
@@ -1292,7 +1378,8 @@ pub enum GamdlFeature {
     /// chain on 3.8+, where they now succeed. Below 3.8 (and on an
     /// unprobed / unknown version) the conservative, version-agnostic
     /// `SongCodec::is_wrapper_dependent()` predicate still applies —
-    /// `Atmos` and `Ac3` are treated as wrapper-dependent.
+    /// `Alac`, `Atmos` and `Ac3` are treated as wrapper-dependent (before 3.8
+    /// GAMDL treats lossless exactly like the other two).
     ///
     /// Deliberately does **not** change `SongCodec::display_name()` — the
     /// `(Experimental)` labels stay unconditional across every GAMDL
@@ -1321,6 +1408,30 @@ pub enum GamdlFeature {
     /// exists, and why the Settings screen hides the choice entirely
     /// unless this is true.
     PlayReadyDrmBackend,
+
+    /// The three GAMDL 3 options that 4.0.0 dropped and 4.0.1 restored:
+    /// `--embedded-cover-size` (the picture inside each file — its partner
+    /// `--file-cover-size` is not needed, because MeedyaDL does not ask
+    /// GAMDL 4 to save a picture file), `--use-album-date` and
+    /// `--date-tag-template`. 4.0.0 has none of them and stops on an
+    /// option it does not know, so they are only sent from 4.0.1.
+    GamdlFourRestoredOptions,
+
+    /// GAMDL 4.0.2 saves a song's cover picture as one shared `Cover`
+    /// file in the album folder again (as GAMDL 3 did), so MeedyaDL's
+    /// "Save Cover Art" setting can be honoured: `--save-cover` and
+    /// `--file-cover-size` are sent from this version. Before 4.0.2 the
+    /// picture was saved per track, so the setting had no effect and is
+    /// not sent.
+    GamdlFourSharedAlbumCover,
+
+    /// GAMDL 4.0.2's `--lyrics-file-format enhanced-ttml`: the word-by-word
+    /// lyrics file. MeedyaDL asks for it only in the extra lyrics pass
+    /// after a download, for tracks its own word-timed lookup could not
+    /// check (no developer key, or no sign-in it can use — a wrapper-only
+    /// set-up, for example). Checked against 4.0.2's own source; earlier
+    /// 4.x releases are refused anyway (`KNOWN_BAD_VERSIONS`).
+    GamdlFourWordTimedLyricsFile,
 }
 
 impl GamdlFeature {
@@ -1345,8 +1456,12 @@ impl GamdlFeature {
             // 3.1..3.7.4 window because `structlog`'s
             // `ExceptionPrettyPrinter` was in the processor list
             // unconditionally. Same shape as `FFmpegPath` above.
+            //
+            // GAMDL 4.0 drops the option entirely (its `rip` command has a
+            // `--debug` switch instead, and hides tracebacks by default).
             Self::NoExceptionsFlag => {
-                !is_version_at_least(version, "3.1") || is_version_at_least(version, "3.8")
+                (!is_version_at_least(version, "3.1") || is_version_at_least(version, "3.8"))
+                    && !is_version_at_least(version, "4.0")
             }
             // GAMDL v3.6 family (#853):
             // Added in v3.6 — single HTTP URL replacing the three wrapper-v1 sockets.
@@ -1365,8 +1480,15 @@ impl GamdlFeature {
             // depends on FFmpeg. The other two stay removed. So the gate
             // is true when EITHER < 3.6 (original tool-path era) OR >= 3.7
             // (FFmpeg-only reinstatement era). Only false on the 3.6.x line.
+            //
+            // GAMDL 4.0 removes it again, for good this time: 4.0 does all
+            // of its downloading and muxing in its own compiled code and
+            // starts no outside program at all (checked against the 4.0
+            // branch on 2 Nov 2026 — no `ffmpeg`, `subprocess` or
+            // `shutil.which` anywhere in its source).
             Self::FFmpegPath => {
-                !is_version_at_least(version, "3.6") || is_version_at_least(version, "3.7")
+                (!is_version_at_least(version, "3.6") || is_version_at_least(version, "3.7"))
+                    && !is_version_at_least(version, "4.0")
             }
             // GAMDL >= 2.9.1 (#880): classical.apple.com URLs must be
             // rewritten to classical.music.apple.com before being handed
@@ -1384,6 +1506,9 @@ impl GamdlFeature {
             // for wrapper-less downloads.
             Self::AssetsApiUnlocksLossyCodecs => is_version_at_least(version, "3.8"),
             Self::PlayReadyDrmBackend => is_version_at_least(version, "3.9"),
+            Self::GamdlFourRestoredOptions => is_version_at_least(version, "4.0.1"),
+            Self::GamdlFourSharedAlbumCover => is_version_at_least(version, "4.0.2"),
+            Self::GamdlFourWordTimedLyricsFile => is_version_at_least(version, "4.0.2"),
         }
     }
 }
@@ -1411,6 +1536,153 @@ pub fn supports(feature: GamdlFeature) -> bool {
         Some(ver) if is_parseable_semver(&ver) => feature.is_available_on(&ver),
         _ => false,
     }
+}
+
+// ============================================================
+// GAMDL 4.0 preparation (command-line generation)
+// ============================================================
+//
+// GAMDL 4.0 is a rewrite, not an update (analysed from the upstream `4.0`
+// branch on 2 Nov 2026, version string `4.0.0a0`; full findings in
+// `.github/audits/gamdl-v4.0-preview-audit.md`). Everything MeedyaDL uses
+// to talk to it changes at once:
+//
+// - there is no `python -m gamdl` any more (no `__main__` module); the
+//   program is a command group and downloading is its `rip` command;
+// - the settings file is YAML, read from GAMDL's own folder, not the
+//   `config.ini` MeedyaDL writes;
+// - most options are renamed or gone, and the output is a different
+//   shape entirely.
+//
+// None of the per-feature gates above can express that, because they all
+// assume the same program with options added and removed. So the
+// generation is its own question, answered once here, and everything that
+// builds a command line asks it first.
+
+/// Which shape of command line the installed GAMDL expects.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GamdlCliGeneration {
+    /// GAMDL 3.x: `python -m gamdl <urls> <options>`, `config.ini`.
+    V3,
+    /// GAMDL 4.x: `gamdl --no-config rip <options> <urls>`, YAML settings,
+    /// renamed options. See `GamdlOptions::to_cli_args_v4`.
+    V4,
+}
+
+/// The highest GAMDL major version this MeedyaDL build will install and
+/// run.
+///
+/// **This is the switch for GAMDL 4 support, switched on 13 Nov 2026** at
+/// the maintainer's request, so 4.0.0 can be tried in alpha builds. The
+/// command builder for 4.x was written for, and its commands checked
+/// against, the released GAMDL 4.0.0, but had not driven a real download
+/// before this (there was no Apple Music account to test with).
+///
+/// What switching it on does NOT do: make 4.x the tested or recommended
+/// version. `tool-versions.toml` still names 3.9.1, so new installs and
+/// routine updates stay on 3.x, and 4.0.0 is offered on the Updates page
+/// as an "Untested" upgrade a person chooses. Platforms with their own
+/// lower ceiling (32-bit ARM Linux, Windows on ARM) still cannot install
+/// it.
+///
+/// A major version above this is still refused at install and not offered
+/// (see `gamdl_service::refuse_unsupported_target`): a GAMDL 5 would be
+/// unknown to this build, and installing it would most likely leave every
+/// download failing.
+pub const HIGHEST_DRIVABLE_MAJOR: u32 = 4;
+
+/// The major version number of `version`, read from its leading digits.
+///
+/// Deliberately looser than [`is_parseable_semver`]: a pre-release such
+/// as `4.0.0a0` (the upstream branch's own version) or `4.0.0rc1` still
+/// has an unambiguous major version, and that is all the generation
+/// question needs. `None` only when the string does not start with a
+/// number at all.
+#[must_use]
+pub fn major_version_of(version: &str) -> Option<u32> {
+    // A version may start with an "epoch" (`1!4.0.0`), which pip accepts
+    // and orders before everything else. Read the release after it, so
+    // `0!4.0.0` is still major 4 rather than slipping past the refusal.
+    let trimmed = version.trim();
+    let release = trimmed.split_once('!').map_or(trimmed, |(_, rest)| rest);
+    let first = release.split('.').next()?;
+    let digits: String = first.chars().take_while(char::is_ascii_digit).collect();
+    if digits.is_empty() {
+        return None;
+    }
+    digits.parse().ok()
+}
+
+/// A finished release's version as three numbers, for ordering; `None`
+/// for a pre-release or anything else not plainly numeric (the same
+/// strict reading as the support-window checks).
+#[must_use]
+pub fn numeric_version(version: &str) -> Option<(u32, u32, u32)> {
+    if !is_parseable_semver(version) {
+        return None;
+    }
+    numeric_version_parts(version.trim())
+}
+
+/// The command-line generation of a given GAMDL version.
+///
+/// Anything that is not readable as 4 or above counts as 3.x — the shape
+/// every release in the current support window uses, so an unknown or
+/// unreadable version keeps today's behaviour exactly.
+#[must_use]
+pub fn cli_generation_of(version: &str) -> GamdlCliGeneration {
+    match major_version_of(version) {
+        Some(major) if major >= 4 => GamdlCliGeneration::V4,
+        _ => GamdlCliGeneration::V3,
+    }
+}
+
+/// The command-line generation of the GAMDL that is installed now.
+///
+/// [`GamdlCliGeneration::V3`] when no version has been detected yet, for
+/// the same reason as [`cli_generation_of`].
+#[must_use]
+pub fn detected_cli_generation() -> GamdlCliGeneration {
+    detected_version().map_or(GamdlCliGeneration::V3, |v| cli_generation_of(&v))
+}
+
+/// The shortest stall limit, in minutes, used for any GAMDL 4.x run.
+///
+/// GAMDL 4.x prints nothing while an item downloads: one result line when
+/// it finishes, and no progress at all when its output is not a terminal.
+/// Every minute of a long item (a 4K music video, a slow connection) is
+/// therefore "silent", and the normal limit (5 minutes by default) would
+/// kill healthy downloads part-way. Until 4.x can report progress in a
+/// form MeedyaDL reads (follow-up 5 in the 4.0 audit), 30 minutes is the
+/// floor.
+pub const GAMDL_V4_MIN_IDLE_MINUTES: u32 = 30;
+
+/// The stall limit to use for a GAMDL run, given the person's setting and
+/// the command-line generation. The one copy of this rule: the main
+/// download and the extra-format (companion) runs both ask here, so the
+/// two watchdogs cannot drift apart (they did once — review round 3).
+#[must_use]
+pub fn idle_minutes_for(configured_minutes: u32, generation: GamdlCliGeneration) -> u32 {
+    let configured = configured_minutes.max(1);
+    match generation {
+        GamdlCliGeneration::V3 => configured,
+        GamdlCliGeneration::V4 => configured.max(GAMDL_V4_MIN_IDLE_MINUTES),
+    }
+}
+
+/// [`idle_minutes_for`] for the GAMDL installed now.
+#[must_use]
+pub fn idle_minutes_for_installed(configured_minutes: u32) -> u32 {
+    idle_minutes_for(configured_minutes, detected_cli_generation())
+}
+
+/// Is `version` from a major release this build cannot drive yet?
+///
+/// See [`HIGHEST_DRIVABLE_MAJOR`]. `false` for a string with no readable
+/// major version: that is not evidence of a newer major release.
+#[must_use]
+pub fn is_beyond_drivable_major(version: &str) -> bool {
+    major_version_of(version).is_some_and(|major| major > HIGHEST_DRIVABLE_MAJOR)
 }
 
 /// Is this platform genuinely held below what everyone else can
@@ -1500,7 +1772,10 @@ pub fn active_capabilities_summary() -> String {
 
     let all = [
         (GamdlFeature::NativeCodecPriority, "native_codec_priority"),
-        (GamdlFeature::PlaylistFolderTemplate, "playlist_folder_template"),
+        (
+            GamdlFeature::PlaylistFolderTemplate,
+            "playlist_folder_template",
+        ),
         (GamdlFeature::WrapperM3u8Ip, "wrapper_m3u8_ip"),
         (GamdlFeature::NoExceptionsFlag, "no_exceptions_flag"),
         (GamdlFeature::WrapperUrl, "wrapper_url"),
@@ -1508,14 +1783,27 @@ pub fn active_capabilities_summary() -> String {
         (GamdlFeature::NativeMuxing, "native_muxing"),
         (GamdlFeature::MusicVideoRemuxMode, "music_video_remux_mode"),
         (GamdlFeature::FFmpegPath, "ffmpeg_path"),
-        (GamdlFeature::ClassicalMusicHostRequired, "classical_music_host_required"),
-        (GamdlFeature::StorefrontIniKeyStripped, "storefront_ini_key_stripped"),
-        (GamdlFeature::WrapperDecryptHostPort, "wrapper_decrypt_host_port"),
+        (
+            GamdlFeature::ClassicalMusicHostRequired,
+            "classical_music_host_required",
+        ),
+        (
+            GamdlFeature::StorefrontIniKeyStripped,
+            "storefront_ini_key_stripped",
+        ),
+        (
+            GamdlFeature::WrapperDecryptHostPort,
+            "wrapper_decrypt_host_port",
+        ),
         (
             GamdlFeature::AssetsApiUnlocksLossyCodecs,
             "assets_api_unlocks_lossy_codecs",
         ),
         (GamdlFeature::PlayReadyDrmBackend, "play_ready_drm_backend"),
+        (
+            GamdlFeature::GamdlFourRestoredOptions,
+            "gamdl_four_restored_options",
+        ),
     ];
 
     let active: Vec<&str> = all
@@ -1545,8 +1833,7 @@ pub fn active_capabilities_summary() -> String {
 ///
 /// Public-but-gated so production code can't accidentally hold it.
 #[cfg(test)]
-pub fn capability_cache_test_lock(
-) -> std::sync::MutexGuard<'static, ()> {
+pub fn capability_cache_test_lock() -> std::sync::MutexGuard<'static, ()> {
     static SHARED: std::sync::Mutex<()> = std::sync::Mutex::new(());
     SHARED.lock().unwrap_or_else(|p| p.into_inner())
 }
@@ -1985,7 +2272,10 @@ mod tests {
 
     #[test]
     fn known_bad_upgrade_target_is_none_for_a_clean_release() {
-        assert_eq!(known_bad_upgrade_target_for_platform("3.9.1", "macos"), None);
+        assert_eq!(
+            known_bad_upgrade_target_for_platform("3.9.1", "macos"),
+            None
+        );
         assert_eq!(
             known_bad_upgrade_target_for_platform(&support_window().minimum, "macos"),
             None
@@ -2137,7 +2427,9 @@ mod tests {
              as a downgrade, got: {advice}"
         );
         assert!(
-            advice.contains(&format!("install GAMDL up to {ceiling} — install that version")),
+            advice.contains(&format!(
+                "install GAMDL up to {ceiling} — install that version"
+            )),
             "{platform_id}: must name the capped version as the thing to install, got: {advice}"
         );
         assert!(
@@ -2163,9 +2455,8 @@ mod tests {
         // fourth component (`3.8.5.99`) is NOT usable here: the version
         // comparison reads three numbers, so a four-part string is not
         // the "clearly newer" value it looks like.
-        let far_future = |version: &str| {
-            format!("{}.999.0", version.split('.').next().unwrap_or("3"))
-        };
+        let far_future =
+            |version: &str| format!("{}.999.0", version.split('.').next().unwrap_or("3"));
 
         for (platform_id, ceiling) in &window.platform_ceilings {
             let above = far_future(ceiling);
@@ -2216,6 +2507,76 @@ mod tests {
     }
 
     #[test]
+    fn gamdl_four_restored_options_start_at_4_0_1() {
+        for older in ["3.9.1", "4.0", "4.0.0"] {
+            assert!(
+                !GamdlFeature::GamdlFourRestoredOptions.is_available_on(older),
+                "{older} has none of the options 4.0.1 restored"
+            );
+        }
+        for newer in ["4.0.1", "4.1"] {
+            assert!(GamdlFeature::GamdlFourRestoredOptions.is_available_on(newer));
+        }
+    }
+
+    #[test]
+    fn gamdl_four_word_timed_lyrics_file_starts_at_4_0_2() {
+        for older in ["3.9.1", "4.0", "4.0.0", "4.0.1"] {
+            assert!(!GamdlFeature::GamdlFourWordTimedLyricsFile.is_available_on(older));
+        }
+        for newer in ["4.0.2", "4.1"] {
+            assert!(GamdlFeature::GamdlFourWordTimedLyricsFile.is_available_on(newer));
+        }
+    }
+
+    #[test]
+    fn gamdl_four_shared_album_cover_starts_at_4_0_2() {
+        for older in ["3.9.1", "4.0", "4.0.0", "4.0.1"] {
+            assert!(!GamdlFeature::GamdlFourSharedAlbumCover.is_available_on(older));
+        }
+        for newer in ["4.0.2", "4.1"] {
+            assert!(GamdlFeature::GamdlFourSharedAlbumCover.is_available_on(newer));
+        }
+    }
+
+    #[test]
+    fn a_broken_gamdl_4_points_at_the_gamdl_4_fix_where_it_can_be_installed() {
+        // 4.0.0 and 4.0.1 are refused; their fix, 4.0.2, is above the
+        // tested 3.x limit but installable on purpose. The advice must
+        // name it, and must not claim that no working version exists.
+        for installed in ["4.0.0", "4.0.1"] {
+            let bad = known_bad_version(installed).expect("on the list");
+            assert_eq!(bad.fixed_in, "4.0.2");
+            for platform_id in ["macos", "windows-x86_64", "linux-x86_64", "linux-aarch64"] {
+                let advice = known_bad_advice(bad.reason, bad.fixed_in, installed, platform_id);
+                assert!(
+                    advice.contains("Install GAMDL 4.0.2"),
+                    "{platform_id}: {advice}"
+                );
+                assert!(
+                    !advice.contains("has been published"),
+                    "{platform_id}: {advice}"
+                );
+                assert_eq!(
+                    known_bad_upgrade_target_for_platform(installed, platform_id).as_deref(),
+                    Some("4.0.2")
+                );
+            }
+        }
+        // A computer held below GAMDL 4 keeps the existing wording.
+        for platform_id in ["linux-armv7", "windows-aarch64"] {
+            assert!(!fix_is_an_untested_release_this_platform_may_install(
+                "4.0.1",
+                platform_id
+            ));
+        }
+        // A fix inside the tested 3.x line is not this case.
+        assert!(!fix_is_an_untested_release_this_platform_may_install(
+            "3.9.1", "macos"
+        ));
+    }
+
+    #[test]
     fn play_ready_is_off_when_no_version_has_been_detected() {
         // Takes the shared lock, like every other test that touches the
         // one process-wide record of which version was detected. An
@@ -2239,7 +2600,16 @@ mod tests {
         for good in ["3.9", "3.9.1", "3.0", "10.20.30"] {
             assert!(is_parseable_semver(good), "{good} should be readable");
         }
-        for bad in ["3.garbage", "3.8.6rc1", "3", "", "3.", "3.8.6.1", "v3.9", "3.9.1-beta"] {
+        for bad in [
+            "3.garbage",
+            "3.8.6rc1",
+            "3",
+            "",
+            "3.",
+            "3.8.6.1",
+            "v3.9",
+            "3.9.1-beta",
+        ] {
             assert!(!is_parseable_semver(bad), "{bad} should NOT be readable");
         }
 
@@ -2294,7 +2664,10 @@ mod tests {
         // `3.9`, because the comparison read three numbers and stopped.
         // Refusing a release that is actually fine costs a user an
         // install and tells them something untrue about it.
-        assert!(known_bad_version("3.9").is_some(), "3.9 itself is on the list");
+        assert!(
+            known_bad_version("3.9").is_some(),
+            "3.9 itself is on the list"
+        );
         assert!(
             known_bad_version("3.9.0.1").is_none(),
             "3.9.0.1 is a different release from 3.9 and is not on the list"
@@ -2517,7 +2890,9 @@ mod tests {
         // an exact version so pip can't silently resolve to something
         // else under the user's `gamdl>=…,<=…` cap.
         assert_eq!(pip_target_spec("3.3"), "gamdl==3.3");
-        assert_eq!(pip_target_spec("4.0.1"), "gamdl==4.0.1");
+        // 4.x asks for the Widevine extra — see `pip_target_spec`.
+        assert_eq!(pip_target_spec("4.0.1"), "gamdl[widevine]==4.0.1");
+        assert_eq!(pip_target_spec("3.9.1"), "gamdl==3.9.1");
     }
 
     // ----------------------------------------------------------------
@@ -2561,10 +2936,7 @@ mod tests {
         // regardless of `use_wrapper`.
         let installed = support_window().minimum.clone();
         let expected = recommended_for_platform(current_platform_id());
-        assert_eq!(
-            recommended_upgrade_target(Some(&installed), true),
-            expected
-        );
+        assert_eq!(recommended_upgrade_target(Some(&installed), true), expected);
         assert_eq!(
             recommended_upgrade_target(Some(&installed), false),
             expected
@@ -2747,10 +3119,7 @@ mod tests {
                 "linux-x86_64 (no override) must match classify() for {v}"
             );
         }
-        assert_eq!(
-            classify_for_platform(None, "linux-x86_64"),
-            classify(None)
-        );
+        assert_eq!(classify_for_platform(None, "linux-x86_64"), classify(None));
     }
 
     #[test]
@@ -2773,9 +3142,7 @@ mod tests {
         // ceiling: Untested on ARMv7 specifically, even though the same
         // version is Supported globally.
         let global_ceiling = window.maximum_tested.clone();
-        if is_version_at_least(&global_ceiling, &armv7_ceiling)
-            && global_ceiling != armv7_ceiling
-        {
+        if is_version_at_least(&global_ceiling, &armv7_ceiling) && global_ceiling != armv7_ceiling {
             let armv7_result = classify_for_platform(Some(&global_ceiling), "linux-armv7");
             assert!(
                 matches!(armv7_result, VersionSupport::Untested { .. }),
@@ -3055,5 +3422,77 @@ mod tests {
         );
 
         set_detected_version(None);
+    }
+
+    // ----------------------------------------------------------------
+    // GAMDL 4.0 preparation
+    // ----------------------------------------------------------------
+
+    #[test]
+    fn major_version_reads_pre_releases_and_refuses_garbage() {
+        assert_eq!(major_version_of("3.9.1"), Some(3));
+        assert_eq!(major_version_of("4.0.0a0"), Some(4));
+        assert_eq!(major_version_of("4rc1"), Some(4));
+        assert_eq!(major_version_of(" 4.1 "), Some(4));
+        assert_eq!(major_version_of("0!4.0.0"), Some(4));
+        assert_eq!(major_version_of("1!3.9.1"), Some(3));
+        assert_eq!(major_version_of("v4.0"), None);
+        assert_eq!(major_version_of(""), None);
+    }
+
+    #[test]
+    fn generation_is_v4_only_from_major_four() {
+        for v in ["3.0", "3.9.1", "3.10", "garbage", ""] {
+            assert_eq!(cli_generation_of(v), GamdlCliGeneration::V3, "{v}");
+        }
+        for v in ["4.0", "4.0.0a0", "4.2.1", "5.0"] {
+            assert_eq!(cli_generation_of(v), GamdlCliGeneration::V4, "{v}");
+        }
+    }
+
+    #[test]
+    fn detected_generation_defaults_to_v3_when_nothing_is_known() {
+        let _lock = test_lock();
+        set_detected_version(None);
+        assert_eq!(detected_cli_generation(), GamdlCliGeneration::V3);
+        set_detected_version(Some("4.0.0a0".to_string()));
+        assert_eq!(detected_cli_generation(), GamdlCliGeneration::V4);
+        set_detected_version(Some("3.9.1".to_string()));
+        assert_eq!(detected_cli_generation(), GamdlCliGeneration::V3);
+        set_detected_version(None);
+    }
+
+    #[test]
+    fn five_is_beyond_what_this_build_drives() {
+        // Fails loudly the day the switch moves, so whoever moves it has to
+        // update this test (and so read why it is where it is).
+        assert_eq!(HIGHEST_DRIVABLE_MAJOR, 4);
+        assert!(!is_beyond_drivable_major("4.0.0"));
+        assert!(!is_beyond_drivable_major("4.0.0a0"));
+        assert!(!is_beyond_drivable_major("3.9.1"));
+        assert!(is_beyond_drivable_major("5.0.0"));
+        assert!(is_beyond_drivable_major("5.0.0a1"));
+        assert!(!is_beyond_drivable_major("garbage"));
+    }
+
+    #[test]
+    fn stall_limit_is_unchanged_for_three_and_at_least_thirty_minutes_for_four() {
+        assert_eq!(idle_minutes_for(5, GamdlCliGeneration::V3), 5);
+        assert_eq!(idle_minutes_for(0, GamdlCliGeneration::V3), 1);
+        assert_eq!(idle_minutes_for(45, GamdlCliGeneration::V3), 45);
+        assert_eq!(idle_minutes_for(5, GamdlCliGeneration::V4), 30);
+        assert_eq!(idle_minutes_for(45, GamdlCliGeneration::V4), 45);
+    }
+
+    #[test]
+    fn options_gamdl_four_removed_are_off_on_four() {
+        // Both still on for the 3.x releases that accept them...
+        assert!(GamdlFeature::FFmpegPath.is_available_on("3.9.1"));
+        assert!(GamdlFeature::NoExceptionsFlag.is_available_on("3.9.1"));
+        // ...and off on 4.x, which rejects any option it does not know.
+        for v in ["4.0", "4.0.0", "4.1"] {
+            assert!(!GamdlFeature::FFmpegPath.is_available_on(v), "{v}");
+            assert!(!GamdlFeature::NoExceptionsFlag.is_available_on(v), "{v}");
+        }
     }
 }

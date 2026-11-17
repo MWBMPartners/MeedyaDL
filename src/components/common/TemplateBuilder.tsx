@@ -61,6 +61,15 @@ interface TemplateBuilderProps {
 // Component
 // ============================================================
 
+/**
+ * Edits a GAMDL file or folder naming template as a row of removable chips.
+ *
+ * The template text is never kept here: every change is turned back into a
+ * string with `serializeTemplate()` and handed to `onChange`, and the next
+ * render re-reads it through `parseTemplate()`. Only UI state (raw mode,
+ * menu open, the custom text box) lives in this component.
+ * See: https://react.dev/learn/sharing-state-between-components
+ */
 export function TemplateBuilder({
   label,
   description,
@@ -70,19 +79,23 @@ export function TemplateBuilder({
 }: TemplateBuilderProps) {
   // Derive segments from the string prop (single source of truth)
   const segments = useMemo(() => parseTemplate(value), [value]);
+  // A sample filename built from the chips, so the person sees what the template will give.
   const preview = useMemo(() => renderPreview(segments), [segments]);
 
   // UI state
+  // `rawMode` swaps the chips for a plain text box; `menuOpen` shows the add menu.
   const [rawMode, setRawMode] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [customText, setCustomText] = useState('');
+  // The two refs let the outside-click check below tell "inside the menu or its button" from "elsewhere".
   const menuRef = useRef<HTMLDivElement>(null);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   // Filter variables by allowed categories
+  // Only the variable kinds this template makes sense for (for example, playlist ones are hidden for album templates).
   const filteredVariables = useMemo(
     () => TEMPLATE_VARIABLES.filter((v) => variableCategories.includes(v.category)),
-    [variableCategories],
+    [variableCategories]
   );
 
   // Close menu when clicking outside
@@ -103,15 +116,17 @@ export function TemplateBuilder({
   }, [menuOpen]);
 
   // Segment mutation handlers
+  // Appends a variable chip like `{artist}` to the end of the template.
   const addVariable = useCallback(
     (varValue: string) => {
       const newSegments = [...segments, { type: 'variable' as const, value: varValue }];
       onChange(serializeTemplate(newSegments));
       setMenuOpen(false);
     },
-    [segments, onChange],
+    [segments, onChange]
   );
 
+  // Appends fixed text (a separator such as `/`, or the person's own words). Empty text is ignored.
   const addLiteral = useCallback(
     (text: string) => {
       if (!text) return;
@@ -120,31 +135,41 @@ export function TemplateBuilder({
       setMenuOpen(false);
       setCustomText('');
     },
-    [segments, onChange],
+    [segments, onChange]
   );
 
+  // Drops the chip at `index`; the others keep their order.
   const removeSegment = useCallback(
     (index: number) => {
       const newSegments = segments.filter((_, i) => i !== index);
       onChange(serializeTemplate(newSegments));
     },
-    [segments, onChange],
+    [segments, onChange]
   );
 
   // Generate a deterministic id from the label for accessibility
+  // Turns the label into an id so the <label> can point at the raw-mode input.
   const builderId = `template-${label.toLowerCase().replace(/\s+/g, '-')}`;
+  // The label's own id, so the visual (chip) editor can name itself after it.
+  // In visual mode there is no single input for `htmlFor` to point at, so
+  // the chip area is a labelled group instead (#1439).
+  const labelId = `${builderId}-label`;
 
   return (
     <div className="space-y-1.5">
       {/* ---- Label row ---- */}
       <div className="flex items-center gap-1.5">
-        <label htmlFor={builderId} className="text-sm font-medium text-content-primary">
+        <label
+          id={labelId}
+          htmlFor={rawMode ? builderId : undefined}
+          className="text-sm font-medium text-content-primary"
+        >
           {label}
         </label>
         <button
           type="button"
           onClick={() => setRawMode(!rawMode)}
-          className="ml-auto text-[10px] text-content-tertiary hover:text-content-primary transition-colors"
+          className="ml-auto text-2xs text-content-tertiary hover:text-content-primary transition-colors"
         >
           {rawMode ? 'Visual' : 'Edit Raw'}
         </button>
@@ -167,6 +192,8 @@ export function TemplateBuilder({
         /* Visual chip builder mode */
         <div className="relative">
           <div
+            role="group"
+            aria-labelledby={labelId}
             className="flex flex-wrap items-center gap-1.5 min-h-[38px] px-3 py-2
               rounded-platform border border-border bg-surface-secondary"
           >
@@ -174,7 +201,7 @@ export function TemplateBuilder({
             {segments.map((seg, i) => (
               <span
                 key={`${i}-${seg.value}`}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-platform text-xs
                   ${
                     seg.type === 'variable'
                       ? 'bg-accent/10 text-accent font-medium'
@@ -210,7 +237,7 @@ export function TemplateBuilder({
               ref={menuButtonRef}
               type="button"
               onClick={() => setMenuOpen(!menuOpen)}
-              className="inline-flex items-center justify-center w-6 h-6 rounded-md
+              className="inline-flex items-center justify-center w-6 h-6 rounded-platform
                 border border-dashed border-border text-content-tertiary
                 hover:border-accent hover:text-accent transition-colors text-sm leading-none"
               aria-label="Add template segment"
@@ -232,7 +259,7 @@ export function TemplateBuilder({
             >
               {/* Variables section */}
               <div>
-                <p className="text-[10px] font-semibold text-content-tertiary uppercase tracking-wider px-1 mb-1">
+                <p className="text-2xs font-semibold text-content-tertiary uppercase tracking-wider px-1 mb-1">
                   Variables
                 </p>
                 <div className="space-y-0.5">
@@ -241,7 +268,7 @@ export function TemplateBuilder({
                       key={v.value}
                       type="button"
                       onClick={() => addVariable(v.value)}
-                      className="flex items-center justify-between w-full px-2 py-1.5 rounded-md
+                      className="flex items-center justify-between w-full px-2 py-1.5 rounded-platform
                         text-left text-xs hover:bg-surface-secondary transition-colors"
                     >
                       <span className="font-medium text-content-primary">{v.label}</span>
@@ -253,7 +280,7 @@ export function TemplateBuilder({
 
               {/* Separators section */}
               <div className="border-t border-border-light pt-2">
-                <p className="text-[10px] font-semibold text-content-tertiary uppercase tracking-wider px-1 mb-1">
+                <p className="text-2xs font-semibold text-content-tertiary uppercase tracking-wider px-1 mb-1">
                   Separators
                 </p>
                 <div className="flex flex-wrap gap-1">
@@ -262,7 +289,7 @@ export function TemplateBuilder({
                       key={lit.value}
                       type="button"
                       onClick={() => addLiteral(lit.value)}
-                      className="px-2 py-1 rounded-md text-xs font-mono
+                      className="px-2 py-1 rounded-platform text-xs font-mono
                         bg-surface-secondary border border-border-light
                         text-content-primary hover:border-accent transition-colors"
                     >
@@ -274,7 +301,7 @@ export function TemplateBuilder({
 
               {/* Custom text section */}
               <div className="border-t border-border-light pt-2">
-                <p className="text-[10px] font-semibold text-content-tertiary uppercase tracking-wider px-1 mb-1">
+                <p className="text-2xs font-semibold text-content-tertiary uppercase tracking-wider px-1 mb-1">
                   Custom Text
                 </p>
                 <div className="flex gap-1">
@@ -288,13 +315,13 @@ export function TemplateBuilder({
                         addLiteral(customText);
                       }
                     }}
-                    placeholder="Type text..."
+                    placeholder="Type text…"
                     // Fix 9 (a11y audit): the "Custom Text" heading
                     // above is a <p>, not a <label>, so it was never
                     // tied to this field -- placeholder text alone is
                     // not a name.
                     aria-label="Custom text to add to the template"
-                    className="flex-1 px-2 py-1 text-xs rounded-md border border-border
+                    className="flex-1 px-2 py-1 text-xs rounded-platform border border-border
                       bg-surface-secondary text-content-primary placeholder-content-tertiary
                       focus:border-accent focus:ring-1 focus:ring-accent transition-colors"
                   />
@@ -302,7 +329,7 @@ export function TemplateBuilder({
                     type="button"
                     onClick={() => addLiteral(customText)}
                     disabled={!customText}
-                    className="px-2 py-1 text-xs rounded-md font-medium
+                    className="px-2 py-1 text-xs rounded-platform font-medium
                       bg-accent text-content-on-accent hover:bg-accent-hover
                       disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
@@ -317,9 +344,7 @@ export function TemplateBuilder({
 
       {/* ---- Preview ---- */}
       {preview && (
-        <p className="text-xs font-mono text-content-secondary truncate">
-          Preview: {preview}
-        </p>
+        <p className="text-xs font-mono text-content-secondary truncate">Preview: {preview}</p>
       )}
 
       {/* ---- Description ---- */}

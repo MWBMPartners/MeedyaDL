@@ -115,10 +115,7 @@ pub fn ingest_history_json(
 ) -> Result<usize, IndexError> {
     let path = app_data_dir.join("history.json");
     let Ok(json) = std::fs::read_to_string(&path) else {
-        log::debug!(
-            "history.json absent at {}; skipping ingest",
-            path.display()
-        );
+        log::debug!("history.json absent at {}; skipping ingest", path.display());
         return Ok(0);
     };
 
@@ -222,10 +219,7 @@ pub fn ingest_activity_log_jsonl(
         )?;
         for file in &files {
             let Ok(contents) = std::fs::read_to_string(file) else {
-                log::debug!(
-                    "Activity-log file {} unreadable; skipping",
-                    file.display()
-                );
+                log::debug!("Activity-log file {} unreadable; skipping", file.display());
                 continue;
             };
             for line in contents.lines() {
@@ -315,7 +309,10 @@ mod tests {
         // Re-running the ingest is idempotent against the same data
         // because of the UNIQUE(service, service_url, codec) constraint.
         let count_again = ingest_history_json(&mut idx, &app_dir).unwrap();
-        assert_eq!(count_again, 0, "re-ingest must dedupe via UNIQUE constraint");
+        assert_eq!(
+            count_again, 0,
+            "re-ingest must dedupe via UNIQUE constraint"
+        );
 
         std::fs::remove_dir_all(&app_dir).ok();
     }
@@ -329,8 +326,16 @@ mod tests {
         // later so it sorts first under the newest-first ordering.
         let event_a = r#"{"download_id":"system","stream":"internal","line":"first event","timestamp":"2026-05-23T12:00:00Z"}"#;
         let event_b = r#"{"download_id":"system","stream":"internal","line":"second event","timestamp":"2026-05-24T12:00:00Z"}"#;
-        std::fs::write(log_dir.join("activity-2026-05-23.log"), format!("{event_a}\n")).unwrap();
-        std::fs::write(log_dir.join("activity-2026-05-24.log"), format!("{event_b}\n")).unwrap();
+        std::fs::write(
+            log_dir.join("activity-2026-05-23.log"),
+            format!("{event_a}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            log_dir.join("activity-2026-05-24.log"),
+            format!("{event_b}\n"),
+        )
+        .unwrap();
 
         let db_path = log_dir.join("test.db");
         let mut idx = DownloadIndex::open(&db_path).unwrap();
@@ -361,7 +366,10 @@ mod tests {
         assert_eq!(first.downloads_ingested, 1);
 
         let second = run_first_startup_ingest(&mut idx, &app_dir, &log_dir, 30).unwrap();
-        assert!(!second.ran, "second call must short-circuit on the meta flag");
+        assert!(
+            !second.ran,
+            "second call must short-circuit on the meta flag"
+        );
         assert_eq!(second.downloads_ingested, 0);
 
         std::fs::remove_dir_all(&app_dir).ok();
@@ -384,8 +392,7 @@ mod tests {
         let missing_log_dir = app_dir.join("does_not_exist");
         let db_path = app_dir.join("test.db");
         let mut idx = DownloadIndex::open(&db_path).unwrap();
-        let (events, files) =
-            ingest_activity_log_jsonl(&mut idx, &missing_log_dir, 30).unwrap();
+        let (events, files) = ingest_activity_log_jsonl(&mut idx, &missing_log_dir, 30).unwrap();
         assert_eq!(events, 0);
         assert_eq!(files, 0);
         std::fs::remove_dir_all(&app_dir).ok();

@@ -130,9 +130,9 @@ impl PackageManagerKind {
     #[must_use]
     pub fn update_capability(self) -> UpdateCapability {
         match self {
-            PackageManagerKind::Homebrew
-            | PackageManagerKind::Pipx
-            | PackageManagerKind::Scoop => UpdateCapability::Auto,
+            PackageManagerKind::Homebrew | PackageManagerKind::Pipx | PackageManagerKind::Scoop => {
+                UpdateCapability::Auto
+            }
             PackageManagerKind::MacPorts
             | PackageManagerKind::Apt
             | PackageManagerKind::Dnf
@@ -170,9 +170,9 @@ impl PackageManagerKind {
             PackageManagerKind::Dnf => Some(("dnf", owned(&["upgrade", "-y", package]))),
             PackageManagerKind::Snap => Some(("snap", owned(&["refresh", package]))),
             PackageManagerKind::MacPorts => Some(("port", owned(&["upgrade", package]))),
-            PackageManagerKind::Homebrew
-            | PackageManagerKind::Pipx
-            | PackageManagerKind::Scoop => None,
+            PackageManagerKind::Homebrew | PackageManagerKind::Pipx | PackageManagerKind::Scoop => {
+                None
+            }
         }
     }
 
@@ -211,10 +211,16 @@ impl PackageManagerKind {
             PackageManagerKind::Pipx => {
                 pkg_after_component(binary, "venvs").map(|pkg| PackageRef::new(self, pkg))
             }
-            PackageManagerKind::Scoop => scoop_owner(original).map(|pkg| PackageRef::new(self, pkg)),
+            PackageManagerKind::Scoop => {
+                scoop_owner(original).map(|pkg| PackageRef::new(self, pkg))
+            }
             PackageManagerKind::Snap => snap_owner(original).map(|pkg| PackageRef::new(self, pkg)),
-            PackageManagerKind::Apt => dpkg_owner(binary).await.map(|pkg| PackageRef::new(self, pkg)),
-            PackageManagerKind::Dnf => rpm_owner(binary).await.map(|pkg| PackageRef::new(self, pkg)),
+            PackageManagerKind::Apt => dpkg_owner(binary)
+                .await
+                .map(|pkg| PackageRef::new(self, pkg)),
+            PackageManagerKind::Dnf => rpm_owner(binary)
+                .await
+                .map(|pkg| PackageRef::new(self, pkg)),
             PackageManagerKind::MacPorts => macports_owner(binary)
                 .await
                 .map(|pkg| PackageRef::new(self, pkg)),
@@ -231,7 +237,10 @@ impl PackageManagerKind {
     /// exact command the user can run themselves.
     pub async fn upgrade(self, pkg: &PackageRef) -> Result<(), String> {
         if !is_safe_package_name(&pkg.package) {
-            return Err(format!("Refusing to upgrade unsafe package name: {}", pkg.package));
+            return Err(format!(
+                "Refusing to upgrade unsafe package name: {}",
+                pkg.package
+            ));
         }
         match self.update_capability() {
             UpdateCapability::Auto => self.upgrade_auto(&pkg.package).await,
@@ -374,6 +383,8 @@ impl PackageRef {
 /// correctness. The path is canonicalised once so a symlink
 /// (`/usr/local/bin/ffmpeg` → Cellar) resolves to its real owner.
 pub async fn detect_owner(binary: &Path) -> Option<PackageRef> {
+    // Follow symbolic links, so a shortcut such as `/usr/local/bin/ffmpeg` is judged
+    // by where the real file lives. If that fails, use the path as given.
     let canonical = std::fs::canonicalize(binary).unwrap_or_else(|_| binary.to_path_buf());
 
     // Pure-path classifiers (no subprocess). `original` matters for snap/scoop
@@ -440,8 +451,13 @@ fn find_homebrew() -> Option<PathBuf> {
     })
 }
 
+/// Splits the output of a Homebrew list command into trimmed, non-empty lines.
+/// Each line is one formula name.
 fn homebrew_formulae(output: &str) -> impl Iterator<Item = &str> {
-    output.lines().map(str::trim).filter(|line| !line.is_empty())
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
 }
 
 /// Determine which installed formula owns a binary by comparing canonical
@@ -531,6 +547,11 @@ fn snap_owner(path: &Path) -> Option<String> {
 // Subprocess classifiers (Linux dpkg/rpm, MacPorts)
 // ------------------------------------------------------------------
 
+/// Asks `dpkg -S` which Debian-family package owns `binary`. Linux only;
+/// returns `None` elsewhere, if the command fails, or if the name is not a safe
+/// package name.
+///
+/// See: https://manpages.debian.org/dpkg
 async fn dpkg_owner(binary: &Path) -> Option<String> {
     if !cfg!(target_os = "linux") {
         return None;
@@ -550,6 +571,10 @@ async fn dpkg_owner(binary: &Path) -> Option<String> {
     is_safe_package_name(&pkg).then_some(pkg)
 }
 
+/// Asks `rpm -qf` which RPM package owns `binary`. Linux only; returns `None`
+/// elsewhere, if the file is owned by no package, or if the name is not safe.
+///
+/// See: https://rpm.org/documentation.html
 async fn rpm_owner(binary: &Path) -> Option<String> {
     if !cfg!(target_os = "linux") {
         return None;
@@ -569,6 +594,11 @@ async fn rpm_owner(binary: &Path) -> Option<String> {
     is_safe_package_name(&pkg).then_some(pkg)
 }
 
+/// Asks `port provides` which MacPorts port owns `binary`. macOS only, and only
+/// for files under `/opt/local/`, which is checked first so `port` is not started
+/// for nothing. Returns `None` if anything fails or the name is not safe.
+///
+/// See: https://guide.macports.org/
 async fn macports_owner(binary: &Path) -> Option<String> {
     if !cfg!(target_os = "macos") {
         return None;
@@ -678,9 +708,7 @@ mod tests {
         for pm in PackageManagerKind::ALL {
             let expected = matches!(
                 pm,
-                PackageManagerKind::Homebrew
-                    | PackageManagerKind::Pipx
-                    | PackageManagerKind::Scoop
+                PackageManagerKind::Homebrew | PackageManagerKind::Pipx | PackageManagerKind::Scoop
             );
             assert_eq!(
                 pm.update_capability() == UpdateCapability::Auto,

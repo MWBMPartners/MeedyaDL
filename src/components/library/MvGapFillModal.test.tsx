@@ -24,15 +24,9 @@ import { makeScannedManifest } from '@/testing/fixtures';
 
 vi.mock('lucide-react', () => ({
   X: (props: Record<string, unknown>) => <span data-testid="x-icon" {...props} />,
-  Music: (props: Record<string, unknown>) => (
-    <span data-testid="music-icon" {...props} />
-  ),
-  Video: (props: Record<string, unknown>) => (
-    <span data-testid="video-icon" {...props} />
-  ),
-  Info: (props: Record<string, unknown>) => (
-    <span data-testid="info-icon" {...props} />
-  ),
+  Music: (props: Record<string, unknown>) => <span data-testid="music-icon" {...props} />,
+  Video: (props: Record<string, unknown>) => <span data-testid="video-icon" {...props} />,
+  Info: (props: Record<string, unknown>) => <span data-testid="info-icon" {...props} />,
 }));
 
 const baseManifest = makeScannedManifest();
@@ -98,9 +92,7 @@ describe('MvGapFillModal', () => {
         />
       );
       expect(screen.getByText(/enabled/i)).toBeInTheDocument();
-      expect(
-        screen.getByText('Include music videos in this gap-fill?')
-      ).toBeInTheDocument();
+      expect(screen.getByText('Include music videos in this gap-fill?')).toBeInTheDocument();
     });
 
     it('Yes → null (inherit settings)', () => {
@@ -152,9 +144,7 @@ describe('MvGapFillModal', () => {
         />
       );
       expect(screen.getByText(/currently disabled/i)).toBeInTheDocument();
-      expect(
-        screen.getByText('Include music videos in this gap-fill anyway?')
-      ).toBeInTheDocument();
+      expect(screen.getByText('Include music videos in this gap-fill anyway?')).toBeInTheDocument();
     });
 
     it('Yes → true (force-enable for this item)', () => {
@@ -209,5 +199,42 @@ describe('MvGapFillModal', () => {
     fireEvent.click(screen.getByText('Cancel'));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  describe('refresh wording', () => {
+    it('says it downloads the updated version and keeps extra copies', () => {
+      render(
+        <MvGapFillModal
+          open
+          onClose={() => {}}
+          onConfirm={() => {}}
+          mvCompanionEnabledInSettings
+          manifest={baseManifest}
+          mode="refresh"
+        />
+      );
+      expect(screen.getByText(/Download the updated version/)).toBeInTheDocument();
+      expect(screen.queryByText(/Re-download gaps/)).not.toBeInTheDocument();
+      expect(screen.getByText(/usually\s+left as they are, not updated/)).toBeInTheDocument();
+      expect(screen.queryByText(/never replaced/)).not.toBeInTheDocument();
+      expect(screen.getByText('Include music videos in this download?')).toBeInTheDocument();
+    });
+
+    it('maps the buttons the same way as a gap-fill', () => {
+      const onConfirm = vi.fn();
+      render(
+        <MvGapFillModal
+          open
+          onClose={() => {}}
+          onConfirm={onConfirm}
+          mvCompanionEnabledInSettings={false}
+          manifest={baseManifest}
+          mode="refresh"
+        />
+      );
+      expect(screen.getByText('Include music videos in this download anyway?')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Yes — include videos/ }));
+      expect(onConfirm).toHaveBeenCalledWith(true);
+    });
   });
 });

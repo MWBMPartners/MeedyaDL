@@ -37,6 +37,8 @@ use std::io::{Cursor, Read, Write};
 
 use serde::{Deserialize, Serialize};
 
+/// Encrypts and decrypts the credentials stored in a bundle (AES-256-GCM, with the
+/// key made from the user's password by PBKDF2).
 pub mod credentials;
 
 /// Current bundle-format version. **Bump only on breaking changes** to
@@ -73,21 +75,30 @@ pub const BUNDLE_MIME_TYPE: &str = "application/vnd.meedyasuite.bundle+zip";
 /// actual content is identified by [`BundleMeta`] inside meta.json,
 /// so a legacy-MIME bundle will import without issue. Kept as a
 /// `pub const` so an "is this our format?" check can match either.
-pub const BUNDLE_MIME_TYPE_LEGACY: &str =
-    "application/vnd.mwbmpartners.meedyadl.bundle+zip";
+pub const BUNDLE_MIME_TYPE_LEGACY: &str = "application/vnd.mwbmpartners.meedyadl.bundle+zip";
 
 /// Filenames inside the archive. Constants live alongside the format
 /// definition so every consumer reads the same canonical strings.
 pub mod entry {
+    /// Bundle information: producer, format version and the list of contents.
     pub const META: &str = "meta.json";
+    /// The settings file (always present).
     pub const SETTINGS: &str = "settings.json";
+    /// Checksum of the settings file.
     pub const SETTINGS_SHA256: &str = "settings.json.sha256";
+    /// The download queue.
     pub const QUEUE: &str = "queue.json";
+    /// The download history.
     pub const HISTORY: &str = "history.json";
+    /// An optional database file.
     pub const DATABASE: &str = "database.sqlite";
+    /// The encrypted credentials (see the `credentials` module).
     pub const CREDENTIALS: &str = "credentials.encrypted";
+    /// The salt, nonce and iteration count needed to decrypt the credentials.
     pub const CREDENTIALS_KDF: &str = "credentials.kdf-params.json";
+    /// Folder prefix for optional activity log files.
     pub const ACTIVITY_LOG_PREFIX: &str = "activity_log/";
+    /// Folder prefix for optional album manifest files.
     pub const MANIFESTS_PREFIX: &str = "manifests/";
 }
 
@@ -191,7 +202,7 @@ impl BundleMeta {
             producer: PRODUCER_ID.to_string(),
             producer_version: producer_version.into(),
             producer_platform: current_platform_string(),
-            exported_at: chrono::Utc::now().to_rfc3339(),
+            exported_at: crate::utils::time_compat::now_rfc3339(),
             exported_by: None,
             note: None,
             contents: Vec::new(),
@@ -214,6 +225,11 @@ impl BundleMeta {
     }
 }
 
+/// Everything that can go wrong reading or writing a bundle. The `#[from]`
+/// variants wrap errors from the standard library, the zip crate and
+/// `serde_json`.
+///
+/// See: <https://docs.rs/thiserror/latest/thiserror/>
 #[derive(Debug, thiserror::Error)]
 pub enum BundleError {
     #[error("bundle io: {0}")]
@@ -291,10 +307,7 @@ impl BundleWriter {
     /// Returns `Err(BundleError::Io)` only when the DB file cannot be
     /// read; absence is logged at the caller's discretion (an
     /// install that has never opened the DB simply skips this step).
-    pub fn add_database_from_disk(
-        &mut self,
-        db_path: &std::path::Path,
-    ) -> Result<(), BundleError> {
+    pub fn add_database_from_disk(&mut self, db_path: &std::path::Path) -> Result<(), BundleError> {
         let bytes = std::fs::read(db_path)?;
         self.add_optional_file(entry::DATABASE, bytes);
         self.declare_section(BundleSection::Database);
@@ -343,6 +356,8 @@ pub struct BundleReader {
 }
 
 impl std::fmt::Debug for BundleReader {
+    /// Shows the reader without dumping the whole archive: only the bundle info and
+    /// the number of entries.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("BundleReader")
             .field("meta", &self.meta)
@@ -400,6 +415,8 @@ impl BundleReader {
         // declared sizes outright, and cap the pre-allocation hint at a
         // smaller ceiling so a smaller-but-still-inflated declared size
         // can't over-allocate either.
+        // `MAX_ENTRY_SIZE` is the most one entry may claim to hold when unpacked;
+        // `MAX_PREALLOC` is the most memory reserved up front, whatever size it claims.
         const MAX_ENTRY_SIZE: u64 = 256 * 1024 * 1024; // 256 MB
         const MAX_PREALLOC: u64 = 64 * 1024 * 1024; // 64 MB
         if entry.size() > MAX_ENTRY_SIZE {
@@ -423,10 +440,7 @@ impl BundleReader {
     /// `activity_log/` and `manifests/` sub-trees one entry at a
     /// time. Cheap — only the central directory is consulted, no
     /// file payloads are decompressed.
-    pub fn file_names_starting_with(
-        &self,
-        prefix: &str,
-    ) -> Result<Vec<String>, BundleError> {
+    pub fn file_names_starting_with(&self, prefix: &str) -> Result<Vec<String>, BundleError> {
         let mut out = Vec::new();
         // Read-only access to entry names doesn't need a mutable archive
         // borrow — `file_names` reads the central directory. Since zip 9
@@ -525,7 +539,10 @@ mod tests {
         assert_eq!(reader.meta().producer_version, "1.10.0-test");
         assert_eq!(reader.meta().producer, "meedyadl");
         assert!(reader.meta().is_produced_by_this_app());
-        assert!(reader.meta().contents.is_empty(), "no optional sections declared");
+        assert!(
+            reader.meta().contents.is_empty(),
+            "no optional sections declared"
+        );
 
         let restored = reader
             .read_entry(entry::SETTINGS)
@@ -643,8 +660,11 @@ mod tests {
         let mut buf = Cursor::new(Vec::new());
         {
             let mut zip = zip::ZipWriter::new(&mut buf);
-            zip.start_file("not-a-meedyabundle.txt", zip::write::SimpleFileOptions::default())
-                .unwrap();
+            zip.start_file(
+                "not-a-meedyabundle.txt",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
             zip.write_all(b"nope").unwrap();
             zip.finish().unwrap();
         }
@@ -747,7 +767,10 @@ mod tests {
         assert!(reader.meta().has(BundleSection::Database));
         let dest_db = tmp.path().join("restored.db");
         let extracted = reader.extract_database_to(&dest_db).unwrap();
-        assert!(extracted, "extract_database_to must return true when section present");
+        assert!(
+            extracted,
+            "extract_database_to must return true when section present"
+        );
         assert!(dest_db.exists());
 
         // Open the restored DB and confirm both rows survived.
@@ -756,6 +779,9 @@ mod tests {
             .conn()
             .query_row("SELECT COUNT(*) FROM downloads", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(count, 2, "both seeded rows must survive the bundle round-trip");
+        assert_eq!(
+            count, 2,
+            "both seeded rows must survive the bundle round-trip"
+        );
     }
 }

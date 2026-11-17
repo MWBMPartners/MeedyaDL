@@ -6,13 +6,18 @@
 
 # Downloading Videos
 
-This guide explains how to download music videos and post videos from Apple Music using MeedyaDL, including how to configure video quality options.
+This page shows how to download music videos from Apple Music with MeedyaDL, and how to choose their quality.
 
 ---
 
-## Overview
+## Quick Start
 
-In addition to audio content, MeedyaDL supports downloading video content from Apple Music. This includes official music videos and post videos (short-form promotional content). Video downloads use the same queue system as music downloads, so you can mix audio and video items in a single session.
+1. Open the music video on Apple Music in your browser and copy the address from the address bar.
+2. Paste it into MeedyaDL's link box.
+3. Click download. MeedyaDL knows it is a video, so you do not have to choose anything.
+4. Watch it in the queue.
+
+Videos use the same queue as music. You can paste songs and videos together.
 
 ---
 
@@ -20,169 +25,169 @@ In addition to audio content, MeedyaDL supports downloading video content from A
 
 ### Music Videos
 
-Music videos are full-length official videos published by artists on Apple Music. They are identified by `/music-video/` in their Apple Music URL path.
+Music videos are the official videos artists publish on Apple Music. Their links contain `/music-video/`, for example:
 
-To download a music video:
+```text
+https://music.apple.com/us/music-video/example-title/1234567890
+```
 
-1. Open Apple Music in your browser and navigate to the music video you want to download.
-2. Copy the URL from the address bar. It will look something like:
+MeedyaDL spots the `/music-video/` part and treats the link as a video.
 
-   ```text
-   https://music.apple.com/us/music-video/example-title/1234567890
-   ```
-
-3. Paste the URL into the MeedyaDL URL input field.
-
-The app auto-detects the content as a video based on the `/music-video/` segment in the URL path. No manual selection of content type is needed.
-
-Music video downloads produce an MP4 file in the `.m4v` container format, with the video track and an embedded audio track. The resulting file is tagged with metadata including title, artist, album, and artwork.
+A music video is saved as a video file with sound included. It is `.m4v` on a Mac and `.mp4` on Windows and Linux by default. You can change this in **Settings > Codec & Resolution > Video Remux Format**. It is tagged with its title, artist, album and artwork.
 
 ### Post Videos
 
-Post videos are a sub-type of music video content on Apple Music. They are typically shorter promotional clips or behind-the-scenes footage published by artists. Post videos are handled identically to music videos within MeedyaDL -- you simply paste the URL and the app processes it using the same video pipeline.
+Post videos are shorter clips, such as promotional or behind-the-scenes videos. You download them exactly like music videos: paste the link and go.
 
 ---
 
 ## Video Quality Options
 
-### Available Resolutions
+### Resolution
 
-MeedyaDL lets you pick a resolution from the list below. This is not a preference order the way the codec list further down is -- the resolution you pick is a **ceiling**. Apple Music always hands back the best quality it has at or below whatever you chose, in a single attempt, so picking a high ceiling never causes a failure: if the video only exists at a lower resolution, that lower resolution is simply what you get.
+The resolution you pick is a **ceiling**, not a request. Apple Music always gives you the best quality it has at or below your choice. A high ceiling never causes a failure. If a video only exists in a lower resolution, you simply get that one.
 
-| Resolution | Label    | Typical Use Case                              |
-|------------|----------|-----------------------------------------------|
-| 2160p      | 4K       | Maximum quality; large file sizes             |
-| 1440p      | 2K       | High quality with smaller footprint than 4K   |
-| 1080p      | Full HD  | Recommended for most users; best balance      |
-| 720p       | HD       | Good quality at moderate file sizes           |
-| 540p       | --       | A step below standard HD                      |
-| 480p       | SD       | Standard definition; small file sizes         |
-| 360p       | --       | Low quality; minimal storage usage            |
-| 240p       | --       | Lowest available quality                      |
+You set it in **Settings > Codec & Resolution > Maximum Video Resolution**.
 
-**Recommendation:** 1080p is the best choice for most users, offering excellent visual quality without the storage demands of 4K. If you use HEVC (H.265) as the video codec, 1080p HEVC provides the best quality-to-size ratio.
+| Resolution | Label | Good for |
+|------------|-------|----------|
+| 2160p | 4K | Best quality. Large files. |
+| 1440p | 2K | High quality, smaller than 4K. |
+| 1080p | Full HD | **Recommended.** The best balance. |
+| 720p | HD | Good quality, moderate size. |
+| 540p | — | A step below standard HD. |
+| 480p | SD | Standard definition. Small files. |
+| 360p | — | Low quality. Very small. |
+| 240p | — | Lowest quality. |
 
-**File size consideration:** 4K UHD (2160p) music videos can be several hundred megabytes per file. Ensure you have sufficient disk space before downloading at this resolution.
+**Recommendation:** Choose 1080p. With the H.265 codec it gives the best quality for the size.
 
-**4K needs more than just picking 2160p:** the resolution setting is a ceiling, but reaching all the way up to 4K also depends on how MeedyaDL is unlocking the track, and the built-in method cannot reach it on its own. Apple Music offers 4K music videos to either of two kinds of device file, and you have to supply one of them yourself:
+**File size:** A 4K music video can be several hundred megabytes. Check your free disk space first.
 
-- A **PlayReady device file** (a `.prd` file) of a particular grade -- GAMDL's own notes call it SL3000. A lower-grade `.prd` file will not reach 4K. This is the one MeedyaDL can use today: see the Unlocking Method setting in [Settings](settings.md), which appears when GAMDL 3.9 or newer is installed.
-- A **Widevine L1 device file** (a `.wvd` file). MeedyaDL does not currently offer any way to supply one of these, so this route is not open to you here.
+**About 4K:** Not every video is offered in 4K, and 4K is not available on every set-up. If you ask for 4K and get less, you have received the highest quality your set-up could reach.
 
-Without a suitable device file, asking for 2160p simply gets you the highest resolution actually available to the built-in method, which may be lower.
+### Video Codec
 
-### Video Codecs
+The codec is how the video is squeezed into a file. Different codecs trade picture quality, file size and compatibility. See [Quality Settings](quality-settings.md) for a comparison.
 
-The video codec determines how the video track is compressed. Different codecs offer different trade-offs between quality, file size, and device compatibility. For a detailed comparison of all available video codecs and their differences, see [Quality Settings](quality-settings.md).
+If your first-choice codec is not offered for a video, MeedyaDL tries the next one on your list. You can change the order in **Settings > Codec Fallback Order > Video Fallback**. See [Fallback Quality](fallback-quality.md).
 
-### Audio Track Quality
+### Sound Quality
 
-The audio track embedded within a downloaded video uses the same audio codec settings available in the app. By default, the audio track for video downloads is typically AAC. You can review and adjust audio codec preferences in [Quality Settings](quality-settings.md), though the available options for video audio tracks may differ from standalone audio downloads.
+The sound in a video comes with the video. Your song format settings do not change it. Video sound is normally AAC. See [Quality Settings](quality-settings.md).
 
 ---
 
 ## Downloading a Video
 
-### Step-by-Step Process
+1. **Copy the video link** from Apple Music in your browser.
+2. **Paste it** into MeedyaDL's link box.
+3. **Check your quality settings** in Settings first, or use the defaults.
+4. **Click download.** The video joins the queue.
+5. **Watch progress** in the queue. Each item shows its percentage.
 
-1. **Copy the video URL** -- Open Apple Music in your browser, navigate to the music video, and copy the URL from the address bar.
-2. **Paste the URL** -- In MeedyaDL, paste the URL into the URL input field.
-3. **Auto-detection** -- The app automatically detects that the URL points to video content by recognizing the `/music-video/` path segment. No manual content type selection is required.
-4. **Configure quality** -- Set your preferred video resolution and codec in the Settings before downloading, or use the defaults.
-5. **Start the download** -- Click the download button. The video is added to the download queue.
-6. **Monitor progress** -- Track the download in the queue. Progress tracking shows the download percentage for each item.
-
-### Selecting Quality Before Download
-
-Video quality preferences are configured in **Settings** before you begin downloading. Set your preferred resolution and codec priority, and MeedyaDL will use those settings for all subsequent video downloads.
-
-The resolution you choose is treated as a **maximum**, not a request. Apple Music gives you the closest quality it has at or below it, so asking for 4K for a video that only exists in 1080p simply gives you the 1080p version -- automatically, in the same download attempt, with no manual intervention needed and no failure along the way.
-
-The video **codec** is a different matter: it genuinely can be unavailable, and it does step down through a configurable order (H.265 first, then H.264, by default) when your first choice isn't offered. That order lives in **Settings > Codec Fallback Order > Video Fallback**. See [Fallback Quality](fallback-quality.md) for the full explanation of how the codec chain works, and why resolution does not have a chain of its own.
+Your video settings apply to every video you download from then on. Resolution is always a maximum. Asking for 4K for a video that only exists in 1080p just gives you the 1080p version, with no failure and nothing to do.
 
 ---
 
 ## Output Files
 
-### Video File Format
+### The Video File
 
-Downloaded videos are saved in the **MP4 container format** with the `.m4v` file extension. Each file contains:
+- A `.m4v` file on a Mac or a `.mp4` file on Windows and Linux by default. Change it in **Settings > Codec & Resolution > Video Remux Format**.
+- The picture at your chosen quality, with sound included.
+- Title, artist, album and artwork added.
 
-- A video track at the selected resolution and codec
-- An embedded audio track (typically AAC)
-- Embedded metadata (title, artist, album, artwork)
+Videos go to your normal output folder, the same one used for music. File names follow the templates in **Settings > Templates**. See [Lyrics and Metadata](lyrics-and-metadata.md).
 
-Files are saved to your configured output directory, the same location used for music downloads. File naming follows the template system configured in **Settings > Templates**. See [Lyrics and Metadata](lyrics-and-metadata.md) for more on how templates work.
-
-**Where a music video lands.** When GAMDL can work out which album a music video belongs to, it uses your album folder and file templates, so the video is saved in the album's folder next to its songs. Only when it cannot find an album does the video go into a separate `Music Videos` folder under the artist, with Apple Music's numeric video ID added to the file name so two videos with the same title never overwrite each other. From GAMDL 3.9.1, GAMDL finds the album far more often than before, so videos you download now may land beside the songs where older downloads went into `Music Videos`. Nothing already on disk is moved or deleted.
+**Where a video is saved.** When Apple Music links the video to an album, MeedyaDL saves it in that album's folder, next to the songs. When there is no album, it goes in a `Music Videos` folder under the artist. In that case Apple's video number is added to the file name, so two videos with the same title never overwrite each other. Most videos are found with their album. A video you download now may therefore land beside the songs where an older download went into `Music Videos`. Nothing already on disk is moved or deleted.
 
 ### Subtitles and Lyrics
 
-Music video downloads can include synchronized lyrics or subtitle tracks. The default lyric format for music videos is **TTML** (Timed Text Markup Language), which is Apple's native subtitle format. An **SRT** (SubRip) file is also downloaded alongside the TTML file for broader compatibility with media players.
+Music videos can come with timed lyrics or subtitles. By default you get a **TTML** file (Apple's own subtitle format) and an **SRT** file beside it, which works in more players. Choose the formats in **Settings > Lyrics**. See [Lyrics and Metadata](lyrics-and-metadata.md).
 
-You can configure lyric and subtitle format preferences in **Settings > Lyrics tab**. For more information on lyric formats and options, see [Lyrics and Metadata](lyrics-and-metadata.md).
+<details>
+<summary>More detail: subtitle and caption file names</summary>
 
-### Metadata Embedding
+If a video carries its own subtitle or caption tracks, MeedyaDL saves each one as a separate file next to the video. The name is the video's name, then the language, then the kind of track, then the file type. For a video called `Song.mp4`:
 
-Downloaded video files are automatically tagged with metadata retrieved from Apple Music, including:
+- `Song.en.srt` — English subtitles
+- `Song.en.sdh.srt` — English captions for people who are deaf or hard of hearing
+- `Song.fr.forced.vtt` — French subtitles shown only where needed (for example a sign in another language)
+- `Song.en.commentary.srt` — an English commentary track
+- `Song.und.srt` — a track that does not say which language it is in
 
-- **Title** -- The name of the music video
-- **Artist** -- The performing artist(s)
-- **Album** -- The associated album, if applicable
-- **Artwork** -- The cover art or video thumbnail, embedded in the file
+If two tracks would get the same name, the second gets a number (`Song.en.2.srt`). The same video always gives the same names, so downloading it again does not make copies. Files saved by older versions of MeedyaDL keep their old names (such as `Song.cc.2.eng.srt`) and are never renamed. A new download recognises them, so the same track is not saved twice.
 
-This metadata ensures your video files are properly organized and display correctly in media players and library applications.
+These files are never mistaken for the song's lyrics. The lyric file MeedyaDL puts beside a music video is named exactly like the video, with no language in it (`Song.srt`).
+
+</details>
+
+### Tags
+
+Each video is tagged with:
+
+- **Title** — the video's name
+- **Artist** — who performs it
+- **Album** — the album, when there is one
+- **Artwork** — the cover or a thumbnail picture
+
+So your videos show up properly in players and libraries.
 
 ---
 
-## Tips for Video Downloads
+## Tips
 
-Here are some recommendations for getting the best video download experience:
+- **Check your disk space.** High-resolution videos are big, especially 4K.
+- **Choose 1080p with H.265** for the best size and quality.
+- **Check your cookies first.** Video downloads need a valid Apple Music sign-in. See [Cookie Management](cookie-management.md).
+- **Use a steady connection.** Big files take a while.
+- **Mix music and videos.** The queue handles both.
 
-- **Ensure sufficient disk space** -- High-resolution video files are large. 4K videos can be several hundred MB each. Check your available storage before starting a batch of video downloads.
-- **Use 1080p HEVC for the best balance** -- 1080p with HEVC (H.265) encoding offers the best quality-to-size ratio for most users. You get Full HD quality with significantly smaller files compared to 4K.
-- **Check your cookies before starting** -- Video downloads require valid Apple Music authentication. Verify that your cookies are current and not expired before beginning a video download session. See [Cookie Management](cookie-management.md) for instructions on refreshing cookies.
-- **Be mindful of bandwidth** -- Large video files take longer to download. A stable internet connection is recommended, especially for 4K content.
-- **Mix audio and video in the queue** -- The download queue handles both music and video items seamlessly. You can paste a mix of song and video URLs without needing to process them separately.
-- **Use MP4Box for remuxing (default, GAMDL 3.5.x and earlier only)** -- MP4Box handles music videos with embedded subtitle/CC tracks better than FFmpeg. This setting only does anything on GAMDL 3.5.x and earlier -- GAMDL 3.6 introduced native muxing and no longer accepts a remux-mode choice at all, so on 3.6+ the setting is inert. If you're on an older GAMDL and encounter "Invalid data found when processing input" errors during video downloads, check that your remux mode is set to MP4Box in **Settings > Advanced > Processing**.
+<details>
+<summary>More detail: the Remux Mode setting</summary>
+
+**Settings > Advanced > Remux Mode** chooses which helper program joins a video's picture, sound and subtitles into one file. MP4Box is the default. It keeps subtitles and captions more reliably than FFmpeg.
+
+This setting is ignored on GAMDL 3.6 and newer. If you are on an older GAMDL and see "Invalid data found when processing input", check that Remux Mode is set to MP4Box.
+
+</details>
 
 ---
 
 ## Music Video Companions
 
-MeedyaDL can automatically download music videos as companions when downloading audio tracks. When you download an album or song, the app queries the Apple Music API to check whether a music video exists for each track. If one is found, it is downloaded alongside your audio files using your configured video quality settings -- resolution and remux format from **Settings > Codec & Resolution > Video Quality**, codec order from **Settings > Codec Fallback Order > Video Fallback**.
+MeedyaDL can fetch the music video for a song automatically when you download its audio. When you download an album or song, it checks whether each track has a music video. If one exists, it is downloaded too, using your video quality settings. This feature is marked experimental.
 
-### Requirements
+### Turning It On
 
-- **MusicKit credentials recommended** -- With your MusicKit Team ID, Key ID, and private key configured in **Settings > Advanced > API Credentials**, MeedyaDL can use the Apple Music API to look up music video relationships, which is the more complete source. They are not required, though -- see the next point.
-- **Enable the toggle** -- Go to **Settings > Codec & Resolution > Video Quality** and turn on **Music Video Companions**. You can turn it on whether or not you have MusicKit credentials. With credentials, MeedyaDL asks the Apple Music API which tracks have a music video. Without them, it falls back to looking them up in the MusicBrainz database instead, which needs no credentials -- coverage is thinner, because MusicBrainz is community-maintained.
+Go to **Settings > Codec & Resolution > Video Quality** and turn on **Music Video Companions (Experimental)**.
 
-### How It Works
+- **With MusicKit details** (Team ID, Key ID and private key in **Settings > Advanced > API Credentials**), MeedyaDL can ask Apple Music which tracks have a video. This is the fuller source.
+- **Without them**, MeedyaDL looks the tracks up in the public MusicBrainz database instead. This needs no sign-up, but it finds fewer videos because MusicBrainz is kept up by volunteers.
 
-1. After your audio download completes, the post-download enrichment pipeline runs (metadata tagging, lyrics, artwork, etc.)
-2. As the final enrichment step, MeedyaDL queries the Apple Music API for each track's music video relationship
-3. For each track that has a music video, a separate GAMDL download is spawned using the music video URL
-4. Music videos are saved to the same output directory as your audio files
-5. Progress and results are logged in the Activity Log
+You can also turn on **MusicBrainz Video Lookup** on its own. See [Lyrics and Metadata](lyrics-and-metadata.md) for how Apple's details are set up. The same steps are in [Animated Artwork](animated-artwork.md).
 
-### Notes
+### What to Expect
 
-- Music video companions run in the background while the queue item is in "Processing" state. The global progress bar shows companion download speed, ETA, and percentage in real time. The queue-level progress bar counts the item as done once the primary download finishes (partial credit).
-- Desktop notifications for "download complete" are deferred until all companion downloads and enrichment stages finish.
-- If a track does not have a music video on Apple Music, it is silently skipped.
-- Duplicate music videos (e.g., the same video linked from multiple tracks) are automatically deduplicated.
-- Your video quality settings apply to companion music videos too -- resolution and remux format from **Settings > Codec & Resolution > Video Quality**, codec order from **Settings > Codec Fallback Order > Video Fallback**.
+- Videos are saved in the same folder as your audio.
+- The video download runs after the music and its extras are done, while the item shows as processing. The progress bar shows speed, time left and percentage.
+- The "download finished" message waits until the videos and the other extras are done.
+- Tracks with no music video are skipped quietly.
+- The same video linked from several tracks is only downloaded once.
+- Progress and results appear in the Activity Log.
+- Your video resolution, video codec order and remux settings apply to these videos too.
 
 ---
 
 ## Related Topics
 
-- [Downloading Music](downloading-music.md) -- Download audio-only content
-- [Quality Settings](quality-settings.md) -- Full details on video codec and resolution options
-- [Fallback Quality](fallback-quality.md) -- Automatic quality fallback behavior
-- [Lyrics and Metadata](lyrics-and-metadata.md) -- Subtitle and metadata options for videos
-- [Cookie Management](cookie-management.md) -- Manage authentication cookies
-- [Troubleshooting](troubleshooting.md) -- Resolve common video download errors
+- [Downloading Music](downloading-music.md) — Audio-only downloads
+- [Quality Settings](quality-settings.md) — Video codec and resolution options
+- [Fallback Quality](fallback-quality.md) — What happens when a codec is not offered
+- [Lyrics and Metadata](lyrics-and-metadata.md) — Subtitles and tags
+- [Cookie Management](cookie-management.md) — Your sign-in cookies
+- [Troubleshooting](troubleshooting.md) — Fixing common problems
 
 ---
 

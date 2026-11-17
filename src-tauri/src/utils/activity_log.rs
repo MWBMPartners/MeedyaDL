@@ -21,6 +21,8 @@
 // Used by: services::download_queue, services::metadata_tag_service,
 //          commands::gamdl, commands::updates, commands::dependencies,
 //          commands::cookies, commands::settings, commands::login_window
+//
+// See: https://v2.tauri.app/develop/calling-frontend/#event-system
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -57,9 +59,7 @@ static DISK_WRITER: OnceLock<crate::services::activity_log_writer::ActivityLogWr
 /// Registers the on-disk activity log writer. Called once from the
 /// Tauri `setup` closure after `activity_log_writer::start()` has
 /// spawned the background task.
-pub fn register_disk_writer(
-    handle: crate::services::activity_log_writer::ActivityLogWriterHandle,
-) {
+pub fn register_disk_writer(handle: crate::services::activity_log_writer::ActivityLogWriterHandle) {
     if DISK_WRITER.set(handle).is_err() {
         log::warn!("activity_log: disk writer already registered — ignoring second call");
     }
@@ -102,10 +102,15 @@ pub fn set_verbose_logging(enabled: bool) {
 /// be possible but adds complexity for no real win.
 static ACTIVITY_COUNTERS: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
 
+/// Returns the process-wide map of per-download event counts, creating it on
+/// first use.
+/// See: https://doc.rust-lang.org/std/sync/struct.OnceLock.html
 fn activity_counters() -> &'static Mutex<HashMap<String, u64>> {
     ACTIVITY_COUNTERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// Adds one to the event count for `download_id`. Does nothing if the lock
+/// is poisoned (losing a count is harmless). Wraps instead of overflowing.
 fn bump_activity_count(download_id: &str) {
     if let Ok(mut map) = activity_counters().lock() {
         let entry = map.entry(download_id.to_string()).or_insert(0);
@@ -214,16 +219,7 @@ fn append_label(message: &str, label: Option<String>) -> String {
 /// via `default_severity()`, so the entire migration to severity-
 /// tagged emits is incremental: only sites that genuinely represent
 /// a warning or error need to opt in via the dedicated helpers.
-#[derive(
-    Clone,
-    Copy,
-    Debug,
-    Default,
-    PartialEq,
-    Eq,
-    serde::Serialize,
-    serde::Deserialize,
-)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LogSeverity {
     #[default]
@@ -339,7 +335,7 @@ fn emit_inner(
         download_id: id.to_string(),
         stream: "internal",
         line,
-        timestamp: chrono::Utc::now().to_rfc3339(),
+        timestamp: crate::utils::time_compat::now_rfc3339(),
         severity,
     };
 
@@ -473,7 +469,7 @@ pub fn emit_subprocess_line(
         download_id: download_id.to_string(),
         stream,
         line,
-        timestamp: chrono::Utc::now().to_rfc3339(),
+        timestamp: crate::utils::time_compat::now_rfc3339(),
         severity,
     };
     if show_in_ui {

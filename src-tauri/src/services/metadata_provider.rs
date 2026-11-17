@@ -124,6 +124,7 @@ impl MetadataProviderRegistry {
 }
 
 impl Default for MetadataProviderRegistry {
+    /// An empty registry, the same as `MetadataProviderRegistry::new()`.
     fn default() -> Self {
         Self::new()
     }

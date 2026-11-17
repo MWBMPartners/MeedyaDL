@@ -24,7 +24,7 @@ MeedyaDL is built on top of many open-source projects. We are grateful to the de
 | [MediaInfo](https://mediaarea.net/en/MediaInfo) | BSD-2-Clause | Media file analysis and codec detection |
 | [Python](https://www.python.org/) | PSF | Runtime for pip-based download engines |
 | [python-build-standalone](https://github.com/astral-sh/python-build-standalone) | MPL-2.0 (packaging only — the Python it packages is still PSF-licensed) | Portable CPython distribution bundled by the offline installer |
-| [rclone](https://rclone.org/) | MIT | Cloud-storage transport for direct-to-cloud downloads (optional, installed on-demand) |
+| [rclone](https://rclone.org/) | MIT | Planned cloud-storage transport for direct-to-cloud upload; not offered or installed by current releases |
 
 **mp4decrypt / Bento4 is copyleft (GPL-2.0), not permissive — do not read
 the row above as MIT.** MeedyaDL never builds Bento4 into its own code;
@@ -59,48 +59,49 @@ exact number.
 | Crate | Version | Licence | Description |
 |-------|---------|---------|-------------|
 | aes-gcm | 0.10 | MIT/Apache-2.0 | AES-GCM authenticated encryption (Profile Bundle export, credential vault) |
-| arboard | 3.6 | MIT/Apache-2.0 | Cross-platform clipboard access |
+| arboard | 3.7 | MIT/Apache-2.0 | Cross-platform clipboard access |
 | base64 | 0.22 | MIT/Apache-2.0 | Base64 encoding/decoding (animated artwork, API payloads) |
-| chrono | 0.4 | MIT/Apache-2.0 | Date and time library |
-| configparser | 3.1 | MIT/LGPL-3.0+ | INI file parsing (GAMDL config) |
 | cookie | 0.18 | MIT/Apache-2.0 | HTTP cookie parsing |
 | dirs | 6.0 | MIT/Apache-2.0 | Platform-standard directories |
 | flate2 | 1.1 | MIT/Apache-2.0 | Gzip compression/decompression |
 | fs2 | 0.4 | MIT/Apache-2.0 | Filesystem free-space + advisory locking (disk-space preflight) |
-| jsonwebtoken | 10.3 | MIT | MusicKit JWT generation |
+| jsonwebtoken | 10.4 | MIT | MusicKit JWT generation |
 | keyring | 3.6 | MIT/Apache-2.0 | OS keychain access |
-| libc | 0.2 | MIT/Apache-2.0 | macOS only: reads the flag Finder sets on an alias, so the app can refuse to open one (already part of the dependency tree; listed because the app now calls it directly) |
+| libc | 0.2 | MIT/Apache-2.0 | macOS and Linux only: reads the flag Finder sets on an alias, so the app can refuse to open one (macOS); puts a finished subtitle in place only if nothing is already there, and checks whether a process is still running, when tidying up after a stopped run (macOS and Linux). Already part of the dependency tree; listed because the app calls it directly |
 | lofty | 0.22 | MIT/Apache-2.0 | Audio metadata reading/writing (FLAC, MP3, OGG) |
 | log | 0.4 | MIT/Apache-2.0 | Logging facade |
 | lzma-rs | 0.3 | MIT | Pure-Rust XZ decompression (.tar.xz tool archives) |
 | meedya-core | (git, rev-pinned) | MIT | Shared platform primitives (metadata + codecs + fingerprint + lyrics + providers + tags + library-import + db, full feature set) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
+| meedya-lang | (git, rev-pinned) | MIT | Shared implementation of the Media Language & BCP 47 Policy, from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
 | meedya-fingerprint | (git, branch=main) | MIT | Shared audio-fingerprint primitives (Chromaprint + ebur128) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core). Its optional `chromaprint` feature pulls in `rusty-chromaprint` (MIT) and `symphonia` (MPL-2.0 — the one licence anywhere in this dependency tree that isn't MIT/Apache-2.0/BSD/ISC/Unlicense) as transitive dependencies; neither is a direct MeedyaDL dependency, so neither gets its own row here. |
 | meedya-lyrics | (git, branch=main) | MIT | Shared lyrics primitives (TTML parser + classifier + Lyricsfile YAML + LRC offset round-trip) from [MWBMPartners/MeedyaSuite-core](https://github.com/MWBMPartners/MeedyaSuite-core) |
 | mp4ameta | 0.13 | MIT/Apache-2.0 | M4A metadata reading/writing |
 | pbkdf2 | 0.12 | MIT/Apache-2.0 | Password-based key derivation (Profile Bundle export passphrase) |
-| rand | 0.8 | MIT/Apache-2.0 | Random number generation (salt + nonce derivation, retry jitter) |
-| regex | 1.12 | MIT/Apache-2.0 | Regular expression parsing |
+| rand | 0.8 | MIT/Apache-2.0 | Random number generation (salt + nonce derivation, retry jitter, temporary file names that never repeat) |
+| regex | 1.13 | MIT/Apache-2.0 | Regular expression parsing |
 | reqwest | 0.12 | MIT/Apache-2.0 | HTTP client |
-| rookie | 0.5 | MIT | Browser cookie extraction |
+| rookie | 0.5 | MIT | Browser cookie extraction (our own copy of 0.5.6 in `src-tauri/vendor/rookie`, moved to a fixed SQLite; #1413; Internet Explorer support removed, #1449) |
 | roxmltree | 0.21 | MIT/Apache-2.0 | XML parsing (TTML lyrics) |
-| rusqlite | 0.31 | MIT | SQLite bindings (Library Index database + Profile Bundle export manifests) |
-| sentry | 0.46 | MIT | Crash reporting SDK |
+| rusqlite | 0.43 | MIT | SQLite bindings (Library Index database + Profile Bundle export manifests) |
+| sentry | 0.46 | MIT | Crash reporting (opt-in) |
 | sentry-tracing | 0.46 | MIT | Sentry integration for `tracing` events |
 | serde | 1.0 | MIT/Apache-2.0 | Serialization framework |
 | serde_json | 1.0 | MIT/Apache-2.0 | JSON serialization |
 | sha2 | 0.10 | MIT/Apache-2.0 | SHA-256 hashing |
 | sys-locale | 0.3 | MIT/Apache-2.0 | OS locale detection (storefront auto-derivation) |
 | tar | 0.4 | MIT/Apache-2.0 | TAR archive extraction |
-| tauri | 2.11 | MIT/Apache-2.0 | Desktop application framework |
+| tauri | 2.12 | MIT/Apache-2.0 | Desktop application framework |
 | thiserror | 2.0 | MIT/Apache-2.0 | Derive macro for ergonomic error types |
-| tokio | 1.51 | MIT | Async runtime |
+| time | 0.3 | MIT/Apache-2.0 | Date and time library (every stored date goes through one helper, `utils/time_compat.rs`; replaced chrono, #1449) |
+| tokio | 1.54 | MIT | Async runtime |
 | toml | 0.9 | MIT/Apache-2.0 | TOML configuration parsing |
 | tracing | 0.1 | MIT | Structured logging |
 | tracing-appender | 0.2 | MIT | Daily-rotating file output for `tracing` logs |
 | tracing-subscriber | 0.3 | MIT | `tracing` event collector and formatter (stderr + file) |
 | url | 2.5 | MIT/Apache-2.0 | URL parsing |
-| uuid | 1.23 | MIT/Apache-2.0 | UUID generation |
-| zip | 9.1 | MIT | ZIP archive extraction |
+| uuid | 1.29 | MIT/Apache-2.0 | UUID generation |
+| windows-sys | 0.61 | MIT/Apache-2.0 | Windows only: puts a finished subtitle in place only if nothing is already there, and tells which file a name refers to (so a temporary subtitle file is deleted only while it is still the one MeedyaDL made). Already part of the dependency tree; listed because the app calls it directly |
+| zip | 9.6 | MIT | ZIP archive extraction |
 
 ### Tauri Plugins
 
@@ -128,22 +129,22 @@ same dual licence.
 
 | Package | Version | Licence | Description |
 |---------|---------|---------|-------------|
-| @tanstack/react-virtual | 3.13 | MIT | Virtualized list rendering |
-| @sentry/browser | 10.47 | MIT | Frontend crash reporting |
+| @tanstack/react-virtual | 3.14 | MIT | Virtualized list rendering |
+| @sentry/browser | 10.78 | MIT | Frontend crash reporting |
 | @dnd-kit/core | 6.3 | MIT | Drag-and-drop framework |
 | @dnd-kit/sortable | 10.0 | MIT | Sortable preset for @dnd-kit |
 | @dnd-kit/utilities | 3.2 | MIT | Shared utilities for @dnd-kit |
-| i18next | 26.0 | MIT | Internationalisation framework |
-| i18next-browser-languagedetector | 8.2 | MIT | OS language detection |
-| lucide-react | 1.7 | ISC | Icon library |
-| react | 19.0 | MIT | UI component library |
-| react-dom | 19.0 | MIT | React DOM renderer |
-| react-i18next | 17.0 | MIT | React i18n bindings |
+| i18next | 26.7 | MIT | Internationalisation framework |
+| i18next-browser-languagedetector | 8.3 | MIT | OS language detection |
+| lucide-react | 1.73 | ISC | Icon library |
+| react | 19.3 | MIT | UI component library |
+| react-dom | 19.3 | MIT | React DOM renderer |
+| react-i18next | 17.1 | MIT | React i18n bindings |
 | react-markdown | 10.1 | MIT | Markdown rendering |
 | rehype-raw | 7.0 | MIT | Raw HTML in markdown |
 | rehype-sanitize | 6.0 | MIT | HTML sanitization |
 | remark-gfm | 4.0 | MIT | GitHub Flavoured Markdown |
-| zustand | 5.0 | MIT | Lightweight state management |
+| zustand | 5.1 | MIT | Lightweight state management |
 
 ---
 
@@ -155,4 +156,4 @@ For questions about licence compliance, please open an issue on the [GitHub repo
 
 ---
 
-*Last updated: 2026-09-10.*
+*Last updated: 2026-11-17.*

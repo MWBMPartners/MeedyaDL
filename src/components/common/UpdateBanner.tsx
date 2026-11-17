@@ -21,7 +21,7 @@
  *   not rendered (returns null).
  *
  * **Usage across the application:**
- * Rendered once in App.tsx, immediately above the main content area.
+ * Rendered once in MainLayout.tsx, above the page content.
  *
  * @see https://lucide.dev/icons/arrow-up-circle -- ArrowUpCircle icon (banner icon)
  * @see https://lucide.dev/icons/x              -- X icon (dismiss button)
@@ -76,20 +76,16 @@ import type { ComponentUpdate } from '@/types';
 
 /** Common Button component -- used for the "Upgrade" and "Download & Install" CTAs */
 import { Button } from './Button';
+import {
+  GAMDL_UPDATE_FAILED,
+  RESTART_FAILED,
+  UPDATE_FAILED,
+  componentUpdateFailed,
+  showError,
+} from '@/lib/errorMessages';
 
-/**
- * Renders an accent-themed banner showing available updates with
- * upgrade / dismiss / view-release actions.
- *
- * The component subscribes to four Zustand selectors from the update store
- * and one from the UI store (for toast notifications). All selectors use
- * the `(s) => s.property` shorthand for minimal re-renders.
- *
- * **Conditional rendering:**
- * Returns null when `activeUpdates` is empty, so the banner takes up zero
- * space in the layout when there is nothing to show.
- */
 // Core components shown with full detail; engine updates shown generically.
+// (These are the names the update check reports for the app itself, GAMDL and Python.)
 const CORE_COMPONENTS = [APP_COMPONENT_NAME, GAMDL_COMPONENT_NAME, PYTHON_COMPONENT_NAME];
 
 // The banner is a compact, always-visible notification, not a full
@@ -100,6 +96,20 @@ const CORE_COMPONENTS = [APP_COMPONENT_NAME, GAMDL_COMPONENT_NAME, PYTHON_COMPON
 // to the collapsed generic message pointing at the full Updates page.
 const MAX_BANNER_ENGINE_ROWS = 3;
 
+/**
+ * Renders an accent-themed banner showing available updates with
+ * upgrade / dismiss / view-release actions.
+ *
+ * The component reads its data from the update store with one Zustand
+ * selector per value, plus a few from the UI store (toasts and page
+ * navigation). Reading values one at a time means it only re-renders when
+ * a value it really uses changes.
+ *
+ * **Conditional rendering:**
+ * Returns null when there is no available, compatible, non-dismissed update
+ * at all (core or engine/tool), so the banner takes up zero space in the
+ * layout when there is nothing to show.
+ */
 export function UpdateBanner() {
   /*
    * Zustand store subscriptions.
@@ -164,11 +174,10 @@ export function UpdateBanner() {
   // otherwise the banner falls back to a single collapsed message.
   const engineUpdates = useMemo(
     () =>
-      allUpdates.filter(
-        (c) => !CORE_COMPONENTS.includes(c.name) && (c.pip_package || c.tool_id)
-      ),
+      allUpdates.filter((c) => !CORE_COMPONENTS.includes(c.name) && (c.pip_package || c.tool_id)),
     [allUpdates]
   );
+  // `showEngineRows`: few enough engine updates to list one by one; otherwise only a "View Details" link is shown.
   const hasEngineUpdates = engineUpdates.length > 0;
   const showEngineRows = engineUpdates.length > 0 && engineUpdates.length <= MAX_BANNER_ENGINE_ROWS;
 
@@ -193,8 +202,9 @@ export function UpdateBanner() {
       // returned. Without this, all failures collapse to "Failed to
       // upgrade GAMDL" with no way to see which pip step actually broke
       // (resolver, network, dep conflict, …).
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || 'Failed to upgrade GAMDL', 'error');
+      // The installer's own report goes under "Details" (it used to be the
+      // whole message); the message says what to do.
+      showError(GAMDL_UPDATE_FAILED, e);
     }
   };
 
@@ -209,10 +219,10 @@ export function UpdateBanner() {
     try {
       await upgradeGenericComponent(c);
       addToast(`${c.name} updated successfully`, 'success');
+      // Refresh the list so the updated row disappears; a failed refresh is not worth an error.
       checkForUpdates().catch(() => {});
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || `Failed to update ${c.name}`, 'error');
+      showError(componentUpdateFailed(c.name), e);
     } finally {
       setUpgradingComponent(null);
     }
@@ -228,10 +238,22 @@ export function UpdateBanner() {
   const handleDownloadAndInstall = async (tag: string) => {
     try {
       await downloadAndInstallAppUpdate(tag);
-      addToast('Update installed! Restart to apply.', 'success');
+      // The four `undefined` values skip the optional duration, key, action and details arguments; the last argument says what kind of message this is.
+      addToast(
+        'Update installed! Restart to apply.',
+        'success',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        {
+          // An important message (#1431): may also be a system notification.
+          kind: 'update_ready',
+          systemBody: 'A MeedyaDL update is installed. Restart MeedyaDL to use it.',
+        }
+      );
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      addToast(message || 'Failed to download and install update', 'error');
+      showError(UPDATE_FAILED, e);
     }
   };
 
@@ -243,7 +265,7 @@ export function UpdateBanner() {
     try {
       await relaunch();
     } catch {
-      addToast('Failed to restart. Please restart manually.', 'error');
+      addToast(RESTART_FAILED, 'error');
     }
   };
 
@@ -255,6 +277,8 @@ export function UpdateBanner() {
    * @param url - Full URL to the GitHub release page
    */
   const handleViewRelease = (url: string) => {
+    // Loaded only when clicked, and opened through the OS so it goes to the default browser.
+    // See: https://v2.tauri.app/plugin/shell/
     import('@tauri-apps/plugin-shell').then(({ open }) => open(url)).catch(() => {});
   };
 
@@ -327,7 +351,7 @@ export function UpdateBanner() {
                   )}
                   {/* Pre-release badge -- amber indicator for beta/RC versions */}
                   {update.is_prerelease && (
-                    <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text">
+                    <span className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-platform-sm text-2xs font-semibold bg-status-warning-bg text-status-warning-text">
                       Pre-Release
                     </span>
                   )}
@@ -344,7 +368,7 @@ export function UpdateBanner() {
                    */}
                   {update.is_untested && !update.no_compatible_wheel && (
                     <span
-                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text"
+                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-platform-sm text-2xs font-semibold bg-status-warning-bg text-status-warning-text"
                       title="This version was released after MeedyaDL's last validation pass. Install at your own risk."
                     >
                       Untested
@@ -362,7 +386,7 @@ export function UpdateBanner() {
                    */}
                   {update.no_compatible_wheel && (
                     <span
-                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-status-warning-bg text-status-warning-text"
+                      className="ml-1.5 inline-flex items-center px-1.5 py-0.5 rounded-platform-sm text-2xs font-semibold bg-status-warning-bg text-status-warning-text"
                       title="No compatible wheel has been published for this platform yet -- installing would fail."
                     >
                       Not Installable
@@ -438,8 +462,8 @@ export function UpdateBanner() {
                               }}
                             />
                           </div>
-                          <span className="text-[10px] text-content-tertiary tabular-nums">
-                            {downloadProgress != null ? `${downloadProgress}%` : '...'}
+                          <span className="text-2xs text-content-tertiary tabular-nums">
+                            {downloadProgress != null ? `${downloadProgress}%` : '…'}
                           </span>
                         </div>
                       ) : (
@@ -458,7 +482,7 @@ export function UpdateBanner() {
                               <button
                                 type="button"
                                 onClick={() => handleViewRelease(update.release_url!)}
-                                className="text-[11px] text-accent-hover hover:underline cursor-pointer"
+                                className="text-2xs text-accent-hover hover:underline cursor-pointer"
                                 title="Download the update manually from GitHub"
                               >
                                 Download Manually
@@ -481,7 +505,7 @@ export function UpdateBanner() {
                     <button
                       type="button"
                       onClick={() => handleViewRelease(update.release_url!)}
-                      className="p-1 rounded hover:bg-surface-secondary transition-colors"
+                      className="p-1 rounded-platform-sm hover:bg-surface-secondary transition-colors"
                       title="View release"
                       aria-label={`View ${update.name} release on GitHub`}
                     >
@@ -497,7 +521,7 @@ export function UpdateBanner() {
                   <button
                     type="button"
                     onClick={() => dismissUpdate(update.name)}
-                    className="p-1 rounded hover:bg-surface-secondary transition-colors"
+                    className="p-1 rounded-platform-sm hover:bg-surface-secondary transition-colors"
                     title="Dismiss"
                     aria-label={`Dismiss ${update.name} update notification`}
                   >
@@ -512,7 +536,7 @@ export function UpdateBanner() {
                * amber/warning colour scheme to draw attention.
                */}
               {update.is_prerelease && (
-                <p className="text-[11px] text-status-warning-text pl-0.5">
+                <p className="text-2xs text-status-warning-text pl-0.5">
                   This is a pre-release version and may contain bugs or incomplete features. Not
                   recommended for production use.
                 </p>
@@ -526,7 +550,7 @@ export function UpdateBanner() {
                * validated against MeedyaDL's GAMDL CLI / INI surface yet.
                */}
               {update.is_untested && !update.is_prerelease && !update.no_compatible_wheel && (
-                <p className="text-[11px] text-status-warning-text pl-0.5">
+                <p className="text-2xs text-status-warning-text pl-0.5">
                   This GAMDL release was published after MeedyaDL&apos;s last validation pass and
                   hasn&apos;t been audited yet. Install at your own risk, or wait for the next
                   MeedyaDL build.
@@ -542,10 +566,10 @@ export function UpdateBanner() {
                * blocker: the Upgrade button is disabled, not just risky.
                */}
               {update.no_compatible_wheel && (
-                <p className="text-[11px] text-status-warning-text pl-0.5">
+                <p className="text-2xs text-status-warning-text pl-0.5">
                   Not installable — no compatible wheel has been published for this platform yet.
-                  Upgrading would fail; wait for a future GAMDL release or a MeedyaDL build with
-                  a matching Python runtime.
+                  Upgrading would fail; wait for a future GAMDL release or a MeedyaDL build with a
+                  matching Python runtime.
                 </p>
               )}
             </div>
@@ -575,7 +599,7 @@ export function UpdateBanner() {
                     </span>
                     {/* Backend-provided plain text only -- never HTML. */}
                     {update.manual_update_command && (
-                      <p className="text-[11px] text-content-tertiary truncate">
+                      <p className="text-2xs text-content-tertiary truncate">
                         Runs: {update.manual_update_command}
                       </p>
                     )}

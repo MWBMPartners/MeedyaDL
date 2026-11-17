@@ -18,9 +18,7 @@
 // own session in its container volume, so MeedyaDL never needs to re-send.
 
 use crate::services::config_service;
-use crate::services::health_check_service::{
-    self, WrapperV2LoginResult,
-};
+use crate::services::health_check_service::{self, WrapperV2LoginResult};
 use tauri::AppHandle;
 
 /// Resolves the configured wrapper-v2 HTTP base URL from settings.
@@ -111,10 +109,17 @@ pub(crate) async fn wrapper_host_is_local_or_private(wrapper_url: &str) -> bool 
     }
 }
 
+/// True for loopback (`127.0.0.1`), private (`10.x`, `172.16-31.x`,
+/// `192.168.x`) and link-local (`169.254.x`) IPv4 addresses.
+/// See: https://doc.rust-lang.org/std/net/struct.Ipv4Addr.html
 fn is_local_or_private_ipv4(v4: &std::net::Ipv4Addr) -> bool {
     v4.is_loopback() || v4.is_private() || v4.is_link_local()
 }
 
+/// True for IPv6 addresses that stay on this machine or local network:
+/// loopback (`::1`), unique-local (`fc00::/7`), and IPv4 addresses written in
+/// IPv6 form (checked as IPv4).
+/// See: https://doc.rust-lang.org/std/net/struct.Ipv6Addr.html
 fn is_local_or_private_ipv6(v6: &std::net::Ipv6Addr) -> bool {
     if let Some(mapped) = v6.to_ipv4_mapped() {
         return is_local_or_private_ipv4(&mapped);

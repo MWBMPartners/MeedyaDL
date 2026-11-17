@@ -69,7 +69,7 @@ describe('openPath', () => {
       expect(revealItemInDirMock).toHaveBeenCalledWith('/Users/me/Music/Artist/Album');
     });
 
-    it('handles Windows paths by their own separator, not the host machine\'s', async () => {
+    it("handles Windows paths by their own separator, not the host machine's", async () => {
       // A queue file exported on Windows and imported on a Mac still has
       // backslashes in it, so the separator has to come from the path.
       revealItemInDirMock.mockResolvedValue(undefined);

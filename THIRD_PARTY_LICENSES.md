@@ -41,7 +41,7 @@ MeedyaDL depends on, with versions and a one-line purpose) lives in
 - [MP4Box / GPAC](#mp4box--gpac) — LGPL-2.1
 - [MediaInfo](#mediainfo) — BSD-2-Clause
 - [Python](#python) — PSF (Python Software Foundation Licence)
-- [rclone](#rclone) — MIT (optional, installed on-demand for Cloud Destinations)
+- [rclone](#rclone) — MIT (planned; not offered or installed by current releases)
 
 ### Source offers (LGPL / GPL components)
 
@@ -366,10 +366,11 @@ is MPL-2.0 with the embedded Python licensed under the PSF Agreement above.
 
 ### rclone
 
-Cloud-storage transport for direct-to-cloud downloads (Google Drive,
-Dropbox, OneDrive, S3, …). **Optional dependency** — only installed
-when the user enables a Cloud Destination in Settings; the rest of
-MeedyaDL functions normally when rclone is absent. Project home:
+Cloud-storage transport for a planned direct-to-cloud upload feature
+(Google Drive, Dropbox, OneDrive, S3, …). **Not offered or installed by
+current releases**: the upload feature does not exist yet, so no release
+downloads rclone or runs it. This entry is kept so the licence terms are
+already recorded for the day it is offered. Project home:
 <https://rclone.org/>. Repository: <https://github.com/rclone/rclone>.
 
 ```text
@@ -398,8 +399,9 @@ THE SOFTWARE.
 
 MeedyaDL invokes rclone as an unmodified upstream subprocess; no rclone
 source is statically linked into MeedyaDL's own binary. Because rclone is
-permissively MIT-licensed, no source-offer is required for it. Pre-built
-binaries are fetched on-demand from rclone's official GitHub releases
+permissively MIT-licensed, no source-offer is required for it. Once the
+upload feature exists, pre-built binaries will be fetched on demand from
+rclone's official GitHub releases
 (<https://github.com/rclone/rclone/releases>), with the
 `MeedyaSuite/MeedyaDL-Tools` mirror as a fallback.
 

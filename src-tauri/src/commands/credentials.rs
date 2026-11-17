@@ -106,9 +106,7 @@ fn check_credential_key_allowed(key: &str) -> Result<(), String> {
         // Logged with WARN so an operator inspecting the tracing log
         // can see brute-force probes after the fact, but the IPC
         // response stays opaque.
-        log::warn!(
-            "Credential IPC rejected disallowed key '{key}' (allowlist enforcement, #938)"
-        );
+        log::warn!("Credential IPC rejected disallowed key '{key}' (allowlist enforcement, #938)");
         Err(format!("Unknown credential key: {key}"))
     }
 }
@@ -373,7 +371,10 @@ pub async fn validate_musickit_credentials(
         let mut req = client
             .get(url)
             .header("Authorization", format!("Bearer {jwt}"))
-            .header("User-Agent", crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str());
+            .header(
+                "User-Agent",
+                crate::utils::http_client::SAFARI_MACOS_USER_AGENT.as_str(),
+            );
         // amp-api is Apple's web player API and expects an Origin header;
         // the official MusicKit API (api.music.apple.com) does not need it.
         if url.contains("amp-api") {
@@ -708,10 +709,19 @@ pub async fn activate_dev_access(app: tauri::AppHandle, passphrase: String) -> b
         let _ = entry.set_password(DEV_ACCESS_SENTINEL);
     }
 
-    // Enable in settings
-    if let Ok(mut settings) = crate::services::config_service::load_settings(&app) {
-        settings.dev_access_enabled = true;
-        let _ = crate::services::config_service::save_settings(&app, &settings);
+    // Enable in settings: one field, written on its own, so nothing else
+    // in the file changes (#1439). If the write fails, activation is
+    // undone (the keychain sentinel removed) and `false` returned: the
+    // backend's developer-only checks read the file, so reporting success
+    // would show developer access as on while it still acts as off.
+    if let Err(e) = crate::services::config_service::update_settings_field(&app, |s| {
+        s.dev_access_enabled = true;
+    }) {
+        log::error!("Developer access not activated: saving the setting failed: {e}");
+        if let Ok(entry) = keyring::Entry::new(SERVICE_NAME, DEV_ACCESS_KEYCHAIN_KEY) {
+            let _ = entry.delete_credential();
+        }
+        return false;
     }
 
     log::info!("Developer access activated");
@@ -733,11 +743,13 @@ pub async fn deactivate_dev_access(app: tauri::AppHandle) -> Result<(), String> 
         }
     }
 
-    // Disable in settings
-    if let Ok(mut settings) = crate::services::config_service::load_settings(&app) {
-        settings.dev_access_enabled = false;
-        let _ = crate::services::config_service::save_settings(&app, &settings);
-    }
+    // Disable in settings: one field, written on its own (#1439). A failed
+    // write is reported, so the Settings screen never shows developer access
+    // as off while the file still says on.
+    crate::services::config_service::update_settings_field(&app, |s| {
+        s.dev_access_enabled = false;
+    })
+    .map_err(|e| format!("Failed to save the developer access setting: {e}"))?;
 
     log::info!("Developer access deactivated");
     Ok(())
@@ -799,7 +811,7 @@ mod tests {
             "musickit_private_key_v2",
             "../../../etc/passwd",
             "musickit_private_key\0extra",
-            "MusicKit_Private_Key", // case-sensitive — exact match required
+            "MusicKit_Private_Key",  // case-sensitive — exact match required
             "musickit_private_key ", // trailing space — exact match required
         ] {
             assert!(

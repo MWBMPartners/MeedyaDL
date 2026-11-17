@@ -11,9 +11,7 @@
 use std::path::PathBuf;
 use tauri::AppHandle;
 
-use crate::services::backup_service::{
-    self, BackupEntry, BackupSummary, RestoreSummary,
-};
+use crate::services::backup_service::{self, BackupEntry, BackupSummary, RestoreSummary};
 use crate::utils::activity_log::emit_app_log;
 
 /// Take a snapshot of settings / queue / history into
@@ -23,11 +21,10 @@ use crate::utils::activity_log::emit_app_log;
 #[tauri::command]
 pub async fn create_backup(app: AppHandle) -> Result<BackupSummary, String> {
     let app_clone = app.clone();
-    let summary = tauri::async_runtime::spawn_blocking(move || {
-        backup_service::create_backup(&app_clone)
-    })
-    .await
-    .map_err(|e| format!("Backup task panicked: {e}"))??;
+    let summary =
+        tauri::async_runtime::spawn_blocking(move || backup_service::create_backup(&app_clone))
+            .await
+            .map_err(|e| format!("Backup task panicked: {e}"))??;
 
     emit_app_log(
         &app,

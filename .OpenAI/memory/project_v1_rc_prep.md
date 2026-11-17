@@ -4,6 +4,8 @@ description: Current state of the v1.x release line — v1.0.0 is GA, v1.1.0 is 
 type: project
 originSessionId: 2ab3d7da-8f4e-4331-8327-4ea82ab8e25f
 ---
+**17 Nov 2026 note:** everything below is a dated record from May 2026 and its release states are long out of date. Today the work is on the `1.13.0-alpha.N` line (package.json says 1.13.0-alpha.90); the live channels are Alpha, Beta, RC and Stable only (the cron channels and the "Pre-release switch" mentioned below are gone — see `project_cron_channels_removed.md`). Ask `gh release list` for live state.
+
 **Current state (2026-05-10):**
 
 - **v1.0.0** — GA stable. Promoted from `v1.0.0-rc.1` by tagging the same commit (`31e5c97`) with bumped manifests (`1.0.0-rc.1` → `1.0.0`). Marked as GitHub "Latest". 20 platform assets published.

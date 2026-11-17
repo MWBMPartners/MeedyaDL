@@ -331,8 +331,8 @@ async function main() {
 }
 
 // Only run when executed directly (`node scripts/generate-app-icons.mjs`) —
-// scripts/icon-contact-sheet.mjs imports renderTileSmall/renderTileMedium/
-// renderMasterDownscale from this module and must not trigger a full
+// scripts/icon-contact-sheet.mjs imports ICONS_DIR, renderTileSmall and
+// renderTileMedium from this module and must not trigger a full
 // regeneration as a side effect of that import.
 if (import.meta.url === `file://${process.argv[1]}`) {
   main().catch((e) => {

@@ -138,6 +138,292 @@ static TRACK_INFO_V2_REGEX: LazyLock<Regex> = LazyLock::new(|| {
         .expect("Invalid track info v2 regex")
 });
 
+/// A GAMDL 4.x per-item result line.
+///
+/// Printed by `RipProgress.finish` (`gamdl/cli/progress.py` on the 4.0
+/// branch) once per item, whether or not progress bars are on:
+///
+/// ```text
+/// ✓ Song Title: downloaded → /Music/Artist/Album/01 Song Title.m4a
+/// ✓ Song Title: overwritten → /Music/…
+/// ✓ Song Title: media saved (finalization incomplete) → /Music/…
+/// ↷ Song Title: skipped → /Music/…
+/// ```
+///
+/// A skip reported by the downloader carries a path and no reason; a skip
+/// caused by an error carries a reason in brackets and no path, and so
+/// does not match (it is read as information further down; the run then
+/// produces no new file for that item, which the queue already reports).
+///
+/// Capture groups: 1 the title, 2 the outcome, 3 the path. The title is
+/// matched lazily so a title containing ": " still leaves the outcome
+/// word to group 2.
+static V4_RESULT_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^(?:✓|↷)\s+(.+?):\s+(downloaded|overwritten|skipped|media saved \(finalization incomplete\))(?:\s+\(.*?\))?\s+→\s+(.+)$",
+    )
+    .expect("Invalid GAMDL 4 result regex")
+});
+
+/// Classifies a line printed by GAMDL 4.x, or returns `None` when the
+/// line is not one of 4.x's shapes (every 3.x line returns `None`).
+///
+/// 4.x prints a small, fixed set of human-readable lines instead of log
+/// records (`gamdl/cli/output.py`, `progress.py` and
+/// `commands/runner.py` in GAMDL 4.0.0):
+///
+/// - `✓ / ↷ title: outcome → path` — one per item; becomes `Complete`
+///   with the path, including for a file skipped because it is already
+///   there (the file the person asked for is on disk at that path, which
+///   is what everything after the download needs to know);
+/// - `✗ label: message` — an error, either in the end-of-run error list
+///   or a command-line problem; becomes `Error`;
+/// - `✓ Authenticated`, `! …` notices, `Errors (N):` and the
+///   `Finished: …` summary — information, so `Unknown` (shown, nothing
+///   else; see the comment in the body for why not `ProcessingStep`);
+/// - `No supported media found at this URL.` — an error (4.x exits 1).
+pub fn parse_gamdl_v4_line(trimmed: &str) -> Option<GamdlOutputEvent> {
+    if let Some(captures) = V4_RESULT_REGEX.captures(trimmed) {
+        let path = captures
+            .get(3)
+            .map(|m| m.as_str().trim().to_string())
+            .unwrap_or_default();
+        return Some(GamdlOutputEvent::Complete { path });
+    }
+    // The second line 4.0 prints after a command-line mistake is a hint,
+    // not the error. Treating it as one would make it the message the
+    // queue shows, in place of the real cause printed just before it.
+    if trimmed == "✗ Run 'gamdl rip --help' to see available options." {
+        return Some(GamdlOutputEvent::Unknown {
+            raw: trimmed.to_string(),
+        });
+    }
+    if let Some(rest) = trimmed.strip_prefix('✗') {
+        return Some(GamdlOutputEvent::Error {
+            message: rest.trim().to_string(),
+        });
+    }
+    // Information only, returned as `Unknown` so it is shown in the log
+    // and changes nothing else. NOT `ProcessingStep`: that event moves the
+    // item into its "post-processing" state and switches the stall
+    // watchdog off for the rest of the run, and `✓ Authenticated` is the
+    // first thing 4.x prints — so a stalled 4.x download would never have
+    // been stopped (found in review round 2, 2 Nov 2026).
+    if trimmed.starts_with('✓')
+        || trimmed.starts_with('↷')
+        || trimmed.starts_with("! ")
+        || trimmed.starts_with("Finished: ")
+        || (trimmed.starts_with("Errors (") && trimmed.ends_with("):"))
+    {
+        return Some(GamdlOutputEvent::Unknown {
+            raw: trimmed.to_string(),
+        });
+    }
+    if trimmed == "No supported media found at this URL." {
+        return Some(GamdlOutputEvent::Error {
+            message: trimmed.to_string(),
+        });
+    }
+    None
+}
+
+/// GAMDL 4.x's end-of-run summary (`cli/commands/runner.py`):
+/// `Finished: 12 downloaded, 0 overwritten, 1 skipped, 2 failed, 0
+/// finalization failures (15 discovered)`. Groups: downloaded,
+/// overwritten, skipped, failed, finalization failures.
+static V4_SUMMARY_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"^Finished: (\d+) downloaded, (\d+) overwritten, (\d+) skipped, (\d+) failed, (\d+) finalization failures? \(\d+ discovered\)$",
+    )
+    .expect("Invalid GAMDL 4 summary regex")
+});
+
+/// GAMDL 4.x's fixed per-item error messages (`cli/errors.py`,
+/// `short_error`), longest-lived first. 4.x prints each failure as
+/// `✗ <title>: <one of these>`, so the title comes first and is free
+/// text; these are what the message part can be.
+const GAMDL_V4_FIXED_ERRORS: &[&str] = &[
+    "Interactive selection required",
+    "Media is not streamable",
+    "Media is unavailable in this storefront",
+    "No music-video HLS stream available",
+    "No music-video HLS rendition matches",
+    "Video rendition has no separate audio HLS track",
+    "Library song has no playable catalog equivalent",
+    "Requested codec or stream unavailable",
+    "Unsupported or unavailable media",
+    "Authentication failed",
+    "Apple Music rate limit reached",
+    "Unable to acquire decryption key",
+    // Added or reworded in the released 4.0.0 (`cli/errors.py`).
+    "Unable to acquire or process decryption key",
+    "Supply either a CDM or a device path",
+    "PlayReady requires a device path or CDM",
+    "Required DRM backend or default device is not available",
+    "PlayReady backend not installed",
+    "Widevine backend not installed",
+    "DRM backend configuration failed",
+    "No usable DRM initialization data for selected backend",
+    "DRM initialization metadata invalid",
+    "Apple Music or wrapper request failed",
+    "Unexpected Apple Music or wrapper API response",
+    "Only completed HLS media playlists are supported",
+    "Selected HLS playlist contains no media segments",
+    "AES-128 HLS transport decryption is not supported",
+    "HLS discontinuities are not supported",
+    "HLS gap segments are not supported",
+    "Invalid HLS manifest",
+    "Media metadata could not be resolved",
+    "Network request failed",
+    "Media saved, but couldn't",
+    "Output already exists",
+    "Unexpected download error",
+];
+
+/// The 4.x errors that mean "this item is not offered in the formats
+/// asked for" — the case 3.x reported as a warning and moved past.
+const GAMDL_V4_FORMAT_UNAVAILABLE: &[&str] = &[
+    "Requested codec or stream unavailable",
+    "No music-video HLS stream available",
+    "No music-video HLS rendition matches",
+    "Video rendition has no separate audio HLS track",
+];
+
+/// GAMDL 4.x messages that mean "the way of unlocking tracks is not set up"
+/// (`cli/errors.py` in 4.0.0, `DrmConfigurationError`).
+/// They fail the whole run the same way whatever format is asked for.
+const GAMDL_V4_DRM_SETUP_ERRORS: &[&str] = &[
+    "Supply either a CDM or a device path",
+    "PlayReady requires a device path or CDM",
+    "Required DRM backend or default device is not available",
+    "PlayReady backend not installed",
+    "Widevine backend not installed",
+    "DRM backend configuration failed",
+    // Deliberately NOT here: "No usable DRM initialization data for
+    // selected backend" and "DRM initialization metadata invalid". Those
+    // come from `DrmMetadataError`, raised for one stream's unlocking data;
+    // another format's stream may be fine, so they stay codec problems and
+    // the format fallback still runs (review round 2, 12 Nov 2026).
+];
+
+/// Is this GAMDL 4.x error (already stripped by [`gamdl_v4_error_core`]) a
+/// problem with how unlocking is set up, rather than with the format asked
+/// for?
+///
+/// `classify_error` reads the word "drm" as a codec problem, which sends the
+/// queue through every format in the fallback chain — each run failing at
+/// the same set-up step (found in review, 12 Nov 2026).
+#[must_use]
+pub fn is_gamdl_v4_drm_setup_error(core: &str) -> bool {
+    GAMDL_V4_DRM_SETUP_ERRORS
+        .iter()
+        .any(|m| core.starts_with(m))
+}
+
+/// The fixed part of a GAMDL 4.x error, without the song title in front
+/// of it, or the whole message when it is not one of 4.x's shapes.
+///
+/// 4.x puts the title first (`Song Name: Network request failed`), so
+/// sorting the error into a kind by its words would also read the
+/// title's — a song called "Login" would look like a sign-in problem.
+/// Use this for sorting; keep the whole message for display.
+#[must_use]
+pub fn gamdl_v4_error_core(message: &str) -> &str {
+    for fixed in GAMDL_V4_FIXED_ERRORS {
+        let needle = format!(": {fixed}");
+        if let Some(i) = message.rfind(&needle) {
+            return &message[i + 2..];
+        }
+    }
+    // 4.x's catch-all for any of its own errors not named above: the
+    // error's type name with "Error" turned into " failed" —
+    // `ApiResponse failed`, `Drm failed`, `StreamManifest failed`
+    // (`short_error`'s last GamdlError case). One word, letters only, so
+    // the last ": " before it is where the title ends (review round 6).
+    if let Some(i) = message.rfind(": ") {
+        let tail = &message[i + 2..];
+        // Released 4.0.0 adds the error's type in brackets after an
+        // unexpected error (`ApiResponse failed (GamdlApiResponseError)`).
+        let bare = match tail.rsplit_once(" (") {
+            Some((head, rest))
+                if rest.ends_with(')')
+                    && rest[..rest.len() - 1]
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric()) =>
+            {
+                head
+            }
+            _ => tail,
+        };
+        if let Some(word) = bare.strip_suffix(" failed") {
+            if !word.is_empty() && word.chars().all(|c| c.is_ascii_alphabetic()) {
+                return tail;
+            }
+        }
+    }
+    message
+}
+
+/// Did a GAMDL 4.x run that exited with a failure code actually save
+/// what was available, failing only items not offered in the formats
+/// asked for?
+///
+/// 3.x reports such an item as a warning and exits 0; 4.x counts it as a
+/// failure and exits 1. Read naively, a 4.x album with one track missing
+/// a format would be a failed download (and an extra-format run that
+/// saved every other track would be thrown away). This reads 4.x's own
+/// end-of-run summary and its error list: `true` only when something was
+/// saved, nothing failed after saving, and every listed failure is
+/// "format not available". Anything else stays a failure.
+#[must_use]
+pub fn gamdl_v4_run_was_partial_success<'a>(lines: impl IntoIterator<Item = &'a str>) -> bool {
+    let mut summary: Option<[u64; 5]> = None;
+    let mut errors: Vec<&str> = Vec::new();
+    for raw in lines {
+        let line = raw.trim();
+        if let Some(c) = V4_SUMMARY_REGEX.captures(line) {
+            let n = |i: usize| c.get(i).and_then(|m| m.as_str().parse().ok()).unwrap_or(0);
+            summary = Some([n(1), n(2), n(3), n(4), n(5)]);
+        } else if let Some(rest) = line.strip_prefix('✗') {
+            let rest = rest.trim();
+            if !rest.starts_with("Run 'gamdl rip --help'") {
+                errors.push(rest);
+            }
+        }
+    }
+    let Some([downloaded, overwritten, skipped, failed, finalization]) = summary else {
+        return false;
+    };
+    downloaded + overwritten + skipped > 0
+        && failed > 0
+        && finalization == 0
+        && !errors.is_empty()
+        && errors.iter().all(|e| {
+            let core = gamdl_v4_error_core(e);
+            GAMDL_V4_FORMAT_UNAVAILABLE
+                .iter()
+                .any(|fixed| core.starts_with(fixed))
+        })
+}
+
+/// Whether a GAMDL output line says one song is not offered in the format
+/// asked for. GAMDL 3.x: `Skipping "<title>": Requested format is not
+/// available` ([`is_codec_skip_line`]). GAMDL 4.x (with `--no-progress`,
+/// printed once per song in the end-of-run error list):
+/// `  ✗ <title>: Requested codec or stream unavailable`, or one of the other
+/// "not offered" messages in `GAMDL_V4_FORMAT_UNAVAILABLE`.
+#[must_use]
+pub fn is_format_not_offered_line(line: &str) -> bool {
+    let trimmed = line.trim();
+    if let Some(rest) = trimmed.strip_prefix('✗') {
+        let core = gamdl_v4_error_core(rest.trim());
+        return GAMDL_V4_FORMAT_UNAVAILABLE
+            .iter()
+            .any(|fixed| core.starts_with(fixed));
+    }
+    is_codec_skip_line(trimmed)
+}
+
 /// Matches GAMDL "Saved to" completion lines.
 ///
 /// Capture groups:
@@ -182,10 +468,8 @@ static SAVED_REGEX: LazyLock<Regex> =
 /// v3.0 emits context prefixes like `[Track   1/14 ]` and `[URL   1/1 ]`
 /// after the banner (#521 capture data, 2026-04-23).
 static ERROR_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)^(?:\[[A-Z]+\s+[\d:]+\]\s*)?(?:\[[^\]]+\]\s*)*(?:ERROR|error|Error):?\s+(.+)",
-    )
-    .expect("Invalid error regex")
+    Regex::new(r"(?i)^(?:\[[A-Z]+\s+[\d:]+\]\s*)?(?:\[[^\]]+\]\s*)*(?:ERROR|error|Error):?\s+(.+)")
+        .expect("Invalid error regex")
 });
 
 /// Matches Python exception lines that appear as the final line of a traceback.
@@ -251,9 +535,8 @@ static ANSI_ESCAPE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Strips `(media ID: <digits>)` — the parens and any internal
 /// whitespace. Tolerates variations in spacing.
-static MEDIA_ID_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\s*\(media ID:\s*\d+\)").expect("Invalid media ID regex")
-});
+static MEDIA_ID_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\s*\(media ID:\s*\d+\)").expect("Invalid media ID regex"));
 
 /// #832: strips GAMDL 3.x's verbose `(Unavailable requested format
 /// candidates: ...)` parenthetical. See `humanise_codec_skip_line`
@@ -316,9 +599,7 @@ pub fn is_python_traceback_noise(line: &str) -> bool {
     if trimmed == "Traceback (most recent call last):" {
         return true;
     }
-    if trimmed.starts_with("File \"")
-        && trimmed.contains("\", line ")
-        && trimmed.contains(", in ")
+    if trimmed.starts_with("File \"") && trimmed.contains("\", line ") && trimmed.contains(", in ")
     {
         return true;
     }
@@ -546,6 +827,15 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
         return GamdlOutputEvent::Unknown { raw: String::new() };
     }
 
+    // GAMDL 4.x result lines. Checked first because their shapes are
+    // unambiguous (they start with a symbol no 3.x line starts with) and
+    // because the end-of-run summary contains the word "failed", which the
+    // keyword match further down would otherwise report as an error even
+    // when nothing failed.
+    if let Some(event) = parse_gamdl_v4_line(trimmed) {
+        return event;
+    }
+
     // Priority 1: yt-dlp download progress (most frequent during downloads).
     // Checked first because during an active download, the vast majority of
     // output lines are progress updates. Matching this first avoids running
@@ -625,12 +915,8 @@ pub fn parse_gamdl_output(line: &str) -> GamdlOutputEvent {
             .get(3)
             .map(|m| m.as_str().trim().to_string())
             .unwrap_or_default();
-        let track_number = captures
-            .get(1)
-            .and_then(|m| m.as_str().parse::<u32>().ok());
-        let track_total = captures
-            .get(2)
-            .and_then(|m| m.as_str().parse::<u32>().ok());
+        let track_number = captures.get(1).and_then(|m| m.as_str().parse::<u32>().ok());
+        let track_total = captures.get(2).and_then(|m| m.as_str().parse::<u32>().ok());
 
         return GamdlOutputEvent::TrackInfo {
             title,
@@ -979,8 +1265,11 @@ pub fn humanise_codec_skip_line(line: &str) -> String {
     if let Some(caps) = LC_LIST_RE.captures(&out.clone()) {
         if let Some(list_match) = caps.get(1) {
             let list_text = list_match.as_str();
-            let codec_tokens: Vec<&str> =
-                list_text.split(',').map(str::trim).filter(|t| !t.is_empty()).collect();
+            let codec_tokens: Vec<&str> = list_text
+                .split(',')
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .collect();
             // Only rewrite when every token is a known codec — avoids
             // accidentally rewriting e.g. "errno 1, errno 2" or any other
             // comma-separated lowercase run that happens to share the
@@ -1000,10 +1289,8 @@ pub fn humanise_codec_skip_line(line: &str) -> String {
                     )
                 });
             if all_known_codecs {
-                let pretty: Vec<String> = codec_tokens
-                    .iter()
-                    .map(|t| pretty_codec_label(t))
-                    .collect();
+                let pretty: Vec<String> =
+                    codec_tokens.iter().map(|t| pretty_codec_label(t)).collect();
                 let replacement = format!("{} not available", pretty.join(", "));
                 out = LC_LIST_RE.replace(&out, replacement.as_str()).to_string();
             }
@@ -1079,6 +1366,13 @@ pub fn is_io_error(error_message: &str) -> bool {
         || lower.contains("[errno 116]") // ESTALE on Linux
 }
 
+/// The fixed wording at the heart of MeedyaDL's own refusal of a download
+/// folder containing ".." (#1419; built in `config_service::download_folder_refusal`).
+/// `classify_error` looks for it first, because the refusal also contains
+/// the person's folder name, and a folder such as "/Users/author/network"
+/// would otherwise be sorted as a sign-in or network problem.
+pub const DOWNLOAD_FOLDER_REFUSAL_MARK: &str = "cannot be used, because it contains \"..\"";
+
 /// Classifies an error message into a named category for the React UI.
 ///
 /// Error categories serve two purposes:
@@ -1116,8 +1410,13 @@ pub fn is_io_error(error_message: &str) -> bool {
 pub fn classify_error(error_message: &str) -> &'static str {
     let lower = error_message.to_lowercase();
 
+    // MeedyaDL refused the download folder itself (#1419): a settings
+    // problem the person must fix, never retried and never sent down the
+    // format fallback chain, whatever words the folder name contains.
+    if error_message.contains(DOWNLOAD_FOLDER_REFUSAL_MARK) {
+        "io"
     // Authentication / cookie errors: user needs to provide valid credentials.
-    if lower.contains("cookie") || lower.contains("auth") || lower.contains("login") {
+    } else if lower.contains("cookie") || lower.contains("auth") || lower.contains("login") {
         "auth"
     // Filesystem I/O errors: cloud storage timeout, disk full, etc.
     // Checked before network because "operation timed out" contains "timed"
@@ -1465,8 +1764,7 @@ pub fn is_gamdl_mv_cover_template_bug(error_message: &str) -> bool {
     let lower = error_message.to_lowercase();
     let has_400 = lower.contains("400 bad request") || lower.contains("status code: 400");
     let has_mv_url = lower.contains("mzstatic.com/video");
-    let has_unsubstituted_template = lower.contains("%7bw%7dx%7bh%7d")
-        || lower.contains("{w}x{h}");
+    let has_unsubstituted_template = lower.contains("%7bw%7dx%7bh%7d") || lower.contains("{w}x{h}");
     has_400 && has_mv_url && has_unsubstituted_template
 }
 
@@ -1548,9 +1846,7 @@ pub fn classify_gamdl_traceback(output: &str) -> Option<&'static str> {
         || lower.contains("'nonetype' object has no attribute 'stream_info'")
         || lower.contains("'nonetype' object has no attribute 'audio'")
     {
-        return Some(
-            "this codec is not available for this track on Apple Music — skipping",
-        );
+        return Some("this codec is not available for this track on Apple Music — skipping");
     }
     None
 }
@@ -1611,6 +1907,21 @@ pub fn redact_cli_args(args: &[String]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #1419: MeedyaDL's own folder refusal is a settings problem, sorted as
+    /// "io" (never retried, never a format fallback) even when the folder
+    /// name contains words the other categories look for.
+    #[test]
+    fn folder_refusal_is_io_whatever_the_folder_is_called() {
+        for folder in [
+            "/Users/author/../x",
+            "/network/../dns",
+            "/drm/../connection",
+        ] {
+            let why = crate::services::config_service::download_folder_refusal(folder).unwrap();
+            assert_eq!(classify_error(&why), "io", "{why}");
+        }
+    }
 
     // ----------------------------------------------------------
     // parse_gamdl_output: Progress events
@@ -1836,7 +2147,9 @@ mod tests {
 
     #[test]
     fn is_python_traceback_noise_recognises_three_forms() {
-        assert!(is_python_traceback_noise("Traceback (most recent call last):"));
+        assert!(is_python_traceback_noise(
+            "Traceback (most recent call last):"
+        ));
         assert!(is_python_traceback_noise(
             r#"  File "/foo/bar.py", line 10, in baz"#
         ));
@@ -1960,7 +2273,9 @@ mod tests {
     #[test]
     fn is_storefront_mismatch_recognises_plain_404_resource_not_found() {
         assert!(is_storefront_mismatch_error("404 Resource Not Found"));
-        assert!(is_storefront_mismatch_error("status code: 404 — Resource Not Found"));
+        assert!(is_storefront_mismatch_error(
+            "status code: 404 — Resource Not Found"
+        ));
     }
 
     #[test]
@@ -2061,8 +2376,7 @@ mod tests {
         match parse_gamdl_output(line) {
             GamdlOutputEvent::Error { message } => {
                 assert!(
-                    message.contains("music.apple.com")
-                        && message.contains("404 Not Found"),
+                    message.contains("music.apple.com") && message.contains("404 Not Found"),
                     "Expected the structlog prefix + `Error` keyword to be \
                      stripped while URL and reason are preserved. \
                      Got: {message}"
@@ -2288,10 +2602,7 @@ mod tests {
             classify_error("RuntimeError: yt-dlp HLS download failed"),
             "network"
         );
-        assert_eq!(
-            classify_error("yt-dlp HTTP download failed"),
-            "network"
-        );
+        assert_eq!(classify_error("yt-dlp HTTP download failed"), "network");
         // Surface-form variations (different case + extra surrounding context).
         assert_eq!(
             classify_error("error: yt-dlp HLS download failed during music-video fetch"),
@@ -2366,7 +2677,9 @@ mod tests {
             "GamdlInterfaceMediaNotStreamableError: Media is not streamable: 1234567890"
         ));
         // Also matches the bare message extracted by `extract_python_exception`.
-        assert!(is_media_not_streamable_error("Media is not streamable: 1568443843"));
+        assert!(is_media_not_streamable_error(
+            "Media is not streamable: 1568443843"
+        ));
         // Case-insensitive — should match even when nested in a traceback
         // with mixed casing or wrapped log decoration.
         assert!(is_media_not_streamable_error(
@@ -2608,7 +2921,9 @@ mod tests {
             classify_error("[Errno 13] Permission denied: '/Volumes/Music/out.m4a'"),
             "io"
         );
-        assert!(error_guidance("io_transient").to_lowercase().contains("antivirus"));
+        assert!(error_guidance("io_transient")
+            .to_lowercase()
+            .contains("antivirus"));
     }
 
     #[test]
@@ -2904,7 +3219,10 @@ mod tests {
         // `parse_gamdl_error_count` reads the "Finished with N error(s)"
         // line — confirm it survives the structlog prefix (the regex is
         // a substring match, so it should).
-        assert_eq!(parse_gamdl_error_count(FIXTURE_V3_SUCCESSFUL_ALBUM), Some(0));
+        assert_eq!(
+            parse_gamdl_error_count(FIXTURE_V3_SUCCESSFUL_ALBUM),
+            Some(0)
+        );
     }
 
     #[test]
@@ -2940,9 +3258,7 @@ mod tests {
         // `is_codec_error` is the signal the fallback chain consumes —
         // it must return true for the skip warnings, otherwise we stay
         // on the failed codec instead of trying the next one.
-        let any_codec = FIXTURE_V3_CODEC_SKIPS
-            .lines()
-            .any(is_codec_error);
+        let any_codec = FIXTURE_V3_CODEC_SKIPS.lines().any(is_codec_error);
         assert!(
             any_codec,
             "v3.0 codec-skip fixture must contain at least one line that \
@@ -2969,9 +3285,9 @@ mod tests {
             })
             .collect();
         assert!(
-            error_messages.iter().any(|m| {
-                m.contains("music.apple.com") && m.contains("404 Not Found")
-            }),
+            error_messages
+                .iter()
+                .any(|m| { m.contains("music.apple.com") && m.contains("404 Not Found") }),
             "Expected URL + reason to be preserved in the Error message, \
              got: {error_messages:?}"
         );
@@ -3020,7 +3336,8 @@ mod tests {
         // which WOULD be picked up by Priority-7 keyword matching — but
         // `File "..."` traceback frames short-circuit that branch.
         // Confirm we still skip the frame line.
-        let frame = r#"  File "httpx/_transports/default.py", line 118, in map_httpcore_exceptions"#;
+        let frame =
+            r#"  File "httpx/_transports/default.py", line 118, in map_httpcore_exceptions"#;
         if let GamdlOutputEvent::Error { .. } = parse_gamdl_output(frame) {
             panic!("Traceback frame must not be captured as an Error");
         }
@@ -3140,7 +3457,9 @@ mod tests {
         // so the captured message starts at `downloading "Title"` — check
         // for the tail, not the prefix.
         assert!(
-            messages.iter().any(|m| m.contains("downloading") && m.contains("Unknown Title")),
+            messages
+                .iter()
+                .any(|m| m.contains("downloading") && m.contains("Unknown Title")),
             "Expected bracketed Track-error line in Error chain, got: {messages:?}"
         );
         assert!(
@@ -3320,8 +3639,14 @@ mod tests {
         // Regression guard: #521's "httpx/httpcore" network rule
         // should NOT fire.
         let cat = classify_error("Failed to parse URL: invalid scheme");
-        assert_ne!(cat, "network", "URL parse error must not be classified as network");
-        assert_ne!(cat, "auth", "URL parse error must not be classified as auth");
+        assert_ne!(
+            cat, "network",
+            "URL parse error must not be classified as network"
+        );
+        assert_ne!(
+            cat, "auth",
+            "URL parse error must not be classified as auth"
+        );
     }
 
     // ========================================================================
@@ -3367,9 +3692,8 @@ mod tests {
             .join("fixtures")
             .join("gamdl-3.2")
             .join(name);
-        std::fs::read_to_string(&path).unwrap_or_else(|e| {
-            panic!("failed to load v3.2 fixture {name} at {path:?}: {e}")
-        })
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to load v3.2 fixture {name} at {path:?}: {e}"))
     }
 
     /// Iterates over lines in a fixture, parses each through
@@ -3442,7 +3766,8 @@ mod tests {
     fn v32_playlist_wrapper_line_not_misclassified_as_track() {
         // Same guard as the album case, for playlists. The `[URL N/M]`
         // prefix is for URL-level progress, not per-track.
-        let line = "[INFO     12:00:01] [URL   1/1  ] Processing \"https://music.apple.com/.../pl.abc\"";
+        let line =
+            "[INFO     12:00:01] [URL   1/1  ] Processing \"https://music.apple.com/.../pl.abc\"";
         if let GamdlOutputEvent::TrackInfo { .. } = parse_gamdl_output(line) {
             panic!("URL-wrapper line must not parse as TrackInfo");
         }
@@ -3466,7 +3791,10 @@ mod tests {
         );
         // And it must not be misclassified as a real error class.
         assert_ne!(cat_new, "auth", "flat-filter excluded is not an auth error");
-        assert_ne!(cat_new, "network", "flat-filter excluded is not a network error");
+        assert_ne!(
+            cat_new, "network",
+            "flat-filter excluded is not a network error"
+        );
         assert_ne!(cat_new, "io", "flat-filter excluded is not an I/O error");
     }
 
@@ -3529,7 +3857,11 @@ mod tests {
     #[test]
     fn v32_fixture_single_song_emits_one_track_event() {
         let events = fixture_track_events("single-song-stderr.log");
-        assert_eq!(events.len(), 1, "single-song fixture must emit exactly one TrackInfo event");
+        assert_eq!(
+            events.len(),
+            1,
+            "single-song fixture must emit exactly one TrackInfo event"
+        );
         let (num, total, title) = &events[0];
         assert_eq!(*num, Some(1));
         assert_eq!(*total, Some(1));
@@ -3548,9 +3880,18 @@ mod tests {
     #[test]
     fn v32_fixture_playlist_emits_four_track_events() {
         let events = fixture_track_events("playlist-stderr.log");
-        assert_eq!(events.len(), 4, "4-track playlist fixture must emit exactly 4 TrackInfo events");
+        assert_eq!(
+            events.len(),
+            4,
+            "4-track playlist fixture must emit exactly 4 TrackInfo events"
+        );
         for (i, (num, total, _)) in events.iter().enumerate() {
-            assert_eq!(*num, Some((i + 1) as u32), "track {} number mismatch", i + 1);
+            assert_eq!(
+                *num,
+                Some((i + 1) as u32),
+                "track {} number mismatch",
+                i + 1
+            );
             assert_eq!(*total, Some(4), "track {} total mismatch", i + 1);
         }
     }
@@ -3612,11 +3953,17 @@ mod tests {
     #[test]
     fn codec_skip_does_not_match_unrelated_skipping_lines() {
         // "Skipping" alone — no format keyword
-        assert!(!is_codec_skip_line("[INFO] Skipping cover art (already downloaded)"));
-        assert!(!is_codec_skip_line("Skipping rate-limited request, retrying in 30s"));
+        assert!(!is_codec_skip_line(
+            "[INFO] Skipping cover art (already downloaded)"
+        ));
+        assert!(!is_codec_skip_line(
+            "Skipping rate-limited request, retrying in 30s"
+        ));
         // "Format" alone — no skip verb
         assert!(!is_codec_skip_line("Requested format: ATMOS"));
-        assert!(!is_codec_skip_line("Format is not available — falling back"));
+        assert!(!is_codec_skip_line(
+            "Format is not available — falling back"
+        ));
     }
 
     /// Non-codec-skip warnings that contain the `"skipping"` substring
@@ -3663,16 +4010,31 @@ mod tests {
         let raw = "[WARNING  13:21:56] [Track   1/1  ] Skipping \"Pickle (3ballMTY Remix)\": Requested format is not available (media ID: 1578734917): [<SongCodec.AC3: 'ac3'>]";
         let humanised = humanise_codec_skip_line(raw);
         // Media ID stripped.
-        assert!(!humanised.contains("media ID"), "should strip media ID: {humanised}");
-        assert!(!humanised.contains("1578734917"), "should strip the numeric ID");
+        assert!(
+            !humanised.contains("media ID"),
+            "should strip media ID: {humanised}"
+        );
+        assert!(
+            !humanised.contains("1578734917"),
+            "should strip the numeric ID"
+        );
         // Codec repr replaced by friendly text.
-        assert!(!humanised.contains("SongCodec"), "should strip Python repr: {humanised}");
+        assert!(
+            !humanised.contains("SongCodec"),
+            "should strip Python repr: {humanised}"
+        );
         // #832: lowercase enum identifier `ac3` is now upgraded to the
         // proper display label `AC3` to match what users see elsewhere
         // in the UI (codec dropdowns, companion filename suffixes).
-        assert!(humanised.contains("AC3 not available"), "should mention AC3: {humanised}");
+        assert!(
+            humanised.contains("AC3 not available"),
+            "should mention AC3: {humanised}"
+        );
         // Track title preserved.
-        assert!(humanised.contains("\"Pickle (3ballMTY Remix)\""), "title preserved: {humanised}");
+        assert!(
+            humanised.contains("\"Pickle (3ballMTY Remix)\""),
+            "title preserved: {humanised}"
+        );
     }
 
     #[test]
@@ -3813,18 +4175,30 @@ mod tests {
         let redacted = redact_cli_args(&args);
         let joined = redacted.join(" ");
 
-        assert!(!joined.contains("SECRET"), "a token must not survive: {joined}");
+        assert!(
+            !joined.contains("SECRET"),
+            "a token must not survive: {joined}"
+        );
         assert!(!joined.contains("ALSOSECRET"), "nor a second one: {joined}");
-        assert!(!joined.contains("hunter2"), "nor a password in the address: {joined}");
+        assert!(
+            !joined.contains("hunter2"),
+            "nor a password in the address: {joined}"
+        );
 
         // What is worth keeping, is kept: somebody debugging needs to
         // know which machine and which port, and the option names have
         // to stay or the line is unreadable.
         assert!(joined.contains("pi.local"), "the host is useful: {joined}");
         assert!(joined.contains("30020"), "the port is useful: {joined}");
-        assert!(joined.contains("--wrapper-account-url"), "option names stay: {joined}");
+        assert!(
+            joined.contains("--wrapper-account-url"),
+            "option names stay: {joined}"
+        );
         // A file path is not a web address and is left alone.
-        assert!(joined.contains("/Users/somebody/Music"), "paths are untouched: {joined}");
+        assert!(
+            joined.contains("/Users/somebody/Music"),
+            "paths are untouched: {joined}"
+        );
     }
 
     #[test]
@@ -3838,9 +4212,18 @@ mod tests {
                 format!("{scheme}://user:hunter2@pi.local/account?token=SECRET"),
             ];
             let joined = redact_cli_args(&args).join(" ");
-            assert!(!joined.contains("SECRET"), "{scheme}: token survived: {joined}");
-            assert!(!joined.contains("hunter2"), "{scheme}: password survived: {joined}");
-            assert!(joined.contains("pi.local"), "{scheme}: host should remain: {joined}");
+            assert!(
+                !joined.contains("SECRET"),
+                "{scheme}: token survived: {joined}"
+            );
+            assert!(
+                !joined.contains("hunter2"),
+                "{scheme}: password survived: {joined}"
+            );
+            assert!(
+                joined.contains("pi.local"),
+                "{scheme}: host should remain: {joined}"
+            );
         }
     }
 
@@ -3854,8 +4237,223 @@ mod tests {
             "https://example.test/path?token=SECRET".to_string(),
         ];
         let joined = redact_cli_args(&args).join(" ");
-        assert!(!joined.contains("SECRET"), "an unknown option is covered too: {joined}");
-        assert!(joined.contains("example.test"), "and still says where it points: {joined}");
+        assert!(
+            !joined.contains("SECRET"),
+            "an unknown option is covered too: {joined}"
+        );
+        assert!(
+            joined.contains("example.test"),
+            "and still says where it points: {joined}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod gamdl_v4_output_tests {
+    use super::{parse_gamdl_output, GamdlOutputEvent};
+
+    // Line shapes copied from GAMDL 4.0's own output code
+    // (`cli/progress.py::RipProgress.finish`, `cli/commands/runner.py`,
+    // `cli/output.py`), first from the 4.0 branch and re-checked against
+    // the released 4.0.0 (unchanged). If a later release changes them,
+    // these are the lines to update.
+
+    fn path_of(line: &str) -> String {
+        match parse_gamdl_output(line) {
+            GamdlOutputEvent::Complete { path } => path,
+            other => panic!("expected Complete for {line:?}, got {other:?}"),
+        }
     }
 
+    #[test]
+    fn each_item_result_gives_its_path() {
+        assert_eq!(
+            path_of("✓ Song Title: downloaded → /Music/A/B/01 Song Title.m4a"),
+            "/Music/A/B/01 Song Title.m4a"
+        );
+        assert_eq!(path_of("✓ X: overwritten → /m/x.m4a"), "/m/x.m4a");
+        assert_eq!(
+            path_of("✓ X: media saved (finalization incomplete) → /m/x.m4a"),
+            "/m/x.m4a"
+        );
+        assert_eq!(
+            path_of("↷ X: skipped → /m/Album (Deluxe)/x.m4a"),
+            "/m/Album (Deluxe)/x.m4a"
+        );
+        // A title that itself contains ": ".
+        assert_eq!(
+            path_of("✓ Interlude: Part 2: downloaded → C:\\Music\\x.m4a"),
+            "C:\\Music\\x.m4a"
+        );
+    }
+
+    #[test]
+    fn errors_are_errors() {
+        match parse_gamdl_output("  ✗ Some Song: Requested codec or stream unavailable") {
+            GamdlOutputEvent::Error { message } => {
+                assert_eq!(message, "Some Song: Requested codec or stream unavailable");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(
+            parse_gamdl_output("No supported media found at this URL."),
+            GamdlOutputEvent::Error { .. }
+        ));
+        // The hint after a command-line error is not the error.
+        assert!(matches!(
+            parse_gamdl_output("✗ Run 'gamdl rip --help' to see available options."),
+            GamdlOutputEvent::Unknown { .. }
+        ));
+        // A skip caused by an error: a reason, no path — information.
+        assert!(matches!(
+            parse_gamdl_output("↷ X: skipped (Media is not streamable)"),
+            GamdlOutputEvent::Unknown { .. }
+        ));
+    }
+
+    #[test]
+    fn the_summary_is_not_mistaken_for_a_failure() {
+        // Contains "failed" — the keyword match would call it an error.
+        let line = "Finished: 12 downloaded, 0 overwritten, 0 skipped, 0 failed, 0 finalization failures (12 discovered)";
+        assert!(matches!(
+            parse_gamdl_output(line),
+            GamdlOutputEvent::Unknown { .. }
+        ));
+        // Information lines must not be `ProcessingStep`: that event
+        // switches the stall watchdog off for the rest of the run, and
+        // `✓ Authenticated` is the first line every 4.x run prints.
+        for info in [
+            "✓ Authenticated",
+            "! An active Apple Music subscription was not confirmed",
+            "Errors (2):",
+        ] {
+            assert!(
+                matches!(parse_gamdl_output(info), GamdlOutputEvent::Unknown { .. }),
+                "{info}"
+            );
+        }
+    }
+
+    #[test]
+    fn three_x_lines_are_untouched() {
+        assert!(super::parse_gamdl_v4_line("Saved to: /path/song.m4a").is_none());
+        assert!(super::parse_gamdl_v4_line("[Track 1/12] Downloading \"Song\"").is_none());
+        assert!(super::parse_gamdl_v4_line("ERROR: something").is_none());
+    }
+}
+
+#[cfg(test)]
+mod gamdl_v4_outcome_tests {
+    use super::{gamdl_v4_error_core, gamdl_v4_run_was_partial_success};
+
+    fn run(lines: &[&str]) -> bool {
+        gamdl_v4_run_was_partial_success(lines.iter().copied())
+    }
+
+    #[test]
+    fn saved_items_with_only_format_gaps_is_a_partial_success() {
+        assert!(run(&[
+            "✓ A: downloaded → /m/01 A.m4a",
+            "Finished: 11 downloaded, 0 overwritten, 0 skipped, 1 failed, 0 finalization failures (12 discovered)",
+            "Errors (1):",
+            "  ✗ Bonus: Requested codec or stream unavailable",
+        ]));
+    }
+
+    #[test]
+    fn anything_else_stays_a_failure() {
+        // Nothing saved.
+        assert!(!run(&[
+            "Finished: 0 downloaded, 0 overwritten, 0 skipped, 2 failed, 0 finalization failures (2 discovered)",
+            "  ✗ A: Requested codec or stream unavailable",
+            "  ✗ B: Requested codec or stream unavailable",
+        ]));
+        // A failure of another kind.
+        assert!(!run(&[
+            "Finished: 5 downloaded, 0 overwritten, 0 skipped, 2 failed, 0 finalization failures (7 discovered)",
+            "  ✗ A: Requested codec or stream unavailable",
+            "  ✗ B: Network request failed",
+        ]));
+        // Something failed after it was saved.
+        assert!(!run(&[
+            "Finished: 5 downloaded, 0 overwritten, 0 skipped, 1 failed, 1 finalization failures (6 discovered)",
+            "  ✗ A: Requested codec or stream unavailable",
+        ]));
+        // No summary at all (a crash, a command-line error).
+        assert!(!run(&[
+            "✗ No such option: --foo",
+            "✗ Run 'gamdl rip --help' to see available options."
+        ]));
+        // A 3.x run.
+        assert!(!run(&["Finished with 1 error(s)", "Saved to: /m/x.m4a"]));
+    }
+
+    #[test]
+    fn the_title_is_not_read_as_the_error() {
+        assert_eq!(
+            gamdl_v4_error_core("Login: Network request failed"),
+            "Network request failed"
+        );
+        assert_eq!(
+            gamdl_v4_error_core("Song: Part 2: Requested codec or stream unavailable"),
+            "Requested codec or stream unavailable"
+        );
+        // 4.x's catch-all wording: a title like "Connection" must not
+        // make an Apple HTTP error look like a network problem.
+        assert_eq!(
+            gamdl_v4_error_core("Connection: ApiResponse failed"),
+            "ApiResponse failed"
+        );
+        assert_ne!(
+            super::classify_error(gamdl_v4_error_core("Connection: ApiResponse failed")),
+            "network"
+        );
+        assert_eq!(gamdl_v4_error_core("Cookie Jar: Drm failed"), "Drm failed");
+        // Released 4.0.0 names the type of an unexpected error in brackets.
+        assert_eq!(
+            gamdl_v4_error_core("Connection: ApiResponse failed (GamdlApiResponseError)"),
+            "ApiResponse failed (GamdlApiResponseError)"
+        );
+        assert_ne!(
+            super::classify_error(gamdl_v4_error_core(
+                "Connection: ApiResponse failed (GamdlApiResponseError)"
+            )),
+            "network"
+        );
+        assert_eq!(
+            gamdl_v4_error_core(
+                "Login: Unable to acquire or process decryption key (DrmLicenseError)"
+            ),
+            "Unable to acquire or process decryption key (DrmLicenseError)"
+        );
+        assert_ne!(
+            super::classify_error(gamdl_v4_error_core("Cookie Jar: Drm failed")),
+            "auth"
+        );
+        // A broken unlocking set-up is recognised, so it is not retried
+        // format by format.
+        assert!(super::is_gamdl_v4_drm_setup_error(gamdl_v4_error_core(
+            "Session: Required DRM backend or default device is not available"
+        )));
+        assert!(super::is_gamdl_v4_drm_setup_error(gamdl_v4_error_core(
+            "Song: DRM backend configuration failed (DrmConfigurationError)"
+        )));
+        assert!(!super::is_gamdl_v4_drm_setup_error(gamdl_v4_error_core(
+            "Song: Requested codec or stream unavailable"
+        )));
+        // One stream's unlocking data, not the set-up: another format may
+        // work, so the format fallback must still run.
+        assert!(!super::is_gamdl_v4_drm_setup_error(gamdl_v4_error_core(
+            "Song: DRM initialization metadata invalid (DrmMetadataError)"
+        )));
+        // Not a 4.x shape: unchanged.
+        assert_eq!(
+            gamdl_v4_error_core("ERROR: cookie expired"),
+            "ERROR: cookie expired"
+        );
+        assert_eq!(
+            super::classify_error(gamdl_v4_error_core("Login: Network request failed")),
+            "network"
+        );
+    }
 }

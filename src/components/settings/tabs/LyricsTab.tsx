@@ -49,7 +49,10 @@ import { useSettingsField } from '@/hooks/useSettingsField';
 import { useAsyncTask } from '@/hooks/useAsyncTask';
 
 // Shared form component: Toggle for boolean switches.
-import { Button, Toggle, SettingsSection } from '@/components/common';
+import { Button, Checkbox, InlineError, Toggle, SettingsSection } from '@/components/common';
+import { GamdlFourNote } from '@/components/settings/GamdlFourNote';
+import { useGamdlCapabilities } from '@/hooks/useGamdlCapabilities';
+import { explainError } from '@/lib/errorMessages';
 
 // IPC wrapper for the word-level lyrics connectivity probe (#934).
 import { testLyricsConnection } from '@/lib/tauri-commands';
@@ -92,6 +95,7 @@ export function LyricsTab() {
   const keepSidecar = useSettingsField('keep_lyrics_sidecar');
   const noSynced = useSettingsField('no_synced_lyrics');
   const syncedOnly = useSettingsField('synced_lyrics_only');
+  const { capabilities: gamdlCaps } = useGamdlCapabilities();
 
   // Word-level lyrics connectivity test (#934) — lets the user verify
   // syllable-lyrics credentials without waiting for a full download.
@@ -136,8 +140,9 @@ export function LyricsTab() {
     // is always first. Other selected formats become companions.
     if (settings.enhanced_lrc) {
       current.add('ttml'); // Ensure TTML is always present
-      const companions = LYRICS_FORMAT_OPTIONS.map((f) => f.value)
-        .filter((f) => f !== 'ttml' && current.has(f));
+      const companions = LYRICS_FORMAT_OPTIONS.map((f) => f.value).filter(
+        (f) => f !== 'ttml' && current.has(f)
+      );
       updateSettings({
         synced_lyrics_format: 'ttml',
         companion_lyrics_formats: companions,
@@ -157,104 +162,115 @@ export function LyricsTab() {
   return (
     <div className="space-y-3">
       <SettingsSection title="Synced Lyrics">
-          {/* Enhanced LRC (word-by-word sync) */}
-          <Toggle
-            label="Enhanced Lyrics (Word-by-Word Sync)"
-            description="Automatically converts Apple Music's TTML lyrics to Enhanced LRC with word-by-word synchronized timestamps. Creates a .lrc sidecar file and embeds in audio metadata. Falls back to line-level sync for songs without word-level data."
-            checked={enhancedLrc.value}
-            onChange={enhancedLrc.set}
-          />
+        {/* Enhanced LRC (word-by-word sync) */}
+        <Toggle
+          label="Enhanced Lyrics (Word-by-Word Sync)"
+          description="Automatically converts Apple Music's TTML lyrics to Enhanced LRC with word-by-word synchronized timestamps. Creates a .lrc sidecar file and embeds in audio metadata. Falls back to line-level sync for songs without word-level data."
+          checked={enhancedLrc.value}
+          onChange={enhancedLrc.set}
+        />
 
-          {/* Word-level lyrics connectivity test (#934) */}
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => lyricsTest.run()}
-              disabled={lyricsTest.isRunning}
-            >
-              {lyricsTest.isRunning ? 'Testing...' : 'Test word-level lyrics connection'}
-            </Button>
-            {/* Fix 13 (a11y audit): plain text after a button press,
+        {/* Word-level lyrics connectivity test (#934) */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => lyricsTest.run()}
+            disabled={lyricsTest.isRunning}
+          >
+            {lyricsTest.isRunning ? 'Testing…' : 'Test word-level lyrics connection'}
+          </Button>
+          {/* Fix 13 (a11y audit): plain text after a button press,
                 with nothing announcing it to a screen reader. */}
-            {lyricsTestResult && (
-              <span
-                role={lyricsTestResult.granularity === 'word' ? 'status' : lyricsTestResult.success ? 'status' : 'alert'}
-                className={
-                  lyricsTestResult.granularity === 'word'
-                    ? 'text-xs text-status-success-text'
-                    : lyricsTestResult.success
-                      ? 'text-xs text-status-warning-text'
-                      : 'text-xs text-status-error-text'
-                }
-              >
-                {lyricsTestResult.granularity === 'word'
-                  ? `Connected${lyricsTestResult.token_source === 'web_player' ? ' via web session' : ''} — word-level lyrics are working.`
-                  : lyricsTestResult.error_hint}
-              </span>
-            )}
-            {lyricsTest.error && (
-              <span role="alert" className="text-xs text-status-error-text">{lyricsTest.error}</span>
-            )}
-          </div>
+          {lyricsTestResult && (
+            <span
+              role={
+                lyricsTestResult.granularity === 'word'
+                  ? 'status'
+                  : lyricsTestResult.success
+                    ? 'status'
+                    : 'alert'
+              }
+              className={
+                lyricsTestResult.granularity === 'word'
+                  ? 'text-xs text-status-success-text'
+                  : lyricsTestResult.success
+                    ? 'text-xs text-status-warning-text'
+                    : 'text-xs text-status-error-text'
+              }
+            >
+              {lyricsTestResult.granularity === 'word'
+                ? `Connected${lyricsTestResult.token_source === 'web_player' ? ' via web session' : ''} — word-level lyrics are working.`
+                : lyricsTestResult.error_hint}
+            </span>
+          )}
+          {lyricsTest.error && (
+            <InlineError
+              {...explainError(
+                'MeedyaDL could not test the word-level lyrics connection. Check your internet connection and your sign-in (Settings > Cookies), then try again.',
+                lyricsTest.error
+              )}
+            />
+          )}
+        </div>
 
-          {/* Lyrics format fallback */}
-          <Toggle
-            label="Lyrics Format Fallback"
-            description="When the primary lyrics format isn't available for some tracks, automatically try alternative formats. Audio: TTML → LRC → SRT. Video: TTML → SRT → LRC."
-            checked={lyricsFallback.value}
-            onChange={lyricsFallback.set}
-          />
+        {/* Lyrics format fallback */}
+        <Toggle
+          label="Lyrics Format Fallback"
+          description="When the primary lyrics format isn't available for some tracks, automatically try alternative formats. Audio: TTML → LRC → SRT. Video: TTML → SRT → LRC."
+          checked={lyricsFallback.value}
+          onChange={lyricsFallback.set}
+        />
 
-          {/* WebVTT subtitle generation */}
-          <Toggle
-            label="Generate WebVTT Subtitles"
-            description="Create .vtt subtitle files from downloaded lyrics (TTML, SRT, or LRC). WebVTT is the standard format for web-based video players."
-            checked={webvtt.value}
-            onChange={webvtt.set}
-          />
+        {/* WebVTT subtitle generation */}
+        <Toggle
+          label="Generate WebVTT Subtitles"
+          description="Create .vtt subtitle files from downloaded lyrics (TTML, SRT, or LRC). WebVTT is the standard format for web-based video players."
+          checked={webvtt.value}
+          onChange={webvtt.set}
+        />
 
-          {/* Rich SRT generation */}
-          <Toggle
-            label="Generate Rich SRT from TTML"
-            description="Creates SRT subtitle files with formatting (bold, italic, underline, colours) from Apple Music TTML. Replaces plain SRT files with styled versions when TTML is available."
-            checked={richSrt.value}
-            onChange={richSrt.set}
-          />
+        {/* Rich SRT generation */}
+        <Toggle
+          label="Generate Rich SRT from TTML"
+          description="Creates SRT subtitle files with formatting (bold, italic, underline, colours) from Apple Music TTML. Replaces plain SRT files with styled versions when TTML is available."
+          checked={richSrt.value}
+          onChange={richSrt.set}
+        />
 
-          {/* Subtitle embedding */}
-          <Toggle
-            label="Embed Subtitles in Media Files"
-            description="Embed SRT and WebVTT subtitle content directly into MP4/M4A/M4V containers as metadata. Useful for players that read embedded subtitles."
-            checked={embedSubtitles.value}
-            onChange={embedSubtitles.set}
-          />
+        {/* Subtitle embedding */}
+        <Toggle
+          label="Embed Subtitles in Media Files"
+          description="Embed SRT and WebVTT subtitle content directly into MP4/M4A/M4V containers as metadata. Useful for players that read embedded subtitles."
+          checked={embedSubtitles.value}
+          onChange={embedSubtitles.set}
+        />
 
-          {/* ASS subtitle generation */}
-          <Toggle
-            label="Generate ASS Subtitles"
-            description="Create Advanced SubStation Alpha (.ass) subtitle files from TTML or WebVTT with rich styling: colours, bold, italic, positioning, and background vocal styles. Supported by VLC, mpv, and MPC-HC."
-            checked={generateAss.value}
-            onChange={generateAss.set}
-          />
+        {/* ASS subtitle generation */}
+        <Toggle
+          label="Generate ASS Subtitles"
+          description="Create Advanced SubStation Alpha (.ass) subtitle files from TTML or WebVTT with rich styling: colours, bold, italic, positioning, and background vocal styles. Supported by VLC, mpv, and MPC-HC."
+          checked={generateAss.value}
+          onChange={generateAss.set}
+        />
 
-          {/* Lyricsfile (.lyrics) generation — #596 */}
-          <Toggle
-            label="Generate Lyricsfile (.lyrics)"
-            description="Create Lyricsfile YAML sidecars from TTML. Lyricsfile is the open, extensible format endorsed by LRCGET v2.0 and LRCLIB — it preserves word-level timing and is plain-text-editable. Experimental: the spec may change in future LRCGET releases."
-            checked={generateLyricsfile.value}
-            onChange={generateLyricsfile.set}
-          />
+        {/* Lyricsfile (.lyrics) generation — #596 */}
+        <Toggle
+          label="Generate Lyricsfile (.lyrics)"
+          description="Create Lyricsfile YAML sidecars from TTML. Lyricsfile is the open, extensible format endorsed by LRCGET v2.0 and LRCLIB — it preserves word-level timing and is plain-text-editable. Experimental: the spec may change in future LRCGET releases."
+          checked={generateLyricsfile.value}
+          onChange={generateLyricsfile.set}
+        />
 
-          {/* Embed lyrics/captions */}
-          <Toggle
-            label="Embed Lyrics / Captions"
-            description="Embed lyrics and subtitle content into audio file metadata. Enhanced LRC is embedded in the standard lyrics atom; SRT/WebVTT are embedded as freeform metadata when 'Embed Subtitles' is also enabled."
-            checked={embedLyrics.value}
-            onChange={embedLyrics.set}
-          />
+        {/* Embed lyrics/captions */}
+        <Toggle
+          label="Embed Lyrics / Captions"
+          description="Embed lyrics and subtitle content into audio file metadata. Enhanced LRC is embedded in the standard lyrics atom; SRT/WebVTT are embedded as freeform metadata when 'Embed Subtitles' is also enabled."
+          checked={embedLyrics.value}
+          onChange={embedLyrics.set}
+        />
 
-          {/*
+        {/*
             Renamed and made real (#1155).
 
             It used to be called "Keep Sidecar Lyrics / Caption Files", which
@@ -268,16 +284,16 @@ export function LyricsTab() {
             something it can honestly do. Files already on disk are never
             touched.
           */}
-          {embedLyrics.value && (
-            <Toggle
-              label="Save Lyrics/Captions as Separate Files"
-              description="Save lyrics and captions as separate files next to your music, for players that read them. Turn this off to keep your music folders tidy — the lyrics still go into the music files themselves. Files already saved are never removed."
-              checked={keepSidecar.value}
-              onChange={keepSidecar.set}
-            />
-          )}
+        {embedLyrics.value && (
+          <Toggle
+            label="Save Lyrics/Captions as Separate Files"
+            description="Save lyrics and captions as separate files next to your music, for players that read them. Turn this off to keep your music folders tidy — the lyrics still go into the music files themselves. Files already saved are never removed."
+            checked={keepSidecar.value}
+            onChange={keepSidecar.set}
+          />
+        )}
 
-          {/* Synced lyrics format checkboxes.
+        {/* Synced lyrics format checkboxes.
               Fix 10 (a11y audit): fieldset/legend say these checkboxes
               are one group ("Synced Lyrics Formats"), the same
               relationship the visual layout already shows a sighted
@@ -286,70 +302,76 @@ export function LyricsTab() {
               computes its own disabled state (`formatsDisabled ||
               isLocked`), and TTML can be individually locked even
               when the rest of the group isn't. */}
-          <fieldset className={`border-0 m-0 p-0 ${formatsDisabled ? 'opacity-50' : ''}`}>
-            <legend className="text-sm font-medium text-content-primary p-0">Synced Lyrics Formats</legend>
-            <span className="block text-xs text-content-tertiary mt-0.5 mb-2">
-              {settings.enhanced_lrc
-                ? 'TTML is the primary format (required for Enhanced Lyrics). Select additional formats to download as companions alongside TTML.'
-                : 'Select one or more formats. The first format is used with the primary download; additional formats are downloaded as lightweight companion passes.'}
-            </span>
-            <div className="space-y-2">
-              {LYRICS_FORMAT_OPTIONS.map(({ value, label }) => {
-                const isChecked = checkedFormats.has(value);
-                // When Enhanced LRC is on, TTML is always primary (forced by merge_options Layer 4).
-                // Show "(Primary)" for TTML when enhanced_lrc is on, otherwise use the normal logic.
-                const isPrimary = settings.enhanced_lrc
-                  ? value === 'ttml'
-                  : value === settings.synced_lyrics_format && checkedFormats.size > 1;
-                // TTML cannot be unchecked when Enhanced LRC is on (it's the required primary).
-                const isLocked = settings.enhanced_lrc && value === 'ttml';
+        <fieldset className={`border-0 m-0 p-0 ${formatsDisabled ? 'opacity-50' : ''}`}>
+          <legend className="text-sm font-medium text-content-primary p-0">
+            Synced Lyrics Formats
+          </legend>
+          <span className="block text-xs text-content-tertiary mt-0.5 mb-2">
+            {settings.enhanced_lrc
+              ? 'TTML is the primary format (required for Enhanced Lyrics). Select additional formats to download as companions alongside TTML.'
+              : 'Select one or more formats. The first format is used with the primary download; additional formats are downloaded as lightweight companion passes.'}
+          </span>
+          <div className="space-y-2">
+            {LYRICS_FORMAT_OPTIONS.map(({ value, label }) => {
+              const isChecked = checkedFormats.has(value);
+              // When Enhanced LRC is on, TTML is always primary (forced by merge_options Layer 4).
+              // Show "(Primary)" for TTML when enhanced_lrc is on, otherwise use the normal logic.
+              const isPrimary = settings.enhanced_lrc
+                ? value === 'ttml'
+                : value === settings.synced_lyrics_format && checkedFormats.size > 1;
+              // TTML cannot be unchecked when Enhanced LRC is on (it's the required primary).
+              const isLocked = settings.enhanced_lrc && value === 'ttml';
 
-                return (
-                  <label
-                    key={value}
-                    className={`flex items-center gap-2.5 ${formatsDisabled || isLocked ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={settings.enhanced_lrc ? (value === 'ttml' || checkedFormats.has(value)) : isChecked}
-                      disabled={formatsDisabled || isLocked}
-                      onChange={(e) => handleFormatToggle(value, e.target.checked)}
-                      /* `--color-accent` was never a defined custom
-                       * property (the real name is `--accent`), so this
-                       * checkbox's tick mark rendered in the browser's
-                       * default blue instead of the theme's accent
-                       * colour. `accent-accent` is the equivalent
-                       * generated Tailwind utility for the real token. */
-                      className="h-4 w-4 rounded border-border accent-accent cursor-pointer disabled:cursor-not-allowed"
-                    />
-                    <span className="text-sm text-content-primary">{label}</span>
-                    {isPrimary && <span className="text-xs text-content-tertiary">(Primary)</span>}
-                  </label>
-                );
-              })}
-            </div>
-          </fieldset>
+              return (
+                // The shared Checkbox (polish pass M17), tinted with the
+                // theme's accent colour like every other checkbox.
+                <Checkbox
+                  key={value}
+                  checked={
+                    settings.enhanced_lrc
+                      ? value === 'ttml' || checkedFormats.has(value)
+                      : isChecked
+                  }
+                  disabled={formatsDisabled || isLocked}
+                  onChange={(on) => handleFormatToggle(value, on)}
+                  label={
+                    <>
+                      <span className="text-content-primary">{label}</span>
+                      {isPrimary && (
+                        <span className="ml-2 text-xs text-content-tertiary">(Primary)</span>
+                      )}
+                    </>
+                  }
+                />
+              );
+            })}
+          </div>
+        </fieldset>
 
-          {/* Disable synced lyrics -- overridden when embed+sidecar is on */}
-          <Toggle
-            label="Disable Synced Lyrics"
-            description={
-              embedLyrics.value
-                ? 'Overridden by "Embed Lyrics and Keep Sidecar" above'
-                : "Don't download synced lyrics files alongside tracks"
-            }
-            checked={noSynced.value}
-            onChange={noSynced.set}
-            disabled={embedLyrics.value}
-          />
+        {/* Disable synced lyrics -- overridden when embed+sidecar is on */}
+        <Toggle
+          label="Disable Synced Lyrics"
+          description={
+            embedLyrics.value
+              ? 'Overridden by "Embed Lyrics and Keep Sidecar" above'
+              : "Don't download synced lyrics files alongside tracks"
+          }
+          checked={noSynced.value}
+          onChange={noSynced.set}
+          disabled={embedLyrics.value}
+        />
 
-          {/* Synced lyrics only */}
-          <Toggle
-            label="Synced Lyrics Only"
-            description="Only download synced lyrics without downloading the audio/video"
-            checked={syncedOnly.value}
-            onChange={syncedOnly.set}
-          />
+        {/* Synced lyrics only */}
+        <Toggle
+          label="Synced Lyrics Only"
+          description="Only download synced lyrics without downloading the audio/video"
+          checked={syncedOnly.value}
+          onChange={syncedOnly.set}
+        />
+        <GamdlFourNote show={gamdlCaps.gamdl_v4 && syncedOnly.value}>
+          GAMDL 4 cannot download lyrics on their own, so downloads will not start while this is on.
+          Turn it off to download as usual.
+        </GamdlFourNote>
       </SettingsSection>
     </div>
   );

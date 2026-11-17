@@ -123,8 +123,7 @@ export interface AsyncResourceActions<T> {
  * `useFooStore((s: AsyncResourceStore<FooConfig>) => s.data.items)`
  * if they need the explicit annotation.
  */
-export type AsyncResourceStore<T> = AsyncResourceState<T> &
-  AsyncResourceActions<T>;
+export type AsyncResourceStore<T> = AsyncResourceState<T> & AsyncResourceActions<T>;
 
 /**
  * Configuration for an async resource store. `save` is optional; when

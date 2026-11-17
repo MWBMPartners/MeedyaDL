@@ -5,8 +5,9 @@
 //
 // When enabled in settings, this hook reads the clipboard every 2 seconds
 // and shows an actionable toast when a supported URL (Apple Music) is
-// detected. The user can click "Download" to navigate to the Download
-// page with the URL pre-filled, or dismiss the toast.
+// detected. The user can click "Download" to add it to the queue, or
+// dismiss the toast. Whether a system notification goes out too is the
+// backend's one notification rule's decision (#1431).
 //
 // Privacy-first:
 //   - Only checks clipboard text for URL patterns.
@@ -22,11 +23,7 @@ import { useSettingsStore } from '@/stores/settingsStore';
 import { useUiStore } from '@/stores/uiStore';
 import { readClipboard, startDownload } from '@/lib/tauri-commands';
 import { isAppleMusicUrl, parseAppleMusicUrl, getContentTypeLabel } from '@/lib/url-parser';
-import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from '@tauri-apps/plugin-notification';
+import { showBackendError } from '@/lib/errorMessages';
 
 /** Polling interval in milliseconds (2 seconds) */
 const POLL_INTERVAL_MS = 2000;
@@ -105,11 +102,12 @@ export function useClipboardMonitor(isReady: boolean): void {
 
           // Parse the URL to get the content type for a descriptive toast
           const parsed = parseAppleMusicUrl(trimmed);
-          const typeLabel = parsed.isValid
-            ? getContentTypeLabel(parsed.contentType)
-            : 'content';
+          const typeLabel = parsed.isValid ? getContentTypeLabel(parsed.contentType) : 'content';
 
-          const toastMessage = `Apple Music ${typeLabel} URL detected in clipboard`;
+          // The system notification (when one goes out) points the person
+          // at THIS message by its own words, so the two must agree.
+          const toastMessage = `Copied Apple Music ${typeLabel} link found`;
+          // What the notice's Download button does.
           const downloadAction = () => {
             // Directly queue the download — skip the input pre-fill step
             startDownload({ urls: [trimmed] })
@@ -130,58 +128,50 @@ export function useClipboardMonitor(isReady: boolean): void {
                 // this identical shape from the same IPC call, so this
                 // follows the same fallback: the server's own explanation
                 // first, then a plain sentence if it didn't send one.
-                useUiStore.getState().addToast(
-                  result.duplicate_warning ?? 'Already in the queue — nothing added',
-                  'info',
-                );
+                useUiStore
+                  .getState()
+                  .addToast(
+                    result.duplicate_warning ?? 'Already in the queue — nothing added',
+                    'info'
+                  );
               })
               .catch((err) => {
-                useUiStore.getState().addToast(
-                  err instanceof Error ? err.message : String(err),
-                  'error',
+                showBackendError(
+                  'MeedyaDL could not add the copied link to the queue. Paste it on the Download page instead.',
+                  err
                 );
               });
           };
 
-          // Always show the in-app toast (visible when window is focused)
-          useUiStore.getState().addToast(
-            toastMessage,
-            'info',
-            10000, // 10 seconds — longer than default to give the user time
-            CLIPBOARD_TOAST_KEY,
-            { label: 'Download', onClick: downloadAction }
-          );
-
-          // Also send a native OS notification when the window is NOT focused
-          // so the user sees the detection even when MeedyaDL is minimised.
-          const { desktop_notifications } = useSettingsStore.getState().settings;
-          if (desktop_notifications && !document.hasFocus()) {
-            isPermissionGranted()
-              .then((granted) => {
-                if (!granted) return requestPermission();
-                return 'granted';
-              })
-              .then((permission) => {
-                // This used to also send when permission was 'default',
-                // which reads as though it might mean "go ahead, that's
-                // the normal case" -- it means the opposite. 'default' is
-                // the OS's answer when the person has never been asked or
-                // never answered, i.e. permission has NOT been granted.
-                // Calling sendNotification() anyway didn't throw or show
-                // an error; the OS just silently drops a notification it
-                // was never given permission to show. So this looked
-                // fine in testing (nothing crashed) while quietly never
-                // notifying a single real user who hadn't already said
-                // yes. Only 'granted' actually means granted.
-                if (permission === 'granted') {
-                  sendNotification({
-                    title: 'MeedyaDL',
-                    body: `Apple Music ${typeLabel} URL detected — click to download`,
-                  });
-                }
-              })
-              .catch(() => { /* notification permission denied or unavailable */ });
-          }
+          // ONE prompt, by ONE path (#1431). The in-app message carries the
+          // Download button; the backend's notification rule decides
+          // whether a system notification goes out as well (kind
+          // `clipboard_link`, governed by the "copied link found" switch
+          // and the "when" setting). There used to be a second, direct
+          // system notification here that ignored the notification style
+          // and said "click to download" -- clicking it did nothing.
+          // If the person is not looking at MeedyaDL, or the system copy
+          // went out, the message must still be there with its Download
+          // button when they come back -- the system notification tells
+          // them to find it. So it stays until dismissed in those cases;
+          // otherwise it goes after 10 seconds as before.
+          const notLooking = typeof document !== 'undefined' && !document.hasFocus();
+          useUiStore
+            .getState()
+            .addToast(
+              toastMessage,
+              'info',
+              notLooking ? 0 : 10000,
+              CLIPBOARD_TOAST_KEY,
+              { label: 'Download', onClick: downloadAction },
+              undefined,
+              {
+                kind: 'clipboard_link',
+                systemTitle: 'Copied link found',
+                systemBody: `Open MeedyaDL and choose Download on the "${toastMessage}" message to add it to the queue.`,
+                keepUntilDismissedIfSent: true,
+              }
+            );
         })
         .catch(() => {
           // Silently ignore clipboard read errors (e.g., no display server)

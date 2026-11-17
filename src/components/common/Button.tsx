@@ -28,7 +28,7 @@
  *      Tailwind CSS docs -- hover, focus, active, and disabled state modifiers.
  */
 
-import type { ButtonHTMLAttributes, ReactNode } from 'react';
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react';
 
 /**
  * Visual style variants for the button.
@@ -37,7 +37,7 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react';
  * while "secondary" is outlined, "ghost" is borderless, and "danger" signals
  * destructive actions.
  */
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'warning';
 
 /**
  * Size presets controlling padding, font size, and icon-to-text gap.
@@ -46,7 +46,7 @@ type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger';
  * - md: default (most form buttons)
  * - lg: prominent (large CTAs)
  */
-type ButtonSize = 'sm' | 'md' | 'lg';
+type ButtonSize = 'xs' | 'sm' | 'md' | 'lg';
 
 /**
  * Props accepted by the {@link Button} component.
@@ -93,6 +93,21 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
    * parent container's width (useful in stacked / card layouts).
    */
   fullWidth?: boolean;
+
+  /**
+   * Fully rounded ends instead of the platform corner, for a button that
+   * floats over content (Activity's "Jump to latest"). Polish pass M17.
+   */
+  pill?: boolean;
+
+  /**
+   * The underlying <button> element. React 19 passes `ref` to function
+   * components as an ordinary prop, so it reaches the element through
+   * the `...props` spread below; it is declared here only so callers
+   * (for example MenuButton, which positions its menu under the button)
+   * can type it.
+   */
+  ref?: Ref<HTMLButtonElement>;
 }
 
 /**
@@ -125,6 +140,11 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   /** Red/error background for destructive actions; slightly fades on hover/active */
   danger:
     'bg-status-error text-content-on-status-error hover:opacity-90 active:opacity-80 border-transparent',
+  /** Amber background for an action that is allowed but risky, such as
+   *  moving to a pre-release update channel (polish pass M17: that dialog
+   *  drew its own amber button). */
+  warning:
+    'bg-status-warning text-content-on-status-warning hover:opacity-90 active:opacity-80 border-transparent',
 };
 
 /**
@@ -133,6 +153,10 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
  * (text-*), and the flexbox gap between the icon and label text (gap-*).
  */
 const SIZE_CLASSES: Record<ButtonSize, string> = {
+  /** Extra compact, for the status bar: 6px horizontal, 2px vertical,
+   *  12px font, 4px gap. Added so the status bar's Abort action could use
+   *  this component instead of a hand-made button with its own look. */
+  xs: 'px-1.5 py-0.5 text-xs gap-1',
   /** Compact: 10px horizontal, 4px vertical, 12px font, 6px gap */
   sm: 'px-2.5 py-1 text-xs gap-1.5',
   /** Default: 16px horizontal, 8px vertical, 14px font, 8px gap */
@@ -192,6 +216,7 @@ export function Button({
   icon,
   loading = false,
   fullWidth = false,
+  pill = false,
   disabled,
   children,
   className = '',
@@ -211,7 +236,7 @@ export function Button({
        * ------------------------------------------------------------------ */
       className={`
         inline-flex items-center justify-center font-medium
-        rounded-platform border transition-colors
+        ${pill ? 'rounded-full' : 'rounded-platform'} border transition-colors
         focus-visible:outline-2 focus-visible:outline-accent focus-visible:outline-offset-2
         ${VARIANT_CLASSES[variant]}
         ${SIZE_CLASSES[size]}

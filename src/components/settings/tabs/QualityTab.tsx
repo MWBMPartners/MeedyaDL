@@ -27,7 +27,7 @@
  *   - **Artist Auto-Select** -- When downloading from an artist URL,
  *     controls which content type is automatically selected (main albums,
  *     compilations, singles, etc.). Maps to `settings.artist_auto_select`.
- *     Requires GAMDL 2.9.1+.
+ *     (Every GAMDL version MeedyaDL supports, 3.0 and newer, has it.)
  *
  *   - **Maximum Video Resolution** -- The highest resolution to accept for
  *     music video downloads. This is a ceiling, not a request: the download
@@ -59,7 +59,13 @@ import { useSettingsField } from '@/hooks/useSettingsField';
 import { useGamdlCapabilities } from '@/hooks/useGamdlCapabilities';
 
 // Shared form components.
-import { Select, Toggle, FallbackChainList, CheckboxGroup, SettingsSection } from '@/components/common';
+import {
+  Select,
+  Toggle,
+  FallbackChainList,
+  CheckboxGroup,
+  SettingsSection,
+} from '@/components/common';
 
 // Label maps and type definitions for audio codecs, video resolutions, and companion modes.
 // These Record<T, string> maps are used to populate the <Select> dropdown options and reorderable lists.
@@ -83,8 +89,7 @@ const DEDUP_SCOPE_LABELS: Record<DuplicateDetectionScope, string> = {
   off: 'Off — download everything',
   intra_session: 'Within this artist URL only',
   intra_and_queued: 'This URL + already-queued items (recommended)',
-  intra_and_queued_and_history:
-    'This URL + queue + download history (scans manifest files)',
+  intra_and_queued_and_history: 'This URL + queue + download history (scans manifest files)',
 };
 
 /** Display labels for the dedup key strategy. */
@@ -167,7 +172,6 @@ export function QualityTab() {
     <div className="space-y-3">
       {/* Section: Audio */}
       <SettingsSection title="Audio Quality">
-
         {/* Default audio codec */}
         <Select
           label="Default Audio Codec"
@@ -186,7 +190,8 @@ export function QualityTab() {
                   The preferred codec for song downloads. Only <strong>AAC Legacy</strong> and{' '}
                   <strong>AAC-HE Legacy</strong> are reliably downloadable with cookie-based
                   authentication. All other codecs are marked <em>(Experimental)</em> and may fail
-                  intermittently without the Wrapper service. See Help &gt; Audio Codecs for details.
+                  intermittently without the Wrapper service. See Help &gt; Audio Codecs for
+                  details.
                 </>
               )}
               <br />
@@ -214,7 +219,7 @@ export function QualityTab() {
         {/* Companion download mode */}
         <Select
           label="Companion Downloads"
-          description="Automatically download additional format versions alongside the primary download. Specialist formats get a suffix ([Dolby Atmos], [Lossless]); the most compatible companion uses a clean filename. Select 'Custom...' to pick exact codecs."
+          description="Automatically download additional format versions alongside the primary download. Specialist formats get a suffix ([Dolby Atmos], [Lossless]); the most compatible companion uses a clean filename. Select 'Custom…' to pick exact codecs."
           options={companionModeOptions}
           value={companionMode.value}
           onChange={(e) => companionMode.set(e.target.value as CompanionMode)}
@@ -237,7 +242,7 @@ export function QualityTab() {
             sync with the multi-select array for backwards compat. */}
         <CheckboxGroup<ArtistAutoSelect>
           label="Artist Auto-Select"
-          description="When downloading from an artist URL, automatically download these content types. Select multiple to download each type separately (MeedyaDL creates one download per selected mode). Leave empty to use GAMDL's default behaviour. Requires GAMDL 2.9.1+."
+          description="When downloading from an artist URL, automatically download these content types. Select multiple to download each type separately (MeedyaDL creates one download per selected mode). Leave empty to use GAMDL's default behaviour."
           options={ARTIST_AUTO_SELECT_LABELS}
           selected={artistAutoSelectMulti.value}
           onChange={(selected) => {
@@ -250,19 +255,25 @@ export function QualityTab() {
       {/* Section: Duplicate detection (#510) */}
       <SettingsSection title="Duplicate Detection">
         <p className="text-sm text-content-secondary">
-          When an artist URL is downloaded with multiple Artist Auto-Select modes
-          (e.g. main albums + singles/EPs + compilations), the same song can
-          appear in multiple modes. Duplicate detection queries the Apple
-          Music catalog API before queueing, then skips duplicates so each
-          song is only downloaded once. This does <strong>not</strong> affect
-          companion-format downloads — the winning song still runs the full
-          ALAC/Atmos/AAC companion chain you've configured.
+          When an artist URL is downloaded with multiple Artist Auto-Select modes (e.g. main albums
+          + singles/EPs + compilations), the same song can appear in multiple modes. Duplicate
+          detection queries the Apple Music catalog API before queueing, then skips duplicates so
+          each song is only downloaded once. This does <strong>not</strong> affect companion-format
+          downloads — the winning song still runs the full ALAC/Atmos/AAC companion chain you've
+          configured.
         </p>
 
         <Select
           label="Scope"
           description="How far to look when deciding whether a track is a duplicate."
-          options={(['off', 'intra_session', 'intra_and_queued', 'intra_and_queued_and_history'] as DuplicateDetectionScope[]).map((v) => ({
+          options={(
+            [
+              'off',
+              'intra_session',
+              'intra_and_queued',
+              'intra_and_queued_and_history',
+            ] as DuplicateDetectionScope[]
+          ).map((v) => ({
             value: v,
             label: DEDUP_SCOPE_LABELS[v],
           }))}
@@ -278,7 +289,9 @@ export function QualityTab() {
         <Select
           label="Match key"
           description="Which identifier to match tracks on. Song ID is the strictest — it matches only the exact same master file. ISRC also matches remasters and re-releases of the same recording."
-          options={(['song_id_isrc_fallback', 'isrc_only', 'song_id_only'] as DedupKeyStrategy[]).map((v) => ({
+          options={(
+            ['song_id_isrc_fallback', 'isrc_only', 'song_id_only'] as DedupKeyStrategy[]
+          ).map((v) => ({
             value: v,
             label: DEDUP_KEY_LABELS[v],
           }))}
@@ -296,9 +309,9 @@ export function QualityTab() {
             Version preference
           </label>
           <p className="text-sm text-content-secondary mb-2">
-            When a song appears in multiple Artist Auto-Select modes, the
-            version from the highest-priority mode wins and the others are
-            skipped. Reorder to change which version is kept.
+            When a song appears in multiple Artist Auto-Select modes, the version from the
+            highest-priority mode wins and the others are skipped. Reorder to change which version
+            is kept.
           </p>
           <FallbackChainList<ArtistAutoSelect>
             items={dupDetect.value.preference_order}
@@ -315,7 +328,6 @@ export function QualityTab() {
 
       {/* Section: Video */}
       <SettingsSection title="Video Quality">
-
         {/* Maximum video resolution */}
         <Select
           label="Maximum Video Resolution"
@@ -343,15 +355,15 @@ export function QualityTab() {
         />
 
         {musicVideoCompanion.value && (
-          <div className="p-3 rounded-lg bg-status-warning-bg border border-status-warning">
+          <div className="p-3 rounded-platform-lg bg-status-warning-bg border border-status-warning">
             <p className="text-xs font-semibold text-status-warning-text mb-1">
               Experimental Feature
             </p>
             <p className="text-xs text-status-warning-text">
-              Music video discovery uses two sources: the Apple Music API (if MusicKit credentials are
-              configured in Settings &gt; Advanced &gt; API Credentials) and MusicBrainz ISRC lookups
-              (no credentials needed). Results may vary — not all tracks have music videos, and
-              MusicBrainz coverage depends on community contributions.
+              Music video discovery uses two sources: the Apple Music API (if MusicKit credentials
+              are configured in Settings &gt; Advanced &gt; API Credentials) and MusicBrainz ISRC
+              lookups (no credentials needed). Results may vary — not all tracks have music videos,
+              and MusicBrainz coverage depends on community contributions.
             </p>
           </div>
         )}

@@ -71,6 +71,7 @@ and do a piece of work) runs only when the maintainer has opted in. The maintain
 
 | Stage | Model | How |
 | --- | --- | --- |
+| Data collection — fetching, listing, diffing, gathering facts (release notes, source diffs, package lists, issue sweeps) | **Haiku or Sonnet** — Haiku for plain fetch-and-list, Sonnet when the gathering needs reading code to find the right facts | The collector reports facts only, never conclusions; judging what they mean is the next row's job. Added 2026-11-16 at the maintainer's request. |
 | Deep analysis, deep planning, orchestration | **Opus** | **One agent at a time, in sequence — never several in parallel**, because each planning step should see what the previous one established. |
 | Implementation | **Sonnet or Haiku**, whichever fits — Haiku for mechanical edits (renames, formatting, boilerplate), Sonnet for ordinary building | If the implementation is genuinely complex, use **Opus**. |
 | Verification / review | never below **Opus** | Matches the dev-team plugin's own rule, and the cross-system loop in section 5. |
@@ -298,7 +299,7 @@ what it looked like halfway through.
 
 **After each real body of work, before its pull request is opened**, do a thorough update of
 every document. Not being run now (2026-09-21) — the documents were fully checked on
-2026-09-11 — but it is a standing task from here on.
+2026-09-11 — but it is a standing task from here on. **Update 17 Nov 2026:** a full sweep of every document was run on 17 Nov 2026 (after the lyrics, extra-format, notification and GAMDL 4 work); the next one is due after the next real body of work.
 
 What it covers for MeedyaDL:
 

@@ -30,8 +30,9 @@
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 import { HistoryPage } from '@/components/download/HistoryPage';
+import { useUiStore } from '@/stores/uiStore';
 import { makeFixture } from '@/testing/fixtures';
-import { clearHistory, listHistory } from '@/lib/tauri-commands';
+import { clearHistory, listHistory, startDownload } from '@/lib/tauri-commands';
 import type { HistoryEntry } from '@/types';
 
 /**
@@ -75,7 +76,9 @@ describe('HistoryPage -- "Clear History" confirmation', () => {
     vi.mocked(listHistory).mockResolvedValue([makeEntry({ id: 'a' }), makeEntry({ id: 'b' })]);
 
     render(<HistoryPage />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument()
+    );
 
     fireEvent.click(screen.getByRole('button', { name: /clear history/i }));
 
@@ -88,7 +91,9 @@ describe('HistoryPage -- "Clear History" confirmation', () => {
     vi.mocked(listHistory).mockResolvedValue([makeEntry({ id: 'a' })]);
 
     render(<HistoryPage />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument()
+    );
     fireEvent.click(screen.getByRole('button', { name: /clear history/i }));
 
     // "Cannot be undone" -- the plain-English promise every other
@@ -105,7 +110,9 @@ describe('HistoryPage -- "Clear History" confirmation', () => {
     vi.mocked(listHistory).mockResolvedValue([makeEntry({ id: 'a' })]);
 
     render(<HistoryPage />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument()
+    );
     fireEvent.click(screen.getByRole('button', { name: /clear history/i }));
 
     // Confirm inside the modal -- its button carries the same visible
@@ -113,13 +120,13 @@ describe('HistoryPage -- "Clear History" confirmation', () => {
     // one inside the open dialog rather than assuming there's only one
     // match on the page.
     const dialog = screen.getByRole('dialog');
-    fireEvent.click(
-      within(dialog).getByRole('button', { name: /clear history/i })
-    );
+    fireEvent.click(within(dialog).getByRole('button', { name: /clear history/i }));
 
     await waitFor(() => expect(clearHistory).toHaveBeenCalledTimes(1));
     // Modal closes and the list empties once the clear resolves.
-    await waitFor(() => expect(screen.queryByText('Clear Download History')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByText('Clear Download History')).not.toBeInTheDocument()
+    );
     expect(screen.getByText(/no download history yet/i)).toBeInTheDocument();
   });
 
@@ -127,7 +134,9 @@ describe('HistoryPage -- "Clear History" confirmation', () => {
     vi.mocked(listHistory).mockResolvedValue([makeEntry({ id: 'a' })]);
 
     render(<HistoryPage />);
-    await waitFor(() => expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /clear history/i })).toBeInTheDocument()
+    );
     fireEvent.click(screen.getByRole('button', { name: /clear history/i }));
     expect(screen.getByText('Clear Download History')).toBeInTheDocument();
 
@@ -135,5 +144,40 @@ describe('HistoryPage -- "Clear History" confirmation', () => {
 
     expect(screen.queryByText('Clear Download History')).not.toBeInTheDocument();
     expect(clearHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe('HistoryPage -- row layout (polish pass M6)', () => {
+  it('keeps the date on one line: it never shrinks or wraps; the artist and album truncate instead', async () => {
+    vi.mocked(listHistory).mockResolvedValue([makeEntry({ id: 'a' })]);
+    render(<HistoryPage />);
+    const date = await screen.findByTestId('history-date');
+    expect(date.className).toContain('whitespace-nowrap');
+    expect(date.className).toContain('flex-shrink-0');
+  });
+});
+
+describe('HistoryPage -- retry that queues nothing (#1235)', () => {
+  it('a single retry that adds nothing says so and reloads the list from the backend, instead of "Re-queued"', async () => {
+    vi.mocked(listHistory).mockResolvedValueOnce([makeEntry({ id: 'f', status: 'failed' })]);
+    // After the retry the backend has already removed the row.
+    vi.mocked(listHistory).mockResolvedValue([]);
+    vi.mocked(startDownload).mockResolvedValueOnce({
+      download_id: '',
+      duplicate_warning: 'Already in the queue',
+    } as never);
+    render(<HistoryPage />);
+    fireEvent.click(await screen.findByRole('button', { name: /^retry download$/i }));
+    await waitFor(() => expect(startDownload).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(useUiStore.getState().toasts.some((t) => t.message === 'Already in the queue')).toBe(
+        true
+      )
+    );
+    expect(useUiStore.getState().toasts.some((t) => /Re-queued/.test(t.message))).toBe(false);
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: /^retry download$/i })).not.toBeInTheDocument()
+    );
+    expect(listHistory).toHaveBeenCalledTimes(2);
   });
 });

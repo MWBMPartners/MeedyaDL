@@ -297,7 +297,9 @@ impl ConnectivityWatcher {
     /// internet. The flags are three booleans, so there is no half-finished
     /// state to be confused by.
     fn lock(&self) -> std::sync::MutexGuard<'_, WatcherState> {
-        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -352,7 +354,9 @@ async fn run_loop(
         // connection usually returns within half a minute of it waking.
         let actual = started_waiting.elapsed().unwrap_or_default();
         if should_reset_after_gap(delay, actual) {
-            log::debug!("connection watcher: looks like the machine was asleep — checking quickly again");
+            log::debug!(
+                "connection watcher: looks like the machine was asleep — checking quickly again"
+            );
             attempt = 0;
         }
 
@@ -473,9 +477,9 @@ async fn probe(first_url: Option<&str>) -> ConnectivityOutcome {
 /// Notes a change in the situation in the activity log.
 fn announce_change(app: &AppHandle, outcome: ConnectivityOutcome, waiting: usize) {
     let message = match outcome {
-        ConnectivityOutcome::NoInternet => format!(
-            "Still no internet — {waiting} download(s) waiting. Will keep checking."
-        ),
+        ConnectivityOutcome::NoInternet => {
+            format!("Still no internet — {waiting} download(s) waiting. Will keep checking.")
+        }
         ConnectivityOutcome::ServiceUnreachable => {
             "Internet is back, but the music service is still unreachable. Will keep checking."
                 .to_string()
@@ -678,7 +682,10 @@ mod tests {
     fn only_one_watcher_runs_at_a_time() {
         let watcher = ConnectivityWatcher::new();
         assert!(watcher.try_begin(), "the first caller should run the loop");
-        assert!(!watcher.try_begin(), "a second caller must not start another loop");
+        assert!(
+            !watcher.try_begin(),
+            "a second caller must not start another loop"
+        );
     }
 
     #[test]

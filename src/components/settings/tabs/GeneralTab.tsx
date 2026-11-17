@@ -18,7 +18,9 @@
  *
  *   - **Metadata Language** -- Preferred language for track and album
  *     metadata returned by the Apple Music API. Maps to
- *     `settings.language` (ISO locale code, e.g., `"en-US"`).
+ *     `settings.language` (a BCP 47 language tag, e.g. `"en-US"`). The
+ *     entries are named in the interface language and ordered by the
+ *     shared language policy -- see `useMetadataLanguageOptions` (#1249).
  *
  *   - **Overwrite Existing Files** -- Whether to re-download and replace
  *     files that already exist in the output directory. Maps to
@@ -65,6 +67,14 @@ import { useUpdateStore } from '@/stores/updateStore';
 // UI store for toast notifications (used by settings export/import).
 import { useUiStore } from '@/stores/uiStore';
 
+// Names and order for the Metadata Language list (#1249).
+import { useMetadataLanguageOptions } from '@/hooks/useMetadataLanguageOptions';
+// Order for the Interface Language list (policy UI-040, independent
+// review round 3 of #1244).
+import { useInterfaceLanguageOptions } from '@/hooks/useInterfaceLanguageOptions';
+// Two-name labels for the Interface Language list (policy UI-011).
+import { interfaceLanguageLabel } from '@/lib/languageOptions';
+
 // IPC command wrappers for settings export/import.
 import {
   exportSettings,
@@ -73,30 +83,99 @@ import {
   peekProfileBundle,
   importProfile,
 } from '@/lib/tauri-commands';
-import type {
-  ExportProfileOptions,
-  ProfileBundleSummary,
-} from '@/lib/tauri-commands';
+import type { ExportProfileOptions, ProfileBundleSummary } from '@/lib/tauri-commands';
 
 // Shared form control components:
 // - Toggle: renders a labelled on/off switch
 // - FilePickerButton: renders a button that opens the Tauri native file dialog
 // - Select: renders a labelled <select> dropdown
 // - Button: platform-adaptive button with loading/icon support
-import { Toggle, FilePickerButton, Select, Button, SettingsSection, Modal } from '@/components/common';
+import {
+  Toggle,
+  FilePickerButton,
+  Select,
+  Button,
+  Checkbox,
+  Input,
+  InlineError,
+  SettingsSection,
+  Modal,
+} from '@/components/common';
 import ChannelSwitchWarning from '@/components/settings/ChannelSwitchWarning';
+import { NotificationSettingsSection } from './NotificationSettingsSection';
 import { PRE_RELEASE_CHANNELS, type UpdateChannel } from '@/types';
-import { LOCALES, isMachineAssisted } from '@/lib/i18n';
+import { LOCALES, baseLanguageOf, isMachineAssisted, selectedUiLanguageValue } from '@/lib/i18n';
 
 // Lucide icons for the refresh/check action button and export/import buttons.
-import { Bell, Download, RefreshCw, Upload } from 'lucide-react';
+import { Download, RefreshCw, Upload } from 'lucide-react';
 import type { AfterQueueAction } from '@/types';
+import { explainError, isCancellation, showError } from '@/lib/errorMessages';
 
 /**
  * Available language options for GAMDL's metadata language preference.
  * Each entry maps an ISO locale code (BCP 47) to a human-readable label.
  * The selected value is passed directly to GAMDL's `--language` flag.
  */
+/**
+ * Apple Music storefront regions for the Storefront list (Settings >
+ * General > Preferences). "Auto-detect" (empty) derives the region from the
+ * metadata language setting.
+ */
+const STOREFRONT_OPTIONS = [
+  { value: '', label: 'Auto-detect' },
+  // A divider between "Auto-detect" and the countries (cannot be chosen).
+  { value: '__divider', label: '──────────', disabled: true },
+  { value: 'au', label: 'Australia' },
+  { value: 'at', label: 'Austria' },
+  { value: 'be', label: 'Belgium' },
+  { value: 'br', label: 'Brazil' },
+  { value: 'ca', label: 'Canada' },
+  { value: 'cn', label: 'China' },
+  { value: 'co', label: 'Colombia' },
+  { value: 'cz', label: 'Czech Republic' },
+  { value: 'dk', label: 'Denmark' },
+  { value: 'eg', label: 'Egypt' },
+  { value: 'fi', label: 'Finland' },
+  { value: 'fr', label: 'France' },
+  { value: 'de', label: 'Germany' },
+  { value: 'gr', label: 'Greece' },
+  { value: 'hk', label: 'Hong Kong' },
+  { value: 'hu', label: 'Hungary' },
+  { value: 'in', label: 'India' },
+  { value: 'id', label: 'Indonesia' },
+  { value: 'ie', label: 'Ireland' },
+  { value: 'il', label: 'Israel' },
+  { value: 'it', label: 'Italy' },
+  { value: 'jp', label: 'Japan' },
+  { value: 'ke', label: 'Kenya' },
+  { value: 'kr', label: 'Korea, South' },
+  { value: 'my', label: 'Malaysia' },
+  { value: 'mx', label: 'Mexico' },
+  { value: 'nl', label: 'Netherlands' },
+  { value: 'nz', label: 'New Zealand' },
+  { value: 'ng', label: 'Nigeria' },
+  { value: 'no', label: 'Norway' },
+  { value: 'pk', label: 'Pakistan' },
+  { value: 'ph', label: 'Philippines' },
+  { value: 'pl', label: 'Poland' },
+  { value: 'pt', label: 'Portugal' },
+  { value: 'ro', label: 'Romania' },
+  { value: 'ru', label: 'Russia' },
+  { value: 'sa', label: 'Saudi Arabia' },
+  { value: 'sg', label: 'Singapore' },
+  { value: 'za', label: 'South Africa' },
+  { value: 'es', label: 'Spain' },
+  { value: 'se', label: 'Sweden' },
+  { value: 'ch', label: 'Switzerland' },
+  { value: 'tw', label: 'Taiwan' },
+  { value: 'th', label: 'Thailand' },
+  { value: 'tr', label: 'Turkey' },
+  { value: 'ae', label: 'United Arab Emirates' },
+  { value: 'gb', label: 'United Kingdom' },
+  { value: 'us', label: 'United States' },
+  { value: 'vn', label: 'Vietnam' },
+];
+
 /**
  * Theme mode options for the appearance selector dropdown.
  *
@@ -122,28 +201,84 @@ const THEME_OPTIONS = [
  *
  * - 'auto': Detect from OS locale (default). Internally stored as `""`
  *           in `settings.ui_language`. i18next's LanguageDetector resolves it.
- * - Every other row comes straight from `LOCALES` in `src/lib/i18n.ts`, so
- *   this dropdown can never fall out of step with the languages the app
- *   actually ships translation files for. To add a new language: create
- *   the locale JSON file and add one entry to `LOCALES` — nothing here
- *   needs to change.
+ *           Always the first row -- it is not a language, so the ordering
+ *           rule just below does not apply to it.
+ * - Every other row comes from `LOCALES` in `src/lib/i18n.ts`, in the order
+ *   `order` gives their codes -- see `useInterfaceLanguageOptions`
+ *   (src/hooks/), which the caller asks for that order with. Until the
+ *   independent review's round 3, this just followed `LOCALES`' own array
+ *   order ("English, Deutsch, Français", always, whatever language the
+ *   interface was actually showing) instead of policy UI-040's rule: the
+ *   interface language first, then everything else alphabetical by name IN
+ *   the interface language -- the same rule the Metadata Language list
+ *   already follows. To add a new language: create the locale JSON file
+ *   and add one entry to `LOCALES` — nothing here needs to change.
+ *
+ * Each row reads "name in the interface language — the language's own
+ * name", e.g. "German — Deutsch" (policy UI-011: the language's own name
+ * must not be the only label; see `interfaceLanguageLabel` in
+ * src/lib/languageOptions.ts). Until the independent review of the
+ * language-policy work (#1244) the rows showed only the language's own
+ * name, which a person who does not read it cannot recognise.
  *
  * For a language nobody has checked yet (`machineAssisted: true` in
- * `LOCALES`), the row's own name is followed by a short qualifier written
- * in that same language -- e.g. "Deutsch (automatische Übersetzung)" --
- * so a German or French reader sees the caveat before they even pick it,
- * not after. The qualifier text lives in `LOCALES.machineAssistedLabel`,
- * not here, so this file never has to carry its own copy of it.
+ * `LOCALES`), the language's own name is followed by a short qualifier
+ * written in that same language -- e.g. "German — Deutsch (automatische
+ * Übersetzung)" -- so a German or French reader sees the caveat before
+ * they even pick it, not after. The qualifier text lives in
+ * `LOCALES.machineAssistedLabel`, not here, so this file never has to
+ * carry its own copy of it.
+ *
+ * Which languages are listed (polish pass M10): only the complete ones
+ * (`complete` on `LOCALES`), plus a language that is not complete but is
+ * somebody's choice -- the one saved when the page opened, or the one
+ * picked now -- so nothing is taken away without a word. Such a row is
+ * marked with the language's own "incomplete translation" note, before
+ * the machine-made note when both apply, e.g. "German — Deutsch
+ * (unvollständige Übersetzung, automatische Übersetzung)". `chosen` holds
+ * those `ui_language` values (empty means "Auto").
+ *
+ * The list rule matches `uiLanguageOptions()` in src/lib/i18n.ts, which
+ * the polish pass added; this screen keeps its own version because its
+ * rows also follow the BCP 47 policy's naming and ordering above.
+ *
+ * Built per render because the first name depends on the language the
+ * interface is showing right now.
  */
-const UI_LANGUAGE_OPTIONS = [
-  { value: 'auto', label: 'Auto (System)' },
-  ...LOCALES.map((locale) => ({
-    value: locale.code,
-    label: locale.machineAssisted
-      ? `${locale.nativeName} (${locale.machineAssistedLabel})`
-      : locale.nativeName,
-  })),
-];
+function uiLanguageOptions(
+  interfaceLanguage: string,
+  order: readonly string[],
+  autoLabel: string,
+  chosen: readonly string[]
+) {
+  const chosenBases = new Set(chosen.filter(Boolean).map((c) => baseLanguageOf(c)));
+  return [
+    { value: 'auto', label: autoLabel },
+    ...order.flatMap((code) => {
+      const locale = LOCALES.find((l) => l.code === code);
+      // Every code `order` can contain comes from `AVAILABLE_LOCALES`,
+      // which is `LOCALES.map(l => l.code)` -- so this is always found.
+      // The fallback below only exists so a malformed order can never
+      // crash the Settings screen.
+      if (!locale) return [{ value: code, label: code }];
+      if (!locale.complete && !chosenBases.has(locale.code)) return [];
+      const notes: string[] = [];
+      if (!locale.complete) notes.push(locale.incompleteLabel);
+      if (locale.machineAssisted) notes.push(locale.machineAssistedLabel);
+      return [
+        {
+          value: locale.code,
+          label: interfaceLanguageLabel(
+            locale.code,
+            locale.nativeName,
+            interfaceLanguage,
+            notes.join(', ')
+          ),
+        },
+      ];
+    }),
+  ];
+}
 
 /**
  * Update check interval options. Value is in hours.
@@ -190,24 +325,6 @@ const UPDATE_CHANNEL_OPTIONS_PUBLIC = UPDATE_CHANNEL_OPTIONS_FULL.filter(
 );
 
 /**
- * Notification auto-dismiss duration options (seconds).
- */
-const NOTIFICATION_STYLE_OPTIONS = [
-  { value: 'in_app_only', label: 'In-app only' },
-  { value: 'native_and_in_app', label: 'Native + in-app (default)' },
-  { value: 'native_only', label: 'Native only' },
-];
-
-const NOTIFICATION_DISMISS_OPTIONS = [
-  { value: '3', label: '3 seconds' },
-  { value: '5', label: '5 seconds (default)' },
-  { value: '10', label: '10 seconds' },
-  { value: '15', label: '15 seconds' },
-  { value: '30', label: '30 seconds' },
-  { value: '60', label: '60 seconds' },
-];
-
-/**
  * After-queue action options.
  * "once" variants are handled via the context menu on the Download page;
  * the Settings dropdown controls the persistent "always" action.
@@ -215,7 +332,7 @@ const NOTIFICATION_DISMISS_OPTIONS = [
 const AFTER_QUEUE_OPTIONS = [
   { value: 'do_nothing', label: 'Do nothing' },
   { value: 'open_output_folder', label: 'Open output folder' },
-  { value: 'play_sound', label: 'Play notification sound' },
+  { value: 'play_sound', label: 'Play a sound' },
   { value: 'close_meedyadl', label: 'Close MeedyaDL' },
   { value: 'restart_computer', label: 'Restart computer' },
   { value: 'hibernate_computer', label: 'Hibernate / Sleep' },
@@ -244,20 +361,15 @@ const COLOUR_VISION_OPTIONS = [
   { value: 'tritanopia', label: 'Tritanopia (Blue-Yellow)' },
 ];
 
-const LANGUAGE_OPTIONS = [
-  { value: 'en-US', label: 'English (US)' },
-  { value: 'en-GB', label: 'English (UK)' },
-  { value: 'ja-JP', label: 'Japanese' },
-  { value: 'ko-KR', label: 'Korean' },
-  { value: 'zh-CN', label: 'Chinese (Simplified)' },
-  { value: 'zh-TW', label: 'Chinese (Traditional)' },
-  { value: 'de-DE', label: 'German' },
-  { value: 'fr-FR', label: 'French' },
-  { value: 'es-ES', label: 'Spanish' },
-  { value: 'pt-BR', label: 'Portuguese (Brazil)' },
-  { value: 'it-IT', label: 'Italian' },
-  { value: 'ru-RU', label: 'Russian' },
-];
+// The Metadata Language list used to be a hand-typed LANGUAGE_OPTIONS
+// array here: English-only names in no particular order, with `zh-CN` /
+// `zh-TW` labelled "Simplified" / "Traditional" (a country standing in for
+// a writing system). It was replaced under #1249 by
+// `useMetadataLanguageOptions` (src/hooks/), which names each entry in the
+// interface language from the platform's own data and orders the list by
+// the shared language policy. The offered tags now live in
+// `METADATA_LANGUAGE_TAGS` (src/lib/languageOptions.ts). Do not bring a
+// hand-typed list of names back: policy UI-010 forbids it.
 
 /**
  * GeneralTab -- Renders the General settings tab.
@@ -303,16 +415,34 @@ export function GeneralTab() {
   const highContrast = useSettingsField('high_contrast');
   const colourBlindMode = useSettingsField('colour_blind_mode');
   const uiLanguage = useSettingsField('ui_language');
+  // The language saved when the page opened: kept in the list (marked
+  // incomplete) even if the person picks something else before saving.
+  const [uiLanguageAtOpen] = useState(() => uiLanguage.value ?? '');
   const language = useSettingsField('language');
+  // Named in the language the interface is showing right now, and ordered
+  // with the person's own languages first (#1249). `selectedValue` is the
+  // row that shows the saved language: a saved `EN-us` is shown on the one
+  // `en-US` row (handing the dropdown `EN-us` matched no row, so it showed
+  // its first row instead). Display only; the saved value is untouched.
+  const metadataLanguage = useMetadataLanguageOptions(language.value, i18n.language);
+  // The Interface Language list's own order (policy UI-040, independent
+  // review round 3 of #1244) -- the interface language first, then
+  // everything else alphabetical by name in the interface language.
+  const interfaceLanguageOrder = useInterfaceLanguageOptions(i18n.language);
+  // The rows of the Interface Language list. A saved regional form such as
+  // `de-AT` is shown on the German row (#1267); the saved value is untouched.
+  const interfaceLanguageRows = uiLanguageOptions(
+    i18n.language,
+    interfaceLanguageOrder,
+    t('settings.general.languageAuto'),
+    [uiLanguageAtOpen, uiLanguage.value ?? '']
+  );
   const storefront = useSettingsField('storefront');
   const storefrontFallback = useSettingsField('storefront_fallback_on_failure');
   const overwrite = useSettingsField('overwrite');
   const autoStartQueue = useSettingsField('auto_start_queue');
   const abortQueueConfirm = useSettingsField('abort_queue_confirm');
   const afterQueueAction = useSettingsField('after_queue_action');
-  const desktopNotifications = useSettingsField('desktop_notifications');
-  const notificationStyle = useSettingsField('notification_style');
-  const notificationDismissSeconds = useSettingsField('notification_auto_dismiss_seconds');
   const smartRedownload = useSettingsField('smart_redownload_detection');
   const clipboardMonitoring = useSettingsField('clipboard_monitoring');
   const autoCheckUpdates = useSettingsField('auto_check_updates');
@@ -348,8 +478,7 @@ export function GeneralTab() {
    * import; non-null = show the confirmation modal with the
    * section checklist.
    */
-  const [pendingImport, setPendingImport] =
-    useState<ProfileBundleSummary | null>(null);
+  const [pendingImport, setPendingImport] = useState<ProfileBundleSummary | null>(null);
   /**
    * Per-section opt-in for the import confirmation modal. Settings
    * is always 'replace' (we never merge JSON blindly); each
@@ -446,10 +575,12 @@ export function GeneralTab() {
       await exportSettings();
       addToast('Settings exported successfully', 'success');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      // Don't show a toast for user cancellation
-      if (!message.includes('cancelled')) {
-        addToast(`Failed to export settings: ${message}`, 'error');
+      // No message when the person closed the file picker.
+      if (!isCancellation(err)) {
+        showError(
+          'MeedyaDL could not save your settings to a file. Choose a folder you can save to, then try again.',
+          err
+        );
       }
     } finally {
       setIsExporting(false);
@@ -484,9 +615,11 @@ export function GeneralTab() {
       setImportPicks(picks);
       setPendingImport(summary);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!message.toLowerCase().includes('cancel')) {
-        addToast(`Failed to open bundle: ${message}`, 'error');
+      if (!isCancellation(err)) {
+        showError(
+          'MeedyaDL could not open that file. Check that it was saved by MeedyaDL and is complete, then try again.',
+          err
+        );
       }
     }
   };
@@ -503,12 +636,11 @@ export function GeneralTab() {
     // password before launching the IPC. Empty/short passwords are
     // rejected client-side.
     const wantsCredentials =
-      pendingImport.sections.includes('credentials') &&
-      Boolean(importPicks.credentials);
+      pendingImport.sections.includes('credentials') && Boolean(importPicks.credentials);
     if (wantsCredentials && importPassword.length === 0) {
       addToast(
-        'Enter the password the bundle was exported with to restore credentials.',
-        'error',
+        'Enter the password that was set when this file was saved, so MeedyaDL can restore the sign-ins in it.',
+        'error'
       );
       return;
     }
@@ -535,23 +667,24 @@ export function GeneralTab() {
       if (result.database_restored) restored.push('database');
       if (result.activity_log_files_restored > 0)
         restored.push(`${result.activity_log_files_restored} activity-log file(s)`);
-      if (result.manifests_restored > 0)
-        restored.push(`${result.manifests_restored} manifest(s)`);
+      if (result.manifests_restored > 0) restored.push(`${result.manifests_restored} manifest(s)`);
       addToast(
-        `Profile imported — restored: ${restored.join(', ') || 'nothing'}. Restart MeedyaDL to fully apply.`,
-        'success',
+        `Full copy imported — restored: ${restored.join(', ') || 'nothing'}. Restart MeedyaDL to finish applying it.`,
+        'success'
       );
       if (result.credentials_skipped_p4) {
         addToast(
-          'Bundle contained credentials but encryption support is not yet released (P4). Re-import cookies / re-enter MusicKit credentials manually on this install.',
-          'info',
+          'That file has sign-ins in it, but this version of MeedyaDL cannot restore them yet. Sign in again in Settings > Cookies, and enter your MusicKit details again in Settings > Advanced > API Credentials.',
+          'info'
         );
       }
       setPendingImport(null);
       setImportPassword('');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      addToast(`Failed to import profile: ${message}`, 'error');
+      showError(
+        'MeedyaDL could not bring in that file. Check the password and that the file is complete, then try again.',
+        err
+      );
     } finally {
       setIsImportingBundle(false);
     }
@@ -568,8 +701,8 @@ export function GeneralTab() {
     // the user a clearer message.
     if (bundleOptions.include_credentials && credentialsPassword.length < 6) {
       addToast(
-        'Please set a credentials password of at least 6 characters before exporting.',
-        'error',
+        'Set a password of at least 6 characters to protect the sign-ins, then save the file again.',
+        'error'
       );
       return;
     }
@@ -577,21 +710,21 @@ export function GeneralTab() {
     try {
       const result = await exportProfile({
         ...bundleOptions,
-        credentials_password: bundleOptions.include_credentials
-          ? credentialsPassword
-          : null,
+        credentials_password: bundleOptions.include_credentials ? credentialsPassword : null,
       });
       addToast(
-        `Profile exported — ${result.sections.length === 0 ? 'settings only' : result.sections.join(', ')} (${formatBytes(result.size_bytes)})`,
-        'success',
+        `Full copy saved — ${result.sections.length === 0 ? 'settings only' : result.sections.join(', ')} (${formatBytes(result.size_bytes)})`,
+        'success'
       );
       // Clear the password from component state immediately on
       // success so it can't sit in DevTools / state inspector.
       setCredentialsPassword('');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      if (!message.toLowerCase().includes('cancel')) {
-        addToast(`Failed to export profile: ${message}`, 'error');
+      if (!isCancellation(err)) {
+        showError(
+          'MeedyaDL could not save that file. Choose a folder you can save to, then try again.',
+          err
+        );
       }
     } finally {
       setIsExportingBundle(false);
@@ -610,10 +743,12 @@ export function GeneralTab() {
       await loadSettings();
       addToast('Settings imported successfully', 'success');
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      // Don't show a toast for user cancellation
-      if (!message.includes('cancelled')) {
-        addToast(`Failed to import settings: ${message}`, 'error');
+      // No message when the person closed the file picker.
+      if (!isCancellation(err)) {
+        showError(
+          'MeedyaDL could not bring in those settings. Check that the file was saved by MeedyaDL, then try again.',
+          err
+        );
       }
     } finally {
       setIsImporting(false);
@@ -637,7 +772,6 @@ export function GeneralTab() {
 
       {/* Section: Appearance */}
       <SettingsSection title="Appearance">
-
         {/*
          * Theme mode selector -- controls dark/light/auto appearance.
          * The 'auto' option maps to null in theme_override (follow OS).
@@ -649,9 +783,7 @@ export function GeneralTab() {
           description="Choose between light and dark mode, or follow your OS setting"
           options={THEME_OPTIONS}
           value={themeOverride.value || 'auto'}
-          onChange={(e) =>
-            themeOverride.set(e.target.value === 'auto' ? null : e.target.value)
-          }
+          onChange={(e) => themeOverride.set(e.target.value === 'auto' ? null : e.target.value)}
         />
 
         {/*
@@ -681,17 +813,15 @@ export function GeneralTab() {
           description="Adjust status colours for colour vision deficiency. Remaps success, error, warning, and info colours to a palette distinguishable for the selected condition."
           options={COLOUR_VISION_OPTIONS}
           value={colourBlindMode.value || 'none'}
-          onChange={(e) =>
-            colourBlindMode.set(e.target.value === 'none' ? '' : e.target.value)
-          }
+          onChange={(e) => colourBlindMode.set(e.target.value === 'none' ? '' : e.target.value)}
         />
 
         <div className="space-y-1.5">
           <Select
             label="Language"
             description="The language MeedyaDL is shown in. Changes straight away."
-            options={UI_LANGUAGE_OPTIONS}
-            value={uiLanguage.value || 'auto'}
+            options={interfaceLanguageRows}
+            value={selectedUiLanguageValue(uiLanguage.value, interfaceLanguageRows)}
             onChange={(e) => {
               const val = e.target.value;
               uiLanguage.set(val === 'auto' ? '' : val);
@@ -719,83 +849,27 @@ export function GeneralTab() {
 
       {/* Section: Preferences */}
       <SettingsSection title="Preferences">
-
         {/* Metadata language */}
         <Select
           label="Metadata Language"
           description="Language preference for track and album metadata"
-          options={LANGUAGE_OPTIONS}
-          value={language.value}
+          options={metadataLanguage.options}
+          value={metadataLanguage.selectedValue}
           onChange={(e) => language.set(e.target.value)}
         />
 
         {/* Apple Music storefront region */}
-        <div>
-          <label htmlFor={storefrontId} className="block text-sm font-medium text-content-primary mb-1">
-            Storefront
-          </label>
-          <select
-            id={storefrontId}
-            className="w-full rounded-platform border border-border-light bg-surface-elevated px-3 py-2 text-sm text-content-primary"
-            value={storefront.value}
-            onChange={(e) => storefront.set(e.target.value)}
-          >
-            <option value="">Auto-detect</option>
-            <option disabled>──────────</option>
-            <option value="au">Australia</option>
-            <option value="at">Austria</option>
-            <option value="be">Belgium</option>
-            <option value="br">Brazil</option>
-            <option value="ca">Canada</option>
-            <option value="cn">China</option>
-            <option value="co">Colombia</option>
-            <option value="cz">Czech Republic</option>
-            <option value="dk">Denmark</option>
-            <option value="eg">Egypt</option>
-            <option value="fi">Finland</option>
-            <option value="fr">France</option>
-            <option value="de">Germany</option>
-            <option value="gr">Greece</option>
-            <option value="hk">Hong Kong</option>
-            <option value="hu">Hungary</option>
-            <option value="in">India</option>
-            <option value="id">Indonesia</option>
-            <option value="ie">Ireland</option>
-            <option value="il">Israel</option>
-            <option value="it">Italy</option>
-            <option value="jp">Japan</option>
-            <option value="ke">Kenya</option>
-            <option value="kr">Korea, South</option>
-            <option value="my">Malaysia</option>
-            <option value="mx">Mexico</option>
-            <option value="nl">Netherlands</option>
-            <option value="nz">New Zealand</option>
-            <option value="ng">Nigeria</option>
-            <option value="no">Norway</option>
-            <option value="pk">Pakistan</option>
-            <option value="ph">Philippines</option>
-            <option value="pl">Poland</option>
-            <option value="pt">Portugal</option>
-            <option value="ro">Romania</option>
-            <option value="ru">Russia</option>
-            <option value="sa">Saudi Arabia</option>
-            <option value="sg">Singapore</option>
-            <option value="za">South Africa</option>
-            <option value="es">Spain</option>
-            <option value="se">Sweden</option>
-            <option value="ch">Switzerland</option>
-            <option value="tw">Taiwan</option>
-            <option value="th">Thailand</option>
-            <option value="tr">Turkey</option>
-            <option value="ae">United Arab Emirates</option>
-            <option value="gb">United Kingdom</option>
-            <option value="us">United States</option>
-            <option value="vn">Vietnam</option>
-          </select>
-          <p className="text-xs text-content-tertiary mt-1">
-            Apple Music storefront region. Leave as &quot;Auto-detect&quot; to derive from metadata language setting.
-          </p>
-        </div>
+        {/* The shared Select (polish pass M17); it was a hand-made
+            <select>. The list is STOREFRONT_OPTIONS at the top of this
+            file. */}
+        <Select
+          id={storefrontId}
+          label="Storefront"
+          options={STOREFRONT_OPTIONS}
+          value={storefront.value}
+          onChange={(e) => storefront.set(e.target.value)}
+          description="Your Apple Music country. Used for the retry when a link from another country fails (see the switch below). Leave as “Auto-detect” to use your computer’s region."
+        />
 
         {/* Storefront fallback on failure (#666) */}
         <Toggle
@@ -848,111 +922,8 @@ export function GeneralTab() {
           onChange={(e) => afterQueueAction.set(e.target.value as AfterQueueAction)}
         />
 
-        {/* Desktop notifications */}
-        <Toggle
-          label="Desktop Notifications"
-          description="Show native OS notifications when downloads complete or fail. Notifications are only shown when the app window is not focused."
-          checked={desktopNotifications.value}
-          onChange={desktopNotifications.set}
-        />
-
-        {/* Notification style — controls how notifications are delivered */}
-        {desktopNotifications.value && (
-          <Select
-            label="Notification Style"
-            description="How notifications are delivered. 'In-app only' shows toasts inside the app. 'Native + in-app' shows both OS notifications and in-app toasts. 'Native only' uses OS notifications exclusively."
-            options={NOTIFICATION_STYLE_OPTIONS}
-            value={notificationStyle.value ?? 'native_and_in_app'}
-            onChange={(e) =>
-              notificationStyle.set(e.target.value as 'in_app_only' | 'native_and_in_app' | 'native_only')
-            }
-          />
-        )}
-
-        {/* Test Notification button (#658).
-            Fires a real native notification so the user can verify that the
-            OS-level permission has been granted and the plugin pipeline works.
-            On macOS this also forces the system permission prompt the first
-            time it is invoked if the user dismissed the startup prompt. */}
-        {desktopNotifications.value &&
-          (notificationStyle.value ?? 'native_and_in_app') !== 'in_app_only' && (
-            <div className="flex flex-col gap-1">
-              <Button
-                variant="secondary"
-                icon={<Bell size={14} />}
-                onClick={async () => {
-                  // Two-stage test (#834):
-                  //
-                  // 1. Ensure the JS plugin has the OS permission granted.
-                  //    If not, prompt for it. macOS only fires its system
-                  //    prompt the first time `requestPermission()` is called
-                  //    per bundle ID, so this is also the safety net for
-                  //    users who dismissed (rather than granted) the
-                  //    startup preflight.
-                  //
-                  // 2. Send the test notification through the **Rust**
-                  //    pipeline via `testDesktopNotification()` IPC. This
-                  //    is the same code path production downloads use, so
-                  //    a successful test means production will work; a
-                  //    failure surfaces the actual OS-level error string
-                  //    (e.g. "permission denied", "Focus mode active")
-                  //    instead of silently appearing to succeed.
-                  //
-                  // Pre-#834 this button called `sendNotification()`
-                  // directly, which:
-                  //   - tested a different code path than production, and
-                  //   - returned success even when macOS dropped the
-                  //     notification, leaving users with no diagnostic.
-                  try {
-                    const { isPermissionGranted, requestPermission } =
-                      await import('@tauri-apps/plugin-notification');
-                    let granted = await isPermissionGranted();
-                    if (!granted) {
-                      const result = await requestPermission();
-                      granted = result === 'granted';
-                    }
-                    if (!granted) {
-                      addToast(
-                        'Notification permission was not granted. Open System Settings > Notifications > MeedyaDL to enable, then try again.',
-                        'warning',
-                      );
-                      return;
-                    }
-                    const { testDesktopNotification } = await import('@/lib/tauri-commands');
-                    await testDesktopNotification();
-                    addToast(
-                      'Test notification sent via the production pipeline. If you do not see it on your desktop, check OS notification settings — likely causes: Focus / DND mode, app bundle missing from System Settings → Notifications.',
-                      'info',
-                    );
-                  } catch (err) {
-                    // The backend returns a structured error string with
-                    // the actual OS-level failure reason — surface it
-                    // verbatim so the user knows what to fix.
-                    addToast(
-                      `Test notification failed: ${err instanceof Error ? err.message : String(err)}`,
-                      'error',
-                    );
-                  }
-                }}
-              >
-                Send Test Notification
-              </Button>
-              <p className="text-xs text-content-tertiary">
-                Sends a one-off native notification so you can verify the OS pipeline.
-              </p>
-            </div>
-          )}
-
-        {/* Notification auto-dismiss duration — only visible when notifications are enabled */}
-        {desktopNotifications.value && (
-          <Select
-            label="Notification Auto-Dismiss"
-            description="How long transient notifications (download complete, added to queue) stay visible before auto-dismissing. Error and warning notifications always require manual dismissal."
-            options={NOTIFICATION_DISMISS_OPTIONS}
-            value={String(notificationDismissSeconds.value ?? 5)}
-            onChange={(e) => notificationDismissSeconds.set(Number(e.target.value))}
-          />
-        )}
+        {/* The notification controls moved to their own section below,
+            "Notifications" (NotificationSettingsSection, #1431). */}
 
         {/* Smart re-download detection */}
         <Toggle
@@ -1033,25 +1004,40 @@ export function GeneralTab() {
               loading={isChecking}
               onClick={handleCheckForUpdates}
             >
-              {isChecking ? 'Checking...' : 'Check for Updates'}
+              {isChecking ? 'Checking…' : 'Check for Updates'}
             </Button>
             {/* Fix 13 (a11y audit): plain text after a button press,
                 with nothing announcing it -- a screen reader user
                 clicking "Check for Updates" heard nothing at all once
                 it finished. */}
             {checkMessage && !isChecking && (
-              <span role="status" className="text-xs text-content-secondary">{checkMessage}</span>
+              <span role="status" className="text-xs text-content-secondary">
+                {checkMessage}
+              </span>
             )}
           </div>
-          {checkError && !isChecking && <p role="alert" className="text-xs text-status-error-text">{checkError}</p>}
+          {checkError && !isChecking && (
+            <InlineError
+              {...explainError(
+                'MeedyaDL could not check for updates. Check your internet connection, then try again.',
+                checkError
+              )}
+            />
+          )}
         </div>
       </SettingsSection>
 
       {/* Section: Backup */}
-      <SettingsSection title="Backup">
+      {/* Polish pass L13: three backup features had near-identical names
+          ("Backup" and "Profile Bundle" here, "Backups" in Tools). Each name
+          now says what it holds: Settings File (settings only), Full Copy of
+          MeedyaDL (everything you tick), and Automatic Snapshots (Tools). */}
+      <NotificationSettingsSection />
+
+      <SettingsSection title="Settings File">
         <p className="text-xs text-content-secondary mb-2">
-          Export your settings to a file for backup or transfer to another device.
-          Sensitive fields (cookies, credentials) are excluded from the export.
+          Save just your settings to a file, or load them from one: to keep a copy, or to set up
+          another computer the same way. Cookies and other sign-in details are left out.
         </p>
         <div className="flex items-center gap-3">
           <Button
@@ -1061,7 +1047,7 @@ export function GeneralTab() {
             loading={isExporting}
             onClick={handleExportSettings}
           >
-            {isExporting ? 'Exporting...' : 'Export Settings'}
+            {isExporting ? 'Exporting…' : 'Export Settings'}
           </Button>
           <Button
             variant="secondary"
@@ -1070,15 +1056,18 @@ export function GeneralTab() {
             loading={isImporting}
             onClick={handleImportSettings}
           >
-            {isImporting ? 'Importing...' : 'Import Settings'}
+            {isImporting ? 'Importing…' : 'Import Settings'}
           </Button>
         </div>
       </SettingsSection>
 
       {/* Section: Profile Bundle (#876 P2) */}
-      <SettingsSection title="Profile Bundle">
+      <SettingsSection title="Full Copy of MeedyaDL">
         <p className="text-xs text-content-secondary mb-2">
-          Export a complete portable snapshot of this install — settings plus any of the optional sections below — into a single <code>.meedyabundle</code> file. Use it to migrate to a new device or to back up before a major change. The receiving install can restore it with the Import Profile button below, or from the first-launch wizard.
+          Everything this copy of MeedyaDL holds — your settings, plus whichever parts you tick
+          below — in one <code>.meedyabundle</code> file. Use it to move to a new computer, or keep
+          one before a big change. To put it back, use Import Full Copy below, or open MeedyaDL for
+          the first time on the new computer.
         </p>
         {/* Fix 10 (a11y audit): fieldset/legend say these checkboxes
             are one group ("which sections to include"), not a list of
@@ -1087,50 +1076,35 @@ export function GeneralTab() {
         <fieldset className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs mb-3 border-0 m-0 p-0">
           <legend className="sr-only">Sections to include in the exported bundle</legend>
           {[
-            { key: 'include_queue', label: 'Queue (queue.json)' },
-            { key: 'include_history', label: 'History (history.json)' },
-            { key: 'include_database', label: 'SQLite index (meedyadl.db)' },
-            { key: 'include_activity_log', label: 'Activity log JSONL files' },
-            { key: 'include_manifests', label: 'manifest.meedyadl files (can be large)' },
+            { key: 'include_queue', label: 'Download queue' },
+            { key: 'include_history', label: 'Download history' },
+            { key: 'include_database', label: 'Library index (speeds up searching)' },
+            { key: 'include_activity_log', label: 'Saved activity log' },
+            { key: 'include_manifests', label: 'Album records (can be large)' },
             {
               key: 'include_credentials',
-              label: 'Credentials (encrypted, requires a password)',
+              label: 'Sign-in details (protected by a password)',
             },
           ].map(({ key, label }) => (
-            <label
+            <Checkbox
               key={key}
-              className="flex items-center gap-2 cursor-pointer"
-            >
-              <input
-                type="checkbox"
-                checked={Boolean(
-                  bundleOptions[key as keyof ExportProfileOptions],
-                )}
-                onChange={(e) =>
-                  setBundleOptions((prev) => ({
-                    ...prev,
-                    [key]: e.target.checked,
-                  }))
-                }
-              />
-              <span>{label}</span>
-            </label>
+              label={label}
+              checked={Boolean(bundleOptions[key as keyof ExportProfileOptions])}
+              onChange={(on) => setBundleOptions((prev) => ({ ...prev, [key]: on }))}
+            />
           ))}
         </fieldset>
         {bundleOptions.include_credentials && (
-          <div className="mb-3 p-2 border border-border rounded bg-surface-secondary/40">
-            <label htmlFor={exportCredentialsPasswordId} className="text-xs font-medium">Credentials password</label>
-            <input
+          <div className="mb-3 p-2 border border-border rounded-platform-sm bg-surface-secondary/40">
+            <Input
               id={exportCredentialsPasswordId}
+              label="Credentials password"
               type="password"
               value={credentialsPassword}
               onChange={(e) => setCredentialsPassword(e.target.value)}
               placeholder="At least 6 characters"
-              className="w-full mt-1 px-2 py-1 text-sm rounded border border-border bg-surface-primary"
+              description="The password protects cookies + MusicKit private key + web-player token at rest using AES-256-GCM with PBKDF2 (600k iterations). MeedyaDL never stores the password — keep it safe. If you forget it, credentials in the bundle become unrecoverable; the rest of the bundle imports cleanly."
             />
-            <p className="text-xs text-content-tertiary mt-1">
-              The password protects cookies + MusicKit private key + web-player token at rest using AES-256-GCM with PBKDF2 (600k iterations). MeedyaDL never stores the password — keep it safe. If you forget it, credentials in the bundle become unrecoverable; the rest of the bundle imports cleanly.
-            </p>
           </div>
         )}
         <div className="flex items-center gap-3">
@@ -1141,7 +1115,7 @@ export function GeneralTab() {
             loading={isExportingBundle}
             onClick={handleExportProfile}
           >
-            {isExportingBundle ? 'Exporting...' : 'Export Profile'}
+            {isExportingBundle ? 'Exporting…' : 'Export Full Copy'}
           </Button>
           <Button
             variant="secondary"
@@ -1150,7 +1124,7 @@ export function GeneralTab() {
             loading={isImportingBundle}
             onClick={handlePickImport}
           >
-            {isImportingBundle ? 'Importing...' : 'Import Profile'}
+            {isImportingBundle ? 'Importing…' : 'Import Full Copy'}
           </Button>
         </div>
       </SettingsSection>
@@ -1179,7 +1153,7 @@ export function GeneralTab() {
         <Modal
           open={true}
           onClose={() => setPendingImport(null)}
-          title="Restore from .meedyabundle"
+          title="Restore a Full Copy"
           maxWidth="max-w-xl"
         >
           <div className="space-y-3 text-sm">
@@ -1192,9 +1166,7 @@ export function GeneralTab() {
                 <span className="font-medium">Exported by</span>{' '}
                 <span className="font-mono">{pendingImport.producer}</span>{' '}
                 {pendingImport.producer_version}{' '}
-                <span className="text-content-tertiary">
-                  ({pendingImport.producer_platform})
-                </span>{' '}
+                <span className="text-content-tertiary">({pendingImport.producer_platform})</span>{' '}
                 on{' '}
                 <span className="font-mono">
                   {pendingImport.exported_at.slice(0, 19).replace('T', ' ')} UTC
@@ -1206,27 +1178,27 @@ export function GeneralTab() {
                 </div>
               )}
               {!pendingImport.produced_by_this_app && (
-                <div className="mt-2 p-2 rounded border border-status-warning/30 bg-status-warning/5 text-status-warning-text">
+                <div className="mt-2 p-2 rounded-platform-sm border border-status-warning/30 bg-status-warning/5 text-status-warning-text">
                   {/* Fix 7 (a11y audit): the warning triangle is
                       decorative -- the sentence itself already says
                       "not MeedyaDL", so a screen reader doesn't need
                       the symbol read out loud first. */}
-                  <span aria-hidden="true">⚠</span> This bundle was produced by{' '}
-                  <span className="font-mono">{pendingImport.producer}</span>,
-                  not MeedyaDL. The <code>.meedyabundle</code> extension is
-                  shared across MeedyaSuite apps — sections from another
-                  app may be unrecognised and silently skipped on import.
+                  <span aria-hidden="true">⚠</span> This file was made by{' '}
+                  <span className="font-mono">{pendingImport.producer}</span>, not MeedyaDL. The{' '}
+                  <code>.meedyabundle</code> extension is shared across MeedyaSuite apps — sections
+                  from another app may be unrecognised and silently skipped on import.
                 </div>
               )}
             </div>
 
             <div className="border-t border-border pt-2 space-y-2">
               <p className="text-xs text-content-secondary">
-                Settings are always restored. Tick each additional section you'd like to overwrite on this install:
+                Settings are always restored. Tick each additional section you'd like to overwrite
+                on this install:
               </p>
               {pendingImport.sections.length === 0 ? (
                 <p className="text-xs text-content-tertiary italic">
-                  This bundle contains settings only — no optional sections to choose from.
+                  This copy holds settings only — there is nothing else to choose.
                 </p>
               ) : (
                 // Fix 10 (a11y audit): same fieldset/legend fix as the
@@ -1234,51 +1206,35 @@ export function GeneralTab() {
                 <fieldset className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs border-0 m-0 p-0">
                   <legend className="sr-only">Sections to overwrite on import</legend>
                   {pendingImport.sections.map((section) => (
-                    <label
+                    <Checkbox
                       key={section}
-                      className="flex items-center gap-2 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={Boolean(importPicks[section])}
-                        onChange={(e) =>
-                          setImportPicks((prev) => ({
-                            ...prev,
-                            [section]: e.target.checked,
-                          }))
-                        }
-                      />
-                      <span className="capitalize">
-                        {section.replace(/_/g, ' ')}
-                      </span>
-                    </label>
+                      label={<span className="capitalize">{section.replace(/_/g, ' ')}</span>}
+                      checked={Boolean(importPicks[section])}
+                      onChange={(on) => setImportPicks((prev) => ({ ...prev, [section]: on }))}
+                    />
                   ))}
                 </fieldset>
               )}
             </div>
 
-            {pendingImport.sections.includes('credentials') &&
-              importPicks.credentials && (
-                <div className="p-2 border border-border rounded bg-surface-secondary/40">
-                  <label htmlFor={importCredentialsPasswordId} className="text-xs font-medium">
-                    Credentials password
-                  </label>
-                  <input
-                    id={importCredentialsPasswordId}
-                    type="password"
-                    value={importPassword}
-                    onChange={(e) => setImportPassword(e.target.value)}
-                    placeholder="The password used when this bundle was exported"
-                    className="w-full mt-1 px-2 py-1 text-sm rounded border border-border bg-surface-primary"
-                  />
-                  <p className="text-xs text-content-tertiary mt-1">
-                    Required to decrypt cookies + MusicKit private key + web-player token. Wrong password aborts only the credentials section — the rest of the bundle still restores.
-                  </p>
-                </div>
-              )}
+            {pendingImport.sections.includes('credentials') && importPicks.credentials && (
+              <div className="p-2 border border-border rounded-platform-sm bg-surface-secondary/40">
+                <Input
+                  id={importCredentialsPasswordId}
+                  label="Credentials password"
+                  type="password"
+                  value={importPassword}
+                  onChange={(e) => setImportPassword(e.target.value)}
+                  placeholder="The password chosen when this copy was made"
+                  description="Needed to unlock the sign-in details (cookies, MusicKit key and web-player token). With a wrong password only those are skipped; everything else is still restored."
+                />
+              </div>
+            )}
 
             <p className="text-xs text-status-warning-text border-t border-border pt-2">
-              <span aria-hidden="true">⚠</span> Existing files for selected sections will be <strong>overwritten</strong>. Restart MeedyaDL after the restore so background tasks reload the new state.
+              <span aria-hidden="true">⚠</span> Existing files for selected sections will be{' '}
+              <strong>overwritten</strong>. Restart MeedyaDL after the restore so background tasks
+              reload the new state.
             </p>
 
             <div className="flex justify-end gap-2 pt-2">
@@ -1296,7 +1252,7 @@ export function GeneralTab() {
                 onClick={handleConfirmImport}
                 loading={isImportingBundle}
               >
-                {isImportingBundle ? 'Restoring...' : 'Restore'}
+                {isImportingBundle ? 'Restoring…' : 'Restore'}
               </Button>
             </div>
           </div>

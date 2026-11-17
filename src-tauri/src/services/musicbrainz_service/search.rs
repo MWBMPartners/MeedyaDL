@@ -242,8 +242,8 @@ pub(super) fn escape_lucene(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 8);
     for c in s.chars() {
         match c {
-            '+' | '-' | '&' | '|' | '!' | '(' | ')' | '{' | '}' | '[' | ']' | '^' | '"'
-            | '~' | '*' | '?' | ':' | '\\' | '/' | ' ' => {
+            '+' | '-' | '&' | '|' | '!' | '(' | ')' | '{' | '}' | '[' | ']' | '^' | '"' | '~'
+            | '*' | '?' | ':' | '\\' | '/' | ' ' => {
                 out.push('\\');
                 out.push(c);
             }
@@ -841,7 +841,8 @@ mod tests {
 
     #[test]
     fn extract_mbid_from_recording_search_happy() {
-        let result = extract_mbid_from_recording_search(&b5_recording_search_fixture(), "The Beatles");
+        let result =
+            extract_mbid_from_recording_search(&b5_recording_search_fixture(), "The Beatles");
         assert_eq!(
             result,
             Ok(Some("b2181aae-5cba-496c-bb0c-b4cc0109ebf8".to_string()))
@@ -926,7 +927,10 @@ mod tests {
     #[test]
     fn extract_mbid_empty_recordings_is_quiet_none() {
         let fixture = serde_json::json!({ "count": 0, "recordings": [] });
-        assert_eq!(extract_mbid_from_recording_search(&fixture, "Anyone"), Ok(None));
+        assert_eq!(
+            extract_mbid_from_recording_search(&fixture, "Anyone"),
+            Ok(None)
+        );
     }
 
     #[test]
@@ -957,7 +961,9 @@ mod tests {
     fn extract_resources_url_search_pre_shape() {
         assert_eq!(
             extract_resources_from_url_search(&b7_search_url_fixture()),
-            Ok(vec!["https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string()])
+            Ok(vec![
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string()
+            ])
         );
     }
 

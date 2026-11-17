@@ -23,7 +23,7 @@ The queue row uses CSS Grid with up to ~8 columns whose visibility tiers at Tail
 | ------ | ----------------- | ---------------------------------------------------------------------------------- |
 | Tier 1 | always (≥ 320px)  | Album art · Artist — Album — Track · Status pill · Action buttons (hover-revealed) |
 | Tier 2 | `md` (≥ 768px)    | Platform / service icon                                                            |
-| Tier 3 | `lg` (≥ 1024px)   | Inline progress bar · Speed / ETA                                                  |
+| Tier 3 | `lg` (≥ 1024px)   | Inline progress bar · Speed / Time Left                                            |
 | Tier 4 | `xl` (≥ 1280px)   | Codec / quality · Content type                                                     |
 | Tier 5 | `2xl` (≥ 1536px)  | File path · Submitted-at timestamp · Estimated file size                           |
 

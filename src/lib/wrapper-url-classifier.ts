@@ -40,12 +40,7 @@
  *   text input, so users can paste garbage; report rather than
  *   throw.
  */
-export type WrapperUrlClass =
-  | 'loopback'
-  | 'private'
-  | 'public'
-  | 'hostname'
-  | 'invalid';
+export type WrapperUrlClass = 'loopback' | 'private' | 'public' | 'hostname' | 'invalid';
 
 /**
  * Classify the host of a wrapper URL. See {@link WrapperUrlClass}.

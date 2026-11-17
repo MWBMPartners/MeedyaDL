@@ -73,6 +73,8 @@ import type {
   DetectedBrowser,
   DownloadRequest,
   ExternalGamdlInfo,
+  LanguageIdentity,
+  NotifyKind,
   PlatformInfo,
   PythonVenvHealthDto,
   QueueStatus,
@@ -395,6 +397,7 @@ export interface StageStatus {
   label: string;
   key: string;
 }
+/** What `scanEnrichmentGaps` returns: one album folder, how many audio files it holds, and a per-stage verdict with running totals. */
 export interface EnrichmentGapReport {
   album_dir: string;
   audio_file_count: number;
@@ -403,6 +406,12 @@ export interface EnrichmentGapReport {
   complete_count: number;
   unknown_count: number;
 }
+/**
+ * Wrapper for the `scan_enrichment_gaps` command.
+ *
+ * @param albumDir Absolute path of the album folder to inspect.
+ * @returns The per-stage report for that folder (see {@link EnrichmentGapReport}).
+ */
 export function scanEnrichmentGaps(albumDir: string): Promise<EnrichmentGapReport> {
   return invoke<EnrichmentGapReport>('scan_enrichment_gaps', { albumDir });
 }
@@ -421,11 +430,18 @@ export interface DiagnosticBundleInput {
   component_versions: { name: string; version: string }[];
   user_summary?: string | null;
 }
+/** What `buildDiagnosticBundle` returns: the redacted Markdown body, a pre-filled GitHub issue address, and the body's size in bytes. */
 export interface DiagnosticBundle {
   markdown_body: string;
   github_issue_url: string;
   size_bytes: number;
 }
+/**
+ * Wrapper for the `build_diagnostic_bundle` command.
+ *
+ * @param input The activity-log lines, component versions and optional note to include.
+ * @returns The redacted bundle and the issue address (nothing is sent anywhere).
+ */
 export function buildDiagnosticBundle(input: DiagnosticBundleInput): Promise<DiagnosticBundle> {
   return invoke<DiagnosticBundle>('build_diagnostic_bundle', { input });
 }
@@ -435,9 +451,21 @@ export function buildDiagnosticBundle(input: DiagnosticBundleInput): Promise<Dia
  * history into roll-up stats: totals, success rate, codec
  * distribution, top artist/album, last-7-day activity.
  */
-export interface CodecCount { codec: string; count: number; }
-export interface NameCount { name: string; count: number; }
-export interface DayCount { date: string; count: number; }
+export interface CodecCount {
+  codec: string;
+  count: number;
+}
+/** A name (artist or album) with how many downloads carry it. */
+export interface NameCount {
+  name: string;
+  count: number;
+}
+/** One calendar day (as text) with the number of downloads made on it. */
+export interface DayCount {
+  date: string;
+  count: number;
+}
+/** The roll-up numbers `getLifetimeStats` returns: totals, success rate, codec mix, top artist and album, and the last seven days. */
 export interface LifetimeStats {
   total: number;
   success: number;
@@ -450,6 +478,11 @@ export interface LifetimeStats {
   earliest: string | null;
   latest: string | null;
 }
+/**
+ * Wrapper for the `get_lifetime_stats` command.
+ *
+ * @returns Totals worked out from the saved download history ({@link LifetimeStats}).
+ */
 export function getLifetimeStats(): Promise<LifetimeStats> {
   return invoke<LifetimeStats>('get_lifetime_stats');
 }
@@ -470,26 +503,50 @@ export interface BackupSummary {
   files: string[];
   total_snapshots: number;
 }
+/** What `restoreFromBackup` returns: the snapshot used, the files put back, and the files left alone. */
 export interface RestoreSummary {
   snapshot_path: string;
   restored: string[];
   skipped: string[];
 }
+/** One saved snapshot as listed by `listBackups`: its path, name, size and number of files. */
 export interface BackupEntry {
   path: string;
   name: string;
   size_bytes: number;
   file_count: number;
 }
+/**
+ * Wrapper for the `create_backup` command.
+ *
+ * @returns A summary of the new snapshot ({@link BackupSummary}).
+ */
 export function createBackup(): Promise<BackupSummary> {
   return invoke<BackupSummary>('create_backup');
 }
+/**
+ * Wrapper for the `list_backups` command.
+ *
+ * @returns Every saved snapshot ({@link BackupEntry}).
+ */
 export function listBackups(): Promise<BackupEntry[]> {
   return invoke<BackupEntry[]>('list_backups');
 }
+/**
+ * Wrapper for the `restore_from_backup` command.
+ *
+ * @param snapshotPath Path of the snapshot to restore, as listed by `listBackups`.
+ * @returns Which files were restored and which were skipped.
+ */
 export function restoreFromBackup(snapshotPath: string): Promise<RestoreSummary> {
   return invoke<RestoreSummary>('restore_from_backup', { snapshotPath });
 }
+/**
+ * Wrapper for the `delete_backup` command.
+ *
+ * @param snapshotPath Path of the snapshot to delete.
+ * @returns Nothing; rejects if the snapshot cannot be removed.
+ */
 export function deleteBackup(snapshotPath: string): Promise<void> {
   return invoke<void>('delete_backup', { snapshotPath });
 }
@@ -508,6 +565,11 @@ export interface GamdlSupportWindow {
   maximum_tested: string;
   recommended: string;
 }
+/**
+ * Wrapper for the `get_gamdl_support_window` command.
+ *
+ * @returns The GAMDL versions this build supports ({@link GamdlSupportWindow}).
+ */
 export function getGamdlSupportWindow(): Promise<GamdlSupportWindow> {
   return invoke<GamdlSupportWindow>('get_gamdl_support_window');
 }
@@ -555,6 +617,12 @@ export interface GamdlCapabilities {
    */
   assets_api_unlocks_lossy_codecs: boolean;
   /**
+   * >=3.8.2 -- GAMDL takes the wrapper's decryption address as its own
+   * host and port, so Settings shows the Wrapper Decryption Address with
+   * the newer wrapper layout (#1433).
+   */
+  wrapper_decrypt_host_port: boolean;
+  /**
    * ≥3.9 -- GAMDL understands the PlayReady unlocking method (a second
    * option alongside its original, built-in Widevine one), and will
    * accept a user-supplied `.prd` device file for it. `false` on every
@@ -565,7 +633,18 @@ export interface GamdlCapabilities {
    * shows the "Unlocking Method" section at all; see `AdvancedTab.tsx`.
    */
   play_ready_drm: boolean;
+  /** The installed GAMDL is a 4.x release, which ignores some settings
+   * (each says so beside it). */
+  gamdl_v4: boolean;
+  /** The installed GAMDL 4 saves one shared album picture when asked
+   * (4.0.2 and newer), so "Save Cover Art" works as it does with GAMDL 3. */
+  gamdl_four_saves_album_cover: boolean;
 }
+/**
+ * Wrapper for the `get_gamdl_capabilities` command.
+ *
+ * @returns Which GAMDL features the installed version has ({@link GamdlCapabilities}).
+ */
 export function getGamdlCapabilities(): Promise<GamdlCapabilities> {
   return invoke<GamdlCapabilities>('get_gamdl_capabilities');
 }
@@ -756,6 +835,11 @@ export interface LaunchVersionInfo {
   isFirstLaunchAfterUpgrade: boolean;
 }
 
+/**
+ * Wrapper for the `get_launch_version_info` command.
+ *
+ * @returns The running and previous versions, and whether this is the first launch after an upgrade.
+ */
 export function getLaunchVersionInfo(): Promise<LaunchVersionInfo> {
   return invoke<LaunchVersionInfo>('get_launch_version_info');
 }
@@ -795,6 +879,60 @@ export function getDefaultSettings(): Promise<AppSettings> {
  */
 export function saveSettings(settings: AppSettings): Promise<void> {
   return invoke<void>('save_settings', { settings });
+}
+
+/**
+ * Orders the entries of a language list the way a person should see them
+ * (#1249): their preferred languages first, then the rest alphabetically
+ * by name in the interface language (shared language policy UI-020 to
+ * UI-040, docs/standards/media-language-bcp47-policy.md).
+ *
+ * Rust handler: `order_languages_for_display()` in
+ * `src-tauri/src/commands/language.rs`, which runs the shared
+ * `meedya-lang` ordering -- so the rules exist once, in the code the
+ * policy's test cases check, not again in JavaScript.
+ *
+ * Called by: `useMetadataLanguageOptions` (Settings > General). If this
+ * rejects, the caller shows the list alphabetically instead.
+ *
+ * @param tags - The entries, as stored. Returned exactly as given, only reordered.
+ * @param preferences - The person's languages, highest priority first.
+ * @param alphabeticalPrimaryOrder - Primary language codes in alphabetical
+ *   order of their names in the interface language (worked out with
+ *   `Intl.Collator`, which only the platform can do correctly).
+ * @returns Promise resolving to `tags` in display order
+ */
+export function orderLanguagesForDisplay(
+  tags: readonly string[],
+  preferences: readonly string[],
+  alphabeticalPrimaryOrder: readonly string[]
+): Promise<string[]> {
+  return invoke<string[]>('order_languages_for_display', {
+    tags,
+    preferences,
+    alphabeticalPrimaryOrder,
+  });
+}
+
+/**
+ * For each tag, its standard form and the identity to group it by (Codex's
+ * catch-up review of #1244, finding 1).
+ *
+ * Rust handler: `language_identities()` in `src-tauri/src/commands/language.rs`,
+ * which reads tags with the same shared code `order_languages_for_display`
+ * groups by. `Intl.Locale` disagrees with the policy for some real tags
+ * (`cmn-Hans`, `zh-cmn-Hans`), so it is never used for identity.
+ *
+ * Called only by `useLanguageIdentities`.
+ *
+ * Rejects only for a call over the backend's size limits, with a message
+ * that begins "Too large to identify:", which the hook does not retry.
+ *
+ * @param tags - The values to identify.
+ * @returns One identity per tag, in the same order.
+ */
+export function languageIdentities(tags: readonly string[]): Promise<LanguageIdentity[]> {
+  return invoke<LanguageIdentity[]>('language_identities', { tags });
 }
 
 /**
@@ -960,7 +1098,7 @@ export function getDefaultOutputPath(): Promise<string> {
  */
 export function startDownload(
   request: DownloadRequest,
-  skipAutoStart?: boolean,
+  skipAutoStart?: boolean
 ): Promise<StartDownloadResult> {
   return invoke<StartDownloadResult>('start_download', { request, skipAutoStart });
 }
@@ -1102,6 +1240,7 @@ export interface BulkRetrySkipped {
   reason: string;
 }
 
+/** What a bulk retry did: how many items were asked for, how many were retried, and which were skipped and why. */
 export interface BulkRetryReport {
   requested: number;
   retried: number;
@@ -1476,9 +1615,7 @@ export interface MergeReport {
  *
  * Rust handler: `detect_legacy_folder_pairs()` in `gamdl.rs`.
  */
-export function detectLegacyFolderPairs(
-  folderPath: string
-): Promise<SiblingPair[]> {
+export function detectLegacyFolderPairs(folderPath: string): Promise<SiblingPair[]> {
   return invoke<SiblingPair[]>('detect_legacy_folder_pairs', { folderPath });
 }
 
@@ -1489,9 +1626,7 @@ export function detectLegacyFolderPairs(
  *
  * Rust handler: `preview_legacy_folder_merge()` in `gamdl.rs`.
  */
-export function previewLegacyFolderMerge(
-  pair: SiblingPair
-): Promise<MergePreview> {
+export function previewLegacyFolderMerge(pair: SiblingPair): Promise<MergePreview> {
   return invoke<MergePreview>('preview_legacy_folder_merge', { pair });
 }
 
@@ -1503,9 +1638,7 @@ export function previewLegacyFolderMerge(
  *
  * Rust handler: `execute_legacy_folder_merge()` in `gamdl.rs`.
  */
-export function executeLegacyFolderMerge(
-  pair: SiblingPair
-): Promise<MergeReport> {
+export function executeLegacyFolderMerge(pair: SiblingPair): Promise<MergeReport> {
   return invoke<MergeReport>('execute_legacy_folder_merge', { pair });
 }
 
@@ -1533,6 +1666,12 @@ export interface ScannedManifest {
   audio_file_count: number;
   /** Apple Music lastModifiedDate from manifest — for content refresh detection (#380) */
   last_modified_date: string | null;
+  /**
+   * The album folder or one of its audio files carries a label MeedyaDL
+   * added after the download ([Explicit]/[Clean], or a format such as
+   * [Lossless]); a re-download may add a second copy, so the page warns.
+   */
+  has_labelled_names: boolean;
 }
 
 /**
@@ -1841,9 +1980,7 @@ export interface ExportProfileResult {
  *
  * Called by: GeneralTab "Export Profile" button.
  */
-export function exportProfile(
-  options: ExportProfileOptions = {},
-): Promise<ExportProfileResult> {
+export function exportProfile(options: ExportProfileOptions = {}): Promise<ExportProfileResult> {
   return invoke<ExportProfileResult>('export_profile', { options });
 }
 
@@ -1876,9 +2013,7 @@ export interface ProfileBundleSummary {
  * Pass `null`/omit to open a native file picker; pass an absolute
  * path to skip the picker (used by P5's first-launch auto-detect).
  */
-export function peekProfileBundle(
-  path?: string | null,
-): Promise<ProfileBundleSummary> {
+export function peekProfileBundle(path?: string | null): Promise<ProfileBundleSummary> {
   return invoke<ProfileBundleSummary>('peek_profile_bundle', {
     path: path ?? null,
   });
@@ -1921,9 +2056,7 @@ export interface ImportProfileResult {
  * restart afterwards because background tasks (queue processor,
  * activity-log writer) hold the affected files open.
  */
-export function importProfile(
-  options: ImportProfileOptions,
-): Promise<ImportProfileResult> {
+export function importProfile(options: ImportProfileOptions): Promise<ImportProfileResult> {
   return invoke<ImportProfileResult>('import_profile', { options });
 }
 
@@ -2653,15 +2786,12 @@ export function saveSessionLog(entries: string[]): Promise<void> {
 }
 
 /**
- * Backend-half of the desktop-notification diagnostics readout (#834).
+ * Facts for the notification diagnostics readout in Settings > Advanced >
+ * Diagnostics (#834, reworked #1431).
  *
- * The Settings → Advanced → Diagnostics panel reads this snapshot to show
- * the user their current notification configuration — useful on macOS
- * where Tauri's `sendNotification()` can resolve successfully even when
- * the OS silently drops the notification.
- *
- * The frontend tops the result up with the JS-side
- * `isPermissionGranted()` value to give a complete picture.
+ * On desktop systems the notification plugin always reports permission as
+ * granted, so the readout no longer shows a permission row; it shows the
+ * facts that do explain a missing notification.
  *
  * IPC target: `get_notification_diagnostics` → `commands::system::get_notification_diagnostics`
  */
@@ -2669,33 +2799,65 @@ export interface NotificationDiagnostics {
   desktop_notifications_enabled: boolean;
   notification_style: string;
   platform: string;
+  /** A development build. On macOS its notifications appear as Terminal's. */
+  development_build: boolean;
+  /** The identity notifications are filed under (Windows groups them by it). */
+  app_identity: string;
+  /** Whether Windows really uses that identity: `false` when MeedyaDL runs
+   * straight from a build folder, and Windows files notifications under PowerShell. */
+  app_identity_in_use: boolean;
 }
 
+/**
+ * Wrapper for the `get_notification_diagnostics` command.
+ *
+ * @returns Facts about how this build sends system notifications ({@link NotificationDiagnostics}).
+ */
 export function getNotificationDiagnostics(): Promise<NotificationDiagnostics> {
   return invoke<NotificationDiagnostics>('get_notification_diagnostics');
 }
 
 /**
- * Sends a one-off test notification through the **backend** notification
- * pipeline (#834).
+ * Sends the Settings screen's test notification (#834, reworked #1431).
  *
- * The pre-#834 "Send Test Notification" button in Settings → General
- * called the JS plugin directly. That tested a different code path than
- * what production downloads use AND couldn't surface OS-level failures
- * because `sendNotification()` resolves successfully even when macOS
- * drops the notification.
- *
- * This wrapper routes the test through the same Rust path as
- * `send_desktop_notification`, but bypasses the focus check and the
- * throttle — the user is explicitly testing, so silently no-opping
- * would defeat the purpose. Returns the actual OS-level error string
- * when the plugin call fails, which the caller renders into a toast so
- * the user can act on it (e.g. open System Settings → Notifications).
+ * Takes the values currently ON SCREEN, so a choice can be tried before it
+ * is saved. Ignores whether the person is looking at MeedyaDL. Rejects
+ * with a plain sentence when nothing was sent (switch off, style "In-app
+ * only", or the system refused it).
  *
  * IPC target: `test_desktop_notification` → `commands::system::test_desktop_notification`
  */
-export function testDesktopNotification(): Promise<void> {
-  return invoke<void>('test_desktop_notification');
+export function testDesktopNotification(
+  desktopNotifications: boolean,
+  notificationStyle: string
+): Promise<void> {
+  return invoke<void>('test_desktop_notification', { desktopNotifications, notificationStyle });
+}
+
+/** The backend's answer to `notifySystem` (#1431). */
+export interface NotifySystemAnswer {
+  /** A system notification was sent (or the identical one moments ago). */
+  sent: boolean;
+  /** Whether the page should show its own copy (before the page's own
+   * reasons to keep one: a button, details, a key, an error or warning). */
+  in_app: boolean;
+}
+
+/**
+ * Asks the backend whether this page message should also become a system
+ * notification, and sends it if so (#1431). The backend applies the one
+ * rule (`services/notification_service.rs::decide`) to the SAVED settings
+ * and to whether the person is looking at MeedyaDL. Never rejects because
+ * the system refused a notification -- that is logged on the backend.
+ *
+ * IPC target: `notify_system` → `commands::system::notify_system`
+ */
+export function notifySystem(
+  kind: NotifyKind,
+  title: string,
+  body: string
+): Promise<NotifySystemAnswer> {
+  return invoke<NotifySystemAnswer>('notify_system', { kind, title, body });
 }
 
 /**
@@ -2714,6 +2876,7 @@ export type IntegrityIssue =
   | { kind: 'degenerate_name'; path: string; signature: string }
   | { kind: 'zero_byte_cover'; path: string };
 
+/** What the integrity scan returns: how many files it looked at, the problems found, and the folder it scanned. */
 export interface IntegrityScanReport {
   files_walked: number;
   issues: IntegrityIssue[];
@@ -2805,12 +2968,8 @@ export function resetSpotifyDailyCapCounter(): Promise<void> {
  * batch containing a Spotify URL — this is the **preview** of
  * that decision, NOT a separate gate.
  */
-export function checkSpotifyDispatchAllowed(): Promise<
-  import('@/types').DispatchGateOutcome
-> {
-  return invoke<import('@/types').DispatchGateOutcome>(
-    'check_spotify_dispatch_allowed'
-  );
+export function checkSpotifyDispatchAllowed(): Promise<import('@/types').DispatchGateOutcome> {
+  return invoke<import('@/types').DispatchGateOutcome>('check_spotify_dispatch_allowed');
 }
 
 // ============================================================

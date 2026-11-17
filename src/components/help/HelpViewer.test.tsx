@@ -64,6 +64,8 @@ beforeEach(() => {
   useUiStore.setState({ helpActiveTopic: null });
 });
 
+// Each help page's own "# Title" is shown as an <h2>: the Help screen's
+// title is the page's one <h1> (see lib/markdownHeadings.ts).
 describe('HelpViewer sidebar', () => {
   it('shows a sidebar button for every page in the manifest, and opens on Getting Started', () => {
     render(<HelpViewer />);
@@ -75,9 +77,7 @@ describe('HelpViewer sidebar', () => {
     // getting-started.md's own "# Getting Started" heading should
     // already be on screen with no click needed -- this is what a user
     // opening the Help page for the first time actually sees.
-    expect(
-      screen.getByRole('heading', { level: 1, name: 'Getting Started' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Getting Started' })).toBeInTheDocument();
   });
 
   it('shows the clicked page and hides the previous one', () => {
@@ -86,10 +86,10 @@ describe('HelpViewer sidebar', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cookies' }));
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Cookie Management' })
+      screen.getByRole('heading', { level: 2, name: 'Cookie Management' })
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole('heading', { level: 1, name: 'Getting Started' })
+      screen.queryByRole('heading', { level: 2, name: 'Getting Started' })
     ).not.toBeInTheDocument();
   });
 });
@@ -124,6 +124,20 @@ describe('HelpViewer search', () => {
   });
 });
 
+describe('HelpViewer search box', () => {
+  // A "⌘+K" / "Ctrl+K" badge used to sit in the empty search box, labelled
+  // "to focus search (coming soon)". No such shortcut existed -- Cmd/Ctrl+K
+  // opens the Activity page -- so it advertised a key that did something else.
+  it('advertises no keyboard shortcut and nothing "coming soon"', () => {
+    const { container } = render(<HelpViewer />);
+    expect(container.querySelector('kbd')).toBeNull();
+    expect(container.textContent).not.toMatch(/\+K|coming soon/i);
+    expect(
+      container.querySelector('[title*="coming soon" i], [aria-label*="coming soon" i]')
+    ).toBeNull();
+  });
+});
+
 describe('HelpViewer deep links', () => {
   /**
    * A `<HelpButton>` elsewhere in the app (e.g. next to a setting) sets
@@ -139,7 +153,7 @@ describe('HelpViewer deep links', () => {
 
     await waitFor(() => {
       expect(
-        screen.getByRole('heading', { level: 1, name: 'Cookie Management' })
+        screen.getByRole('heading', { level: 2, name: 'Cookie Management' })
       ).toBeInTheDocument();
     });
     expect(useUiStore.getState().helpActiveTopic).toBeNull();
@@ -160,14 +174,12 @@ describe('HelpViewer link handling inside rendered Markdown', () => {
   it('opens a link to another help page inside the app, without calling the browser-open function', () => {
     render(<HelpViewer />);
     fireEvent.click(screen.getByRole('button', { name: 'Audio Codecs' }));
-    expect(
-      screen.getByRole('heading', { level: 1, name: 'Audio Codecs' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Audio Codecs' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('link', { name: 'Wrapper Authentication' }));
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Wrapper authentication' })
+      screen.getByRole('heading', { level: 2, name: 'Wrapper authentication' })
     ).toBeInTheDocument();
     expect(openMock).not.toHaveBeenCalled();
   });
@@ -183,7 +195,7 @@ describe('HelpViewer link handling inside rendered Markdown', () => {
     render(<HelpViewer />);
     fireEvent.click(screen.getByRole('button', { name: 'Wrapper' }));
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Wrapper authentication' })
+      screen.getByRole('heading', { level: 2, name: 'Wrapper authentication' })
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('link', { name: 'wrapper-v2' }));
@@ -196,7 +208,7 @@ describe('HelpViewer link handling inside rendered Markdown', () => {
     );
     // Still on the same page -- an external link must never change activeTopic.
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Wrapper authentication' })
+      screen.getByRole('heading', { level: 2, name: 'Wrapper authentication' })
     ).toBeInTheDocument();
   });
 });
@@ -226,9 +238,7 @@ describe('HelpViewer translated pages (#111)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Keyboard Shortcuts' }));
 
     await waitFor(() => {
-      expect(
-        screen.getByRole('heading', { level: 1, name: 'Tastaturkürzel' })
-      ).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 2, name: 'Tastaturkürzel' })).toBeInTheDocument();
     });
     expect(screen.getByText(/wurde maschinell übersetzt/)).toBeInTheDocument();
   });
@@ -244,9 +254,7 @@ describe('HelpViewer translated pages (#111)', () => {
     await useTestLanguage('de');
     render(<HelpViewer />);
 
-    expect(
-      screen.getByRole('heading', { level: 1, name: 'Getting Started' })
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Getting Started' })).toBeInTheDocument();
     expect(screen.getByText(/noch nicht auf Deutsch übersetzt/)).toBeInTheDocument();
   });
 

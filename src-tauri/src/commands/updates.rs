@@ -109,8 +109,13 @@ pub async fn check_all_updates(app: AppHandle) -> Result<UpdateCheckResult, Stri
     // (not at the same time — see the module doc in update_checker.rs)
     // and aggregates the results. Individual check failures are
     // captured per-component rather than failing the entire operation.
-    let result =
-        update_checker::check_all_updates(&app, include_prereleases, settings.update_channel).await;
+    let result = update_checker::check_all_updates(
+        &app,
+        include_prereleases,
+        settings.update_channel,
+        settings.dev_access_enabled,
+    )
+    .await;
 
     // Log the result for debugging — list components with available updates
     if result.has_updates {
@@ -220,8 +225,7 @@ pub async fn upgrade_votify(
         log::info!("Upgrading votify...");
         emit_app_log(&app, "Upgrading votify...");
     }
-    match crate::services::spotify_service::install_votify(&app, target_version.as_deref()).await
-    {
+    match crate::services::spotify_service::install_votify(&app, target_version.as_deref()).await {
         Ok(version) => {
             log::info!("votify upgraded to {version}");
             emit_app_log(&app, &format!("votify upgraded to v{version}"));
@@ -235,29 +239,37 @@ pub async fn upgrade_votify(
     }
 }
 
+/// Packages that must never be upgraded through the generic, unbounded
+/// [`upgrade_pip_engine`] route because they have a bounded route of their
+/// own. Pure, for testing.
+fn refuses_unbounded_upgrade(package: &str) -> bool {
+    package.trim().eq_ignore_ascii_case("gamdl")
+}
+
 /// Upgrades any pip-based engine to the latest version.
 ///
 /// **Frontend caller:** `upgradePipEngine(package)` in `src/lib/tauri-commands.ts`
 ///
-/// Uses `pip install --upgrade` to update the package. Works for any
-/// pip engine without its own validated version window: yt-dlp,
-/// ofscraper, etc. GAMDL and votify have their own dedicated upgrade
-/// paths (`upgrade_gamdl()` / `upgrade_votify()`) with compatibility
-/// gating — this command's `package` allowlist (below) does not exclude
-/// them, but the frontend should prefer the dedicated commands so the
-/// version-window bound is actually enforced.
+/// Uses `pip install --upgrade` to update the package. Works for any pip
+/// engine without its own validated version window: yt-dlp, ofscraper, etc.
+/// GAMDL has its own dedicated route (`upgrade_gamdl()`), which keeps it
+/// inside the tested versions, so it is refused here (see
+/// `refuses_unbounded_upgrade`). votify's dedicated command is
+/// `upgrade_votify()`; the frontend should prefer it so its version bound
+/// is enforced.
 ///
 /// # Security (#985)
-/// `package` is attacker-influenceable IPC input. Two independent
-/// layers guard the subsequent `pip install --upgrade <package>`
-/// subprocess call: (1) this function rejects any package that isn't
-/// declared as a known engine's `pip_package` in `engines.toml`
-/// (enforced here, against the single source of truth for which
-/// packages MeedyaDL is actually meant to manage); (2)
-/// `pip_engine_service::install_pip_engine` independently rejects
-/// anything that isn't a syntactically bare PyPI package name (no
-/// URLs, VCS refs, paths, or CLI flags) — defence in depth in case a
-/// future engine registry entry is ever misconfigured.
+/// `package` is attacker-influenceable IPC input. Two independent layers
+/// guard the `pip install --upgrade <package>` subprocess call: (1) this
+/// function rejects any package that isn't declared as a known engine's
+/// `pip_package` in `engines.toml` (the single source of truth for which
+/// packages MeedyaDL is meant to manage); (2)
+/// `pip_engine_service::install_pip_engine` independently rejects anything
+/// that isn't a syntactically bare PyPI package name (no URLs, VCS refs,
+/// paths, or CLI flags), as defence in depth in case an engine registry
+/// entry is ever misconfigured.
+///
+/// See: <https://v2.tauri.app/develop/calling-rust/#commands>
 #[tauri::command]
 pub async fn upgrade_pip_engine(app: AppHandle, package: String) -> Result<String, String> {
     // Layer 1: only allow packages that a known engine actually declares.
@@ -272,6 +284,25 @@ pub async fn upgrade_pip_engine(app: AppHandle, package: String) -> Result<Strin
         let msg = format!(
             "Refusing to upgrade '{package}': it is not a pip_package declared by any \
              engine in engines.toml."
+        );
+        log::warn!("{msg}");
+        emit_app_log(&app, &msg);
+        return Err(msg);
+    }
+
+    // GAMDL is declared in engines.toml, so it passes the allowlist above,
+    // but this route installs with no version limit at all
+    // (`pip install --upgrade gamdl`). That skips the tested range, the
+    // known-bad list, the per-platform ceilings and the refusal of a
+    // major release this build cannot start (GAMDL 4.x) — the last of
+    // which would leave every download failing. GAMDL has its own update
+    // route (`upgrade_gamdl` → `gamdl_service::install_gamdl`), which
+    // applies all of them; the app never sends GAMDL here, so refusing it
+    // costs nothing and closes the gap (found in review, 2 Nov 2026).
+    if refuses_unbounded_upgrade(&package) {
+        let msg = format!(
+            "Refusing to upgrade '{package}' here: it has its own update route, which keeps it \
+             within the versions this build can use."
         );
         log::warn!("{msg}");
         emit_app_log(&app, &msg);
@@ -331,10 +362,14 @@ pub async fn check_component_update(
     // Load settings for the pre-release preference, then run all update checks
     // (currently no way to check individual components independently)
     let settings = config_service::load_settings(&app).unwrap_or_default();
-    let include_prereleases =
-        settings.update_channel != UpdateChannel::Stable;
-    let result =
-        update_checker::check_all_updates(&app, include_prereleases, settings.update_channel).await;
+    let include_prereleases = settings.update_channel != UpdateChannel::Stable;
+    let result = update_checker::check_all_updates(
+        &app,
+        include_prereleases,
+        settings.update_channel,
+        settings.dev_access_enabled,
+    )
+    .await;
 
     // Find the component whose name contains the search string (case-insensitive).
     // into_iter() consumes the Vec, avoiding cloning the ComponentUpdate structs.
@@ -664,6 +699,15 @@ fn is_first_launch_after_upgrade(previous_version: Option<&str>, current_version
     }
 }
 
+/// Tells the page which version is running now, which one ran last time, and
+/// whether this is an unfinished build (any version before 1.0, or one with a
+/// `-` suffix such as alpha, beta or release candidate).
+///
+/// The page uses it to show the first-launch notice after an upgrade. The
+/// previous version comes from memory because startup has already overwritten
+/// the stored value by the time the page asks (#387).
+///
+/// See: <https://v2.tauri.app/develop/calling-rust/#commands>
 #[tauri::command]
 pub fn get_launch_version_info(app: AppHandle) -> LaunchVersionInfo {
     let current_version = app.package_info().version.to_string();
@@ -723,5 +767,20 @@ mod launch_version_tests {
         // Settings not read yet. This is the one case where guessing
         // wrong is visible to the user, so it says no.
         assert!(!is_first_launch_after_upgrade(None, "1.10.8"));
+    }
+}
+
+#[cfg(test)]
+mod unbounded_upgrade_tests {
+    use super::refuses_unbounded_upgrade;
+
+    #[test]
+    fn gamdl_is_never_upgraded_without_its_version_limits() {
+        for name in ["gamdl", "GAMDL", " gamdl "] {
+            assert!(refuses_unbounded_upgrade(name), "{name}");
+        }
+        for name in ["votify", "yt-dlp", "gamdl-extra"] {
+            assert!(!refuses_unbounded_upgrade(name), "{name}");
+        }
     }
 }

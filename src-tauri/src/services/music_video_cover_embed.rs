@@ -36,11 +36,17 @@ pub enum EmbedOutcome {
     /// Sidecar embedded into the MP4 and the sidecar file was
     /// deleted from disk. The user keeps the cover-art atom; the
     /// folder loses the redundant file.
-    Embedded { sidecar_filename: String, bytes_embedded: usize },
+    Embedded {
+        sidecar_filename: String,
+        bytes_embedded: usize,
+    },
     /// Sidecar exists but the embed failed for the reason in
     /// `reason`. The sidecar is **not** deleted — losing it on a
     /// failed embed would be a data-loss bug.
-    Failed { sidecar_filename: String, reason: String },
+    Failed {
+        sidecar_filename: String,
+        reason: String,
+    },
 }
 
 /// Look for a sibling cover sidecar (`.jpg`, `.jpeg`, or `.png`) with
@@ -55,6 +61,9 @@ pub enum EmbedOutcome {
 /// modes (sidecar unreadable, MP4 write rejected, verify round-trip
 /// mismatch). This keeps the call site one match arm per outcome
 /// instead of nested Result/match handling.
+///
+/// Takes no write lock itself. The caller must hold the app-wide lock for
+/// `video_path` (`utils::file_locks::global()`) around the call.
 pub fn embed_and_remove_sidecar(video_path: &Path) -> EmbedOutcome {
     let Some(sidecar_path) = find_sidecar(video_path) else {
         return EmbedOutcome::NoSidecar;
@@ -116,7 +125,8 @@ pub fn embed_and_remove_sidecar(video_path: &Path) -> EmbedOutcome {
     if !embedded_ok {
         return EmbedOutcome::Failed {
             sidecar_filename,
-            reason: "MP4 written but covr atom is absent on re-read (embed silently failed)".to_string(),
+            reason: "MP4 written but covr atom is absent on re-read (embed silently failed)"
+                .to_string(),
         };
     }
 
@@ -230,9 +240,18 @@ mod tests {
     /// are absent — the empty / unknown case.
     #[test]
     fn detect_image_fmt_extension_fallback() {
-        assert!(matches!(detect_image_fmt(Path::new("x.png"), &[]), ImgFmt::Png));
-        assert!(matches!(detect_image_fmt(Path::new("x.jpg"), &[]), ImgFmt::Jpeg));
-        assert!(matches!(detect_image_fmt(Path::new("x.bin"), &[]), ImgFmt::Jpeg));
+        assert!(matches!(
+            detect_image_fmt(Path::new("x.png"), &[]),
+            ImgFmt::Png
+        ));
+        assert!(matches!(
+            detect_image_fmt(Path::new("x.jpg"), &[]),
+            ImgFmt::Jpeg
+        ));
+        assert!(matches!(
+            detect_image_fmt(Path::new("x.bin"), &[]),
+            ImgFmt::Jpeg
+        ));
     }
 
     /// On a video that mp4ameta can't read (e.g. an empty file
@@ -251,13 +270,18 @@ mod tests {
 
         let outcome = embed_and_remove_sidecar(&video);
         match outcome {
-            EmbedOutcome::Failed { sidecar_filename, .. } => {
+            EmbedOutcome::Failed {
+                sidecar_filename, ..
+            } => {
                 assert_eq!(sidecar_filename, "broken.jpg");
             }
             other => panic!("expected Failed, got {other:?}"),
         }
         // Sidecar must still exist — Failed means we kept the file.
-        assert!(sidecar.is_file(), "sidecar must NOT be deleted on a failed embed");
+        assert!(
+            sidecar.is_file(),
+            "sidecar must NOT be deleted on a failed embed"
+        );
     }
 
     /// #980 regression test: a dotted video stem (`Mr. Brightside`)
@@ -278,7 +302,11 @@ mod tests {
         fs::write(&decoy_sidecar, [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
 
         let found = find_sidecar(&video);
-        assert_eq!(found, Some(correct_sidecar), "must select the full-stem sidecar, not the dot-truncated decoy");
+        assert_eq!(
+            found,
+            Some(correct_sidecar),
+            "must select the full-stem sidecar, not the dot-truncated decoy"
+        );
     }
 
     /// Without a dotted stem, `find_sidecar` still finds the plain

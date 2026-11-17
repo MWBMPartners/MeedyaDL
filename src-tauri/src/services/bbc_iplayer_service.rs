@@ -37,9 +37,7 @@ use crate::models::get_iplayer_options::GetIplayerOptions;
 /// # Returns
 /// * `Ok(String)` - The installed version string.
 /// * `Err(String)` - get_iplayer is not installed or version check failed.
-pub async fn check_get_iplayer_version(
-    _app: &tauri::AppHandle,
-) -> Result<String, String> {
+pub async fn check_get_iplayer_version(_app: &tauri::AppHandle) -> Result<String, String> {
     Err("BBC iPlayer downloads are not yet implemented. Coming soon!".to_string())
 }
 

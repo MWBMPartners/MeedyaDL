@@ -141,10 +141,7 @@ export function Toggle({
             </span>
           )}
           {description && (
-            <span
-              id={descriptionId}
-              className="block text-xs text-content-tertiary mt-0.5"
-            >
+            <span id={descriptionId} className="block text-xs text-content-tertiary mt-0.5">
               {description}
             </span>
           )}
@@ -166,7 +163,7 @@ export function Toggle({
       <button
         type="button"
         role="switch"
-        aria-checked={checked ? "true" : "false"}
+        aria-checked={checked ? 'true' : 'false'}
         // Explicit aria-labelledby/aria-describedby so screen readers
         // announce label and description reliably even when the
         // implicit <label> wrapper relationship doesn't resolve

@@ -23,6 +23,7 @@ The mechanism **has never run end-to-end in any shipped build**:
   *(Update, 27 Sept 2026: both files, the `check_service_status` command and the rest of that interim transport were deleted as dead code under #1216, commit `8494fbf6`. The list here describes the state when this note was written.)*
 - The enforcement helpers in `service_dispatch.rs` have zero call sites outside their own module.
 - The hard-coded URL points at `main`, where `service-status.json` **does not exist** — it exists only on `alpha`. So the fetch 404s.
+  *(Update, 5 Oct 2026: the reader-less `service-status.json` was deleted from `alpha` too, in the polish pass.)*
 
 **Consequence, and it is a good one:** there is no installed base relying on the interim transport, so the cutover needs no bridge and no flag-day. Go straight to the API.
 

@@ -19,8 +19,9 @@
  * return value in `createPortal(jsx, document.body)` is straightforward.
  *
  * **Usage across the application:**
- * Available for any feature requiring a dialog overlay. Currently exported
- * from the barrel file but not yet used by any feature component.
+ * Every dialog in the app is built on this shell (confirmation dialogs,
+ * the first-run update prompt, the shortcut help, the Spotify consent
+ * dialog and so on). It is also exported from the `common` barrel file.
  *
  * @see https://react.dev/reference/react-dom/createPortal
  *      React docs -- createPortal (for future portal-based rendering).
@@ -28,7 +29,15 @@
  * @see https://tailwindcss.com/docs/z-index -- z-index stacking context.
  */
 
-import { useEffect, useLayoutEffect, useCallback, useId, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 
 // Every dialog in the app is built on this shared shell, so translating
 // its one piece of fixed text (the close button) here means every modal
@@ -78,21 +87,6 @@ interface ModalProps {
 }
 
 /**
- * Renders a centered modal dialog with a semi-transparent backdrop.
- * Handles keyboard (Escape) and backdrop-click dismissal.
- *
- * **Rendering behaviour:**
- * - When `open` is false the component returns null (nothing is rendered).
- * - When `open` is true a global keydown listener is registered for Escape.
- * - The listener is cleaned up when the modal closes or the component unmounts.
- *
- * @param open     - Controls visibility (true = visible)
- * @param onClose  - Callback invoked when the modal should close
- * @param title    - Optional header title (omit to render body only)
- * @param children - Modal body content
- * @param maxWidth - Tailwind max-width class (default: 'max-w-lg')
- */
-/**
  * Every open dialog, in the order it opened; the last one is on top.
  *
  * Each open dialog listens for keys across the whole page. With two open
@@ -115,6 +109,26 @@ const openDialogs: object[] = [];
  */
 const dialogLayers = new Map<object, number>();
 
+/**
+ * Renders a centered modal dialog with a semi-transparent backdrop.
+ * Handles keyboard (Escape) and backdrop-click dismissal.
+ *
+ * **Rendering behaviour:**
+ * - When `open` is false the component returns null (nothing is rendered).
+ * - When `open` is true a global keydown listener is registered for Escape.
+ * - The listener is cleaned up when the modal closes or the component unmounts.
+ *
+ * It also traps Tab inside the panel, gives each open dialog its own
+ * layer on screen, and puts focus back on the opener when it closes.
+ * Only the top-most dialog answers Tab and Escape.
+ * See: https://www.w3.org/WAI/ARIA/apg/patterns/dialog-modal/
+ *
+ * @param open     - Controls visibility (true = visible)
+ * @param onClose  - Callback invoked when the modal should close
+ * @param title    - Optional header title (omit to render body only)
+ * @param children - Modal body content
+ * @param maxWidth - Tailwind max-width class (default: 'max-w-lg')
+ */
 export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }: ModalProps) {
   // This dialog's own place in `openDialogs`. A plain object, so identity
   // is all that is compared.
@@ -203,6 +217,8 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
     // focus escape the dialog entirely. See the sibling fix that added
     // this exclusion for the full explanation.
     if (e.key === 'Tab' && panelRef.current) {
+      // Everything inside the panel that Tab can reach.
+      // See: https://developer.mozilla.org/en-US/docs/Web/API/Document/querySelectorAll
       const focusable = panelRef.current.querySelectorAll<HTMLElement>(
         'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"]):not([disabled])'
       );
@@ -273,6 +289,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
       // Capped at 50, so a dialog never covers a toast (z-index 100) even if
       // the layers keep climbing -- which they can while one dialog stays
       // open and others below it keep opening and closing (stand-in review).
+      // One above the highest layer still open (0 when none are), capped at 50.
       const nextLayer = Math.min(Math.max(0, ...dialogLayers.values()) + 1, 50);
       dialogLayers.set(token, nextLayer);
       setLayer(nextLayer);
@@ -280,6 +297,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
       previousFocusRef.current = document.activeElement as HTMLElement;
       document.addEventListener('keydown', handleKeyDown);
       // Move focus into the modal after a tick (allows render to complete)
+      // See: https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame
       requestAnimationFrame(() => {
         if (panelRef.current) {
           const firstFocusable = panelRef.current.querySelector<HTMLElement>(
@@ -360,13 +378,16 @@ export function Modal({ open, onClose, title, children, maxWidth = 'max-w-lg' }:
          */}
         {title && (
           <div className="flex items-center justify-between px-5 py-4 border-b border-border-light">
-            <h3 id={titleId} className="text-base font-semibold text-content-primary">{title}</h3>
+            <h2 id={titleId} className="text-base font-semibold text-content-primary">
+              {title}
+            </h2>
             {/*
              * Close button -- uses the Lucide X icon at 18px.
              * aria-label="Close" ensures screen readers announce its purpose.
              * @see https://lucide.dev/icons/x -- Lucide X icon
              */}
             <button
+              type="button"
               onClick={onClose}
               className="p-1 rounded-platform text-content-tertiary hover:text-content-primary hover:bg-surface-secondary transition-colors"
               aria-label={t('common.close')}

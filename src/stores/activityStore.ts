@@ -31,14 +31,13 @@ function tagEntry(entry: ActivityLogEntry): ActivityLogEntry {
  */
 function persistTrimmedEntries(entries: ActivityLogEntry[]): void {
   if (entries.length === 0) return;
-  const lines = entries.map(
-    (e) => `${e.timestamp} [${e.download_id}] [${e.stream}] ${e.line}`
-  );
+  const lines = entries.map((e) => `${e.timestamp} [${e.download_id}] [${e.stream}] ${e.line}`);
   saveSessionLog(lines).catch((err) => {
     console.warn('Failed to save trimmed activity log entries:', err);
   });
 }
 
+/** Shape of the activity store: the entries, the paused flag and the actions that change them. */
 interface ActivityState {
   /** All log entries, newest last. */
   entries: ActivityLogEntry[];
@@ -54,6 +53,15 @@ interface ActivityState {
   clearEntries: () => void;
 }
 
+/**
+ * Zustand store for the Activity page.
+ *
+ * Keeps at most `MAX_ENTRIES` lines. Lines pushed out are saved to the
+ * session log first: `addEntries` drops just the overflow, `addEntry` drops
+ * the oldest tenth.
+ *
+ * @see https://zustand.docs.pmnd.rs/
+ */
 export const useActivityStore = create<ActivityState>((set) => ({
   entries: [],
   paused: false,

@@ -57,9 +57,7 @@ use std::sync::RwLock;
 
 use tauri::AppHandle;
 
-use crate::models::feature_flags::{
-    FeatureFlagsSnapshot, FetchMeta, FlagNotice, FlagSource,
-};
+use crate::models::feature_flags::{FeatureFlagsSnapshot, FetchMeta, FlagNotice, FlagSource};
 use crate::models::media_service::MediaServiceId;
 use crate::utils::activity_log::{emit_app_log, emit_verbose_app_log};
 use crate::utils::http_client::{build_client, full_user_agent, ClientConfig};
@@ -238,7 +236,10 @@ pub async fn refresh(app: &AppHandle) -> FeatureFlagsSnapshot {
     if let Some(detail) = failure {
         // Raw detail is for us, not for the user.
         log::warn!("Feature availability refresh failed: {detail}");
-        emit_verbose_app_log(app, &format!("Feature availability refresh failed: {detail}"));
+        emit_verbose_app_log(
+            app,
+            &format!("Feature availability refresh failed: {detail}"),
+        );
         // The single permitted user-facing line. Conveys "nothing changed",
         // names nothing, and asks for nothing.
         emit_app_log(app, REFRESH_FAILED_MESSAGE);
@@ -275,10 +276,7 @@ pub fn is_enabled(snapshot: &FeatureFlagsSnapshot, key: &str) -> bool {
 /// Unlike fetch failures, notices ARE user-facing: they are the mechanism
 /// by which a deliberately-disabled feature explains itself.
 #[must_use]
-pub fn notice_for<'a>(
-    snapshot: &'a FeatureFlagsSnapshot,
-    key: &str,
-) -> Option<&'a FlagNotice> {
+pub fn notice_for<'a>(snapshot: &'a FeatureFlagsSnapshot, key: &str) -> Option<&'a FlagNotice> {
     snapshot
         .verdicts
         .get(key)
@@ -466,7 +464,7 @@ async fn resolve_refresh(
             // the diagnostics wholesale.
             fresh.meta = FetchMeta {
                 source: FlagSource::Remote,
-                fetched_at: Some(chrono::Utc::now().to_rfc3339()),
+                fetched_at: Some(crate::utils::time_compat::now_rfc3339()),
                 consecutive_failures: 0,
                 last_error: None,
             };
@@ -933,7 +931,10 @@ mod tests {
 
         snap.verdicts.get_mut(key).unwrap().enabled = false;
         let err = evaluate_service_gate(&snap, &MediaServiceId::AppleMusic).unwrap_err();
-        assert!(!err.contains("dns"), "meta.last_error must never leak: {err}");
+        assert!(
+            !err.contains("dns"),
+            "meta.last_error must never leak: {err}"
+        );
         assert!(!err.contains("47"), "meta counters must never leak: {err}");
     }
 
@@ -1041,8 +1042,8 @@ mod tests {
     /// `success: true` with no `data` member is also a failure.
     #[test]
     fn envelope_success_true_without_data_is_a_failure() {
-        let err = parse_envelope(r#"{"success": true}"#)
-            .expect_err("missing data must be an error");
+        let err =
+            parse_envelope(r#"{"success": true}"#).expect_err("missing data must be an error");
         assert!(err.contains("no data"), "got: {err}");
     }
 
@@ -1141,7 +1142,10 @@ mod tests {
         let raw = std::fs::read_to_string(&path).unwrap();
         let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert!(
-            value.get("verdicts").expect("verdicts field present").is_object(),
+            value
+                .get("verdicts")
+                .expect("verdicts field present")
+                .is_object(),
             "on-disk cache must store verdicts as a JSON object, got: {raw}"
         );
 
@@ -1161,8 +1165,8 @@ mod tests {
         // Overwrite the companion with a digest that cannot match.
         std::fs::write(checksum_path(&path), "0".repeat(64)).unwrap();
 
-        let loaded = load_cache(&path)
-            .expect("a checksum mismatch must NOT prevent the cache from loading");
+        let loaded =
+            load_cache(&path).expect("a checksum mismatch must NOT prevent the cache from loading");
         assert!(!is_enabled(&loaded, "service-example"));
     }
 

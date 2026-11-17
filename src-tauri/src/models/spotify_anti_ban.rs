@@ -90,6 +90,7 @@ pub struct AntiBanSettings {
 }
 
 impl Default for AntiBanSettings {
+    /// Safe defaults: the throttle is on, with the delays and daily cap below.
     fn default() -> Self {
         Self {
             // Throttle ON by default — the safer choice.
@@ -157,9 +158,18 @@ mod tests {
         let opts = AntiBanSettings::default();
         let json = serde_json::to_string(&opts).unwrap();
         let back: AntiBanSettings = serde_json::from_str(&json).unwrap();
-        assert_eq!(back.playback_speed_throttle_enabled, opts.playback_speed_throttle_enabled);
-        assert_eq!(back.inter_track_delay_seconds, opts.inter_track_delay_seconds);
-        assert_eq!(back.inter_track_jitter_seconds, opts.inter_track_jitter_seconds);
+        assert_eq!(
+            back.playback_speed_throttle_enabled,
+            opts.playback_speed_throttle_enabled
+        );
+        assert_eq!(
+            back.inter_track_delay_seconds,
+            opts.inter_track_delay_seconds
+        );
+        assert_eq!(
+            back.inter_track_jitter_seconds,
+            opts.inter_track_jitter_seconds
+        );
         assert_eq!(back.daily_download_cap, opts.daily_download_cap);
     }
 

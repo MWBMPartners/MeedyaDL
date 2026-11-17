@@ -132,30 +132,30 @@ export function FallbackTab() {
             which of the two is currently selected -- these behave like
             a two-way toggle, not a pair of ordinary buttons. */}
         <div className="flex gap-2 border-b border-border-light pb-2">
-        <Button
-          variant={activeChain === 'music' ? 'primary' : 'ghost'}
-          size="sm"
-          onClick={() => setActiveChain('music')}
-          aria-pressed={activeChain === 'music'}
-        >
-          Audio Fallback
-        </Button>
-        <Button
-          variant={activeChain === 'video' ? 'primary' : 'ghost'}
-          size="sm"
-          onClick={() => setActiveChain('video')}
-          aria-pressed={activeChain === 'video'}
-        >
-          Video Fallback
-        </Button>
-      </div>
+          <Button
+            variant={activeChain === 'music' ? 'primary' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveChain('music')}
+            aria-pressed={activeChain === 'music'}
+          >
+            Audio Fallback
+          </Button>
+          <Button
+            variant={activeChain === 'video' ? 'primary' : 'ghost'}
+            size="sm"
+            onClick={() => setActiveChain('video')}
+            aria-pressed={activeChain === 'video'}
+          >
+            Video Fallback
+          </Button>
+        </div>
 
         {/* Music fallback chain */}
         {activeChain === 'music' && (
           <div>
-            <h4 className="text-sm font-semibold text-content-primary mb-2">
+            <h3 className="text-sm font-semibold text-content-primary mb-2">
               Audio Codec Fallback Chain
-            </h4>
+            </h3>
             <p className="text-xs text-content-tertiary mb-3">
               <strong>ALAC</strong> = lossless (perfect quality) &middot; <strong>Atmos</strong> =
               spatial 3D audio &middot; <strong>AC3</strong> = 5.1 surround sound &middot;{' '}
@@ -169,13 +169,13 @@ export function FallbackTab() {
                 explanation instead. */}
             {gamdlCaps.assets_api_unlocks_lossy_codecs ? (
               <p className="text-xs text-content-tertiary mb-3">
-                Your installed GAMDL release can download Atmos, AC3, and every AAC variant
-                without the Wrapper service — only <strong>ALAC</strong> still requires it.
+                Your installed GAMDL release can download Atmos, AC3, and every AAC variant without
+                the Wrapper service — only <strong>ALAC</strong> still requires it.
               </p>
             ) : (
               <p className="text-xs text-content-tertiary mb-3">
-                Codecs marked (Experimental) may fail intermittently without the Wrapper service
-                on your installed GAMDL release — only AAC Legacy and AAC-HE Legacy are reliably
+                Codecs marked (Experimental) may fail intermittently without the Wrapper service on
+                your installed GAMDL release — only AAC Legacy and AAC-HE Legacy are reliably
                 downloadable with cookies alone.
               </p>
             )}
@@ -191,23 +191,20 @@ export function FallbackTab() {
         {/* Video codec fallback chain */}
         {activeChain === 'video' && (
           <div>
-            <h4 className="text-sm font-semibold text-content-primary mb-2">
+            <h3 className="text-sm font-semibold text-content-primary mb-2">
               Video Codec Fallback Chain
-            </h4>
+            </h3>
             <p className="text-xs text-content-tertiary mb-3">
-              Music video resolution is a ceiling, not a request: whatever
-              maximum resolution is set in Codec &amp; Resolution, the download tool always
-              finds the closest quality at or below it, so resolution can
-              never be unavailable and there is nothing to step down through
-              — which is why there is no resolution list here. Codec is
-              different. <strong>H.265</strong> makes smaller files at the
-              same picture quality, and is the only codec offered for videos
-              above 1080p. <strong>H.264</strong> plays on almost every
-              device and app, but Apple Music never offers it above 1080p.
-              The tool tries this list in order and downloads the video
-              using the first codec it is actually offered in — if you
-              remove H.264, a video that is only offered in H.264 is
-              skipped rather than downloaded.
+              Music video resolution is a ceiling, not a request: whatever maximum resolution is set
+              in Codec &amp; Resolution, the download tool always finds the closest quality at or
+              below it, so resolution can never be unavailable and there is nothing to step down
+              through — which is why there is no resolution list here. Codec is different.{' '}
+              <strong>H.265</strong> makes smaller files at the same picture quality, and is the
+              only codec offered for videos above 1080p. <strong>H.264</strong> plays on almost
+              every device and app, but Apple Music never offers it above 1080p. The tool tries this
+              list in order and downloads the video using the first codec it is actually offered in
+              — if you remove H.264, a video that is only offered in H.264 is skipped rather than
+              downloaded.
             </p>
             <FallbackChainList<VideoCodec>
               items={videoChain.value}

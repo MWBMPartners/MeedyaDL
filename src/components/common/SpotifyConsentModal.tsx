@@ -58,6 +58,10 @@ import { withErrorToast } from '@/lib/withErrorToast';
 export default function SpotifyConsentModal() {
   const show = useUiStore((s) => s.showSpotifyConsent);
   const callback = useUiStore((s) => s.pendingSpotifyConsentCallback);
+  // These three are read with `getState()` rather than a hook, so nothing
+  // subscribes to them: they are functions that never change, so the
+  // component does not need to re-render for them.
+  // See: https://zustand.docs.pmnd.rs/apis/create
   const setShow = useUiStore.getState().setShowSpotifyConsent;
   const setCallback = useUiStore.getState().setPendingSpotifyConsentCallback;
   const addToast = useUiStore.getState().addToast;
@@ -82,6 +86,12 @@ export default function SpotifyConsentModal() {
     return undefined;
   }, [show]);
 
+  /**
+   * The "I understand" button. Records the consent through the backend,
+   * then closes the dialog and re-runs the download that was waiting.
+   * Nothing is closed or resumed if saving the answer fails (the person
+   * sees an error toast and can try again).
+   */
   const handleAccept = useCallback(async () => {
     // Single source of truth — the IPC writes the flag and persists
     // settings.json atomically. Frontend does not double-write.
@@ -90,7 +100,7 @@ export default function SpotifyConsentModal() {
         await acknowledgeSpotifyConsent();
         return true;
       },
-      { errorMsg: 'Failed to record consent — please try again.' }
+      { errorMsg: 'MeedyaDL could not save your answer. Please try again.' }
     );
     if (success) {
       // Capture the callback BEFORE clearing it; the closure persists
@@ -107,6 +117,10 @@ export default function SpotifyConsentModal() {
     }
   }, [callback, setShow, setCallback]);
 
+  /**
+   * "Cancel" (also Escape and a click outside). Closes the dialog and drops
+   * the waiting download, so nothing is queued, and says so in a toast.
+   */
   const handleDismiss = useCallback(() => {
     setShow(false);
     setPendingCallback(setCallback, null);
@@ -124,7 +138,7 @@ export default function SpotifyConsentModal() {
       maxWidth="max-w-lg"
     >
       <div className="space-y-4 text-sm text-content-secondary">
-        <div className="flex gap-3 rounded-lg border border-status-warning/40 bg-status-warning/5 p-3">
+        <div className="flex gap-3 rounded-platform-lg border border-status-warning/40 bg-status-warning/5 p-3">
           <AlertTriangle
             size={20}
             className="text-status-warning flex-shrink-0 mt-0.5"
@@ -135,29 +149,26 @@ export default function SpotifyConsentModal() {
               Spotify downloads carry an account-ban risk.
             </p>
             <p className="mt-1 text-xs">
-              Spotify's terms of service prohibit automated downloads.
-              Accounts that look like bots have been suspended — including
-              cases reported as recently as late 2025. The risk is real but
-              manageable with the right precautions.
+              Spotify's terms of service prohibit automated downloads. Accounts that look like bots
+              have been suspended — including cases reported as recently as late 2025. The risk is
+              real but manageable with the right precautions.
             </p>
           </div>
         </div>
         <p>
-          MeedyaDL shapes votify's traffic pattern to look more like a slow
-          human listener: a real-time playback-speed throttle, randomised
-          pauses between tracks, and a daily download cap. These defaults
-          are designed to be safe for a hobbyist user. Disabling any of
-          them in the Spotify Settings tab materially increases your risk.
+          MeedyaDL shapes votify's traffic pattern to look more like a slow human listener: a
+          real-time playback-speed throttle, randomised pauses between tracks, and a daily download
+          cap. These defaults are designed to be safe for a hobbyist user. Disabling any of them in
+          the Spotify Settings tab materially increases your risk.
         </p>
         <p>
-          <span className="font-medium text-content-primary">Strongly recommended:</span>{' '}
-          use a throwaway Spotify account, not your primary one. A
-          suspended throwaway is an inconvenience; a suspended primary
-          loses your playlists, follows, and listening history.
+          <span className="font-medium text-content-primary">Strongly recommended:</span> use a
+          throwaway Spotify account, not your primary one. A suspended throwaway is an
+          inconvenience; a suspended primary loses your playlists, follows, and listening history.
         </p>
         <p className="text-xs text-content-tertiary">
-          This consent is recorded once. You can revoke it any time from
-          Settings &gt; Services &gt; Spotify.
+          This consent is recorded once. You can revoke it any time from Settings &gt; Services &gt;
+          Spotify.
         </p>
         <div className="flex justify-end gap-3 pt-2">
           {/* Native <button> for the dismiss action so we can attach a
@@ -167,7 +178,7 @@ export default function SpotifyConsentModal() {
           <button
             ref={dismissButtonRef}
             type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium text-content-secondary hover:text-content-primary transition-colors"
+            className="px-4 py-2 rounded-platform-lg text-sm font-medium text-content-secondary hover:text-content-primary transition-colors"
             onClick={handleDismiss}
             aria-label="Cancel Spotify download and return to the download form"
           >

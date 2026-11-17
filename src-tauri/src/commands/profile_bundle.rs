@@ -80,6 +80,9 @@ pub struct ExportProfileOptions {
     pub note: Option<String>,
 }
 
+/// Serde default that makes an omitted flag mean `true`
+/// (`#[serde(default = "default_true")]`).
+/// See: https://serde.rs/attr-default.html
 fn default_true() -> bool {
     true
 }
@@ -181,10 +184,8 @@ pub async fn export_profile(
                     _ => continue,
                 };
                 if let Ok(bytes) = std::fs::read(&p) {
-                    writer.add_optional_file(
-                        format!("{}{name}", entry::ACTIVITY_LOG_PREFIX),
-                        bytes,
-                    );
+                    writer
+                        .add_optional_file(format!("{}{name}", entry::ACTIVITY_LOG_PREFIX), bytes);
                 }
             }
             writer.declare_section(BundleSection::ActivityLog);
@@ -217,21 +218,27 @@ pub async fn export_profile(
     // imports cleanly and the user re-imports cookies / re-enters
     // MusicKit on the new install.
     if options.include_credentials {
-        let password = options.credentials_password.as_deref().unwrap_or("");
-        if password.is_empty() {
+        // No password (or an empty one) refuses. Written without a stand-in
+        // empty string, so no fixed value can ever reach the encryption.
+        let Some(password) = options
+            .credentials_password
+            .as_deref()
+            .filter(|p| !p.is_empty())
+        else {
             return Err(
                 "Credentials cannot be included without a password — set a password in the export dialog.".to_string(),
             );
-        }
+        };
         match collect_credentials_blob(&app) {
             Ok(plaintext) if !plaintext.is_empty() => {
-                let encrypted = encrypt_credentials(password, &plaintext).map_err(|e| {
-                    format!("Failed to encrypt credentials: {e}")
-                })?;
-                let EncryptedCredentials { ciphertext, kdf_params } = encrypted;
-                let kdf_json = serde_json::to_vec(&kdf_params).map_err(|e| {
-                    format!("Failed to serialise credentials KDF params: {e}")
-                })?;
+                let encrypted = encrypt_credentials(password, &plaintext)
+                    .map_err(|e| format!("Failed to encrypt credentials: {e}"))?;
+                let EncryptedCredentials {
+                    ciphertext,
+                    kdf_params,
+                } = encrypted;
+                let kdf_json = serde_json::to_vec(&kdf_params)
+                    .map_err(|e| format!("Failed to serialise credentials KDF params: {e}"))?;
                 writer.add_optional_file(entry::CREDENTIALS, ciphertext);
                 writer.add_optional_file(entry::CREDENTIALS_KDF, kdf_json);
                 writer.declare_section(BundleSection::Credentials);
@@ -266,7 +273,7 @@ pub async fn export_profile(
     let default_name = format!(
         "MeedyaDL-{}-{}.meedyabundle",
         crate_version,
-        chrono::Utc::now().format("%Y-%m-%d")
+        crate::utils::time_compat::ymd(crate::utils::time_compat::now_utc())
     );
     let file_path = app
         .dialog()
@@ -332,11 +339,7 @@ fn collect_manifests_into_bundle(root: &std::path::Path, writer: &mut BundleWrit
             return None;
         }
         let rel = path.strip_prefix(root).ok()?;
-        let archive_path = format!(
-            "{}{}",
-            entry::MANIFESTS_PREFIX,
-            rel.to_string_lossy()
-        );
+        let archive_path = format!("{}{}", entry::MANIFESTS_PREFIX, rel.to_string_lossy());
         let bytes = std::fs::read(path).ok()?;
         writer.add_optional_file(archive_path, bytes);
         count += 1;
@@ -431,11 +434,7 @@ pub async fn scan_for_bundles() -> Result<Vec<DiscoveredBundle>, String> {
                 exported_at: m.exported_at,
                 exported_by: m.exported_by,
                 note: m.note,
-                sections: m
-                    .contents
-                    .iter()
-                    .map(|s| s.as_str().to_string())
-                    .collect(),
+                sections: m.contents.iter().map(|s| s.as_str().to_string()).collect(),
                 source_path: path.to_string_lossy().to_string(),
                 produced_by_this_app,
             },
@@ -499,17 +498,13 @@ fn collect_credentials_blob(app: &AppHandle) -> Result<Vec<u8>, String> {
         }
     }
 
-    if let Ok(Some(pem)) =
-        crate::services::apple_music_api::get_private_key_from_keychain()
-    {
+    if let Ok(Some(pem)) = crate::services::apple_music_api::get_private_key_from_keychain() {
         if !pem.trim().is_empty() {
             blob.musickit_private_key = Some(pem);
         }
     }
 
-    if let Ok(Some(token)) =
-        crate::services::apple_music_api::get_webplayer_token_from_keychain()
-    {
+    if let Ok(Some(token)) = crate::services::apple_music_api::get_webplayer_token_from_keychain() {
         if !token.trim().is_empty() {
             blob.webplayer_developer_token = Some(token);
         }
@@ -521,8 +516,7 @@ fn collect_credentials_blob(app: &AppHandle) -> Result<Vec<u8>, String> {
     {
         return Ok(Vec::new());
     }
-    serde_json::to_vec(&blob)
-        .map_err(|e| format!("Failed to serialise credentials blob: {e}"))
+    serde_json::to_vec(&blob).map_err(|e| format!("Failed to serialise credentials blob: {e}"))
 }
 
 /// Restore the credentials blob into the install: cookies file
@@ -551,8 +545,7 @@ fn restore_credentials_blob(
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).ok();
         }
-        std::fs::write(&path, content)
-            .map_err(|e| format!("Failed to write cookies file: {e}"))?;
+        std::fs::write(&path, content).map_err(|e| format!("Failed to write cookies file: {e}"))?;
     }
 
     if let Some(pem) = blob.musickit_private_key {
@@ -631,8 +624,12 @@ fn apply_bundle_settings_rules(
     Ok(())
 }
 
+/// Turns a byte count into short text for the activity log, for example
+/// `1.50 MB`. Uses 1024-based units; below 1 KB it says `N bytes`.
 fn format_size(bytes: u64) -> String {
+    // One kilobyte, counted the 1024 way.
     const KB: u64 = 1024;
+    // One megabyte, counted the 1024 way.
     const MB: u64 = 1024 * 1024;
     if bytes >= MB {
         format!("{:.2} MB", bytes as f64 / MB as f64)
@@ -708,10 +705,9 @@ pub async fn peek_profile_bundle(
         }
     };
 
-    let bytes = std::fs::read(&resolved)
-        .map_err(|e| format!("Failed to read bundle file: {e}"))?;
-    let reader = BundleReader::from_bytes(bytes)
-        .map_err(|e| format!("Failed to open bundle: {e}"))?;
+    let bytes = std::fs::read(&resolved).map_err(|e| format!("Failed to read bundle file: {e}"))?;
+    let reader =
+        BundleReader::from_bytes(bytes).map_err(|e| format!("Failed to open bundle: {e}"))?;
     let meta = reader.meta().clone();
     let produced_by_this_app = meta.is_produced_by_this_app();
 
@@ -784,9 +780,13 @@ pub struct ImportProfileOptions {
     pub credentials_password: Option<String>,
 }
 
+/// Serde default for a conflict choice: leave the existing item alone.
+/// See: https://serde.rs/attr-default.html
 fn default_skip() -> ImportConflictAction {
     ImportConflictAction::Skip
 }
+/// Serde default for a conflict choice: replace the existing item.
+/// See: https://serde.rs/attr-default.html
 fn default_replace() -> ImportConflictAction {
     ImportConflictAction::Replace
 }
@@ -1014,17 +1014,23 @@ pub async fn import_profile(
     if matches!(options.credentials, ImportConflictAction::Replace)
         && reader.meta().has(BundleSection::Credentials)
     {
-        let password = options.credentials_password.as_deref().unwrap_or("");
-        if password.is_empty() {
+        // No password (or an empty one) refuses. Written without a stand-in
+        // empty string, so no fixed value can ever reach the encryption.
+        let Some(password) = options
+            .credentials_password
+            .as_deref()
+            .filter(|p| !p.is_empty())
+        else {
             return Err(
                 "Bundle contains credentials but no password was supplied — set the password and retry the import.".to_string(),
             );
-        }
+        };
         let ciphertext = reader
             .read_entry(entry::CREDENTIALS)
             .map_err(|e| format!("Failed to read credentials.encrypted: {e}"))?
             .ok_or_else(|| {
-                "Bundle declared a credentials section but credentials.encrypted is missing".to_string()
+                "Bundle declared a credentials section but credentials.encrypted is missing"
+                    .to_string()
             })?;
         let kdf_bytes = reader
             .read_entry(entry::CREDENTIALS_KDF)
@@ -1097,9 +1103,7 @@ fn safe_bundle_dest(base: &std::path::Path, rel: &str) -> Option<std::path::Path
 /// restore loops which deal with N files under a single section
 /// directory.
 fn collect_archive_entries_with_prefix(reader: &mut BundleReader, prefix: &str) -> Vec<String> {
-    reader
-        .file_names_starting_with(prefix)
-        .unwrap_or_default()
+    reader.file_names_starting_with(prefix).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -1185,12 +1189,13 @@ mod tests {
             musickit_team_id: Some("  abcde12345  ".to_string()),
             ..Default::default()
         };
-        apply_bundle_settings_rules(&mut imported, &crate::models::settings::AppSettings::default())
-            .expect("valid once tidied");
+        apply_bundle_settings_rules(
+            &mut imported,
+            &crate::models::settings::AppSettings::default(),
+        )
+        .expect("valid once tidied");
         assert_eq!(imported.musickit_team_id, Some("ABCDE12345".to_string()));
     }
-
-
 
     use super::*;
 

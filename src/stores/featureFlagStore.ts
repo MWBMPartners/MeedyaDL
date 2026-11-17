@@ -126,10 +126,7 @@ export function selectNoticeEntries(snapshot: FeatureFlagsSnapshot): FeatureNoti
  * deep links, the clipboard monitor and queue import never pass through the
  * React form.
  */
-export function selectServiceEnabled(
-  snapshot: FeatureFlagsSnapshot,
-  flagKey: string
-): boolean {
+export function selectServiceEnabled(snapshot: FeatureFlagsSnapshot, flagKey: string): boolean {
   const verdict = snapshot.verdicts[flagKey];
   return verdict === undefined || verdict.enabled !== false;
 }

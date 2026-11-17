@@ -28,6 +28,8 @@ don't apply.
 - [ ] `cargo test` (in `src-tauri/`) passes
 - [ ] `npm run type-check` and `npm run test` pass
 - [ ] `cargo clippy -- -D warnings` is clean
+- [ ] `cargo fmt --check` (in `src-tauri/`) and `npm run format:check` are clean (CI fails on unformatted code)
+- [ ] A `feat` / `fix` / `perf` change ends this description with a `Release-Note:` line (or `Release-Note: none`)
 - [ ] Tested the golden path manually (`cargo tauri dev`)
 - [ ] Tested at least one edge / failure case
 

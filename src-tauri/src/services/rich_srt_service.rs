@@ -68,119 +68,6 @@ impl TtmlStyle {
 // Rich SRT Generation (Public API)
 // ============================================================
 
-/// Generate format-rich SRT files from TTML or WebVTT sources for all
-/// tracks in a directory.
-///
-/// Scans `album_dir` for media files (`.m4a`, `.m4v`, `.mp4`). For each
-/// media file, looks for a rich source in priority order:
-///   1. `.ttml` — richest source (Apple Music, has `tts:*` styling attributes)
-///   2. `.vtt`  — also supports styling (`<b>`, `<i>`, `<u>`, CSS classes)
-///
-/// If a rich source is found, converts it to SRT with styling tags and
-/// writes/overwrites the corresponding `.srt` file. Source-derived SRT is
-/// strictly richer than plain downloaded SRT, so overwriting is intentional.
-///
-/// If neither TTML nor WebVTT exists for a track, any existing plain
-/// `.srt` is kept unchanged.
-///
-/// # Returns
-/// * `Ok(count)` — Number of rich SRT files generated.
-/// * `Err(msg)` — Directory read failure.
-pub fn generate_rich_srt_for_directory(album_dir: &str) -> Result<usize, String> {
-    let dir = Path::new(album_dir);
-    if !dir.is_dir() {
-        return Err(format!("Not a directory: {album_dir}"));
-    }
-
-    let entries =
-        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory {album_dir}: {e}"))?;
-
-    let mut generated = 0;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-
-        // Skip macOS AppleDouble shadows and similar sidecars before
-        // the extension check (#577).
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-            continue;
-        }
-
-        // Only process media files (.m4a, .m4v, .mp4)
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        if ext != "m4a" && ext != "m4v" && ext != "mp4" {
-            continue;
-        }
-
-        // Get the file stem (e.g., "01 Song Title")
-        let stem = match path.file_stem().and_then(|s| s.to_str()) {
-            Some(s) => s.to_string(),
-            None => continue,
-        };
-
-        // Try rich sources in priority order: TTML → WebVTT
-        let srt_content = if let Some(srt) = try_rich_srt_from_ttml(dir, &stem) {
-            srt
-        } else if let Some(srt) = try_rich_srt_from_webvtt(dir, &stem) {
-            srt
-        } else {
-            // No rich source found — keep any existing plain SRT
-            continue;
-        };
-
-        // Write the .srt file (overwriting any existing plain SRT)
-        let srt_path = dir.join(format!("{stem}.srt"));
-        if let Err(e) = std::fs::write(&srt_path, &srt_content) {
-            log::debug!("Failed to write rich SRT for {stem}: {e}");
-            continue;
-        }
-
-        log::debug!("Generated rich SRT: {stem}.srt");
-        generated += 1;
-    }
-
-    Ok(generated)
-}
-
-/// Try to generate a rich SRT from a TTML source file.
-fn try_rich_srt_from_ttml(dir: &Path, stem: &str) -> Option<String> {
-    let ttml_path = dir.join(format!("{stem}.ttml"));
-    if !ttml_path.exists() {
-        return None;
-    }
-
-    let content = std::fs::read_to_string(&ttml_path).ok()?;
-    match ttml_to_rich_srt(&content) {
-        Ok(srt) => Some(srt),
-        Err(e) => {
-            log::debug!("Failed to convert TTML to rich SRT for {stem}: {e}");
-            None
-        }
-    }
-}
-
-/// Try to generate a rich SRT from a WebVTT source file.
-fn try_rich_srt_from_webvtt(dir: &Path, stem: &str) -> Option<String> {
-    let vtt_path = dir.join(format!("{stem}.vtt"));
-    if !vtt_path.exists() {
-        return None;
-    }
-
-    let content = std::fs::read_to_string(&vtt_path).ok()?;
-    match webvtt_to_rich_srt(&content) {
-        Ok(srt) => Some(srt),
-        Err(e) => {
-            log::debug!("Failed to convert WebVTT to rich SRT for {stem}: {e}");
-            None
-        }
-    }
-}
-
 /// Convert TTML XML content to format-rich SRT.
 ///
 /// Parses the TTML document, resolves named styles from `<head><styling>`,
@@ -417,77 +304,6 @@ fn clean_vtt_tags(line: &str) -> String {
 // Subtitle Embedding (Public API)
 // ============================================================
 
-/// Embed subtitle sidecar content into media files in a directory.
-///
-/// For each media file (`.m4a`, `.m4v`, `.mp4`), reads matching `.srt`
-/// and `.vtt` sidecar files and embeds their content as freeform atoms
-/// in the MP4 container. Uses the same `mp4ameta` pattern as Enhanced
-/// LRC lyrics embedding.
-///
-/// # Returns
-/// * `Ok(count)` — Number of media files with embedded subtitles.
-/// * `Err(msg)` — Directory read failure.
-pub fn embed_subtitles_for_directory(album_dir: &str) -> Result<usize, String> {
-    let dir = Path::new(album_dir);
-    if !dir.is_dir() {
-        return Err(format!("Not a directory: {album_dir}"));
-    }
-
-    let entries =
-        std::fs::read_dir(dir).map_err(|e| format!("Failed to read directory {album_dir}: {e}"))?;
-
-    let mut embedded = 0;
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-
-        // Skip macOS AppleDouble shadows and similar sidecars (#577).
-        if crate::utils::fs_safe::is_filesystem_sidecar(&path) {
-            continue;
-        }
-
-        // Only process media files
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_lowercase();
-
-        if ext != "m4a" && ext != "m4v" && ext != "mp4" {
-            continue;
-        }
-
-        let stem = match path.file_stem().and_then(|s| s.to_str()) {
-            Some(s) => s.to_string(),
-            None => continue,
-        };
-
-        // Read matching sidecar files
-        let srt_path = dir.join(format!("{stem}.srt"));
-        let vtt_path = dir.join(format!("{stem}.vtt"));
-
-        let srt_content = std::fs::read_to_string(&srt_path).ok();
-        let vtt_content = std::fs::read_to_string(&vtt_path).ok();
-
-        // Skip if neither sidecar exists
-        if srt_content.is_none() && vtt_content.is_none() {
-            continue;
-        }
-
-        match embed_subtitles_in_file(&path, srt_content.as_deref(), vtt_content.as_deref()) {
-            Ok(()) => {
-                log::debug!("Embedded subtitles in: {stem}.{ext}");
-                embedded += 1;
-            }
-            Err(e) => {
-                log::debug!("Failed to embed subtitles in {stem}.{ext}: {e}");
-            }
-        }
-    }
-
-    Ok(embedded)
-}
-
 /// Embed subtitle content as freeform atoms in a media file.
 ///
 /// Uses the `mp4ameta` crate to write subtitle text as freeform atoms
@@ -496,6 +312,10 @@ pub fn embed_subtitles_for_directory(album_dir: &str) -> Result<usize, String> {
 /// Atom names:
 /// - `subtitles-srt` — SRT subtitle content
 /// - `subtitles-vtt` — WebVTT subtitle content
+///
+/// Takes no write lock itself. The caller's per-file loop must hold the
+/// app-wide lock for `file_path` (`utils::file_locks::global()`), because
+/// the lock is not re-entrant.
 pub fn embed_subtitles_in_file(
     file_path: &Path,
     srt_content: Option<&str>,
@@ -650,9 +470,7 @@ pub(crate) fn normalize_color(value: &str) -> Option<String> {
     // second, belt-and-braces guard rather than a plain `&trimmed[..7]` —
     // if this condition is ever loosened later to accept non-ASCII input,
     // it stays safe instead of quietly becoming a crash again.
-    if trimmed.starts_with('#')
-        && trimmed.is_ascii()
-        && (trimmed.len() == 7 || trimmed.len() == 9)
+    if trimmed.starts_with('#') && trimmed.is_ascii() && (trimmed.len() == 7 || trimmed.len() == 9)
     {
         // Return the first 7 chars (#RRGGBB), strip alpha channel if present (#RRGGBBAA)
         return Some(crate::utils::text::truncate_str(trimmed, 7).to_uppercase());

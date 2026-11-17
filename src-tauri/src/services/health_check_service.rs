@@ -178,9 +178,7 @@ pub async fn check_internet_connectivity(
 
     if !has_internet {
         log::warn!("Pre-flight internet check: Tier 1 FAILED — no general internet connectivity");
-        log::info!(
-            "Pre-flight internet check: Tier 2 ({tier2_name}) → skipped (no internet)"
-        );
+        log::info!("Pre-flight internet check: Tier 2 ({tier2_name}) → skipped (no internet)");
         return Some(PreflightWarning {
             check: PreflightCheck::Internet,
             message: "No internet connectivity — could not reach Cloudflare or Google. \
@@ -325,7 +323,7 @@ pub fn parse_cookies_file(path: &str) -> Result<CookieValidation, String> {
     let mut expired = false;
     let mut warnings = Vec::new();
     // Current UTC timestamp for comparing against cookie expiry times
-    let now = chrono::Utc::now().timestamp();
+    let now = crate::utils::time_compat::now_utc().unix_timestamp();
 
     // Parse each line of the Netscape cookie file
     for line in contents.lines() {
@@ -462,7 +460,7 @@ pub fn validate_cookies(cookies_path: &str) -> Option<PreflightWarning> {
 /// name and password only after a `http://`-style start: an address
 /// typed without one, such as `name:password@127.0.0.1`, cannot be
 /// connected to, but would still be printed with the password in it.
-fn http_error_for_message(err: reqwest::Error) -> String {
+pub(crate) fn http_error_for_message(err: reqwest::Error) -> String {
     crate::services::crash_report_service::redact_urls_in_text(&err.without_url().to_string())
 }
 
@@ -529,12 +527,12 @@ pub async fn check_wrapper_health(wrapper_url: &str) -> Option<PreflightWarning>
 /// Returns:
 /// - `None` if the socket accepts the connection.
 /// - `Some(PreflightWarning)` on parse error, connect refusal, or timeout.
-pub async fn check_wrapper_decrypt_health(
-    wrapper_decrypt_ip: &str,
-) -> Option<PreflightWarning> {
-    let (host, port_str) = match wrapper_decrypt_ip.rsplit_once(':') {
-        Some((h, p)) if !h.is_empty() && !p.is_empty() => (h, p),
-        _ => {
+pub async fn check_wrapper_decrypt_health(wrapper_decrypt_ip: &str) -> Option<PreflightWarning> {
+    let (host, port_str) = match crate::utils::wrapper_address::split_decrypt_address(
+        wrapper_decrypt_ip,
+    ) {
+        Some((h, p)) => (h, p),
+        None => {
             return Some(PreflightWarning {
                 check: PreflightCheck::WrapperDecrypt,
                 message: format!(
@@ -555,7 +553,7 @@ pub async fn check_wrapper_decrypt_health(
         }
     };
 
-    let connect = tokio::net::TcpStream::connect((host, port));
+    let connect = tokio::net::TcpStream::connect((host.as_str(), port));
     match tokio::time::timeout(std::time::Duration::from_secs(3), connect).await {
         Ok(Ok(_stream)) => None,
         Ok(Err(err)) => Some(PreflightWarning {
@@ -610,8 +608,7 @@ pub async fn check_wrapper_m3u8_health(wrapper_m3u8_ip: &str) -> Option<Prefligh
         }
     };
 
-    let connect =
-        tokio::net::TcpStream::connect((host, port));
+    let connect = tokio::net::TcpStream::connect((host, port));
     match tokio::time::timeout(std::time::Duration::from_secs(3), connect).await {
         Ok(Ok(_stream)) => None,
         Ok(Err(err)) => Some(PreflightWarning {
@@ -1078,6 +1075,14 @@ pub async fn wrapper_v2_logout(wrapper_url: &str) -> Result<(), String> {
 /// - `None` if the directory is writable
 /// - `Some(PreflightWarning)` if any issue is detected
 pub async fn check_output_path(output_path: &str) -> Option<PreflightWarning> {
+    // A folder MeedyaDL refuses is reported by name before anything is
+    // touched: no test file is written there (#1419).
+    if let Some(message) = crate::services::config_service::download_folder_refusal(output_path) {
+        return Some(PreflightWarning {
+            check: PreflightCheck::OutputPath,
+            message,
+        });
+    }
     let path_owned = output_path.to_string();
 
     let probe_result = tokio::time::timeout(
@@ -1222,6 +1227,18 @@ fn probe_write_access(dir: &std::path::Path, display_path: &str) -> Option<Prefl
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn a_folder_with_a_parent_step_is_refused_by_name_and_nothing_is_written() {
+        let base = std::env::temp_dir().join("meedyadl-1419-check");
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let folder = format!("{}/sub/../out", base.display());
+        let w = super::check_output_path(&folder).await.expect("refused");
+        assert!(w.message.contains(&folder), "{}", w.message);
+        // Nothing was created or written, not even the folder.
+        assert_eq!(std::fs::read_dir(&base).unwrap().count(), 0);
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     // ── The name a pre-flight check travels under (#1156) ──────────────
     //

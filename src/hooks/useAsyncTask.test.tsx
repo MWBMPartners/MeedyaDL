@@ -73,7 +73,7 @@ describe('useAsyncTask', () => {
     const { result } = renderHook(() =>
       useAsyncTask(async () => {
         throw new Error('boom');
-      }),
+      })
     );
     let returned: unknown;
     await act(async () => {
@@ -88,7 +88,7 @@ describe('useAsyncTask', () => {
     const { result } = renderHook(() =>
       useAsyncTask(async () => {
         throw 'plain string';
-      }),
+      })
     );
     await act(async () => {
       await result.current.run();

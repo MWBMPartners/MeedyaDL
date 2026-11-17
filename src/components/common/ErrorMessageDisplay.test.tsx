@@ -66,7 +66,7 @@ const REAL_GAMDL_BUG_MESSAGE =
   'GAMDL bug — music video cover art: 3 track(s) skipped. Audio for those ' +
   'tracks did not download. This is an upstream bug (Apple returns 400 Bad ' +
   'Request because GAMDL sends literal `{w}x{h}` placeholders instead of ' +
-  "real dimensions). The album cover is still attached separately during " +
+  'real dimensions). The album cover is still attached separately during ' +
   "MeedyaDL's enrichment pass. Please report at " +
   'https://github.com/glomatico/gamdl/issues.';
 
@@ -128,6 +128,38 @@ describe('ErrorMessageDisplay', () => {
   it('honours custom truncateLines via the literal lookup', () => {
     render(<ErrorMessageDisplay message="boom" truncateLines={3} />);
     expect(screen.getByText('boom').className).toMatch(/line-clamp-3/);
+  });
+
+  // ===========================================================================
+  // Plain summary, technical text folded away (polish pass M8)
+  // ===========================================================================
+
+  it('shows a plain summary for a traceback and folds the original under Details', async () => {
+    const traceback =
+      'Traceback (most recent call last): File "/Users/demo/x.py", line 4, in y httpx.ConnectError: [Errno 61] Connection refused while connecting to amp-api.music.apple.com:443';
+    render(<ErrorMessageDisplay message={traceback} truncateLines={null} />);
+    const summary = screen.getByText(/could not reach Apple Music/);
+    expect(summary.textContent).not.toContain('Traceback');
+    const details = screen.getByText('Details').closest('details');
+    expect(details).not.toBeNull();
+    expect(details?.open).toBe(false);
+    expect(details?.textContent).toContain(traceback);
+    // Copy still copies the whole original.
+    fireEvent.contextMenu(summary);
+    await act(async () => {
+      fireEvent.click(screen.getByText('Copy error message'));
+    });
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(traceback);
+  });
+
+  it('shows a plain sentence as it is, with no Details', () => {
+    render(
+      <ErrorMessageDisplay message="Every track is already on disk, so there is nothing to retry." />
+    );
+    expect(
+      screen.getByText('Every track is already on disk, so there is nothing to retry.')
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Details')).toBeNull();
   });
 
   // ===========================================================================
@@ -246,7 +278,9 @@ describe('ErrorMessageDisplay', () => {
     redactForPublicReportMock.mockResolvedValueOnce(cleaned);
 
     render(<ErrorMessageDisplay message={raw} />);
-    fireEvent.contextMenu(screen.getByText(raw));
+    // The raw text holds a file path, so the row shows a plain summary
+    // (polish pass M8); the report is still built from the full original.
+    fireEvent.contextMenu(screen.getByText(/fault of its own/));
     await act(async () => {
       fireEvent.click(screen.getByText('Report this bug to GAMDL'));
     });
@@ -263,7 +297,7 @@ describe('ErrorMessageDisplay', () => {
     const rawLink = "https://music.apple.com/us/album/test/123?token=abc'SECRET123";
     const cleanedLink = 'https://music.apple.com/us/album/test/123';
     redactUrlForPublicReportMock.mockImplementation((url: string) =>
-      Promise.resolve(url === rawLink ? cleanedLink : url),
+      Promise.resolve(url === rawLink ? cleanedLink : url)
     );
 
     render(<ErrorMessageDisplay message={REAL_GAMDL_BUG_MESSAGE} sourceUrl={rawLink} />);
@@ -297,7 +331,9 @@ describe('ErrorMessageDisplay', () => {
       expect(
         useUiStore
           .getState()
-          .toasts.some((t) => t.message === 'Could not prepare the report safely'),
+          .toasts.some((t) =>
+            t.message.startsWith('MeedyaDL could not remove your personal details from the report')
+          )
       ).toBe(true);
     });
     expect(openMock).not.toHaveBeenCalled();

@@ -94,6 +94,8 @@ pub enum MediaServiceId {
 /// manifest metadata, queue persistence, and service-aware routing.
 /// For human-readable names, use `display_name()` instead.
 impl std::fmt::Display for MediaServiceId {
+    /// Writes the stable machine name (`apple-music`, `youtube-music`, ...).
+    /// See: <https://doc.rust-lang.org/std/fmt/trait.Display.html>
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let id = match self {
             Self::AppleMusic => "apple-music",

@@ -27,15 +27,53 @@ import { useTranslation } from 'react-i18next';
 import deTranslations from '../../public/locales/de/translation.json';
 import enTranslations from '../../public/locales/en/translation.json';
 import frTranslations from '../../public/locales/fr/translation.json';
+import i18next from 'i18next';
+import LanguageDetector from 'i18next-browser-languagedetector';
 import i18n, {
   AVAILABLE_LOCALES,
   LOCALES,
+  OFFERED_LOCALES,
+  uiLanguageOptions,
+  selectedUiLanguageValue,
   baseLanguageOf,
   changeUiLanguage,
+  i18nOptions,
   initI18n,
+  setUpI18n,
   systemLanguageOrEnglish,
   isMachineAssisted,
 } from './i18n';
+
+/* ------------------------------------------------------------------ */
+/* 0. English is ready before the first screen is drawn                 */
+/* ------------------------------------------------------------------ */
+
+describe('English is ready the moment set-up returns (so the first screen never shows raw keys)', () => {
+  // main.tsx calls setUpI18n() and then renders straight away, without
+  // waiting. That only works if i18next has finished by the time init()
+  // returns. When it had not (set-up used to happen later, from an effect),
+  // the window title read "nav.download — MeedyaDL", the skip link read
+  // "common.skipToMainContent", and an early language change made i18next
+  // throw an internal error that was shown as a warning on every launch.
+  //
+  // A separate i18next instance is used here, because the shared one was
+  // already set up by the test setup file before this test could run.
+  it('can look up an English word immediately after init(), with no await', () => {
+    const fresh = i18next.createInstance();
+    void fresh.use(LanguageDetector).init(i18nOptions());
+    expect(fresh.isInitialized).toBe(true);
+    expect(fresh.t('nav.download')).toBe('Download');
+    expect(fresh.t('common.skipToMainContent')).not.toBe('common.skipToMainContent');
+  });
+
+  it('can be called again without starting i18next a second time', () => {
+    const before = i18n.options;
+    setUpI18n();
+    setUpI18n();
+    expect(i18n.isInitialized).toBe(true);
+    expect(i18n.options).toBe(before);
+  });
+});
 
 /* ------------------------------------------------------------------ */
 /* 1. The addResourceBundle-doesn't-repaint-the-screen bug             */
@@ -49,6 +87,15 @@ function LanguageProbe() {
   const { t } = useTranslation();
   return createElement('div', { 'data-testid': 'probe' }, t('nav.queue'));
 }
+
+/**
+ * German offered as if it were complete. Since the polish pass (M10) only
+ * complete languages are chosen by "Auto", and none but English is
+ * complete yet; the start-up path these tests pin still has to work for
+ * the day one is, so they hand `initI18n` this list instead of the real
+ * one. The real list is tested separately below.
+ */
+const GERMAN_OFFERED = ['en', 'de'] as const;
 
 describe('initI18n shows the detected language, not stale English (#111)', () => {
   beforeEach(() => {
@@ -127,7 +174,7 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     // so it has to be wrapped in act() or React Testing Library warns
     // that an update happened it didn't get to observe.
     await act(async () => {
-      await initI18n();
+      await initI18n(GERMAN_OFFERED);
     });
 
     // Before checking the screen, check that the setup actually took --
@@ -157,7 +204,7 @@ describe('initI18n shows the detected language, not stale English (#111)', () =>
     // state.
     expect(document.documentElement.lang).toBe('en');
     await act(async () => {
-      await initI18n();
+      await initI18n(GERMAN_OFFERED);
     });
     expect(document.documentElement.lang).toBe('de');
   });
@@ -174,7 +221,7 @@ describe('document.documentElement.lang tracks every later language change too',
     // call again, so calling it explicitly here makes the precondition
     // this test needs true regardless of what ran before it.
     await act(async () => {
-      await initI18n();
+      await initI18n(GERMAN_OFFERED);
     });
   });
 
@@ -264,7 +311,7 @@ describe('changeUiLanguage fetches the file itself, rather than assuming it is a
     // "zz" has no file, and the stand-in fetch refuses anything but German.
     // Before, the loader swallowed that and the switch "worked" -- with
     // every string still English and nothing said.
-    await expect(changeUiLanguage('zz')).rejects.toThrow(/could not be loaded/);
+    await expect(changeUiLanguage('zz')).rejects.toThrow(/could not load that translation/);
   });
 
   it('keeps no copy of the language in the browser -- the saved setting is the only record', () => {
@@ -291,8 +338,8 @@ describe('changeUiLanguage fetches the file itself, rather than assuming it is a
           new Promise<Response>((resolve) => {
             releaseGerman = () =>
               resolve({ ok: true, json: () => Promise.resolve(deTranslations) } as Response);
-          }),
-      ),
+          })
+      )
     );
     // Make sure German is not already loaded from an earlier test.
     i18n.removeResourceBundle('de', 'translation');
@@ -316,8 +363,8 @@ describe('changeUiLanguage fetches the file itself, rather than assuming it is a
         () =>
           new Promise<Response>((resolve) => {
             failZz = () => resolve({ ok: false } as Response);
-          }),
-      ),
+          })
+      )
     );
     const overtaken = changeUiLanguage('zz');
     await changeUiLanguage('en');
@@ -395,7 +442,10 @@ describe('startup on a system whose language MeedyaDL does not have', () => {
     // initI18n() and loads settings after it, so a failure here used to
     // stop the whole app from starting (Codex, batch-3 review).
     vi.stubGlobal('navigator', { language: 'es-ES', languages: ['es-ES'] });
-    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false } as Response)));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ ok: false } as Response))
+    );
 
     await expect(initI18n()).resolves.toBeUndefined();
     expect(baseLanguageOf(i18n.language)).toBe('en');
@@ -404,8 +454,18 @@ describe('startup on a system whose language MeedyaDL does not have', () => {
   it('"Auto" chooses English, not a language with no file', () => {
     vi.stubGlobal('navigator', { language: 'es-ES', languages: ['es-ES'] });
     expect(systemLanguageOrEnglish()).toBe('en');
+    // A language that is offered is chosen...
     vi.stubGlobal('navigator', { language: 'de-DE', languages: ['de-DE'] });
-    expect(systemLanguageOrEnglish()).toBe('de-DE');
+    expect(systemLanguageOrEnglish(GERMAN_OFFERED)).toBe('de-DE');
+  });
+
+  it('"Auto" does not choose an incomplete translation (polish pass M10)', async () => {
+    // ...but German is not complete yet, so with the real list a German
+    // system gets English, at start-up and from "Auto".
+    vi.stubGlobal('navigator', { language: 'de-DE', languages: ['de-DE'] });
+    expect(systemLanguageOrEnglish()).toBe('en');
+    await initI18n();
+    expect(baseLanguageOf(i18n.language)).toBe('en');
   });
 });
 
@@ -541,5 +601,70 @@ describe('isMachineAssisted', () => {
   it('is true for French', () => {
     expect(isMachineAssisted('fr')).toBe(true);
     expect(isMachineAssisted('fr-FR')).toBe(true);
+  });
+});
+
+describe('uiLanguageOptions (polish pass M10)', () => {
+  it('offers only complete languages', () => {
+    const values = uiLanguageOptions('').map((o) => o.value);
+    expect(values).toEqual(['auto', ...OFFERED_LOCALES]);
+    expect(values).not.toContain('de');
+    expect(values).not.toContain('fr');
+  });
+
+  it('keeps a saved incomplete choice, marked as incomplete in its own language', () => {
+    const de = uiLanguageOptions('de').find((o) => o.value === 'de');
+    expect(de?.label).toBe('Deutsch (unvollständige Übersetzung, automatische Übersetzung)');
+    const fr = uiLanguageOptions('fr-FR').find((o) => o.value === 'fr');
+    expect(fr?.label).toBe('Français (traduction incomplète, traduction automatique)');
+  });
+
+  it('keeps the choice saved when the page opened, even after picking another', () => {
+    const values = uiLanguageOptions('de', 'en').map((o) => o.value);
+    expect(values).toContain('de');
+    expect(values).not.toContain('fr');
+  });
+
+  it('every language marked complete has a file with every English key (the audit check enforces the rest)', () => {
+    const enKeys = flattenKeys(enTranslations);
+    const files: Record<string, unknown> = {
+      en: enTranslations,
+      de: deTranslations,
+      fr: frTranslations,
+    };
+    for (const code of OFFERED_LOCALES) {
+      const keys = flattenKeys(files[code]);
+      expect([...enKeys.keys()].filter((k) => !keys.has(k))).toEqual([]);
+    }
+  });
+});
+
+describe('selectedUiLanguageValue (#1267)', () => {
+  const rows = [{ value: 'auto' }, { value: 'en' }, { value: 'de' }];
+  it('keeps auto for an empty value', () => {
+    expect(selectedUiLanguageValue('', rows)).toBe('auto');
+    expect(selectedUiLanguageValue(undefined, rows)).toBe('auto');
+  });
+  it('selects an exact row', () => {
+    expect(selectedUiLanguageValue('de', rows)).toBe('de');
+  });
+  it('selects the base language row for a regional form, ignoring case', () => {
+    expect(selectedUiLanguageValue('de-AT', rows)).toBe('de');
+    expect(selectedUiLanguageValue('DE-at', rows)).toBe('de');
+    expect(selectedUiLanguageValue('en-GB', rows)).toBe('en');
+  });
+  it('falls back to auto when no row matches or the value is malformed', () => {
+    expect(selectedUiLanguageValue('ja-JP', rows)).toBe('auto');
+    expect(selectedUiLanguageValue('???', rows)).toBe('auto');
+  });
+  it('treats an underscore form as malformed, matching nothing', () => {
+    expect(selectedUiLanguageValue('de_AT', rows)).toBe('auto');
+  });
+  it('lists the base row of a differently-cased saved tag, and selects it', () => {
+    const opts = uiLanguageOptions('DE-at');
+    expect(opts.map((o) => o.value)).toContain('de');
+    expect(selectedUiLanguageValue('DE-at', opts)).toBe('de');
+    expect(baseLanguageOf('DE-at')).toBe('de');
+    expect(baseLanguageOf('de_AT')).toBe('de_at');
   });
 });

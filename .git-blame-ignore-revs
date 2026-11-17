@@ -1,0 +1,7 @@
+# Commits that only changed code layout, with no change in behaviour.
+# GitHub's "Blame" view skips these automatically. To do the same locally:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+# See https://docs.github.com/en/repositories/working-with-files/using-files/viewing-and-understanding-files#ignore-commits-in-the-blame-view
+
+# style: format all Rust and frontend code with the project's standard tools (16 Nov 2026)
+c2b02bd37ba9762bd1af6ed3d4289890373c1f6b

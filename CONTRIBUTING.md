@@ -33,15 +33,20 @@ npm run dev
 npm run type-check           # TypeScript type checking
 npm run test                 # Run Vitest tests
 npm run lint                 # ESLint
-npm run format:check         # Prettier formatting check
+npm run format               # Prettier formatting (fixes the files); CI fails on unformatted code
+npm run format:check         # Prettier formatting check (what CI runs)
 npm run check:legal          # Licence-acknowledgement + upstream-licence checks (in src-tauri/deny.toml's spirit, but for Node deps too)
+cargo fmt                    # Rust formatting (in src-tauri/); CI runs `cargo fmt --check` and fails on unformatted code
 cargo check                  # Rust compilation check (in src-tauri/)
 cargo test                   # Rust tests (in src-tauri/)
 cargo clippy -- -D warnings  # Rust lints, treated as errors (what CI actually gates on)
 python3 tools/audit-checks/check_help_topics.py     # every help page has a manifest line, every link resolves
 python3 tools/audit-checks/check_ipc_commands.py    # every IPC command is registered and called correctly
 python3 tools/audit-checks/check_codec_registry.py  # codec registry cross-references are consistent
+python3 tools/audit-checks/check_polish.py          # nothing on screen may look unfinished (also runs before every push)
 ```
+
+To run the polish check automatically before every push, install the hook once per clone with `./tools/install-hooks.sh`.
 
 There are more scripts under `tools/audit-checks/` than the three above -- they're the cross-source consistency checks that also run in CI's `pr-security.yml`. Each one exits 0 on a clean tree and prints `path:line — message` bullets when something's wrong.
 
@@ -87,6 +92,7 @@ Help pages live in `help/*.md` and nowhere else -- the in-app Help screen is bui
 - **To change what a page says**: edit the file directly.
 - **To add a new page**: add the Markdown file **and** one line to `HELP_TOPIC_MANIFEST` in `src/components/help/helpTopics.ts` (that line gives the page its label, icon, and place in the sidebar order). A page with a file but no manifest line, or a manifest line with no file, is caught by `python3 tools/audit-checks/check_help_topics.py`.
 - **To translate a page**: add a file at `help/<language>/<same file name>.md` (for example, a German translation of `getting-started.md` is `help/de/getting-started.md`). No manifest change is needed for a translation -- the app looks up a translated file by name automatically. A page with no translation yet falls back to the English original with a note saying so.
+- **Help is an end-user guide only.** A help page describes how to use and set up MeedyaDL, by effect. It must never explain how MeedyaDL gets or downloads content from a service (how the download engines work, how protected content is unlocked, device files, tokens, web addresses, workarounds). Put plain wording first, and any extra detail that is allowed in a `<details><summary>More detail</summary>` fold-out (blank line after `<summary>` and before `</details>`, never nested).
 - A few rules apply only to help pages, not the rest of this repo's Markdown: no GitHub-only syntax (an emoji shortcode like `:rocket:` shows up as literal text in the app, which has no emoji renderer -- use the real character or leave it out); a link to another help page is an ordinary relative link (`[Cookie Management](cookie-management.md)`) and becomes real in-app navigation, so the filename has to be exact; and the copyright comment at the top of every file is stripped before display, so it never needs updating for wording changes.
 - `index.md` is the one file the app doesn't show -- it's the table of contents for someone reading the files on GitHub; the app's own sidebar already does that job.
 - `check_help_topics.py` also catches a stray emoji shortcode, a broken deep link from the app's code to a page that doesn't exist, and a broken link from one help page to another.
@@ -99,6 +105,8 @@ Help pages live in `help/*.md` and nowhere else -- the in-app Help screen is bui
   was made; `scripts/update-copyright-year.sh` moves the end of the range
   forward and can be run with `--dry-run` first to see what it would change.
 - **Comments**: Every function and significant code block gets detailed comments
+- **Plain English**: Write commit messages, comments, issues and help pages in plain words, with short sentences, even for a technical reader.
+- **Languages, tracks and lyrics**: anything that touches language tags, translations, audio or subtitle tracks, lyrics, or language order and naming must follow [`docs/standards/media-language-bcp47-policy.md`](docs/standards/media-language-bcp47-policy.md). Never edit the copies in `docs/standards/`; the master is in MeedyaSuite-core.
 - **Conventional commits**: Required for automated changelog generation
   - `feat:` — new feature
   - `fix:` — bug fix
@@ -134,7 +142,7 @@ All four channel branches (`alpha`, `beta`, `release-candidate`, `main`) are **l
 
 1. Create a feature branch from `alpha`: `git checkout alpha && git checkout -b feat/your-feature`
 2. Make your changes with conventional commit messages
-3. Ensure the checks CI will run actually pass: `npm run lint && npm run type-check && npm run test`, then from inside `src-tauri/`, `cargo clippy -- -D warnings && cargo test`. CI fails the pull request on any one of these.
+3. Ensure the checks CI will run actually pass: `npm run format:check && npm run lint && npm run type-check && npm run test`, then from inside `src-tauri/`, `cargo fmt --check && cargo clippy -- -D warnings && cargo test`. CI fails the pull request on any one of these. Run `npm run format` and `cargo fmt` first so formatting never fails.
 4. Push and open a pull request against `alpha`
 5. Link related GitHub Issues in the PR description (e.g., "Fixes #123")
 6. Wait for CI to pass and a maintainer to review
@@ -145,7 +153,7 @@ All four channel branches (`alpha`, `beta`, `release-candidate`, `main`) are **l
 
 - **Bugs**: [open a new issue](https://github.com/MWBMPartners/MeedyaDL/issues/new) and say what you did, what you expected, and what happened instead. (There is no bug report form yet — only the crash report form the app itself uses.)
 - **Crash reports**: Use the in-app crash reporting (Settings > Advanced > Error Reporting)
-- **Feature requests**: Open a [discussion](https://github.com/MWBMPartners/MeedyaDL/discussions) or issue
+- **Feature requests**: [open an issue](https://github.com/MWBMPartners/MeedyaDL/issues/new) describing what you would like and why
 - **Security vulnerabilities**: See [SECURITY.md](SECURITY.md) — do NOT open public issues
 
 ## Release Process

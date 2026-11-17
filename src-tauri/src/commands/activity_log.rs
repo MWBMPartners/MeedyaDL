@@ -84,7 +84,7 @@ pub async fn export_disk_activity_log(
     let mut buf = String::new();
     buf.push_str(&format!(
         "MeedyaDL On-Disk Activity Log — Exported {} (last {} day(s))\n",
-        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+        crate::utils::time_compat::ymd_hms(crate::utils::time_compat::now_local_or_utc()),
         selected.len()
     ));
     buf.push_str(&format!("Source directory: {}\n\n", log_dir.display()));
@@ -105,9 +105,10 @@ pub async fn export_disk_activity_log(
         }
     }
 
-    let default_name = chrono::Local::now()
-        .format("MeedyaDL-activity-disk_%Y-%m-%d_%Hh%Mm.log")
-        .to_string();
+    let default_name = format!(
+        "MeedyaDL-activity-disk_{}.log",
+        crate::utils::time_compat::export_stamp(crate::utils::time_compat::now_local_or_utc())
+    );
 
     let file_path = app
         .dialog()
@@ -121,8 +122,7 @@ pub async fn export_disk_activity_log(
             let resolved = path
                 .as_path()
                 .ok_or_else(|| "Failed to resolve export file path".to_string())?;
-            std::fs::write(resolved, &buf)
-                .map_err(|e| format!("Failed to write log file: {e}"))?;
+            std::fs::write(resolved, &buf).map_err(|e| format!("Failed to write log file: {e}"))?;
             let bytes = buf.len();
             log::info!(
                 "Exported {} byte(s) of on-disk activity log to {}",

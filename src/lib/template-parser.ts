@@ -74,7 +74,8 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
   {
     value: 'album_id',
     label: 'Album ID',
-    description: "Apple Music's numeric album ID — guaranteed unique, use for Various-Artists compilation folders",
+    description:
+      "Apple Music's numeric album ID — guaranteed unique, use for Various-Artists compilation folders",
     category: 'album',
   },
   { value: 'title', label: 'Title', description: 'Track title', category: 'track' },
@@ -102,13 +103,15 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
   {
     value: 'playlist_id',
     label: 'Playlist ID',
-    description: "Apple Music's numeric playlist ID — guaranteed unique, use for `.m3u8` filename safety",
+    description:
+      "Apple Music's numeric playlist ID — guaranteed unique, use for `.m3u8` filename safety",
     category: 'playlist',
   },
   {
     value: 'platform',
     label: 'Platform',
-    description: 'Download platform name (e.g. AppleMusic, Spotify, YouTube). Use as a top-level folder when downloading from multiple services so each service has its own root.',
+    description:
+      'Download platform name (e.g. AppleMusic, Spotify, YouTube). Use as a top-level folder when downloading from multiple services so each service has its own root.',
     category: 'common',
   },
 ];
@@ -136,7 +139,7 @@ export const COMMON_LITERALS = [
  * adds `" - "` which re-parses into three atomic chips (`" "`, `"-"`, `" "`).
  */
 const ATOMIC_TOKENS = COMMON_LITERALS.filter((l) => !('compound' in l && l.compound)).map(
-  (l) => l.value,
+  (l) => l.value
 );
 
 /** Sample metadata values used for the live preview. */

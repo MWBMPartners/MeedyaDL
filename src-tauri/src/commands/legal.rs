@@ -68,7 +68,10 @@ mod tests {
     #[test]
     fn third_party_licenses_includes_gamdl_mit_copyright() {
         let text = get_third_party_licenses_text();
-        assert!(!text.is_empty(), "THIRD_PARTY_LICENSES.md should not be empty");
+        assert!(
+            !text.is_empty(),
+            "THIRD_PARTY_LICENSES.md should not be empty"
+        );
         assert!(
             text.contains("Copyright (c) 2024 Glomatico"),
             "THIRD_PARTY_LICENSES.md must preserve the GAMDL MIT copyright line"

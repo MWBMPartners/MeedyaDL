@@ -118,9 +118,7 @@ pub async fn run_engine(
     engine_id: &str,
     mut cmd: Command,
 ) -> Result<(), String> {
-    log::info!(
-        "Starting {engine_id} download {download_id}"
-    );
+    log::info!("Starting {engine_id} download {download_id}");
 
     // Configure piped stdio for real-time output streaming
     cmd.stdout(std::process::Stdio::piped());
@@ -179,10 +177,7 @@ pub async fn run_engine(
                 // the frontend still listens to the legacy "gamdl-output"
                 // alias for backwards compatibility.
                 let _ = app.emit("engine-output", &progress);
-                let legacy = super::gamdl_service::GamdlProgress {
-                    download_id,
-                    event,
-                };
+                let legacy = super::gamdl_service::GamdlProgress { download_id, event };
                 let _ = app.emit("gamdl-output", &legacy);
             }
         }
@@ -214,7 +209,8 @@ pub async fn run_engine(
 /// Behaviour identical to `run_engine` PLUS:
 ///
 /// 1. **Cancellation polling**: every 250 ms the function locks the
-///    queue, calls `is_cancelled(download_id)`, and on a positive hit
+///    queue, asks whether this attempt should still run (#1432: not
+///    cancelled, retried or removed), and if not
 ///    kills the child, drains the reader tasks, and returns the
 ///    cancellation sentinel string the queue's error handler
 ///    short-circuits on (`"Download cancelled by user"`).
@@ -241,16 +237,16 @@ pub async fn run_engine(
 /// * `"{engine} process exited with code {n}"` — non-zero exit code.
 /// * `"Failed to start / wait for / capture …"` — OS-level subprocess
 ///   failures.
-pub async fn run_engine_with_queue(
+pub(crate) async fn run_engine_with_queue(
     app: &AppHandle,
-    download_id: &str,
+    attempt: &super::download_queue::Attempt,
     engine_id: &str,
     mut cmd: Command,
     queue: super::download_queue::QueueHandle,
 ) -> Result<(), String> {
-    log::info!(
-        "Starting {engine_id} download {download_id} (queue-aware)"
-    );
+    // The run belongs to one attempt of the item (#1432).
+    let download_id = attempt.id.as_str();
+    log::info!("Starting {engine_id} download {download_id} (queue-aware)");
 
     cmd.stdout(std::process::Stdio::piped());
     cmd.stderr(std::process::Stdio::piped());
@@ -276,7 +272,7 @@ pub async fn run_engine_with_queue(
     // an async lock acquisition that's clearer at the call site.
     let stdout_task = spawn_queue_aware_reader(
         app.clone(),
-        download_id.to_string(),
+        attempt.clone(),
         engine_id.to_string(),
         "stdout",
         stdout,
@@ -284,7 +280,7 @@ pub async fn run_engine_with_queue(
     );
     let stderr_task = spawn_queue_aware_reader(
         app.clone(),
-        download_id.to_string(),
+        attempt.clone(),
         engine_id.to_string(),
         "stderr",
         stderr,
@@ -308,11 +304,9 @@ pub async fn run_engine_with_queue(
     // sides waiting on each other forever — the queue slot would never
     // free up and the whole queue would stop responding.
     let status = loop {
-        let cancelled = { queue.lock().await.is_cancelled(download_id) };
+        let cancelled = { !queue.lock().await.should_keep_running(attempt) };
         if cancelled {
-            log::info!(
-                "{engine_id} download {download_id} cancelled — killing process"
-            );
+            log::info!("{engine_id} download {download_id} cancelled — killing process");
             let _ = child.kill().await;
             let _ = child.wait().await;
             let _ = stdout_task.await;
@@ -352,9 +346,11 @@ pub async fn run_engine_with_queue(
 ///
 /// Tokio task — returns a JoinHandle the caller awaits to drain
 /// buffered output after the child exits.
+/// The reader's output only changes the item while `attempt` owns it
+/// (#1432).
 fn spawn_queue_aware_reader(
     app: AppHandle,
-    download_id: String,
+    attempt: super::download_queue::Attempt,
     engine_id: String,
     stream_label: &'static str,
     stream: impl tokio::io::AsyncRead + Unpin + Send + 'static,
@@ -362,6 +358,7 @@ fn spawn_queue_aware_reader(
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         use tokio::io::AsyncBufReadExt;
+        let download_id = attempt.id.clone();
         let reader = tokio::io::BufReader::new(stream);
         let mut lines = reader.lines();
         while let Ok(Some(raw_line)) = lines.next_line().await {
@@ -375,7 +372,7 @@ fn spawn_queue_aware_reader(
             // Queue progress tick — locks held very briefly per line.
             {
                 let mut q = queue.lock().await;
-                q.update_item_progress(&download_id, &event);
+                q.update_item_progress(&attempt, &event);
             }
 
             let progress = EngineProgress {
@@ -405,10 +402,14 @@ fn spawn_queue_aware_reader(
 pub struct GamdlCommandBuilder;
 
 impl EngineCommandBuilder for GamdlCommandBuilder {
+    /// The engine id this builder serves; it matches the id in `engines.toml`.
     fn engine_id(&self) -> &str {
         "gamdl"
     }
 
+    /// Builds the GAMDL command through `build_gamdl_command_public`. Passes default
+    /// options and ignores `_cli_args`, because the queue builds the real command
+    /// directly for now.
     fn build_command(
         &self,
         app: &AppHandle,
@@ -446,10 +447,13 @@ impl EngineCommandBuilder for GamdlCommandBuilder {
 pub struct VotifyCommandBuilder;
 
 impl EngineCommandBuilder for VotifyCommandBuilder {
+    /// The engine id this builder serves; it matches the id in `engines.toml`.
     fn engine_id(&self) -> &str {
         "votify"
     }
 
+    /// Builds the votify command through `build_votify_command_public`. Passes default
+    /// options and ignores `_cli_args`.
     fn build_command(
         &self,
         app: &AppHandle,
@@ -477,10 +481,12 @@ impl EngineCommandBuilder for VotifyCommandBuilder {
 pub struct YtdlpCommandBuilder;
 
 impl EngineCommandBuilder for YtdlpCommandBuilder {
+    /// The engine id this builder serves; it matches the id in `engines.toml`.
     fn engine_id(&self) -> &str {
         "ytdlp"
     }
 
+    /// Always returns an error: the yt-dlp engine is not built yet.
     fn build_command(
         &self,
         _app: &AppHandle,
@@ -499,10 +505,12 @@ impl EngineCommandBuilder for YtdlpCommandBuilder {
 pub struct GetIplayerCommandBuilder;
 
 impl EngineCommandBuilder for GetIplayerCommandBuilder {
+    /// The engine id this builder serves; it matches the id in `engines.toml`.
     fn engine_id(&self) -> &str {
         "get_iplayer"
     }
 
+    /// Always returns an error: the get_iplayer engine is not built yet.
     fn build_command(
         &self,
         _app: &AppHandle,

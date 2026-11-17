@@ -53,8 +53,9 @@ import { getGamdlCapabilities, type GamdlCapabilities } from '@/lib/tauri-comman
  * icons; a stub is needed for each or the render throws.
  */
 vi.mock('lucide-react', () => {
-  const stub = (name: string) =>
-    (props: Record<string, unknown>) => <span data-testid={`icon-${name}`} {...props} />;
+  const stub = (name: string) => (props: Record<string, unknown>) => (
+    <span data-testid={`icon-${name}`} {...props} />
+  );
 
   return {
     CheckCircle: stub('CheckCircle'),
@@ -86,6 +87,7 @@ vi.mock('lucide-react', () => {
     Shield: stub('Shield'),
     ShieldOff: stub('ShieldOff'),
     Headphones: stub('Headphones'),
+    ChevronRight: stub('ChevronRight'),
   };
 });
 
@@ -133,7 +135,10 @@ const ALL_CAPS_FALSE: GamdlCapabilities = {
   native_codec_priority: false,
   ffmpeg_path: false,
   assets_api_unlocks_lossy_codecs: false,
+  wrapper_decrypt_host_port: false,
   play_ready_drm: false,
+  gamdl_v4: false,
+  gamdl_four_saves_album_cover: false,
 };
 
 beforeEach(() => {
@@ -241,5 +246,70 @@ describe('AdvancedTab -- Unlocking Method section (#1189)', () => {
     });
 
     expect(screen.getByText('Unlocking Method')).toBeInTheDocument();
+  });
+});
+
+describe('AdvancedTab -- Wrapper Decryption Address on GAMDL 3.8.2+ (#1433)', () => {
+  async function openWrapper(caps: Partial<GamdlCapabilities>) {
+    vi.mocked(getGamdlCapabilities).mockResolvedValueOnce({ ...ALL_CAPS_FALSE, ...caps });
+    await act(async () => {
+      render(<AdvancedTab />);
+    });
+    fireEvent.click(screen.getByText('Wrapper'));
+  }
+
+  it('is hidden with the newer layout on GAMDL older than 3.8.2', async () => {
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        use_wrapper: true,
+        wrapper_url: 'http://192.168.1.20:80',
+      },
+    });
+    await openWrapper({ wrapper_v2: true });
+    expect(screen.queryByLabelText('Wrapper Decryption Address')).not.toBeInTheDocument();
+  });
+
+  it('is shown with the worked-out address as placeholder, writes nothing on opening, keeps an override, and resets to blank', async () => {
+    useSettingsStore.setState({
+      isDirty: false,
+      settings: {
+        ...useSettingsStore.getState().settings,
+        use_wrapper: true,
+        wrapper_url: 'http://192.168.1.20:80',
+        wrapper_decrypt_ip: '',
+      },
+    });
+    await openWrapper({ wrapper_v2: true, wrapper_decrypt_host_port: true });
+    const field = screen.getByLabelText('Wrapper Decryption Address') as HTMLInputElement;
+    expect(field.value).toBe('');
+    expect(field.placeholder).toBe('192.168.1.20:10020');
+    expect(useSettingsStore.getState().isDirty).toBe(false);
+    expect(screen.queryByText('Use the address from the Wrapper URL')).not.toBeInTheDocument();
+
+    // A person can set the local address even with a remote Wrapper URL.
+    fireEvent.change(field, { target: { value: '127.0.0.1:10020' } });
+    expect(useSettingsStore.getState().settings.wrapper_decrypt_ip).toBe('127.0.0.1:10020');
+    fireEvent.click(screen.getByText('Use the address from the Wrapper URL'));
+    expect(useSettingsStore.getState().settings.wrapper_decrypt_ip).toBe('');
+  });
+
+  it('treats a spaces-only value as blank, and the older layout names the Account URL', async () => {
+    useSettingsStore.setState({
+      settings: {
+        ...useSettingsStore.getState().settings,
+        use_wrapper: true,
+        wrapper_account_url: 'http://10.0.0.7:30020',
+        wrapper_decrypt_ip: '',
+      },
+    });
+    await openWrapper({});
+    const field = screen.getByLabelText('Wrapper Decryption Address') as HTMLInputElement;
+    expect(field.placeholder).toBe('10.0.0.7:10020');
+    fireEvent.change(field, { target: { value: '   ' } });
+    expect(useSettingsStore.getState().settings.wrapper_decrypt_ip).toBe('');
+    expect(screen.queryByText(/Use the address from the/)).not.toBeInTheDocument();
+    fireEvent.change(field, { target: { value: 'box:1' } });
+    expect(screen.getByText('Use the address from the Wrapper Account URL')).toBeInTheDocument();
   });
 });

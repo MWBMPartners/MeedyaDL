@@ -36,7 +36,7 @@ use std::fmt;
 
 use tauri::{AppHandle, Emitter};
 
-use super::download_queue::QueueHandle;
+use super::download_queue::{Attempt, QueueHandle};
 
 /// All per-item processing stages, in chronological order.
 ///
@@ -134,6 +134,7 @@ impl ProgressStage {
 }
 
 impl fmt::Display for ProgressStage {
+    /// Shows a stage as its label, the same text the progress bar caption uses.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.label())
     }
@@ -165,12 +166,7 @@ impl fmt::Display for ProgressStage {
 /// Emits a `queue-updated` Tauri event after the lock-held write so
 /// the frontend re-reads the queue state. Errors swallowed: worst
 /// case is a stale UI until the next transition.
-pub fn set_stage(
-    app: &AppHandle,
-    queue: &QueueHandle,
-    download_id: &str,
-    stage: ProgressStage,
-) {
+pub fn set_stage(app: &AppHandle, queue: &QueueHandle, download_id: &str, stage: ProgressStage) {
     set_stage_with_label(app, queue, download_id, stage, stage.label());
 }
 
@@ -193,12 +189,7 @@ pub fn set_stage(
 /// download). Calling `set_stage_with_label(…, Finalising, …)` in
 /// a tight per-track loop pegs the bar at 0.95 — exactly the bug
 /// #808 reports.
-pub fn set_label_only(
-    app: &AppHandle,
-    queue: &QueueHandle,
-    download_id: &str,
-    label: &str,
-) {
+pub fn set_label_only(app: &AppHandle, queue: &QueueHandle, download_id: &str, label: &str) {
     if let Ok(mut q) = queue.try_lock() {
         // Same Artist: Album suffix logic as `set_stage_with_label`
         // so the caption shape stays consistent across the two
@@ -269,6 +260,63 @@ pub fn set_stage_with_label(
     let _ = app.emit("queue-updated", download_id);
 }
 
+/// [`set_stage_with_label`] for one attempt only (#1432 review): the
+/// caption and bar change only while `attempt` still owns the item, so a
+/// run that was replaced (retried, cancelled, marked failed as stuck) can
+/// never write its caption onto the row of the run that took over. For the
+/// callers that have the attempt in hand: the tidying-up's last steps and
+/// the extra-format copies. Best-effort like the original (`try_lock`).
+pub fn set_stage_with_label_for(
+    app: &AppHandle,
+    queue: &QueueHandle,
+    attempt: &Attempt,
+    stage: ProgressStage,
+    label: &str,
+) {
+    if let Ok(mut q) = queue.try_lock() {
+        if q.ended_outside(attempt).is_some() {
+            return;
+        }
+        let full_label = format!("{label}{}", caption_context(&q, &attempt.id));
+        q.set_processing_label_for(attempt, &full_label);
+        q.set_processing_progress_for(attempt, stage.weight());
+    }
+    let _ = app.emit("queue-updated", attempt.id.as_str());
+}
+
+/// [`set_label_only`] for one attempt only (#1432 review); see
+/// [`set_stage_with_label_for`].
+pub fn set_label_only_for(app: &AppHandle, queue: &QueueHandle, attempt: &Attempt, label: &str) {
+    if let Ok(mut q) = queue.try_lock() {
+        if q.ended_outside(attempt).is_some() {
+            return;
+        }
+        let full_label = format!("{label}{}", caption_context(&q, &attempt.id));
+        q.set_processing_label_for(attempt, &full_label);
+    }
+    let _ = app.emit("queue-updated", attempt.id.as_str());
+}
+
+/// The " — Artist: Album" ending of a caption, the same shape the two
+/// helpers above use.
+fn caption_context(q: &super::download_queue::DownloadQueue, download_id: &str) -> String {
+    q.get_status()
+        .into_iter()
+        .find(|s| s.id == download_id)
+        .map(|s| {
+            let artist = s.artist_name.unwrap_or_default();
+            let album = s.album_name.unwrap_or_default();
+            if !artist.is_empty() && !album.is_empty() {
+                format!(" — {artist}: {album}")
+            } else if !album.is_empty() {
+                format!(" — {album}")
+            } else {
+                String::new()
+            }
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,10 +329,7 @@ mod tests {
     fn weights_strictly_increasing() {
         let weights: Vec<f32> = ProgressStage::ALL.iter().map(|s| s.weight()).collect();
         for window in weights.windows(2) {
-            assert!(
-                window[0] < window[1],
-                "non-monotonic weights: {window:?}"
-            );
+            assert!(window[0] < window[1], "non-monotonic weights: {window:?}");
         }
     }
 

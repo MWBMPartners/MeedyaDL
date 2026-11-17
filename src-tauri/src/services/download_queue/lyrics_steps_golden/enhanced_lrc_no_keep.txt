@@ -1,0 +1,128 @@
+=== 01 Word.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(©lyr)) = [ti:Test Song]
+[la:en-US]
+[by:MeedyaDL]
+[re:MeedyaDL Enhanced LRC]
+
+[00:12.45]<00:12.45>Hello <00:13.20>world <00:14.10>today
+
+=== 01 Word.ttml ===
+<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+            xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+            itunes:timing="Word" xml:lang="en-US">
+          <head><metadata><ttm:title>Test Song</ttm:title></metadata></head>
+          <body><div>
+            <p begin="00:12.450" end="00:15.800">
+              <span begin="00:12.450" end="00:13.200">Hello </span>
+              <span begin="00:13.200" end="00:14.100">world </span>
+              <span begin="00:14.100" end="00:15.800">today</span>
+            </p>
+          </div></body>
+        </tt>
+=== 02 Line.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(©lyr)) = [by:MeedyaDL]
+[re:MeedyaDL Enhanced LRC]
+
+[00:12.45]Hello world today
+
+=== 02 Line.ttml ===
+<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+            itunes:timing="Line">
+          <body><div>
+            <p begin="00:12.450" end="00:15.800">Hello world today</p>
+          </div></body>
+        </tt>
+=== 03 Srt only.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+=== 03 Srt only.srt ===
+1
+00:00:01,000 --> 00:00:02,000
+Hello
+
+
+=== 04 Lrc only.lrc ===
+[00:01.00]Hello
+
+=== 04 Lrc only.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+=== 05 Vtt only.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+=== 05 Vtt only.vtt ===
+WEBVTT
+
+00:00:01.000 --> 00:00:02.000
+Hello
+
+
+=== 06 日本語 🎵 [Lossless].m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(©lyr)) = [ti:Test Song]
+[la:en-US]
+[by:MeedyaDL]
+[re:MeedyaDL Enhanced LRC]
+
+[00:12.45]<00:12.45>Hello <00:13.20>world <00:14.10>today
+
+=== 06 日本語 🎵 [Lossless].ttml ===
+<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+            xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+            itunes:timing="Word" xml:lang="en-US">
+          <head><metadata><ttm:title>Test Song</ttm:title></metadata></head>
+          <body><div>
+            <p begin="00:12.450" end="00:15.800">
+              <span begin="00:12.450" end="00:13.200">Hello </span>
+              <span begin="00:13.200" end="00:14.100">world </span>
+              <span begin="00:14.100" end="00:15.800">today</span>
+            </p>
+          </div></body>
+        </tt>
+=== 07 Has outputs.ass ===
+mine ass
+=== 07 Has outputs.lyrics ===
+mine lyrics
+=== 07 Has outputs.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(©lyr)) = [ti:Test Song]
+[la:en-US]
+[by:MeedyaDL]
+[re:MeedyaDL Enhanced LRC]
+
+[00:12.45]<00:12.45>Hello <00:13.20>world <00:14.10>today
+
+=== 07 Has outputs.srt ===
+plain srt
+=== 07 Has outputs.ttml ===
+<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+            xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+            itunes:timing="Word" xml:lang="en-US">
+          <head><metadata><ttm:title>Test Song</ttm:title></metadata></head>
+          <body><div>
+            <p begin="00:12.450" end="00:15.800">
+              <span begin="00:12.450" end="00:13.200">Hello </span>
+              <span begin="00:13.200" end="00:14.100">world </span>
+              <span begin="00:14.100" end="00:15.800">today</span>
+            </p>
+          </div></body>
+        </tt>
+=== 07 Has outputs.vtt ===
+mine vtt
+=== 08 No lyrics.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])

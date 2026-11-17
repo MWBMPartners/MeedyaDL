@@ -359,6 +359,14 @@ pub mod music_video_subtitle_service;
 /// `music_video_subtitle_service`.
 pub mod music_video_cover_embed;
 
+/// Notifications: the one rule that decides whether a message becomes a
+/// system notification, an in-app message, or both (#1431).
+///
+/// Used by: `download_queue` (download results, queue finished, computer
+/// shut-down warnings) and the `notify_system` / `test_desktop_notification`
+/// commands (the page's own messages and the Settings test button).
+pub mod notification_service;
+
 /// In-process `AppSettings` cache (#690).
 ///
 /// Eliminates redundant disk reads on the queue hot path. Lazy-
@@ -428,6 +436,7 @@ pub mod download_index;
 /// of OPTIONAL sections.
 pub mod profile_bundle;
 
+pub mod bbc_iplayer_service;
 /// Multi-service engine scaffolding (#884, cherry-picked from
 /// `prep/expanded-services-groundwork`).
 ///
@@ -452,7 +461,6 @@ pub mod profile_bundle;
 ///   in `.claude/CLAUDE.md`).
 /// * `youtube_service` — M10 stub (yt-dlp). Not started.
 pub mod service_dispatch;
-pub mod bbc_iplayer_service;
 pub mod spotify_service;
 pub mod youtube_service;
 

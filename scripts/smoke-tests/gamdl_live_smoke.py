@@ -17,7 +17,8 @@ flush them before an immediate write, so payload order didn't match the
 container's sample-size table. The user-visible symptom is a TRUNCATED OR
 CORRUPT SONG ENDING on wrapper-decrypted downloads. GAMDL 3.8.4 fixed this
 (`flush_then_write_immediate()` in `ammuxer/src/media.rs`). MeedyaDL's
-CLAUDE.md and its GAMDL-version audits recommend 3.8.5, but the actual
+CLAUDE.md and its GAMDL-version audits now recommend 3.9.1 (3.9 itself is
+refused as known-bad), but the actual
 verification gate — a real download, decoded and inspected end-to-end —
 has never been run. This script is that gate. Song-ending integrity
 (Phase 4) is the core thing it exists to catch; everything else is
@@ -154,7 +155,40 @@ TOOL_CLI_FLAGS = {
     "mp4box": "--mp4box-path",
 }
 
-DEFAULT_GAMDL_SPEC_CEILING = "3.8.5"
+# Last-resort value, used only when src-tauri/tool-versions.toml cannot be
+# read (for example when this script is copied out of the repository). Keep
+# it in step with `maximum_tested_version` under `[gamdl]` in that file.
+_FALLBACK_GAMDL_SPEC_CEILING = "3.9.1"
+
+
+def _read_tested_ceiling() -> str:
+    """Return the newest GAMDL version MeedyaDL has tested.
+
+    Reads `maximum_tested_version` from the `[gamdl]` section of
+    src-tauri/tool-versions.toml so this script never drifts from the
+    app. A small text search is used instead of a TOML parser because the
+    parser only ships with Python 3.11 and this script supports 3.10.
+    Falls back to `_FALLBACK_GAMDL_SPEC_CEILING` on any problem.
+    """
+    try:
+        path = Path(__file__).resolve().parents[2] / "src-tauri" / "tool-versions.toml"
+        in_gamdl = False
+        for line in path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if stripped.startswith("["):
+                in_gamdl = stripped == "[gamdl]"
+                continue
+            if in_gamdl:
+                m = re.match(r'maximum_tested_version\s*=\s*"(\d+(?:\.\d+)*)"', stripped)
+                if m:
+                    return m.group(1)
+    except (OSError, ValueError):
+        # ValueError covers UnicodeDecodeError (a file that is not UTF-8).
+        pass
+    return _FALLBACK_GAMDL_SPEC_CEILING
+
+
+DEFAULT_GAMDL_SPEC_CEILING = _read_tested_ceiling()
 
 
 # ---------------------------------------------------------------------------

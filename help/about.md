@@ -6,28 +6,34 @@
 
 # About MeedyaDL
 
-A multiplatform media downloader desktop application. Currently supports Apple Music via GAMDL, with planned support for additional services.
+MeedyaDL is a desktop app for Windows, macOS and Linux that downloads your music, with more services planned. It is made by MeedyaSuite.
+
+Below you can find the version you are running, what MeedyaDL is built with, its licence, and where to go for help.
 
 <details>
 <summary><strong>Credits</strong></summary>
 
-- **GAMDL** by glomatico — The Apple Music download engine
-- **Tauri** — Cross-platform desktop framework
-- **React** — User interface library
-- **TypeScript** — Type-safe JavaScript
-- **Rust** — Backend systems language
-- **Tailwind CSS** — Utility-first CSS framework
-- **Zustand** — Lightweight state management
-- **Vite** — Frontend build tooling
+MeedyaDL stands on the work of many open-source projects. Thank you to:
+
+- **GAMDL** by glomatico, the tool MeedyaDL uses for Apple Music
+- **Tauri**, for the desktop app framework
+- **React**, for the user interface
+- **TypeScript**, for safer code
+- **Rust**, for the part of the app that runs behind the scenes
+- **Tailwind CSS**, for the look and layout
+- **Zustand**, for keeping track of what the app is doing
+- **Vite**, for building the app
+
+The full list is further down this page, under **This build**.
 
 </details>
 
 <details>
-<summary><strong>License</strong></summary>
+<summary><strong>Licence</strong></summary>
 
 Copyright (c) 2024-2026 MeedyaSuite
 
-Licensed under the MIT License. See the LICENSE file in the project root for the full license text.
+MeedyaDL is released under the MIT Licence. You can read the full text in the `LICENSE` file that comes with the app.
 
 </details>
 
@@ -36,6 +42,6 @@ Licensed under the MIT License. See the LICENSE file in the project root for the
 
 - MeedyaDL: [g2my.link/MeedyaDL](https://g2my.link/MeedyaDL)
 - GAMDL: [github.com/glomatico/gamdl](https://github.com/glomatico/gamdl)
-- Report Issues: [GitHub Issues](https://github.com/MWBMPartners/MeedyaDL/issues)
+- Report a problem: [GitHub Issues](https://github.com/MWBMPartners/MeedyaDL/issues)
 
 </details>

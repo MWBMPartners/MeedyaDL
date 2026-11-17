@@ -126,18 +126,52 @@ pub struct GamdlProgress {
 /// Returns `Err` with a message meant to be read by a user, not a
 /// developer: what was refused, why, and what to install instead.
 pub fn refuse_unsupported_target(target: &str, platform_id: &str) -> Result<(), String> {
-    use super::gamdl_capabilities::{
-        known_bad_advice, known_bad_version, platform_display_name,
-    };
+    use super::gamdl_capabilities::{known_bad_advice, known_bad_version, platform_display_name};
 
     let target = target.trim();
+
+    // Only a plain version is a target: a digit first, then digits,
+    // letters, dots and (for an epoch) `!`. pip reads more than that — a
+    // leading `v`, a leading `=` (which becomes `===`), commas — and some
+    // of those spellings would mean "4.0" to pip while reading as no
+    // version at all here, slipping past the refusal below (found in
+    // review round 3). The same bar `install_gamdl_version` already uses,
+    // minus anything that is not part of a version.
+    if !target.starts_with(|c: char| c.is_ascii_digit())
+        || !target
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '!')
+    {
+        return Err(format!(
+            "MeedyaDL will not install GAMDL '{target}': that is not a plain version number \
+             such as 3.9.1."
+        ));
+    }
+
+    // A new major release that this build cannot start yet — since GAMDL
+    // 4 was switched on (13 Nov 2026), any GAMDL 5 or later. Checked first
+    // because nothing else about such a release matters: it would install
+    // fine and then every download would fail, since a new major version
+    // is started and configured differently (see
+    // `gamdl_capabilities::HIGHEST_DRIVABLE_MAJOR`).
+    if super::gamdl_capabilities::is_beyond_drivable_major(target) {
+        return Err(format!(
+            "MeedyaDL will not install GAMDL {target} yet. GAMDL {major} is a new major version \
+             that this version of MeedyaDL does not know how to work with, so downloads would \
+             most likely fail. A MeedyaDL update will add support for it. Until then, the GAMDL \
+             you have keeps working.",
+            major = super::gamdl_capabilities::major_version_of(target).unwrap_or_default(),
+        ));
+    }
 
     if let Some(bad) = known_bad_version(target) {
         // `known_bad_advice` is what stops this refusal naming a fix
         // this same function refuses two lines below it — see its own
         // doc comment for the Windows-on-ARM case that motivated it.
         let advice = known_bad_advice(bad.reason, bad.fixed_in, target, platform_id);
-        return Err(format!("MeedyaDL will not install GAMDL {target}. {advice}"));
+        return Err(format!(
+            "MeedyaDL will not install GAMDL {target}. {advice}"
+        ));
     }
 
     // Only a platform genuinely held BELOW what everyone else can
@@ -160,6 +194,38 @@ pub fn refuse_unsupported_target(target: &str, platform_id: &str) -> Result<(), 
     }
 
     Ok(())
+}
+
+/// The pip version spec for the plain "Install GAMDL" route (setup wizard,
+/// Tools screen), which names no version.
+///
+/// Normally the tested range (`pip_version_spec`). But if the GAMDL
+/// already installed is a newer major version a person chose on purpose —
+/// today, a GAMDL 4.x they opted into as an "Untested" upgrade — the tested
+/// range (3.x) would quietly move them back down. So that version is
+/// reinstalled instead, provided it is still one this build accepts — or,
+/// if it is on the refused list (4.0.0 or 4.0.1), the release that fixes it (4.0.2).
+/// Pure, so it can be tested.
+#[must_use]
+pub fn routine_install_spec(installed: Option<&str>, platform_id: &str) -> String {
+    use super::gamdl_capabilities::{
+        cli_generation_of, known_bad_upgrade_target_for_platform, pip_target_spec,
+        GamdlCliGeneration,
+    };
+    if let Some(v) = installed.map(str::trim).filter(|v| !v.is_empty()) {
+        if cli_generation_of(v) == GamdlCliGeneration::V4 {
+            // A GAMDL 4 on the refused list (4.0.0 or 4.0.1) moves to the release that
+            // fixes it, staying on the GAMDL 4 trial the person chose.
+            let target = known_bad_upgrade_target_for_platform(v, platform_id)
+                .unwrap_or_else(|| v.to_string());
+            if cli_generation_of(&target) == GamdlCliGeneration::V4
+                && refuse_unsupported_target(&target, platform_id).is_ok()
+            {
+                return pip_target_spec(&target);
+            }
+        }
+    }
+    super::gamdl_capabilities::pip_version_spec()
 }
 
 /// Builds the pip version spec for an explicit-target GAMDL install
@@ -203,9 +269,10 @@ fn explicit_target_pip_spec(target: &str, platform_id: &str) -> Result<String, S
 /// * `app` - The Tauri app handle
 /// * `target_version` - When `Some`, pin pip to install exactly this
 ///   version (e.g. an above-ceiling "Untested" upgrade the user has
-///   explicitly opted into). When `None`, use the bounded support-window
-///   spec — pip resolves to the newest release inside
-///   `[minimum, maximum_tested]`. See [`super::gamdl_capabilities::pip_target_spec`]
+///   explicitly opted into). When `None`, use [`routine_install_spec`]:
+///   normally the bounded support-window spec (pip resolves to the newest
+///   release inside `[minimum, maximum_tested]`), but an installed GAMDL 4
+///   someone chose is reinstalled as is. See [`super::gamdl_capabilities::pip_target_spec`]
 ///   for the rationale on explicit targeting.
 ///
 /// # Errors
@@ -238,8 +305,9 @@ pub async fn install_gamdl(
     }
 
     // Pip spec selection:
-    // * `target_version = None` → bounded support-window spec
-    //   (e.g. `gamdl>=2.9.1,<=3.3`). This is the routine path used by
+    // * `target_version = None` → `routine_install_spec`: the bounded
+    //   support-window spec (e.g. `gamdl>=2.9.1,<=3.3`), or the installed
+    //   GAMDL 4 if someone chose one. This is the routine path used by
     //   the setup wizard and by `Upgrade` clicks on tested updates.
     //   `--upgrade` + the bounded spec means "pick the newest release
     //   inside the tested range, even if an older one is installed".
@@ -268,7 +336,21 @@ pub async fn install_gamdl(
     // machine cannot build, or on one we know to be broken.
     let pip_spec = match target_version {
         Some(v) => explicit_target_pip_spec(v, super::gamdl_capabilities::current_platform_id())?,
-        None => super::gamdl_capabilities::pip_version_spec(),
+        None => {
+            // Ask the installed GAMDL directly rather than trusting the
+            // remembered version alone: that is only filled in once a
+            // version check has run, and if it were empty here a GAMDL 4
+            // someone chose would be "reinstalled" as the tested 3.x
+            // range, which `--upgrade` would then move them back to.
+            let installed = match get_gamdl_version(app).await {
+                Ok(Some(v)) => Some(v),
+                _ => super::gamdl_capabilities::detected_version(),
+            };
+            routine_install_spec(
+                installed.as_deref(),
+                super::gamdl_capabilities::current_platform_id(),
+            )
+        }
     };
     log::info!("Installing GAMDL with version spec: {pip_spec}");
     let output = Command::new(&python_bin)
@@ -615,6 +697,35 @@ pub fn build_gamdl_command_public(
     build_gamdl_command(app, urls, options)
 }
 
+/// The download folder a GAMDL run with `options` saves under, worked out
+/// the way the command builder does at the moment it starts: the run's own
+/// folder if it has one, else the saved setting, else the usual Music
+/// folder. `None` when none of those can be found, or the folder is one
+/// MeedyaDL refuses (a ".." step).
+///
+/// Recorded when the primary run starts, so later runs for the same item
+/// (the word-level lyrics pass, the extra-format copies) use exactly the
+/// folder it used, not whatever the settings say by then.
+pub(crate) fn resolved_download_folder(app: &AppHandle, options: &GamdlOptions) -> Option<String> {
+    let own = options
+        .output_path
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+        .map(str::to_string);
+    let folder = own
+        .or_else(|| {
+            crate::services::config_service::load_settings(app)
+                .ok()
+                .map(|s| s.output_path.trim().to_string())
+                .filter(|p| !p.is_empty())
+        })
+        .or_else(|| crate::services::config_service::get_default_output_path().ok())?;
+    if crate::services::config_service::download_folder_refusal(&folder).is_some() {
+        return None;
+    }
+    Some(folder)
+}
+
 /// Builds the complete GAMDL command with all arguments.
 ///
 /// Constructs a `tokio::process::Command` that runs:
@@ -640,6 +751,71 @@ fn build_gamdl_command(
     if !python_bin.exists() {
         return Err("Python is not installed. Run the setup wizard first.".to_string());
     }
+
+    // GAMDL 4.x is started, configured and spoken to differently, so it
+    // gets its own builder. Nothing below this point runs for it, and
+    // nothing in that builder runs for 3.x. See `GamdlCliGeneration`.
+    if super::gamdl_capabilities::detected_cli_generation()
+        == super::gamdl_capabilities::GamdlCliGeneration::V4
+    {
+        // A download folder MeedyaDL rejects (a ".." step) leaves the
+        // options with no folder, which the 4.x builder would read as
+        // "blank" and fill with the usual Music folder without a word.
+        // Decided here, when the download starts and the installed version
+        // is known — not when the item was queued, when it may not have
+        // been checked yet (review round 3, 12 Nov 2026).
+        let from_saved_setting;
+        let mut options = options;
+        // Blank includes a setting made only of spaces (review round 5).
+        if options
+            .output_path
+            .as_deref()
+            .is_none_or(|p| p.trim().is_empty())
+        {
+            let saved = crate::services::config_service::load_settings(app);
+            if let Err(ref e) = saved {
+                log::warn!("Could not read settings for the download folder: {e}");
+            }
+            if let Ok(settings) = saved {
+                let folder = settings.output_path.trim();
+                if !folder.is_empty() {
+                    if let Some(why) =
+                        crate::services::config_service::download_folder_refusal(folder)
+                    {
+                        return Err(why);
+                    }
+                    // A folder saved after the item was queued: use it, as
+                    // 3.x does (it reads the folder from the settings file
+                    // MeedyaDL rewrites on every save). Without this, 4.x
+                    // would fall back to the usual Music folder instead
+                    // (review round 4, 12 Nov 2026).
+                    from_saved_setting = GamdlOptions {
+                        output_path: Some(folder.to_string()),
+                        ..options.clone()
+                    };
+                    options = &from_saved_setting;
+                }
+            }
+        }
+        return build_gamdl_v4_command(&python_bin, urls, options);
+    }
+
+    // GAMDL 3 takes the download folder from the command line, or, when the
+    // download has none of its own, from the config.ini written from the
+    // saved settings. Either way a folder MeedyaDL refuses (a ".." step)
+    // must stop the download here, by name, rather than be used (#1419).
+    let saved_folder = if options
+        .output_path
+        .as_deref()
+        .is_none_or(|p| p.trim().is_empty())
+    {
+        crate::services::config_service::load_settings(app)
+            .ok()
+            .map(|s| s.output_path)
+    } else {
+        None
+    };
+    refuse_unusable_download_folder_v3(options.output_path.as_deref(), saved_folder.as_deref())?;
 
     // Start building the command: `python -m gamdl`
     // The `-m gamdl` flag runs GAMDL as a Python module, equivalent to running
@@ -701,6 +877,155 @@ fn build_gamdl_command(
     let redacted_args = crate::utils::process::redact_cli_args(&cli_args);
     log::info!("GAMDL command: python -m gamdl {urls:?} {redacted_args:?}");
 
+    Ok(cmd)
+}
+
+/// The Python one-liner that starts GAMDL 4.x.
+///
+/// 4.x has no `__main__` module, so `python -m gamdl` fails outright
+/// ("No module named gamdl.__main__"). Its command-line entry point is
+/// `gamdl.cli.main:main` (the `gamdl` script in `pyproject.toml`). Calling
+/// it from the managed Python, rather than running the `gamdl` script
+/// pip leaves in the environment, keeps exactly one way of finding the
+/// interpreter for every GAMDL version, and works the same whether that
+/// environment is the portable runtime or a reused system Python.
+pub(crate) const GAMDL_V4_LAUNCHER: &str =
+    "import sys; from gamdl.cli.main import main; sys.exit(main())";
+
+/// Every argument after the Python binary for a GAMDL 4.x download:
+/// `-c <launcher> --no-config rip <options...> <links...>`.
+///
+/// Pure, so it can be checked without a GAMDL install.
+///
+/// - `--no-config` belongs to the command group, so it comes before
+///   `rip`. It stops 4.x reading (and, when it finds an older one,
+///   rewriting) its own YAML settings file in the user's settings folder:
+///   everything MeedyaDL wants is on the command line, and a settings file
+///   somebody made for running GAMDL by hand must not change what
+///   MeedyaDL downloads.
+/// - The links are checked the same way as for 3.x and go last.
+///
+/// # Errors
+///
+/// A link that does not start with `http://` or `https://`.
+pub(crate) fn gamdl_v4_args(
+    urls: &[String],
+    options: &GamdlOptions,
+) -> Result<Vec<String>, String> {
+    // 4.x has no lyrics-only mode. The builder cannot express the request,
+    // and dropping it would turn "fetch the lyrics" into "download the
+    // whole album again". Refused here so that no caller — today's or a
+    // future one — can make that mistake (review round 4 found two that
+    // would have). Callers already skip on an error from the builder.
+    if options.synced_lyrics_only == Some(true) {
+        return Err(
+            "GAMDL 4 cannot download lyrics on their own (the \"Synced Lyrics Only\" setting \
+             and MeedyaDL's extra lyrics steps need that); it would download the whole album \
+             instead, so nothing was started"
+                .to_string(),
+        );
+    }
+    // Released 4.0.0 asks, on first use, where to save music, and when
+    // nobody can answer (as here) it stops with an error before
+    // downloading. So the folder must always be given. A blank setting is
+    // MeedyaDL's normal default and means its usual Music folder
+    // (`get_default_output_path`, the same one the pre-download checks
+    // approve), so it is filled in rather than refused (review, 12 Nov
+    // 2026: refusing it would have refused every download on a default
+    // install).
+    // A folder MeedyaDL itself rejects (a ".." step) is refused, naming it,
+    // rather than swapped for the default without a word.
+    if let Some(folder) = options
+        .output_path
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+    {
+        if let Some(why) = super::config_service::download_folder_refusal(folder) {
+            return Err(why);
+        }
+    }
+    let filled;
+    let options = if options
+        .output_path
+        .as_deref()
+        .is_none_or(|p| p.trim().is_empty())
+    {
+        let default = super::config_service::get_default_output_path().map_err(|_| {
+            "No download folder is set and the usual Music folder could not be found. \
+             Choose one in Settings, then try again."
+                .to_string()
+        })?;
+        filled = GamdlOptions {
+            output_path: Some(default),
+            ..options.clone()
+        };
+        &filled
+    } else {
+        options
+    };
+    let mut args = vec![
+        "-c".to_string(),
+        GAMDL_V4_LAUNCHER.to_string(),
+        "--no-config".to_string(),
+        "rip".to_string(),
+    ];
+    args.extend(options.to_cli_args_v4());
+    for url in urls {
+        if !url.starts_with("https://") && !url.starts_with("http://") {
+            return Err(format!(
+                "Invalid URL (must start with http:// or https://): {url}"
+            ));
+        }
+        args.push(url.clone());
+    }
+    Ok(args)
+}
+
+/// Builds the command for a GAMDL 4.x download. See [`gamdl_v4_args`].
+///
+/// Differences from the 3.x path, each for a reason:
+///
+/// - no `config.ini` is written or passed: 4.x does not read it;
+/// - no helper program paths: 4.x starts no outside program, and refuses
+///   an option it does not know;
+/// - the program reads nothing from its input (`stdin` is closed), so a
+///   question it asks — a sign-in prompt, a menu — fails at once instead
+///   of waiting for ever for an answer nobody can give;
+/// - its output library is told the screen is very wide and to use no
+///   colour, so a long file path stays on one line and arrives without
+///   control characters (4.x prints through `rich`, which wraps at 80
+///   columns when it is not writing to a terminal);
+/// - its output is forced to UTF-8: it marks results with ✓, ↷ and ✗,
+///   which Windows' default encoding for a pipe cannot represent — the
+///   program would stop with an encoding error on its first result;
+/// - any `GAMDL_…` setting in MeedyaDL's own environment is removed: 4.x
+///   reads every option from a `GAMDL_` variable as well, so one left
+///   over from somebody's terminal would quietly change downloads.
+fn build_gamdl_v4_command(
+    python_bin: &std::path::Path,
+    urls: &[String],
+    options: &GamdlOptions,
+) -> Result<Command, String> {
+    let args = gamdl_v4_args(urls, options)?;
+    let mut cmd = Command::new(python_bin);
+    cmd.args(&args);
+    cmd.stdin(std::process::Stdio::null());
+    cmd.env("COLUMNS", "4096");
+    cmd.env("NO_COLOR", "1");
+    cmd.env("PYTHONIOENCODING", "utf-8");
+    cmd.env("PYTHONUTF8", "1");
+    for (key, _) in std::env::vars_os() {
+        if key
+            .to_string_lossy()
+            .to_ascii_uppercase()
+            .starts_with("GAMDL_")
+        {
+            cmd.env_remove(&key);
+        }
+    }
+
+    let redacted = crate::utils::process::redact_cli_args(&args[2..]);
+    log::info!("GAMDL 4 command: python -c <launcher> {redacted:?}");
     Ok(cmd)
 }
 
@@ -770,8 +1095,8 @@ fn inject_tool_paths(app: &AppHandle, cmd: &mut Command, options: &GamdlOptions)
     // review: the first version of this gate used the plain capability
     // and would have stopped passing the path whenever the version probe
     // had not run.
-    let ffmpeg_path_rejected = detected_version()
-        .is_some_and(|v| !GamdlFeature::FFmpegPath.is_available_on(&v));
+    let ffmpeg_path_rejected =
+        detected_version().is_some_and(|v| !GamdlFeature::FFmpegPath.is_available_on(&v));
     if options.ffmpeg_path.is_none() && !ffmpeg_path_rejected {
         let ffmpeg_bin = dependency_manager::get_tool_binary_path(app, "ffmpeg");
         if ffmpeg_bin.exists() {
@@ -828,11 +1153,27 @@ fn tool_paths_accepted_on(version: Option<&str>) -> bool {
     version.is_some_and(crate::services::gamdl_capabilities::tool_path_flags_accepted_on)
 }
 
+/// Decides, for GAMDL 3, whether the folder a download would use is refused.
+/// The download's own folder wins when it has one (not blank); otherwise the
+/// saved setting is what GAMDL would read from config.ini. Pure so it can be
+/// tested without an app handle (#1419).
+fn refuse_unusable_download_folder_v3(
+    own: Option<&str>,
+    saved: Option<&str>,
+) -> Result<(), String> {
+    let folder = match own.filter(|p| !p.trim().is_empty()) {
+        Some(f) => Some(f),
+        None => saved,
+    };
+    match folder.and_then(super::config_service::download_folder_refusal) {
+        Some(why) => Err(why),
+        None => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod refusal_agreement_tests {
-    use crate::services::gamdl_capabilities::{
-        platform_held_back_at, support_window,
-    };
+    use crate::services::gamdl_capabilities::{platform_held_back_at, support_window};
 
     #[test]
     fn what_the_screen_offers_is_what_the_installer_accepts() {
@@ -864,8 +1205,7 @@ mod refusal_agreement_tests {
             );
 
             let held_back = platform_held_back_at(platform_id);
-            let refused =
-                super::refuse_unsupported_target(&above_general, platform_id).is_err();
+            let refused = super::refuse_unsupported_target(&above_general, platform_id).is_err();
 
             assert_eq!(
                 held_back.is_some(),
@@ -874,6 +1214,101 @@ mod refusal_agreement_tests {
                  refused = {refused} — they must agree"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod gamdl_v4_command_tests {
+    use super::{gamdl_v4_args, GAMDL_V4_LAUNCHER};
+    use crate::models::gamdl_options::GamdlOptions;
+
+    fn with_folder() -> GamdlOptions {
+        GamdlOptions {
+            output_path: Some("/Music".into()),
+            ..GamdlOptions::default()
+        }
+    }
+
+    #[test]
+    fn launcher_then_group_option_then_rip_then_links_last() {
+        let urls = vec!["https://music.apple.com/us/album/x/1".to_string()];
+        let args = gamdl_v4_args(&urls, &with_folder()).unwrap();
+        assert_eq!(&args[..4], ["-c", GAMDL_V4_LAUNCHER, "--no-config", "rip"]);
+        assert_eq!(args.last().unwrap(), &urls[0]);
+        // Never the 3.x way of starting it, which 4.x cannot do.
+        assert!(!args.iter().any(|a| a == "-m"));
+        // Nothing that belongs to 3.x's settings file.
+        assert!(!args.iter().any(|a| a == "--config-path"));
+    }
+
+    #[test]
+    fn a_lyrics_only_request_is_refused_rather_than_becoming_a_full_download() {
+        let urls = vec!["https://music.apple.com/us/album/x/1".to_string()];
+        let opts = GamdlOptions {
+            synced_lyrics_only: Some(true),
+            ..with_folder()
+        };
+        let err = gamdl_v4_args(&urls, &opts).unwrap_err();
+        assert!(err.contains("lyrics on their own"), "{err}");
+    }
+
+    #[test]
+    fn a_link_that_could_read_as_an_option_is_refused() {
+        let urls = vec!["--output-dir=/tmp".to_string()];
+        assert!(gamdl_v4_args(&urls, &with_folder()).is_err());
+    }
+
+    #[test]
+    fn gamdl_3_refuses_a_folder_with_a_parent_step_from_either_source() {
+        use super::refuse_unusable_download_folder_v3 as check;
+        // Its own folder.
+        let e = check(Some("/a/../b"), None).unwrap_err();
+        assert!(e.contains("/a/../b"), "{e}");
+        // No folder of its own: the saved setting is read and refused.
+        let e = check(None, Some("/x/../y")).unwrap_err();
+        assert!(e.contains("/x/../y"), "{e}");
+        let e = check(Some("   "), Some("/x/../y")).unwrap_err();
+        assert!(e.contains("/x/../y"), "{e}");
+        // Its own safe folder wins over a refused saved one.
+        assert!(check(Some("/ok"), Some("/x/../y")).is_ok());
+        // Blank and spaces-only are never reported as containing "..".
+        assert!(check(None, Some("   ")).is_ok());
+        assert!(check(None, None).is_ok());
+    }
+
+    #[test]
+    fn a_folder_with_a_parent_step_is_refused_naming_it() {
+        let urls = vec!["https://music.apple.com/us/album/x/1".to_string()];
+        let opts = GamdlOptions {
+            output_path: Some("/Volumes/X/../Music".into()),
+            ..GamdlOptions::default()
+        };
+        let err = gamdl_v4_args(&urls, &opts).unwrap_err();
+        assert!(err.contains("/Volumes/X/../Music"), "{err}");
+    }
+
+    #[test]
+    fn a_blank_folder_means_the_usual_music_folder() {
+        // Blank is MeedyaDL's default setting. 4.0.0 must still be given a
+        // folder (it would otherwise stop to ask), so the usual one is sent.
+        let urls = vec!["https://music.apple.com/us/album/x/1".to_string()];
+        let expected = crate::services::config_service::get_default_output_path().unwrap();
+        for folder in [None, Some(String::new()), Some("  ".to_string())] {
+            let opts = GamdlOptions {
+                output_path: folder,
+                ..GamdlOptions::default()
+            };
+            let args = gamdl_v4_args(&urls, &opts).unwrap();
+            let i = args.iter().position(|a| a == "--output-dir").unwrap();
+            assert_eq!(args[i + 1], expected);
+        }
+    }
+
+    #[test]
+    fn launcher_calls_the_published_entry_point() {
+        // `pyproject.toml` in GAMDL 4.0.0: gamdl = "gamdl.cli.main:main".
+        assert!(GAMDL_V4_LAUNCHER.contains("from gamdl.cli.main import main"));
+        assert!(GAMDL_V4_LAUNCHER.contains("sys.exit(main())"));
     }
 }
 
@@ -913,7 +1348,10 @@ mod tool_path_gate_tests {
     #[test]
     fn only_releases_that_still_accept_them_are_sent_the_removed_arguments() {
         for old in ["3.0", "3.5.2"] {
-            assert!(tool_paths_accepted_on(Some(old)), "{old} still accepts them");
+            assert!(
+                tool_paths_accepted_on(Some(old)),
+                "{old} still accepts them"
+            );
         }
         for modern in ["3.6", "3.7.4", "3.9.1"] {
             assert!(
@@ -966,7 +1404,7 @@ pub fn is_version_at_least(version: &str, minimum: &str) -> bool {
 /// # Returns
 /// * `Ok(version)` - The latest version on `PyPI` (e.g., "2.8.4")
 /// * `Err(message)` - If the `PyPI` API request failed
-pub async fn check_latest_gamdl_version() -> Result<String, String> {
+pub async fn check_latest_gamdl_version(installed: Option<&str>) -> Result<String, String> {
     // Query the PyPI JSON API for the GAMDL package.
     // The PyPI JSON API returns package metadata including the latest version.
     // API format: https://pypi.org/pypi/{package}/json
@@ -1000,12 +1438,114 @@ pub async fn check_latest_gamdl_version() -> Result<String, String> {
         .await
         .map_err(|e| format!("Failed to parse PyPI response: {e}"))?;
 
-    // Navigate to info.version in the JSON response.
-    // This is the latest stable version published on PyPI.
-    json["info"]["version"]
+    pick_latest_gamdl_release(&json, installed)
+}
+
+/// Chooses which GAMDL release the update check reports as the newest,
+/// from PyPI's parsed project document. Pure, so it can be tested end to
+/// end without the network.
+///
+/// The update check compares the installed GAMDL against this one
+/// version, so whatever is reported here is what the person is offered.
+/// PyPI's "latest" (`info.version`) can be a new major version, and
+/// offering it would hide every update to the major version the person is
+/// on: someone on a 3.x release with a known fault would be offered only
+/// an untested GAMDL 4, never the 3.x fix. So "latest" here is the newest
+/// release in the newest major version the person should be offered
+/// (`update_major_ceiling`): the tested one, or the one they already
+/// chose. A newer major version that is not tested yet is installed only
+/// on purpose, from Settings > Tools > GAMDL Version Management.
+///
+/// PyPI's "latest" is also never used when it is on the refused list
+/// (`KNOWN_BAD_VERSIONS`), because the installer would refuse it on click:
+/// the choice then goes through `newest_release_up_to_major`, which skips
+/// refused releases.
+///
+/// Never an answer from a lower major version than the one installed:
+/// with every usable release of that major version gone (for example
+/// refused or withdrawn), the person has nothing to update to, and
+/// reporting an older major version as "the latest" would only show a
+/// confusing number beside what they have. That case is an error, the
+/// same "no answer" as finding nothing at all.
+fn pick_latest_gamdl_release(
+    json: &serde_json::Value,
+    installed: Option<&str>,
+) -> Result<String, String> {
+    use super::gamdl_capabilities::{known_bad_version, major_version_of};
+    let newest = json["info"]["version"]
         .as_str()
         .map(std::string::ToString::to_string)
-        .ok_or_else(|| "Could not find version in PyPI response".to_string())
+        .ok_or_else(|| "Could not find version in PyPI response".to_string())?;
+    let ceiling = update_major_ceiling(installed);
+    let picked = if major_version_of(&newest).is_none_or(|m| m > ceiling)
+        || known_bad_version(&newest).is_some()
+    {
+        newest_release_up_to_major(json, ceiling).ok_or_else(|| {
+            format!(
+                "The newest GAMDL on PyPI is {newest}, and no earlier release usable here was found"
+            )
+        })?
+    } else {
+        newest
+    };
+    let installed_major = installed.and_then(major_version_of);
+    if let (Some(have), Some(got)) = (installed_major, major_version_of(&picked)) {
+        if got < have {
+            return Err(format!(
+                "No usable GAMDL {have} release newer than the installed one was found"
+            ));
+        }
+    }
+    Ok(picked)
+}
+
+/// The newest finished release in a PyPI project document whose major
+/// version this build can drive, ignoring pre-releases and releases whose
+/// files have all been withdrawn ("yanked").
+///
+/// Pure, so it can be tested without the network.
+#[must_use]
+pub fn newest_drivable_release(json: &serde_json::Value) -> Option<String> {
+    newest_release_up_to_major(json, super::gamdl_capabilities::HIGHEST_DRIVABLE_MAJOR)
+}
+
+/// The newest major version of GAMDL the update check should offer.
+///
+/// The major version of the tested ceiling (`tool-versions.toml`), or the
+/// installed major version if that is higher — someone who chose GAMDL 4
+/// on purpose keeps being offered GAMDL 4 updates — but never above what
+/// this build can drive. Pure, so it can be tested.
+#[must_use]
+pub fn update_major_ceiling(installed: Option<&str>) -> u32 {
+    use super::gamdl_capabilities::{major_version_of, support_window, HIGHEST_DRIVABLE_MAJOR};
+    let tested =
+        major_version_of(&support_window().maximum_tested).unwrap_or(HIGHEST_DRIVABLE_MAJOR);
+    let chosen = installed.and_then(major_version_of).unwrap_or(0);
+    tested.max(chosen).min(HIGHEST_DRIVABLE_MAJOR)
+}
+
+/// The newest finished release whose major version is at most
+/// `max_major`, ignoring pre-releases and releases whose files have all
+/// been withdrawn, and never a release on the refused list
+/// (`KNOWN_BAD_VERSIONS`), which the installer would refuse on click.
+/// Pure, so it can be tested without the network.
+#[must_use]
+pub fn newest_release_up_to_major(json: &serde_json::Value, max_major: u32) -> Option<String> {
+    use super::gamdl_capabilities::{known_bad_version, major_version_of, numeric_version};
+    let releases = json["releases"].as_object()?;
+    releases
+        .iter()
+        .filter(|(version, _)| known_bad_version(version).is_none())
+        .filter(|(version, _)| major_version_of(version).is_some_and(|m| m <= max_major))
+        .filter(|(_, files)| {
+            files.as_array().is_some_and(|f| {
+                f.iter()
+                    .any(|file| !file["yanked"].as_bool().unwrap_or(false))
+            })
+        })
+        .filter_map(|(version, _)| numeric_version(version).map(|n| (n, version)))
+        .max_by_key(|(n, _)| *n)
+        .map(|(_, version)| version.clone())
 }
 
 #[cfg(test)]
@@ -1126,6 +1666,213 @@ mod tests {
     }
 
     #[test]
+    fn a_plain_reinstall_keeps_a_gamdl_4_that_was_chosen() {
+        // Someone who opted into 4.0.0 and presses Install/Reinstall must
+        // not be moved back to 3.x without being asked.
+        assert_eq!(
+            routine_install_spec(Some("4.0.2"), "macos"),
+            "gamdl[widevine]==4.0.2"
+        );
+        // 4.0.0 and 4.0.1 are refused; installing again moves to the fix.
+        for refused in ["4.0.0", "4.0.1"] {
+            assert_eq!(
+                routine_install_spec(Some(refused), "macos"),
+                "gamdl[widevine]==4.0.2"
+            );
+            let err = refuse_unsupported_target(refused, "macos").unwrap_err();
+            assert!(err.contains("4.0.2"), "{err}");
+        }
+        // 3.x, nothing installed, or a platform that cannot take 4.x: the
+        // ordinary tested range.
+        let tested = crate::services::gamdl_capabilities::pip_version_spec();
+        assert_eq!(routine_install_spec(Some("3.9.1"), "macos"), tested);
+        assert_eq!(routine_install_spec(None, "macos"), tested);
+        assert_eq!(routine_install_spec(Some("4.0.2"), "linux-armv7"), tested);
+    }
+
+    #[test]
+    fn only_a_plain_version_is_accepted_as_a_target() {
+        // Spellings pip would read as a version (some of them as 4.0)
+        // but that are not a plain version number.
+        for target in [
+            "v4.0", "=4.0.0", "==4.0", "4.0,<5", "3.9.*", "", " ", "3.9.1;x",
+        ] {
+            assert!(
+                refuse_unsupported_target(target, "macos").is_err(),
+                "{target:?}"
+            );
+        }
+        assert!(refuse_unsupported_target("3.9.1", "macos").is_ok());
+        assert!(refuse_unsupported_target("3.8.5", "macos").is_ok());
+    }
+
+    #[test]
+    fn latest_skips_a_major_release_this_build_cannot_use() {
+        let json = serde_json::json!({
+            "info": {"version": "5.0.0"},
+            "releases": {
+                "4.0.0": [{"yanked": false}],
+                "4.0.1": [{"yanked": false}],
+                "4.0.2": [{"yanked": true}],
+                "4.1.0rc1": [{"yanked": false}],
+                "4.1": [],
+                "5.0.0": [{"yanked": false}],
+                "5.0.1": [{"yanked": false}]
+            }
+        });
+        // 4.0.2 is withdrawn, 4.1.0rc1 is a pre-release, 4.1 has no
+        // files, and 5.x cannot be used. 4.0.0 and 4.0.1 are refused, so
+        // there is nothing to offer (a refused release is never offered
+        // only to be turned down when clicked).
+        assert_eq!(newest_drivable_release(&json), None);
+        // With 4.0.2 published and good, it is the answer.
+        let good = serde_json::json!({"releases": {
+            "4.0.0": [{"yanked": false}],
+            "4.0.1": [{"yanked": false}],
+            "4.0.2": [{"yanked": false}]
+        }});
+        assert_eq!(newest_drivable_release(&good).as_deref(), Some("4.0.2"));
+        let json = serde_json::json!({"releases": {"3.9": [{}], "3.10.1": [{}]}});
+        assert_eq!(newest_drivable_release(&json).as_deref(), Some("3.10.1"));
+        assert_eq!(newest_drivable_release(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn the_newest_release_offered_is_never_a_refused_one() {
+        let doc = |latest: &str, releases: &[(&str, bool)]| {
+            let rel: serde_json::Map<String, serde_json::Value> = releases
+                .iter()
+                .map(|(v, yanked)| ((*v).to_string(), serde_json::json!([{"yanked": yanked}])))
+                .collect();
+            serde_json::json!({"info": {"version": latest}, "releases": rel})
+        };
+        // 4.0.2 withdrawn, PyPI says 4.0.1, person is on 4.0.0: 4.0.1 would
+        // be refused on click, so it is not offered, and nothing usable is
+        // left in 4.x. A 3.x release is never reported to a 4.x user as
+        // "the latest" either, so there is no answer.
+        let withdrawn = doc(
+            "4.0.1",
+            &[
+                ("3.9.1", false),
+                ("4.0.0", false),
+                ("4.0.1", false),
+                ("4.0.2", true),
+            ],
+        );
+        assert!(pick_latest_gamdl_release(&withdrawn, Some("4.0.0")).is_err());
+        // Nothing installed with the same document: the tested 3.x is
+        // still offered.
+        assert_eq!(
+            pick_latest_gamdl_release(&withdrawn, None).unwrap(),
+            "3.9.1"
+        );
+        let nothing = doc(
+            "4.0.1",
+            &[("4.0.0", false), ("4.0.1", false), ("4.0.2", true)],
+        );
+        assert!(pick_latest_gamdl_release(&nothing, Some("4.0.0")).is_err());
+        // Normal case: 4.0.2 is offered to a 4.x user.
+        let normal = doc(
+            "4.0.2",
+            &[
+                ("3.9.1", false),
+                ("4.0.0", false),
+                ("4.0.1", false),
+                ("4.0.2", false),
+            ],
+        );
+        assert_eq!(
+            pick_latest_gamdl_release(&normal, Some("4.0.0")).unwrap(),
+            "4.0.2"
+        );
+        // A 3.x user is never offered 4.x.
+        assert_eq!(
+            pick_latest_gamdl_release(&normal, Some("3.8.5")).unwrap(),
+            "3.9.1"
+        );
+        assert_eq!(pick_latest_gamdl_release(&normal, None).unwrap(), "3.9.1");
+        // Latest within 3.x is the refused 3.9: the newest good one wins.
+        let nine = doc("3.9", &[("3.8.5", false), ("3.9", false), ("3.9.1", false)]);
+        assert_eq!(
+            pick_latest_gamdl_release(&nine, Some("3.8.5")).unwrap(),
+            "3.9.1"
+        );
+        let nine_only = doc("3.9", &[("3.8.5", false), ("3.9", false)]);
+        assert_eq!(
+            pick_latest_gamdl_release(&nine_only, Some("3.8.5")).unwrap(),
+            "3.8.5"
+        );
+        // A missing version is still an error.
+        assert!(pick_latest_gamdl_release(&serde_json::json!({}), None).is_err());
+    }
+
+    #[test]
+    fn the_update_check_stays_on_the_major_version_a_person_is_on() {
+        // tool-versions.toml names a 3.x ceiling: someone on 3.x (or with
+        // nothing installed) is offered 3.x updates, not an untested 4.x.
+        assert_eq!(update_major_ceiling(Some("3.8.5")), 3);
+        assert_eq!(update_major_ceiling(Some("3.9")), 3);
+        assert_eq!(update_major_ceiling(None), 3);
+        assert_eq!(update_major_ceiling(Some("not a version")), 3);
+        // Someone who chose GAMDL 4 keeps getting GAMDL 4 updates.
+        assert_eq!(update_major_ceiling(Some("4.0.0")), 4);
+        // Never above what this build can drive.
+        assert_eq!(update_major_ceiling(Some("5.0.0")), 4);
+        let json = serde_json::json!({
+            "info": {"version": "4.0.1"},
+            "releases": {
+                "3.9.1": [{"yanked": false}],
+                "3.9.2": [{"yanked": false}],
+                "4.0.0": [{"yanked": false}],
+                "4.0.1": [{"yanked": false}],
+                "4.0.2": [{"yanked": false}]
+            }
+        });
+        assert_eq!(
+            newest_release_up_to_major(&json, 3).as_deref(),
+            Some("3.9.2")
+        );
+        assert_eq!(
+            newest_release_up_to_major(&json, 4).as_deref(),
+            Some("4.0.2")
+        );
+        // If 4.0.2 were withdrawn, a 4.0.0 user must not be offered 4.0.1
+        // (refused on click): the newest release that is not refused is
+        // the answer.
+        let withdrawn = serde_json::json!({"releases": {
+            "3.9.2": [{"yanked": false}],
+            "4.0.0": [{"yanked": false}],
+            "4.0.1": [{"yanked": false}],
+            "4.0.2": [{"yanked": true}]
+        }});
+        assert_eq!(
+            newest_release_up_to_major(&withdrawn, 4).as_deref(),
+            Some("3.9.2")
+        );
+    }
+
+    #[test]
+    fn a_major_release_this_build_cannot_start_is_refused_everywhere() {
+        // GAMDL 4 is started and configured differently; installing it
+        // would leave every download failing. Refused on every platform,
+        // for finished releases and pre-releases alike, with a reason a
+        // person can act on.
+        // GAMDL 4 support is switched on (13 Nov 2026); a GAMDL 5 is what
+        // this build cannot start.
+        for platform_id in ["macos", "windows-x86_64", "windows-aarch64", "linux-armv7"] {
+            for target in ["5.0.0", "5.0", " 5.1.2 ", "5.0.0a0", "0!5.0.0"] {
+                let err = refuse_unsupported_target(target, platform_id)
+                    .expect_err("a major version above the switch must be refused");
+                assert!(err.contains("GAMDL 5"), "{platform_id} {target}: {err}");
+                assert!(
+                    err.contains("keeps working"),
+                    "{platform_id} {target}: {err}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn known_bad_refusal_says_move_back_on_a_held_back_platform() {
         // Windows on ARM is held at 3.8.5, BELOW the currently-installed
         // known-bad 3.9 — so the advised version (3.8.5) is a downgrade
@@ -1206,8 +1953,12 @@ mod tests {
         // is a decision the user is allowed to make — it is what the
         // amber "Untested" badge on the Updates page offers. That must
         // keep working on platforms that have no ceiling of their own.
-        assert!(refuse_unsupported_target("99.0.0", "macos").is_ok());
-        assert!(refuse_unsupported_target("99.0.0", "linux-x86_64").is_ok());
+        //
+        // Within the same major version: a new major release (GAMDL 4)
+        // is refused for a different reason — this build cannot start it
+        // at all — and has its own test.
+        assert!(refuse_unsupported_target("3.99.0", "macos").is_ok());
+        assert!(refuse_unsupported_target("3.99.0", "linux-x86_64").is_ok());
 
         // But not on a platform held back on purpose: nothing above
         // its ceiling can be installed there at all, so an untested
@@ -1215,7 +1966,7 @@ mod tests {
         if crate::services::gamdl_capabilities::platform_ceiling_override("windows-aarch64")
             .is_some()
         {
-            assert!(refuse_unsupported_target("99.0.0", "windows-aarch64").is_err());
+            assert!(refuse_unsupported_target("3.99.0", "windows-aarch64").is_err());
         }
     }
 
@@ -1255,9 +2006,7 @@ mod tests {
         use crate::services::gamdl_capabilities::support_window;
         let window = support_window();
         if window.platform_ceilings.contains_key("windows-aarch64") {
-            assert!(
-                explicit_target_pip_spec(&window.maximum_tested, "windows-aarch64").is_err()
-            );
+            assert!(explicit_target_pip_spec(&window.maximum_tested, "windows-aarch64").is_err());
         }
 
         // And an ordinary, installable version still produces a normal

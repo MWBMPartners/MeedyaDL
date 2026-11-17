@@ -35,8 +35,7 @@ use arboard::Clipboard;
 /// Returns an error string if the clipboard backend fails to initialise
 /// or read (e.g., no display server on headless Linux).
 pub fn read_clipboard_text() -> Result<Option<String>, String> {
-    let mut clipboard =
-        Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
+    let mut clipboard = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {e}"))?;
 
     match clipboard.get_text() {
         Ok(text) if text.is_empty() => Ok(None),

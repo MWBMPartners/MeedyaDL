@@ -45,7 +45,7 @@ import { QueueItem } from './QueueItem';
  *
  * Column alignment is preserved via shared structural rules: same
  * outer `flex items-center gap-3 px-4`, same `flex-shrink-0` discipline
- * on every non-flex-1 cell, same album-art spacer width (`w-12 h-12`)
+ * on every non-flex-1 cell, same album-art spacer width (`w-12`, no height)
  * even though the strip doesn't render an actual thumbnail. The
  * bulk-select checkbox column reserves a fixed spacer when
  * `hasSelection` is true so column alignment doesn't shift when
@@ -62,7 +62,7 @@ function QueueColumnHeader({ hasSelection }: { hasSelection: boolean }) {
   return (
     <div
       role="row"
-      className="sticky top-0 z-10 flex items-center gap-3 border-b border-border-light bg-surface-secondary px-4 py-2 text-[10px] font-medium uppercase tracking-wide text-content-tertiary"
+      className="sticky top-0 z-10 flex items-center gap-3 border-b border-border-light bg-surface-secondary px-4 py-2 text-2xs font-medium uppercase tracking-wide text-content-tertiary"
     >
       {/* Optional bulk-select column spacer — w-4 matches the
        * checkbox + accent-accent footprint in QueueItem.tsx so the
@@ -70,17 +70,19 @@ function QueueColumnHeader({ hasSelection }: { hasSelection: boolean }) {
       {hasSelection && <div className="w-4 flex-shrink-0" aria-hidden="true" />}
 
       {/* Album-art column spacer — no label (the thumbnail itself is
-       * the column's content; a label would be redundant). w-12 h-12
-       * matches AlbumArtThumbnail's footprint. */}
-      <div className="w-12 h-12 flex-shrink-0" aria-hidden="true" />
+       * the column's content; a label would be redundant). w-12
+       * matches AlbumArtThumbnail's WIDTH only: no height, because a
+       * 48px-tall spacer made the sticky header about 65px high, taller
+       * than the 44px scroll padding below (#1310). */}
+      <div className="w-12 flex-shrink-0" aria-hidden="true" />
 
       {/* Tier 2 — Platform label (hidden below md, matching the
-       * row's `hidden md:flex` platform icon column). */}
-      <div
-        role="columnheader"
-        className="hidden md:flex flex-shrink-0 w-5 justify-center"
-      >
-        <span aria-hidden="true">Svc</span>
+       * row's `hidden md:flex` platform icon column). It used to read
+       * "Svc" (shown as "SVC") in a column only 20px wide; the whole
+       * word needs about 50px, so both this header and the row's icon
+       * cell are now `w-14` (56px), with the icon centred under it. */}
+      <div role="columnheader" className="hidden md:flex flex-shrink-0 w-14 justify-center">
+        Service
       </div>
 
       {/* Tier 1 — primary identifier column header. The row's
@@ -91,9 +93,10 @@ function QueueColumnHeader({ hasSelection }: { hasSelection: boolean }) {
         Artist — Album — Track
       </div>
 
-      {/* Tier 3 — Speed / ETA (≥ lg). */}
+      {/* Tier 3 — Speed / time left (≥ lg). Says "Time Left" rather
+       * than "ETA", matching the "… left" the cell shows. */}
       <div role="columnheader" className="hidden lg:flex flex-shrink-0">
-        Speed / ETA
+        Speed / Time Left
       </div>
 
       {/* Tier 4 — Codec / quality (≥ xl). */}
@@ -150,6 +153,14 @@ interface QueueListVirtualizedProps {
   onToggleSelect?: (id: string) => void;
 }
 
+/**
+ * Scrolling list of queue rows. Only the rows near the visible area are
+ * drawn, so a very long queue stays fast.
+ *
+ * @param props See {@link QueueListVirtualizedProps}; the parent supplies the
+ * items and every row action.
+ * @see https://tanstack.com/virtual/latest
+ */
 export function QueueListVirtualized({
   queueItems,
   onCancel,
@@ -173,9 +184,7 @@ export function QueueListVirtualized({
    * mutates frequently (progress events, state transitions, reorders).
    * Cheap: linear scan + linear filter over `queueItems`.
    */
-  const queuedIds = queueItems
-    .filter((i) => i.state === 'queued')
-    .map((i) => i.id);
+  const queuedIds = queueItems.filter((i) => i.state === 'queued').map((i) => i.id);
 
   /**
    * Defensive measurement closure (#911 Phase 1 sub-item — virtualiser
@@ -191,9 +200,8 @@ export function QueueListVirtualized({
    * null — happens only momentarily during initial mount.
    */
   const measureElement = useCallback(
-    (element: Element | null | undefined) =>
-      element?.getBoundingClientRect().height ?? 80,
-    [],
+    (element: Element | null | undefined) => element?.getBoundingClientRect().height ?? 80,
+    []
   );
 
   /**
@@ -208,10 +216,7 @@ export function QueueListVirtualized({
    * only when the queue array itself changes — minor optimisation
    * for the memoised render path.
    */
-  const getItemKey = useCallback(
-    (index: number) => queueItems[index]?.id ?? index,
-    [queueItems],
-  );
+  const getItemKey = useCallback((index: number) => queueItems[index]?.id ?? index, [queueItems]);
 
   /**
    * Virtualizer config mirrors `ActivityLog.tsx`:
@@ -244,9 +249,8 @@ export function QueueListVirtualized({
           <Download size={40} className="mb-4 opacity-30" />
           <p className="text-sm font-medium">No downloads in queue</p>
           <p className="text-xs mt-1 text-center max-w-xs">
-            Paste an Apple Music URL on the Download page to get started, or
-            copy a URL to your clipboard and MeedyaDL will detect it
-            automatically.
+            Paste an Apple Music URL on the Download page to get started, or copy a URL to your
+            clipboard and MeedyaDL will detect it automatically.
           </p>
         </div>
       </div>
@@ -258,9 +262,11 @@ export function QueueListVirtualized({
       ref={scrollRef}
       // `scroll-padding-top: 44px` keeps the focused button visible
       // when Tab focus enters a row whose top edge is under the
-      // sticky column header (44px = header's py-2 + text-[10px]
+      // sticky column header (44px = header's py-2 + its small-print
       // line-height + border-b — verified during the #911 sticky
-      // header build).
+      // header build). The album-art spacer in the header has a width
+      // but no height, so the header stays at that 44px (#1310); if the
+      // header's height ever changes, change this number with it.
       className="flex-1 overflow-y-auto [scroll-padding-top:44px]"
       role="list"
       aria-label="Download queue items"
@@ -276,11 +282,9 @@ export function QueueListVirtualized({
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const item = queueItems[virtualRow.index];
           if (!item) return null;
-          const queuedPos =
-            item.state === 'queued' ? queuedIds.indexOf(item.id) : -1;
+          const queuedPos = item.state === 'queued' ? queuedIds.indexOf(item.id) : -1;
           const canMoveUp = queuedPos > 0;
-          const canMoveDown =
-            queuedPos >= 0 && queuedPos < queuedIds.length - 1;
+          const canMoveDown = queuedPos >= 0 && queuedPos < queuedIds.length - 1;
           return (
             <div
               key={item.id}
@@ -307,9 +311,7 @@ export function QueueListVirtualized({
                 onMoveToBottom={onMoveToBottom}
                 canMoveUp={canMoveUp}
                 canMoveDown={canMoveDown}
-                isSelected={
-                  selectedIds === undefined ? undefined : selectedIds.has(item.id)
-                }
+                isSelected={selectedIds === undefined ? undefined : selectedIds.has(item.id)}
                 onToggleSelect={onToggleSelect}
               />
             </div>

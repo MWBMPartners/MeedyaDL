@@ -757,7 +757,10 @@ mod tests {
 
     #[test]
     fn codec_suffix_alac_is_lossless() {
-        assert_eq!(codec_suffix_from_registry(&SongCodec::Alac), Some("[Lossless]"));
+        assert_eq!(
+            codec_suffix_from_registry(&SongCodec::Alac),
+            Some("[Lossless]")
+        );
     }
 
     #[test]

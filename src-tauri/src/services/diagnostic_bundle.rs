@@ -66,6 +66,8 @@ pub struct DiagnosticBundleInput {
     pub user_summary: Option<String>,
 }
 
+/// One tool and the version it reported, as sent by the page. It is only read
+/// (`Deserialize`), never sent back.
 #[derive(Debug, Deserialize)]
 pub struct ComponentVersion {
     pub name: String,
@@ -113,7 +115,7 @@ pub fn build_diagnostic_bundle(
     }
     body.push_str(&format!(
         "**Generated:** {}\n",
-        chrono::Utc::now().to_rfc3339()
+        crate::utils::time_compat::now_rfc3339()
     ));
     body.push_str(&format!(
         "**MeedyaDL version:** {}\n",
@@ -200,6 +202,9 @@ pub fn build_diagnostic_bundle(
     }
 
     // --- Final size sanity check + GitHub URL truncation ---
+    // GitHub refuses issue text longer than about 65,536 characters. This code counts
+    // bytes, which is the safer count for non-English text. A longer bundle is cut
+    // down (on a character boundary) before the issue link is built.
     const GITHUB_BODY_LIMIT: usize = 65_536;
     let issue_body = if body.len() > GITHUB_BODY_LIMIT {
         // Slice on a UTF-8 char boundary. A raw byte-offset slice
@@ -231,9 +236,8 @@ pub fn build_diagnostic_bundle(
     // form_urlencoded path (same pattern as crash_report_service so
     // every special char — backticks, newlines, pipes — is escaped
     // correctly).
-    let mut issue_url =
-        url::Url::parse("https://github.com/MWBMPartners/MeedyaDL/issues/new")
-            .map_err(|e| format!("parse base url: {e}"))?;
+    let mut issue_url = url::Url::parse("https://github.com/MWBMPartners/MeedyaDL/issues/new")
+        .map_err(|e| format!("parse base url: {e}"))?;
     issue_url
         .query_pairs_mut()
         .append_pair("title", &title)
@@ -258,15 +262,13 @@ pub fn build_diagnostic_bundle(
 pub(crate) fn collect_redacted_settings(app: &AppHandle) -> Result<String, String> {
     use crate::utils::platform::get_app_data_dir;
     let settings_path = get_app_data_dir(app).join("settings.json");
-    let raw = fs::read_to_string(&settings_path)
-        .map_err(|e| format!("read settings.json: {e}"))?;
+    let raw = fs::read_to_string(&settings_path).map_err(|e| format!("read settings.json: {e}"))?;
     let mut value: serde_json::Value = match serde_json::from_str(&raw) {
         Ok(v) => v,
         Err(_) => return Ok(redact_path_usernames(&raw)),
     };
     redact_credential_fields(&mut value);
-    let pretty =
-        serde_json::to_string_pretty(&value).map_err(|e| format!("serialize: {e}"))?;
+    let pretty = serde_json::to_string_pretty(&value).map_err(|e| format!("serialize: {e}"))?;
     Ok(redact_path_usernames(&pretty))
 }
 
@@ -277,6 +279,8 @@ pub(crate) fn collect_redacted_settings(app: &AppHandle) -> Result<String, Strin
 /// "musickit_key_id". Conservative — false positives just lose
 /// information from the bundle, false negatives leak credentials.
 fn redact_credential_fields(value: &mut serde_json::Value) {
+    // Words that mark a settings key as private. A key is hidden if its name
+    // contains any of these, ignoring case (see `is_sensitive_key`).
     const SENSITIVE_SUBSTRINGS: &[&str] = &[
         "key",
         "token",
@@ -293,6 +297,7 @@ fn redact_credential_fields(value: &mut serde_json::Value) {
         "secret",
         "password",
     ];
+    /// True when `key`, lower-cased, contains any word in `SENSITIVE_SUBSTRINGS`.
     fn is_sensitive_key(key: &str) -> bool {
         let lower = key.to_lowercase();
         SENSITIVE_SUBSTRINGS
@@ -323,12 +328,12 @@ fn redact_credential_fields(value: &mut serde_json::Value) {
 /// the operator's account name.
 pub fn redact_path_usernames(input: &str) -> String {
     use std::sync::LazyLock;
-    static UNIX: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r"(/Users/|/home/)[^/\s\\]+").expect("unix regex")
-    });
-    static WIN: LazyLock<regex::Regex> = LazyLock::new(|| {
-        regex::Regex::new(r"(?i)([A-Z]:\\Users\\)[^\\/\s]+").expect("win regex")
-    });
+    // macOS and Linux home folders: `/Users/<name>` or `/home/<name>`. Compiled once.
+    static UNIX: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"(/Users/|/home/)[^/\s\\]+").expect("unix regex"));
+    // Windows home folders: `C:\Users\<name>`, any drive letter, any letter case.
+    static WIN: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"(?i)([A-Z]:\\Users\\)[^\\/\s]+").expect("win regex"));
     let after_unix = UNIX.replace_all(input, "${1}{user}").into_owned();
     WIN.replace_all(&after_unix, "${1}{user}").into_owned()
 }
@@ -354,7 +359,9 @@ fn collect_output_tree(app: &AppHandle) -> Option<String> {
 /// Recursive depth-bounded tree renderer. Caps at 200 entries total
 /// to keep the bundle from ballooning on large music libraries.
 fn render_dir_tree(dir: &Path, depth: usize, out: &mut String, count: &mut usize) {
+    // Deepest level listed. Entries directly in the output folder are level 0.
     const MAX_DEPTH: usize = 2;
+    // The most entries listed in total, so a huge music library cannot bloat the report.
     const MAX_ENTRIES: usize = 200;
     if depth > MAX_DEPTH {
         return;

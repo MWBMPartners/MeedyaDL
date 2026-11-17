@@ -1,0 +1,157 @@
+=== 01 Word.lyrics ===
+version: '1.0'
+metadata:
+  title: Word
+  artist: Album Artist
+  language: en-US
+  instrumental: false
+lines:
+- text: Hello world today
+  start_ms: 12450
+  end_ms: 15800
+  words:
+  - text: Hello
+    start_ms: 12450
+    end_ms: 13200
+  - text: world
+    start_ms: 13200
+    end_ms: 14100
+  - text: today
+    start_ms: 14100
+    end_ms: 15800
+
+=== 01 Word.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+=== 01 Word.ttml ===
+<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+            xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+            itunes:timing="Word" xml:lang="en-US">
+          <head><metadata><ttm:title>Test Song</ttm:title></metadata></head>
+          <body><div>
+            <p begin="00:12.450" end="00:15.800">
+              <span begin="00:12.450" end="00:13.200">Hello </span>
+              <span begin="00:13.200" end="00:14.100">world </span>
+              <span begin="00:14.100" end="00:15.800">today</span>
+            </p>
+          </div></body>
+        </tt>
+=== 02 Line.lyrics ===
+version: '1.0'
+metadata:
+  title: Line
+  artist: Album Artist
+  instrumental: false
+lines:
+- text: Hello world today
+  start_ms: 12450
+  end_ms: 15800
+
+=== 02 Line.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+=== 02 Line.ttml ===
+<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+            itunes:timing="Line">
+          <body><div>
+            <p begin="00:12.450" end="00:15.800">Hello world today</p>
+          </div></body>
+        </tt>
+=== 03 Srt only.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+=== 03 Srt only.srt ===
+1
+00:00:01,000 --> 00:00:02,000
+Hello
+
+
+=== 04 Lrc only.lrc ===
+[00:01.00]Hello
+
+=== 04 Lrc only.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+=== 05 Vtt only.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+=== 05 Vtt only.vtt ===
+WEBVTT
+
+00:00:01.000 --> 00:00:02.000
+Hello
+
+
+=== 06 日本語 🎵 [Lossless].lyrics ===
+version: '1.0'
+metadata:
+  title: 日本語 🎵
+  artist: Album Artist
+  language: en-US
+  instrumental: false
+lines:
+- text: Hello world today
+  start_ms: 12450
+  end_ms: 15800
+  words:
+  - text: Hello
+    start_ms: 12450
+    end_ms: 13200
+  - text: world
+    start_ms: 13200
+    end_ms: 14100
+  - text: today
+    start_ms: 14100
+    end_ms: 15800
+
+=== 06 日本語 🎵 [Lossless].m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+=== 06 日本語 🎵 [Lossless].ttml ===
+<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+            xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+            itunes:timing="Word" xml:lang="en-US">
+          <head><metadata><ttm:title>Test Song</ttm:title></metadata></head>
+          <body><div>
+            <p begin="00:12.450" end="00:15.800">
+              <span begin="00:12.450" end="00:13.200">Hello </span>
+              <span begin="00:13.200" end="00:14.100">world </span>
+              <span begin="00:14.100" end="00:15.800">today</span>
+            </p>
+          </div></body>
+        </tt>
+=== 07 Has outputs.ass ===
+mine ass
+=== 07 Has outputs.lyrics ===
+mine lyrics
+=== 07 Has outputs.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+=== 07 Has outputs.srt ===
+plain srt
+=== 07 Has outputs.ttml ===
+<?xml version="1.0" encoding="UTF-8"?>
+        <tt xmlns="http://www.w3.org/ns/ttml"
+            xmlns:ttm="http://www.w3.org/ns/ttml#metadata"
+            xmlns:itunes="http://music.apple.com/lyric-ttml-internal"
+            itunes:timing="Word" xml:lang="en-US">
+          <head><metadata><ttm:title>Test Song</ttm:title></metadata></head>
+          <body><div>
+            <p begin="00:12.450" end="00:15.800">
+              <span begin="00:12.450" end="00:13.200">Hello </span>
+              <span begin="00:13.200" end="00:14.100">world </span>
+              <span begin="00:14.100" end="00:15.800">today</span>
+            </p>
+          </div></body>
+        </tt>
+=== 07 Has outputs.vtt ===
+mine vtt
+=== 08 No lyrics.m4a ===
+Fourcc(Fourcc(disk)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])
+Fourcc(Fourcc(trkn)) = Data::Reserved([0, 0, 0, 1, 0, 0, 0, 0])

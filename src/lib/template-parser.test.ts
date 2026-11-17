@@ -134,9 +134,7 @@ describe('serializeTemplate', () => {
   });
 
   it('serializes literal segments as-is', () => {
-    expect(serializeTemplate([{ type: 'literal', value: 'Compilations/' }])).toBe(
-      'Compilations/',
-    );
+    expect(serializeTemplate([{ type: 'literal', value: 'Compilations/' }])).toBe('Compilations/');
   });
 
   it('serializes mixed segments', () => {
@@ -145,7 +143,7 @@ describe('serializeTemplate', () => {
         { type: 'variable', value: 'album_artist' },
         { type: 'literal', value: '/' },
         { type: 'variable', value: 'album' },
-      ]),
+      ])
     ).toBe('{album_artist}/{album}');
   });
 

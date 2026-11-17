@@ -56,6 +56,8 @@ import { parseSubmittableUrl } from '@/lib/url-parser';
 // `#[tauri::command]` handler in the Rust backend.
 import * as commands from '@/lib/tauri-commands';
 import { useUiStore } from '@/stores/uiStore';
+import { useSettingsStore } from '@/stores/settingsStore';
+import { ABORT_FAILED, showError, undoFailed } from '@/lib/errorMessages';
 
 /**
  * Module-level handle for the undo-buffer auto-expiry timer (#894).
@@ -303,12 +305,14 @@ interface DownloadState {
    * Import queue items from a `.meedyadl` file via a native file picker.
    * IPC call: `commands.importQueue()` -> Rust `import_queue`
    * Imported items are enqueued and processing starts automatically.
-   * @returns The count of items imported
+   * @returns The count of items imported, plus `refreshError` when the
+   *   import itself worked but re-reading the queue afterwards failed
+   *   (the import is NOT undone, so it must not be reported as failed).
    * @throws Re-throws the IPC error (e.g. "Import cancelled", a corrupt
    *   or wrong-version file) so callers can tell those apart, instead of
    *   the pre-fix behaviour of quietly returning 0 either way.
    */
-  importQueue: () => Promise<number>;
+  importQueue: () => Promise<{ count: number; refreshError?: unknown }>;
 
   /**
    * Manually triggers download queue processing.
@@ -375,7 +379,10 @@ interface DownloadState {
    *   is not triggered. Used when the device is offline.
    * @returns Summary with counts of queued, failed, and duplicate-warned items
    */
-  submitBatchDownload: (urls: string[], skipAutoStart?: boolean) => Promise<{
+  submitBatchDownload: (
+    urls: string[],
+    skipAutoStart?: boolean
+  ) => Promise<{
     queued: number;
     failed: number;
     duplicateWarnings: string[];
@@ -419,7 +426,10 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    * All three fields are updated atomically in a single `set()` call.
    */
   setUrlInput: (url) => {
-    const parsed = parseSubmittableUrl(url);
+    // Spotify links count as valid only with developer access on -- the
+    // backend refuses them otherwise (see `submittableServices()`).
+    const spotify = useSettingsStore.getState().settings.dev_access_enabled === true;
+    const parsed = parseSubmittableUrl(url, { spotify });
     set({
       urlInput: url,
       urlIsValid: parsed.isValid, // true if URL matches a submittable service
@@ -469,7 +479,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
           // Convert null -> undefined so Tauri serializes as Option::None in Rust.
           options: overrideOptions ?? undefined,
         },
-        skipAutoStart,
+        skipAutoStart
       );
 
       // Clear the input form after successful submission, readying it for
@@ -504,7 +514,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     try {
       await commands.cancelDownload(downloadId);
     } catch (e) {
+      // Recorded AND passed on (polish pass M8). This used to swallow the
+      // failure, so the caller's "requeued" / "cancelled" message was
+      // shown even when the backend had refused -- for example a retry
+      // refused because every track is already on disk.
       set({ error: String(e) });
+      throw e;
     }
   },
 
@@ -521,7 +536,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       const status = await commands.getQueueStatus();
       set({ queueItems: status.items });
     } catch (e) {
+      // Recorded AND passed on (polish pass M8). This used to swallow the
+      // failure, so the caller's "requeued" / "cancelled" message was
+      // shown even when the backend had refused -- for example a retry
+      // refused because every track is already on disk.
       set({ error: String(e) });
+      throw e;
     }
   },
 
@@ -537,7 +557,12 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       const status = await commands.getQueueStatus();
       set({ queueItems: status.items });
     } catch (e) {
+      // Recorded AND passed on (polish pass M8). This used to swallow the
+      // failure, so the caller's "requeued" / "cancelled" message was
+      // shown even when the backend had refused -- for example a retry
+      // refused because every track is already on disk.
       set({ error: String(e) });
+      throw e;
     }
   },
 
@@ -599,8 +624,8 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
    */
   clearAll: async () => {
     // Save URLs of non-active items to undo buffer before clearing
-    const clearableUrls = get().queueItems
-      .filter((i) => i.state !== 'downloading' && i.state !== 'processing')
+    const clearableUrls = get()
+      .queueItems.filter((i) => i.state !== 'downloading' && i.state !== 'processing')
       .flatMap((i) => i.urls ?? []);
 
     const removed = await commands.clearAllQueue();
@@ -617,52 +642,43 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     // Show undo toast with 5-second timeout
     if (removed > 0 && clearableUrls.length > 0) {
       const { addToast } = useUiStore.getState();
-      addToast(
-        `Cleared ${removed} item${removed !== 1 ? 's' : ''}`,
-        'info',
-        5000,
-        'undo-clear',
-        {
-          label: 'Undo',
-          onClick: () => {
-            // Re-enqueue the cleared URLs.
-            //
-            // #991: ONE start_download IPC for the whole batch — the
-            // backend accepts `urls: string[]` and enqueues them as a
-            // single queue item (same pattern HistoryPage's Retry-All
-            // already uses). The previous per-URL loop consumed one
-            // rate-limit slot per URL against the backend's 10/min
-            // `start_download` limit, silently dropping every URL past
-            // the tenth while the toast still claimed full success.
-            const urls = get()._undoBuffer;
-            if (urls && urls.length > 0) {
-              commands
-                .startDownload({ urls })
-                .then((result) => {
-                  set({ _undoBuffer: null });
-                  if (result.download_id) {
-                    addToast(
-                      `Re-queued ${urls.length} item${urls.length !== 1 ? 's' : ''}`,
-                      'success'
-                    );
-                  } else {
-                    addToast(
-                      result.duplicate_warning ??
-                        'Nothing re-queued — items are already in the queue',
-                      'info'
-                    );
-                  }
-                })
-                .catch((e) => {
+      addToast(`Cleared ${removed} item${removed !== 1 ? 's' : ''}`, 'info', 5000, 'undo-clear', {
+        label: 'Undo',
+        onClick: () => {
+          // Re-enqueue the cleared URLs.
+          //
+          // #991: ONE start_download IPC for the whole batch — the
+          // backend accepts `urls: string[]` and enqueues them as a
+          // single queue item (same pattern HistoryPage's Retry-All
+          // already uses). The previous per-URL loop consumed one
+          // rate-limit slot per URL against the backend's 10/min
+          // `start_download` limit, silently dropping every URL past
+          // the tenth while the toast still claimed full success.
+          const urls = get()._undoBuffer;
+          if (urls && urls.length > 0) {
+            commands
+              .startDownload({ urls })
+              .then((result) => {
+                set({ _undoBuffer: null });
+                if (result.download_id) {
                   addToast(
-                    `Failed to re-queue ${urls.length} item${urls.length !== 1 ? 's' : ''}: ${String(e)}`,
-                    'error'
+                    `Re-queued ${urls.length} item${urls.length !== 1 ? 's' : ''}`,
+                    'success'
                   );
-                });
-            }
-          },
-        }
-      );
+                } else {
+                  addToast(
+                    result.duplicate_warning ??
+                      'Nothing re-queued — items are already in the queue',
+                    'info'
+                  );
+                }
+              })
+              .catch((e) => {
+                showError(undoFailed(urls.length), e);
+              });
+          }
+        },
+      });
 
       // #894: cancel any previous undo-buffer expiry timer before
       // scheduling a new one, so rapid clearAll() calls don't
@@ -702,17 +718,15 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       // the abort returns items already flipped to `Cancelled`. The
       // pre-abort state set is: `queued` + `downloading` + `processing`,
       // matching the three categories `AbortSummary` reports back.
-      const abortableUrls = get().queueItems
-        .filter(
-          (i) =>
-            i.state === 'queued' ||
-            i.state === 'downloading' ||
-            i.state === 'processing'
+      const abortableUrls = get()
+        .queueItems.filter(
+          (i) => i.state === 'queued' || i.state === 'downloading' || i.state === 'processing'
         )
         .flatMap((i) => i.urls ?? []);
 
       const summary = await commands.abortAllDownloads();
-      const total = summary.queuedCancelled + summary.downloadingStopped + summary.processingStopped;
+      const total =
+        summary.queuedCancelled + summary.downloadingStopped + summary.processingStopped;
 
       // Refresh the queue snapshot so the UI reflects the state change
       // without waiting for the subsequent `queue-updated` event.
@@ -783,10 +797,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
                         }
                       })
                       .catch((e) => {
-                        addToast(
-                          `Failed to re-queue ${urls.length} item${urls.length !== 1 ? 's' : ''}: ${String(e)}`,
-                          'error'
-                        );
+                        showError(undoFailed(urls.length), e);
                       });
                   }
                 },
@@ -816,9 +827,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
       // here, so the failure is too, and every caller is covered at once.
       const message = e instanceof Error ? e.message : String(e);
       set({ error: message });
-      useUiStore
-        .getState()
-        .addToast(`Could not stop the downloads: ${message}`, 'error', undefined, 'abort-failed');
+      showError(ABORT_FAILED, e, { key: 'abort-failed' });
       return 0;
     }
   },
@@ -878,9 +887,17 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
     // Refresh the queue to include the newly imported items. Only
     // reached on success -- a failed import has nothing new to
     // reflect, and the line above already threw.
-    const status = await commands.getQueueStatus();
-    set({ queueItems: status.items });
-    return count;
+    //
+    // A failure HERE is not a failed import: the items are already in the
+    // queue on the backend. It is handed back separately so the caller
+    // can say the import is done and the list just could not be refreshed.
+    try {
+      const status = await commands.getQueueStatus();
+      set({ queueItems: status.items });
+      return { count };
+    } catch (refreshError) {
+      return { count, refreshError };
+    }
   },
 
   /**
@@ -959,8 +976,14 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
             // Compute approximate progress from track counts (GAMDL 2.9.x).
             // When [Track N/M] format is available, use (N-1)/M as the
             // percentage (N-1 because track N is starting, not finished).
-            if (progress.event.track_number != null && progress.event.track_total != null && progress.event.track_total > 0) {
-              updated.progress = Math.round(((progress.event.track_number - 1) / progress.event.track_total) * 100);
+            if (
+              progress.event.track_number != null &&
+              progress.event.track_total != null &&
+              progress.event.track_total > 0
+            ) {
+              updated.progress = Math.round(
+                ((progress.event.track_number - 1) / progress.event.track_total) * 100
+              );
               updated.total_tracks = progress.event.track_total;
               updated.completed_tracks = progress.event.track_number - 1;
             }
@@ -1163,7 +1186,7 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
               urls: [url],
               options: overrideOptions ?? undefined,
             },
-            skipAutoStart,
+            skipAutoStart
           );
           queued++;
           if (result.download_id) {
@@ -1201,8 +1224,8 @@ export const useDownloadStore = create<DownloadState>((set, get) => ({
             // House style: never show the words "rate limit" on
             // screen -- say what it actually means instead.
             addToast(
-              `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. ${added} of your links were added. The other ${stillToAdd} have been left in the box -- press Download again in about ${waitSeconds} seconds.`,
-              'warning',
+              `MeedyaDL only starts a certain number of downloads each minute, to keep things steady. ${added} of your links were added. The other ${stillToAdd} have been left in the box — press Add to Queue again in about ${waitSeconds} seconds.`,
+              'warning'
             );
           }
           // Any other individual failure (a bad link, a one-off

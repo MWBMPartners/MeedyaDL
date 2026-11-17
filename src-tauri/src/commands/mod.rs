@@ -197,3 +197,10 @@ pub mod app_relocation;
 /// Lyrics tab calls to verify syllable-lyrics fetch credentials without
 /// running a full download. Delegates to `services::apple_music_api`.
 pub mod lyrics;
+
+/// Language-list ordering IPC command (#1249). Provides
+/// `order_languages_for_display`, which orders the Metadata Language list
+/// in Settings > General by the shared language policy (the person's own
+/// languages first, then alphabetical by name). Delegates to
+/// `utils::language`, which calls the shared `meedya-lang` crate.
+pub mod language;

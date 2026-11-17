@@ -49,7 +49,7 @@
  * @see {@link https://react.dev/reference/react/useEffect}
  * @see {@link https://react.dev/reference/react/useState}
  */
-import { useCallback, useEffect, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 /**
@@ -90,12 +90,14 @@ import { useTheme } from './hooks/useTheme';
 
 /**
  * Custom hook for global keyboard shortcuts (Cmd/Ctrl+D, Cmd/Ctrl+,,
- * Cmd/Ctrl+Q, Cmd/Ctrl+Enter). Registers a single window-level keydown
+ * Cmd/Ctrl+J, Cmd/Ctrl+Enter). Registers a single window-level keydown
  * listener with cleanup on unmount.
  * @see ./hooks/useKeyboardShortcuts.ts for shortcut definitions
  */
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useKonamiCode } from './hooks/useKonamiCode';
+/** Sets the page title AND the native window title (see Fix 14 below). */
+import { setWindowTitle } from './lib/windowTitle';
 import { useClipboardMonitor } from './hooks/useClipboardMonitor';
 import { activateDevAccess, checkAppRelocation } from './lib/tauri-commands';
 
@@ -142,6 +144,7 @@ import { useFeatureFlagStore, selectServiceEnabled } from './stores/featureFlagS
  * @see ./components/layout/ for layout component implementations
  */
 import { MainLayout } from './components/layout';
+import { PageLoading } from './components/layout/PageLoading';
 
 /* ─── Page Components ────────────────────────────────────────────────── */
 
@@ -151,8 +154,25 @@ import { MainLayout } from './components/layout';
  */
 import { DownloadForm, DownloadQueue, HistoryPage, ActivityLog } from './components/download';
 
-/** UpdatesPage: Detailed update view with full release notes */
-import { UpdatesPage } from './components/updates';
+/*
+ * Help, Updates and Settings are loaded the first time they are opened,
+ * not at start-up (polish pass M12). Help carries every help page's text
+ * (about 350 kB) and, with Updates, the Markdown and HTML libraries
+ * (about 320 kB) that nothing else uses; Settings is the largest set of
+ * screens after those (about 150 kB). Loading them up front made
+ * MeedyaDL's start-up script 1.46 MB -- nearly three times the size Vite
+ * warns about -- and every launch paid for it, although most launches
+ * never open any of them. `PageLoading` fills the short wait the first
+ * time one is opened.
+ *
+ * Each import names the component's own file, not its folder's index:
+ * the indexes are imported elsewhere for types only, and pointing a lazy
+ * import at an index would only work while nothing else imports a value
+ * from it.
+ */
+const UpdatesPage = lazy(() =>
+  import('./components/updates/UpdatesPage').then((m) => ({ default: m.UpdatesPage }))
+);
 
 /**
  * LibraryScanPage (Phase 5 / #717): scan an existing on-disk music library
@@ -161,11 +181,15 @@ import { UpdatesPage } from './components/updates';
  */
 import { LibraryScanPage } from './components/library/LibraryScanPage';
 
-/** SettingsPage: Full application settings editor with save/reset */
-import { SettingsPage } from './components/settings';
+/** SettingsPage: Full application settings editor with save/reset (loaded when first opened). */
+const SettingsPage = lazy(() =>
+  import('./components/settings/SettingsPage').then((m) => ({ default: m.SettingsPage }))
+);
 
-/** HelpViewer: In-app help documentation and FAQ */
-import { HelpViewer } from './components/help';
+/** HelpViewer: In-app help documentation and FAQ (loaded when first opened). */
+const HelpViewer = lazy(() =>
+  import('./components/help/HelpViewer').then((m) => ({ default: m.HelpViewer }))
+);
 
 /**
  * SetupWizard: Multi-step guided setup shown on first run or when
@@ -249,6 +273,8 @@ import { initI18n, changeUiLanguage, systemLanguageOrEnglish } from './lib/i18n'
  * @see ./types/index.ts for the full type definition
  */
 import type { GamdlProgress, ActivityLogEntry, ComponentUpdate } from './types';
+import { showBackendError, showError } from '@/lib/errorMessages';
+import { showAppNotification, type AppNotificationEvent } from '@/lib/appNotifications';
 
 /**
  * The root component that serves as the entry point for the application UI.
@@ -290,7 +316,7 @@ function App() {
   /*
    * ─── Keyboard Shortcuts ────────────────────────────────────────────
    * Registers global keyboard shortcuts (Cmd/Ctrl+D, Cmd/Ctrl+,,
-   * Cmd/Ctrl+Q, Cmd/Ctrl+Enter) via a single window-level keydown listener.
+   * Cmd/Ctrl+J, Cmd/Ctrl+Enter) via a single window-level keydown listener.
    * Shortcuts are suppressed when focus is in form elements to avoid
    * interfering with text editing. Cleanup is automatic on unmount.
    * @see ./hooks/useKeyboardShortcuts.ts
@@ -304,9 +330,12 @@ function App() {
    */
   const [showDevPrompt, setShowDevPrompt] = useState(false);
   const [devPassphrase, setDevPassphrase] = useState('');
+  // Opening the developer-access passphrase prompt when the key sequence is entered.
   const handleKonami = useCallback(() => setShowDevPrompt(true), []);
   useKonamiCode(handleKonami);
 
+  // Sends the typed passphrase for checking, closes the prompt and, on success,
+  // records `dev_access_enabled` in the page's copy of the settings.
   const handleDevSubmit = useCallback(async () => {
     // Do not even ask when nothing has been typed (#1162). The backend refuses
     // an empty passphrase too, but sending one would burn one of the five
@@ -316,8 +345,10 @@ function App() {
     setShowDevPrompt(false);
     setDevPassphrase('');
     if (ok) {
-      // Reload settings to pick up dev_access_enabled change.
-      useSettingsStore.getState().loadSettings();
+      // Activation writes only `dev_access_enabled = true`, so only that
+      // field is updated here. Reloading every setting from disk would throw
+      // away unsaved changes on the Settings screen (#1439).
+      useSettingsStore.getState().syncSaved({ dev_access_enabled: true });
     }
   }, [devPassphrase]);
 
@@ -351,6 +382,11 @@ function App() {
    * had no way to tell Download apart from Settings without switching
    * to the app and looking. Reuses the same `nav.<page>` translation
    * keys the sidebar already uses, so the wording always matches.
+   *
+   * It goes through `setWindowTitle()`, which also sets the NATIVE window
+   * title: Tauri does not copy `document.title` onto the window, so until
+   * October 2026 this only ever changed a title nobody outside the page
+   * could see, and the window switcher kept saying "MeedyaDL".
    */
   useEffect(() => {
     const pageLabel = t(`nav.${currentPage}`);
@@ -359,7 +395,7 @@ function App() {
     // through translation (see index.html's <title>, and
     // check_i18n.py's UNUSED_KEY_EXCEPTIONS entry for `app.name`,
     // which documents the same rule for that key specifically).
-    document.title = `${pageLabel} — MeedyaDL`;
+    setWindowTitle(`${pageLabel} — MeedyaDL`);
   }, [currentPage, t]);
   /** Whether the setup wizard overlay is visible (first-run or missing deps) */
   const showSetupWizard = useUiStore((s) => s.showSetupWizard);
@@ -509,8 +545,11 @@ function App() {
     /* Gate: don't initialize until platform theme is loaded */
     if (!isReady) return;
 
+    // Start-up sequence: translations, settings, then everything that needs them.
     const initialize = async () => {
-      /* Step 0: Initialize i18n translation system (loads English + detected locale) */
+      /* Step 0: Finish starting the translation system. English was set up
+       * in main.tsx before the first render; this fetches the system's
+       * language when MeedyaDL has a translation for it. */
       await initI18n();
 
       /* Step 1: Load settings from the Rust backend via IPC (get_settings command) */
@@ -745,44 +784,21 @@ function App() {
       }
 
       /*
-       * Notification permission preflight (#658).
-       *
-       * On macOS, `requestPermission()` only triggers the system prompt the
-       * first time it is called for a bundle ID. If the user dismissed (not
-       * granted, not denied) the prompt during a prior session, every later
-       * call resolves silently with `'default'` and `sendNotification()` is
-       * a no-op — which is why users on Native + In-app saw no notifications.
-       *
-       * Requesting permission once at startup forces a predictable, visible
-       * prompt and also lets us log the resolved status to the WebView
-       * console for debugging. Skipped when the user picked `in_app_only`.
+       * There used to be a notification "permission preflight" here
+       * (#658). It is gone (#1431): on desktop systems the notification
+       * plugin always answers "granted" without asking anyone, so it never
+       * did anything. Whether notifications are allowed is the operating
+       * system's own setting; Settings > General > Notifications has a
+       * test button and says where to look.
        */
-      const notifStyle =
-        useSettingsStore.getState().settings.notification_style ?? 'native_and_in_app';
-      if (notifStyle !== 'in_app_only') {
-        try {
-          const { isPermissionGranted, requestPermission } = await import(
-            '@tauri-apps/plugin-notification'
-          );
-          const granted = await isPermissionGranted();
-          if (!granted) {
-            const result = await requestPermission();
-            console.info(`[notification] startup permission request resolved: ${result}`);
-          }
-        } catch (err) {
-          console.warn('[notification] startup permission preflight failed:', err);
-        }
-      }
     };
 
     initialize().catch((err) => {
       console.error('App initialization failed:', err);
-      useUiStore
-        .getState()
-        .addToast(
-          'App initialization failed — some features may not work correctly. Try restarting.',
-          'error'
-        );
+      showError(
+        'MeedyaDL did not finish starting up, so some features may not work. Quit and reopen MeedyaDL; if this keeps happening, report it from Settings > Advanced > Error Reporting.',
+        err
+      );
     });
   }, [isReady, loadSettings, checkAll, checkForUpdates, setShowSetupWizard]);
 
@@ -844,9 +860,13 @@ function App() {
     // English — never a language that has no file.
     const target = uiLanguageSetting || systemLanguageOrEnglish();
     changeUiLanguage(target).catch((err: unknown) => {
-      useUiStore
-        .getState()
-        .addToast(err instanceof Error ? err.message : String(err), 'warning', undefined, 'ui-language');
+      // changeUiLanguage's own message is a plain sentence; anything else
+      // (an unexpected failure) gets the fallback, details folded away.
+      showBackendError(
+        'MeedyaDL could not change the language, so it has not changed. Restart MeedyaDL and choose it again.',
+        err,
+        { type: 'warning', key: 'ui-language' }
+      );
     });
   }, [uiLanguageSetting]);
 
@@ -922,6 +942,8 @@ function App() {
      * in a closure variable for cleanup.
      */
     let unlistenTray: (() => void) | undefined;
+    // Listens for the tray menu's "check for updates" choice. Tauri events:
+    // https://v2.tauri.app/develop/calling-frontend/#event-system
     const setupTrayListener = async () => {
       try {
         unlistenTray = await listen('tray-check-updates', () => {
@@ -955,6 +977,7 @@ function App() {
     if (!isReady) return;
 
     let unlistenOnce: (() => void) | undefined;
+    // Subscribes to the backend's "one-off after-queue action was used up" event.
     const setup = async () => {
       try {
         unlistenOnce = await listen('after-queue-once-used', () => {
@@ -983,6 +1006,7 @@ function App() {
     if (!isReady) return;
 
     let unlistenAbout: (() => void) | undefined;
+    // Subscribes to the tray/menu request to open the Help "About" page.
     const setup = async () => {
       try {
         unlistenAbout = await listen('navigate-help-about', () => {
@@ -1062,6 +1086,7 @@ function App() {
     /** Stores the unlisten function returned by `listen()` for cleanup */
     let unlisten: (() => void) | undefined;
 
+    // Subscribes to download progress events from the backend.
     const setupListener = async () => {
       try {
         /* Subscribe to gamdl-output events with typed payload */
@@ -1125,7 +1150,10 @@ function App() {
     let unlistenPreflight: (() => void) | undefined;
     let unlistenPreflightCleared: (() => void) | undefined;
     let unlistenConnectivityRestored: (() => void) | undefined;
+    let unlistenAppNotification: (() => void) | undefined;
 
+    // Subscribes to the download lifecycle events (complete, error, cancel and so on)
+    // and the notification events that go with them.
     const setupListeners = async () => {
       try {
         /* 1. Download completed successfully.
@@ -1151,6 +1179,23 @@ function App() {
               refreshQueue();
             } catch (err) {
               console.error('Error in download-error handler:', err);
+            }
+          }
+        );
+
+        /* 2b. A message the backend owns (#1431): a download finished or
+         * failed, the queue finished, the computer is about to shut down.
+         * The backend has already decided, by the one notification rule,
+         * whether to send a system notification; `show_in_app` says
+         * whether to show it here too. `system: false` because the
+         * backend has already done that half. */
+        unlistenAppNotification = await listen<AppNotificationEvent>(
+          'app-notification',
+          (event) => {
+            try {
+              showAppNotification(event.payload);
+            } catch (err) {
+              console.error('Error in app-notification handler:', err);
             }
           }
         );
@@ -1248,10 +1293,13 @@ function App() {
             const { queue_started: started, waiting } = event.payload;
             const plural = waiting === 1 ? '' : 's';
             if (started) {
-              ui.addToast(`Back online — starting ${waiting} waiting download${plural}.`, 'success');
+              ui.addToast(
+                `Back online — starting ${waiting} waiting download${plural}.`,
+                'success'
+              );
             } else {
               ui.addToast(
-                `Back online — ${waiting} download${plural} waiting. Press Start Queue to begin.`,
+                `Back online — ${waiting} download${plural} waiting. Press Start on the Queue page to begin.`,
                 'warning'
               );
             }
@@ -1280,6 +1328,7 @@ function App() {
       unlistenPreflight?.();
       unlistenPreflightCleared?.();
       unlistenConnectivityRestored?.();
+      unlistenAppNotification?.();
     };
   }, [refreshQueue, handleDownloadComplete, handleDownloadError, handleDownloadCancelled]);
 
@@ -1303,6 +1352,7 @@ function App() {
     if (!isReady) return;
 
     let unlistenDeepLink: (() => void) | undefined;
+    // Subscribes to links opened through the `meedyadl://` address scheme.
     const setup = async () => {
       try {
         unlistenDeepLink = await listen<{ url: string; codec: string | null }>(
@@ -1322,11 +1372,10 @@ function App() {
               useUiStore
                 .getState()
                 .addToast(`URL received from external link${codecSuffix}`, 'info');
-
-              // dev-only diagnostic; the user already gets the toast above
-              // (#951 — matches the console.debug convention in useTheme.ts
-              // and main.tsx, suppressed at default browser log levels)
-              console.debug(`Deep link received: ${url}${codec ? `, codec=${codec}` : ''}`);
+              // A console.debug line used to repeat the full address here.
+              // It was removed: the toast above already tells the person,
+              // and writing whole addresses to the console only spreads
+              // them further (the polish check refuses console.debug/log).
             } catch (err) {
               console.error('Error in deep-link-download handler:', err);
             }
@@ -1363,6 +1412,7 @@ function App() {
     let buffer: ActivityLogEntry[] = [];
     let rafId: number | null = null;
 
+    // Hands the buffered log lines to the store in one update, once per animation frame.
     const flush = () => {
       rafId = null;
       if (buffer.length > 0) {
@@ -1372,6 +1422,7 @@ function App() {
       }
     };
 
+    // Subscribes to `activity-log` events; lines are buffered, then flushed by `flush`.
     const setup = async () => {
       try {
         unlisten = await listen<ActivityLogEntry>('activity-log', (event) => {
@@ -1406,7 +1457,7 @@ function App() {
   if (!isReady) {
     return (
       <div className="flex items-center justify-center h-screen bg-surface-primary">
-        <LoadingSpinner size="lg" label="Loading MeedyaDL..." />
+        <LoadingSpinner size="lg" label="Loading MeedyaDL…" />
       </div>
     );
   }
@@ -1462,11 +1513,11 @@ function App() {
       case 'activity':
         return <ActivityLog />; // Live subprocess output log
       case 'updates':
-        return <UpdatesPage />; // Update details with release notes
+        return <UpdatesPage />; // Update details with release notes (loaded on demand)
       case 'settings':
-        return <SettingsPage />; // Full settings editor
+        return <SettingsPage />; // Full settings editor (loaded on demand)
       case 'help':
-        return <HelpViewer />; // In-app help documentation
+        return <HelpViewer />; // In-app help documentation (loaded on demand)
       default:
         return <DownloadForm />; // Fallback to download form
     }
@@ -1485,7 +1536,15 @@ function App() {
    */
   return (
     <>
-      <MainLayout>{renderPage()}</MainLayout>
+      <MainLayout>
+        {/* Help, Updates and Settings arrive on demand (see their lazy
+            imports); the page's own header and a spinner fill the wait.
+            Keyed by page so moving to another page never shows the
+            previous page's fallback. */}
+        <Suspense key={currentPage} fallback={<PageLoading title={t(`nav.${currentPage}`)} />}>
+          {renderPage()}
+        </Suspense>
+      </MainLayout>
       {/* Pre-release first-load notice — rendered as an overlay on top of the
        * main application. Uses the Modal component so it doesn't block the UI
        * and can be dismissed independently. */}
@@ -1501,14 +1560,22 @@ function App() {
       {/* Developer access passphrase prompt (triggered by Konami code) */}
       <Modal
         open={showDevPrompt}
-        onClose={() => { setShowDevPrompt(false); setDevPassphrase(''); }}
+        onClose={() => {
+          setShowDevPrompt(false);
+          setDevPassphrase('');
+        }}
         title="Developer Access"
         maxWidth="max-w-sm"
       >
-        <form onSubmit={(e) => { e.preventDefault(); handleDevSubmit(); }}>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleDevSubmit();
+          }}
+        >
           <input
             type="password"
-            className="w-full rounded border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+            className="w-full rounded-platform-sm border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
             placeholder="Passphrase"
             // Fix 9 (a11y audit): placeholder text is not a label -- it
             // disappears the moment something is typed, and was never
@@ -1532,7 +1599,7 @@ function App() {
           <button
             type="submit"
             disabled={devPassphrase.trim().length === 0}
-            className="mt-3 w-full rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600"
+            className="mt-3 w-full rounded-platform-sm bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600"
           >
             Activate
           </button>

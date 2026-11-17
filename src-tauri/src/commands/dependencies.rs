@@ -251,7 +251,10 @@ pub async fn use_system_python(
         &format!("Provisioning Python from your system interpreter: {interpreter}"),
     );
     let version = python_manager::provision_venv_from_system_python(&app, &interpreter).await?;
-    emit_app_log(&app, &format!("Python {version} ready (from your system Python)"));
+    emit_app_log(
+        &app,
+        &format!("Python {version} ready (from your system Python)"),
+    );
 
     let python_dir = crate::utils::platform::get_python_dir(&app);
     let python_bin = crate::utils::platform::resolve_managed_python_binary(&python_dir);
@@ -323,7 +326,9 @@ fn gamdl_classification_fields(
     version: Option<&str>,
     platform_id: &str,
 ) -> (Option<String>, Option<String>) {
-    use crate::services::gamdl_capabilities::{classify_for_platform, known_bad_advice, VersionSupport};
+    use crate::services::gamdl_capabilities::{
+        classify_for_platform, known_bad_advice, VersionSupport,
+    };
 
     match classify_for_platform(version, platform_id) {
         VersionSupport::Supported { .. } => (Some("supported".to_string()), None),
@@ -411,8 +416,9 @@ pub async fn install_gamdl(app: AppHandle) -> Result<String, String> {
     // Delegates to gamdl_service which runs pip and parses the output
     log::info!("Installing GAMDL...");
     emit_app_log(&app, "Installing GAMDL...");
-    // Routine setup-wizard install: no explicit version target, use the
-    // bounded `[minimum, maximum_tested]` spec.
+    // Routine setup-wizard install: no explicit version target, so the
+    // bounded `[minimum, maximum_tested]` spec — or, if someone chose a
+    // GAMDL 4, that version again (`routine_install_spec`).
     let version = gamdl_service::install_gamdl(&app, None).await?;
     log::info!("GAMDL v{version} installed");
     emit_app_log(&app, &format!("GAMDL v{version} installed"));
@@ -447,7 +453,10 @@ pub async fn install_gamdl(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub async fn install_gamdl_version(app: AppHandle, version: String) -> Result<String, String> {
     log::info!("Installing specific GAMDL version: {version}");
-    emit_app_log(&app, &format!("Installing GAMDL v{version} (force-reinstall)..."));
+    emit_app_log(
+        &app,
+        &format!("Installing GAMDL v{version} (force-reinstall)..."),
+    );
 
     // Classify against the support window so we can surface an
     // advisory warning to the user before the install lands. We don't
@@ -610,6 +619,21 @@ pub struct GamdlCapabilities {
     /// outright rather than ignoring it, so offering it there would only
     /// produce downloads that stop before they start.
     pub play_ready_drm: bool,
+    /// Whether the installed GAMDL takes the wrapper's decryption address
+    /// as its own host and port. `true` for 3.8.2 and newer. The Settings
+    /// screen shows the Wrapper Decryption Address with the newer layout
+    /// only when this is true (#1433).
+    pub wrapper_decrypt_host_port: bool,
+    /// Whether the installed GAMDL is a 4.x release (13 Nov 2026). GAMDL
+    /// 4 is started and configured differently and ignores some settings;
+    /// the Settings screens use this to say so beside those settings
+    /// rather than leave them silently doing nothing.
+    pub gamdl_v4: bool,
+    /// Whether the installed GAMDL saves one shared album cover picture
+    /// when asked (4.0.2 and newer). Before that, GAMDL 4 saves a picture
+    /// beside every song, so "Save Cover Art" is not passed on and the
+    /// Settings screen says it has no effect.
+    pub gamdl_four_saves_album_cover: bool,
 }
 
 /// Returns the currently active GAMDL capability flags (#853).
@@ -625,7 +649,10 @@ pub struct GamdlCapabilities {
 /// `src/lib/tauri-commands.ts`.
 #[tauri::command]
 pub fn get_gamdl_capabilities() -> GamdlCapabilities {
-    use crate::services::gamdl_capabilities::{supports, GamdlFeature};
+    use crate::services::gamdl_capabilities::{
+        detected_cli_generation, supports, GamdlCliGeneration, GamdlFeature,
+    };
+    let gamdl_v4 = detected_cli_generation() == GamdlCliGeneration::V4;
     GamdlCapabilities {
         wrapper_v2: supports(GamdlFeature::WrapperUrl),
         native_muxing: supports(GamdlFeature::NativeMuxing),
@@ -636,7 +663,13 @@ pub fn get_gamdl_capabilities() -> GamdlCapabilities {
         native_codec_priority: supports(GamdlFeature::NativeCodecPriority),
         ffmpeg_path: supports(GamdlFeature::FFmpegPath),
         assets_api_unlocks_lossy_codecs: supports(GamdlFeature::AssetsApiUnlocksLossyCodecs),
-        play_ready_drm: supports(GamdlFeature::PlayReadyDrmBackend),
+        // On GAMDL 4.x MeedyaDL does not use PlayReady yet (it needs an
+        // extra package MeedyaDL does not install), so the choice is not
+        // offered there; see `plan_drm_backend_on_gamdl_4`.
+        play_ready_drm: supports(GamdlFeature::PlayReadyDrmBackend) && !gamdl_v4,
+        wrapper_decrypt_host_port: supports(GamdlFeature::WrapperDecryptHostPort),
+        gamdl_v4,
+        gamdl_four_saves_album_cover: supports(GamdlFeature::GamdlFourSharedAlbumCover),
     }
 }
 
@@ -756,9 +789,10 @@ pub async fn install_ofscraper(app: AppHandle) -> Result<String, String> {
 ///   The order matches the tool registration order in `dependency_manager`.
 #[tauri::command]
 pub async fn check_all_dependencies(app: AppHandle) -> Result<Vec<DependencyStatus>, String> {
-    // get_all_tools() returns the static list of tool definitions
-    // (id, name, required, download URLs per platform)
-    let tools = dependency_manager::get_all_tools();
+    // get_offered_tools() returns the tool definitions offered to people
+    // (id, name, required) -- every registered tool except those whose
+    // feature has not landed yet (rclone, until cloud upload exists)
+    let tools = dependency_manager::get_offered_tools();
     let mut results = Vec::new();
 
     // Check each tool's installation status by probing for its binary
@@ -963,7 +997,9 @@ async fn find_external_gamdl(app: &AppHandle) -> Option<ExternalGamdlInfo> {
         // the wizard).
         let version = match tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            tokio::process::Command::new(&cand).arg("--version").output(),
+            tokio::process::Command::new(&cand)
+                .arg("--version")
+                .output(),
         )
         .await
         {
@@ -1161,7 +1197,10 @@ pub async fn get_component_versions(app: AppHandle) -> Result<Vec<ComponentVersi
     let mut versions = Vec::new();
 
     // Python version
-    let python_version = python_manager::check_python_status(&app).await.ok().flatten();
+    let python_version = python_manager::check_python_status(&app)
+        .await
+        .ok()
+        .flatten();
     versions.push(ComponentVersion {
         name: "Python".to_string(),
         version: python_version.clone(),
@@ -1186,17 +1225,25 @@ pub async fn get_component_versions(app: AppHandle) -> Result<Vec<ComponentVersi
     // — and so the version cache in `votify_capabilities` is populated for
     // any caller that needs to gate on a feature.
     let votify_version = probe_votify_version(&app).await;
-    super::super::services::votify_capabilities::set_detected_version(
-        votify_version.clone(),
-    );
-    versions.push(ComponentVersion {
-        name: "votify".to_string(),
-        version: votify_version,
-        installed: gamdl_version.is_some(), // Python presence proxies install availability
-    });
+    super::super::services::votify_capabilities::set_detected_version(votify_version.clone());
+    // Listed only with developer access on: votify is the engine of the
+    // Spotify preview, which nobody else can use. The probe above still runs
+    // for everyone, as before, because other code reads the version it
+    // caches. (Listing it for everyone meant the About page and diagnostics
+    // named a Spotify engine to people who were refused Spotify.)
+    let developer_previews = crate::services::config_service::load_settings(&app)
+        .map(|s| s.dev_access_enabled)
+        .unwrap_or(false);
+    if developer_previews {
+        versions.push(ComponentVersion {
+            name: "votify".to_string(),
+            version: votify_version,
+            installed: gamdl_version.is_some(), // Python presence proxies install availability
+        });
+    }
 
     // External tools: FFmpeg, mp4decrypt, N_m3u8DL-RE, MP4Box
-    for tool in dependency_manager::get_all_tools() {
+    for tool in dependency_manager::get_offered_tools() {
         let binary_path = dependency_manager::get_tool_binary_path(&app, tool.id);
         let installed = binary_path.exists();
         let version = if installed {
@@ -1235,13 +1282,7 @@ pub async fn log_component_versions_to_activity(app: &AppHandle) {
             let version_strings: Vec<String> = versions
                 .iter()
                 .filter(|v| v.installed)
-                .map(|v| {
-                    format!(
-                        "{} {}",
-                        v.name,
-                        v.version.as_deref().unwrap_or("(unknown)")
-                    )
-                })
+                .map(|v| format!("{} {}", v.name, v.version.as_deref().unwrap_or("(unknown)")))
                 .collect();
             if !version_strings.is_empty() {
                 let msg = format!("Component versions: {}", version_strings.join(", "));
@@ -1367,8 +1408,7 @@ mod tests {
     #[test]
     fn gamdl_classification_fields_reports_supported() {
         let window = crate::services::gamdl_capabilities::support_window();
-        let (classification, message) =
-            gamdl_classification_fields(Some(&window.minimum), "macos");
+        let (classification, message) = gamdl_classification_fields(Some(&window.minimum), "macos");
         assert_eq!(classification.as_deref(), Some("supported"));
         assert_eq!(message, None);
     }

@@ -611,8 +611,7 @@ mod tests {
     #[test]
     fn resolve_managed_python_binary_matches_parameterised_core_for_host_os() {
         let tmp = tempfile::tempdir().expect("failed to create tempdir");
-        let expected =
-            resolve_managed_python_binary_for(tmp.path(), cfg!(target_os = "windows"));
+        let expected = resolve_managed_python_binary_for(tmp.path(), cfg!(target_os = "windows"));
         assert_eq!(resolve_managed_python_binary(tmp.path()), expected);
     }
 }

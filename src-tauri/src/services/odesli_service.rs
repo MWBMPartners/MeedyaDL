@@ -236,11 +236,19 @@ impl OdesliError {
     /// on its own).
     #[must_use]
     pub fn is_user_actionable(&self) -> bool {
-        matches!(self, OdesliError::PublicAccessClosed | OdesliError::KeyRejected)
+        matches!(
+            self,
+            OdesliError::PublicAccessClosed | OdesliError::KeyRejected
+        )
     }
 }
 
 impl std::fmt::Display for OdesliError {
+    /// Writes the sentence a person (or the log) sees for each kind of failure.
+    /// The `Network` text is already free of the request address, which carries the
+    /// access key, so it is safe to print.
+    ///
+    /// See: <https://doc.rust-lang.org/std/fmt/trait.Display.html>
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             OdesliError::PublicAccessClosed => write!(
@@ -449,11 +457,11 @@ fn save_cache(path: &Path, file: &OdesliCacheFile) {
 fn cache_get<'a>(
     file: &'a OdesliCacheFile,
     url: &str,
-    now: chrono::DateTime<chrono::Utc>,
+    now: time::OffsetDateTime,
 ) -> Option<&'a CrossPlatformUrls> {
     let entry = file.entries.get(url)?;
-    let looked_up_at: chrono::DateTime<chrono::Utc> = entry.looked_up_at.parse().ok()?;
-    if now - looked_up_at > chrono::Duration::days(CACHE_MAX_AGE_DAYS) {
+    let looked_up_at = crate::utils::time_compat::parse_rfc3339_lenient(&entry.looked_up_at)?;
+    if now - looked_up_at > time::Duration::days(CACHE_MAX_AGE_DAYS) {
         return None;
     }
     Some(&entry.urls)
@@ -468,13 +476,13 @@ fn cache_put(
     file: &mut OdesliCacheFile,
     url: &str,
     urls: CrossPlatformUrls,
-    now: chrono::DateTime<chrono::Utc>,
+    now: time::OffsetDateTime,
     max_entries: usize,
 ) {
     file.entries.insert(
         url.to_string(),
         OdesliLookupResult {
-            looked_up_at: now.to_rfc3339(),
+            looked_up_at: crate::utils::time_compat::to_stored_rfc3339(now),
             source_url: url.to_string(),
             urls,
         },
@@ -485,13 +493,13 @@ fn cache_put(
             .entries
             .iter()
             .min_by(|(_, a), (_, b)| {
-                let a_ts = a.looked_up_at.parse::<chrono::DateTime<chrono::Utc>>();
-                let b_ts = b.looked_up_at.parse::<chrono::DateTime<chrono::Utc>>();
+                let a_ts = crate::utils::time_compat::parse_rfc3339_lenient(&a.looked_up_at);
+                let b_ts = crate::utils::time_compat::parse_rfc3339_lenient(&b.looked_up_at);
                 match (a_ts, b_ts) {
-                    (Ok(a), Ok(b)) => a.cmp(&b),
-                    (Err(_), Ok(_)) => std::cmp::Ordering::Less,
-                    (Ok(_), Err(_)) => std::cmp::Ordering::Greater,
-                    (Err(_), Err(_)) => std::cmp::Ordering::Equal,
+                    (Some(a), Some(b)) => a.cmp(&b),
+                    (None, Some(_)) => std::cmp::Ordering::Less,
+                    (Some(_), None) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
                 }
             })
             .map(|(k, _)| k.clone());
@@ -590,7 +598,10 @@ async fn paced_attempt(
     };
     let response = match client
         .get(&url)
-        .header("User-Agent", crate::utils::http_client::browser_user_agent())
+        .header(
+            "User-Agent",
+            crate::utils::http_client::browser_user_agent(),
+        )
         .send()
         .await
     {
@@ -601,7 +612,9 @@ async fn paced_attempt(
         // carries the access key as `&key=...`. `without_url()` removes
         // that address before we turn the error into text, so the key
         // can't end up in a log line.
-        Err(e) => return AttemptOutcome::Failed(OdesliError::Network(format!("{}", e.without_url()))),
+        Err(e) => {
+            return AttemptOutcome::Failed(OdesliError::Network(format!("{}", e.without_url())))
+        }
     };
 
     let status = response.status();
@@ -747,7 +760,7 @@ pub async fn lookup(
         return fetch_links(&key, api_key).await;
     };
 
-    let now = chrono::Utc::now();
+    let now = crate::utils::time_compat::now_utc();
 
     // Check the cache first. The lock is held only long enough to
     // read it — released at the end of this block, before any
@@ -771,7 +784,13 @@ pub async fn lookup(
     if let Ok(urls) = &result {
         let mut guard = CACHE.lock().await;
         let file = guard.get_or_insert_with(|| load_cache(path));
-        cache_put(file, &key, urls.clone().unwrap_or_default(), now, CACHE_MAX_ENTRIES);
+        cache_put(
+            file,
+            &key,
+            urls.clone().unwrap_or_default(),
+            now,
+            CACHE_MAX_ENTRIES,
+        );
         save_cache(path, file);
     }
 
@@ -808,6 +827,7 @@ pub async fn write_url_atoms(
     album_dir: &str,
     urls: &CrossPlatformUrls,
     file_locks: Option<&std::sync::Arc<crate::utils::file_locks::FileWriteLocks>>,
+    in_flight: Option<&std::sync::Arc<tokio::sync::RwLock<()>>>,
     should_stop: impl Fn() -> bool + Send,
 ) -> usize {
     let pairs: Vec<(String, String)> = urls
@@ -830,29 +850,31 @@ pub async fn write_url_atoms(
             break;
         }
 
-        let _write_guard = match file_locks {
-            Some(locks) => Some(locks.lock(&file_path).await),
-            None => None,
-        };
-
         let pairs_for_task = pairs.clone();
         let path_for_task = file_path.clone();
-        let outcome = tokio::task::spawn_blocking(move || -> Result<(), String> {
-            let mut tag = Tag::read_from_path(&path_for_task)
-                .map_err(|e| format!("Failed to read M4A: {e}"))?;
-            for (name, url) in &pairs_for_task {
-                tag.set_data(
-                    FreeformIdent::new_borrowed(
-                        crate::services::metadata_tag_service::MEEDYADL_NAMESPACE,
-                        name,
-                    ),
-                    Data::Utf8(url.clone()),
-                );
-            }
-            tag.write_to_path(&path_for_task)
-                .map_err(|e| format!("Failed to write M4A: {e}"))?;
-            Ok(())
-        })
+        // The file lock and the in-flight hold move INTO the blocking job
+        // (#1442), so they last until the write really ends.
+        let outcome = crate::utils::file_locks::run_blocking_locked(
+            file_locks,
+            in_flight,
+            &file_path,
+            move || -> Result<(), String> {
+                let mut tag = Tag::read_from_path(&path_for_task)
+                    .map_err(|e| format!("Failed to read M4A: {e}"))?;
+                for (name, url) in &pairs_for_task {
+                    tag.set_data(
+                        FreeformIdent::new_borrowed(
+                            crate::services::metadata_tag_service::MEEDYADL_NAMESPACE,
+                            name,
+                        ),
+                        Data::Utf8(url.clone()),
+                    );
+                }
+                tag.write_to_path(&path_for_task)
+                    .map_err(|e| format!("Failed to write M4A: {e}"))?;
+                Ok(())
+            },
+        )
         .await;
 
         match outcome {
@@ -989,20 +1011,30 @@ mod tests {
         let is_one_song = |u: &str| u.contains("?i=") || u.contains("&i=") || u.contains("/song/");
 
         // One song, in both the shapes Apple Music uses.
-        assert!(is_one_song("https://music.apple.com/gb/album/abbey-road/401186200?i=401186286"));
-        assert!(is_one_song("https://music.apple.com/gb/song/come-together/401186286"));
+        assert!(is_one_song(
+            "https://music.apple.com/gb/album/abbey-road/401186200?i=401186286"
+        ));
+        assert!(is_one_song(
+            "https://music.apple.com/gb/song/come-together/401186286"
+        ));
         assert!(is_one_song("https://music.apple.com/gb/album/x/1?l=en&i=2"));
 
         // Whole albums, playlists and artists are not one song.
-        assert!(!is_one_song("https://music.apple.com/gb/album/abbey-road/401186200"));
+        assert!(!is_one_song(
+            "https://music.apple.com/gb/album/abbey-road/401186200"
+        ));
         assert!(!is_one_song("https://music.apple.com/gb/playlist/x/pl.abc"));
-        assert!(!is_one_song("https://music.apple.com/gb/artist/the-beatles/136975"));
+        assert!(!is_one_song(
+            "https://music.apple.com/gb/artist/the-beatles/136975"
+        ));
     }
 
     #[test]
     fn urlencoded_escapes_specials() {
-        assert_eq!(urlencoded("https://music.apple.com/gb/album/foo/123"),
-            "https%3A%2F%2Fmusic.apple.com%2Fgb%2Falbum%2Ffoo%2F123");
+        assert_eq!(
+            urlencoded("https://music.apple.com/gb/album/foo/123"),
+            "https%3A%2F%2Fmusic.apple.com%2Fgb%2Falbum%2Ffoo%2F123"
+        );
         assert_eq!(urlencoded("a b"), "a%20b");
         assert_eq!(urlencoded("a-b_c.d~e"), "a-b_c.d~e"); // unreserved
     }
@@ -1086,7 +1118,10 @@ mod tests {
 
     #[test]
     fn atom_name_for_platform_capitalises_and_appends_url() {
-        assert_eq!(atom_name_for_platform("spotify").as_deref(), Some("SpotifyUrl"));
+        assert_eq!(
+            atom_name_for_platform("spotify").as_deref(),
+            Some("SpotifyUrl")
+        );
         assert_eq!(
             atom_name_for_platform("youtubeMusic").as_deref(),
             Some("YoutubeMusicUrl")
@@ -1121,12 +1156,12 @@ mod tests {
 
     #[test]
     fn cache_get_returns_only_fresh_entries() {
-        let now = chrono::Utc::now();
+        let now = crate::utils::time_compat::now_utc();
         let mut file = OdesliCacheFile::default();
         file.entries.insert(
             "fresh".to_string(),
             OdesliLookupResult {
-                looked_up_at: now.to_rfc3339(),
+                looked_up_at: crate::utils::time_compat::to_stored_rfc3339(now),
                 source_url: "fresh".to_string(),
                 urls: CrossPlatformUrls::new(),
             },
@@ -1134,7 +1169,9 @@ mod tests {
         file.entries.insert(
             "stale".to_string(),
             OdesliLookupResult {
-                looked_up_at: (now - chrono::Duration::days(31)).to_rfc3339(),
+                looked_up_at: crate::utils::time_compat::to_stored_rfc3339(
+                    now - time::Duration::days(31),
+                ),
                 source_url: "stale".to_string(),
                 urls: CrossPlatformUrls::new(),
             },
@@ -1156,20 +1193,20 @@ mod tests {
 
     #[test]
     fn cache_put_evicts_oldest_beyond_cap() {
-        let now = chrono::Utc::now();
+        let now = crate::utils::time_compat::now_utc();
         let mut file = OdesliCacheFile::default();
         cache_put(
             &mut file,
             "a",
             CrossPlatformUrls::new(),
-            now - chrono::Duration::minutes(2),
+            now - time::Duration::minutes(2),
             2,
         );
         cache_put(
             &mut file,
             "b",
             CrossPlatformUrls::new(),
-            now - chrono::Duration::minutes(1),
+            now - time::Duration::minutes(1),
             2,
         );
         assert_eq!(file.entries.len(), 2);
@@ -1186,7 +1223,7 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join(CACHE_FILENAME);
 
-        let now = chrono::Utc::now();
+        let now = crate::utils::time_compat::now_utc();
         let mut file = OdesliCacheFile::default();
         let mut urls = CrossPlatformUrls::new();
         urls.insert(

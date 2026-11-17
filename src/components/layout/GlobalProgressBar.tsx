@@ -62,82 +62,73 @@ export function GlobalProgressBar() {
    * Derive the active item (currently downloading/processing) and
    * queue-level stats from the queue items array.
    */
-  const { activeItem, queueProgress, totalItems, completedItems, hasWork } =
-    useMemo(() => {
-      const active = queueItems.find(
-        (i) => i.state === 'downloading' || i.state === 'processing'
-      );
-      const total = queueItems.filter(
-        (i) =>
-          i.state === 'downloading' ||
-          i.state === 'processing' ||
-          i.state === 'queued' ||
-          i.state === 'complete' ||
-          i.state === 'error' ||
-          i.state === 'cancelled'
-      ).length;
-      // Integer completed-count for the numeric "N of M complete" caption.
-      // A `processing` item has produced its primary files (audio on disk)
-      // but is still mid-enrichment — counted as "done" in the integer
-      // display because the user's expectation of "download complete"
-      // tracks the audio landing, not every last ReplayGain / AcoustID /
-      // manifest-write tick. This preserves the pre-#576 integer caption
-      // behaviour.
-      const completed = queueItems.filter(
-        (i) =>
-          i.state === 'complete' ||
-          i.state === 'processing' ||
-          i.state === 'error' ||
-          i.state === 'cancelled'
-      ).length;
+  const { activeItem, queueProgress, totalItems, completedItems, hasWork } = useMemo(() => {
+    const active = queueItems.find((i) => i.state === 'downloading' || i.state === 'processing');
+    const total = queueItems.filter(
+      (i) =>
+        i.state === 'downloading' ||
+        i.state === 'processing' ||
+        i.state === 'queued' ||
+        i.state === 'complete' ||
+        i.state === 'error' ||
+        i.state === 'cancelled'
+    ).length;
+    // Integer completed-count for the numeric "N of M complete" caption.
+    // A `processing` item has produced its primary files (audio on disk)
+    // but is still mid-enrichment — counted as "done" in the integer
+    // display because the user's expectation of "download complete"
+    // tracks the audio landing, not every last ReplayGain / AcoustID /
+    // manifest-write tick. This preserves the pre-#576 integer caption
+    // behaviour.
+    const completed = queueItems.filter(
+      (i) =>
+        i.state === 'complete' ||
+        i.state === 'processing' ||
+        i.state === 'error' ||
+        i.state === 'cancelled'
+    ).length;
 
-      // Weighted progress fraction (#576). Unlike the integer caption
-      // above, this gives `processing` items credit based on where they
-      // are INSIDE the enrichment pipeline, not just binary 0/1. The
-      // backend emits `processing_progress` at every enrichment stage
-      // start (see ENRICHMENT_STAGE_WEIGHTS in download_queue.rs) so the
-      // bar ticks up 0.05 → 0.15 → 0.25 → 0.40 → 0.55 → 0.75 → 1.0 as
-      // metadata / lyrics / artwork / AcoustID / ReplayGain land.
-      //
-      // Without this, large box sets (200-track Beethoven etc.) showed
-      // the queue bar pinned at a single partial-credit value for the
-      // entire 15–40 min enrichment phase. Progress updates via the
-      // `queue-updated` event listener in App.tsx refresh the store,
-      // and the derived aggregate here picks up the new fraction on
-      // the next render.
-      const weightedDone = queueItems.reduce((acc, i) => {
-        if (
-          i.state === 'complete' ||
-          i.state === 'error' ||
-          i.state === 'cancelled'
-        ) {
-          return acc + 1.0;
-        }
-        if (i.state === 'processing') {
-          // processing_progress is null until the first enrichment stage
-          // ticks over; default to 0.5 so the bar at least reflects the
-          // audio-landed milestone. Matches the pre-#576 flat partial
-          // credit but upgrades over time.
-          const p = i.processing_progress ?? 0.5;
-          // Clamp defensively — a mis-computed weight > 1 would falsely
-          // inflate queue progress past its integer denominator.
-          return acc + Math.min(Math.max(p, 0), 1);
-        }
-        return acc;
-      }, 0);
-      const progress =
-        total > 0 ? Math.round((weightedDone / total) * 100) : 0;
-      const working =
-        total > 0 && (active !== undefined || completed < total);
+    // Weighted progress fraction (#576). Unlike the integer caption
+    // above, this gives `processing` items credit based on where they
+    // are INSIDE the enrichment pipeline, not just binary 0/1. The
+    // backend emits `processing_progress` at every enrichment stage
+    // start (see ENRICHMENT_STAGE_WEIGHTS in download_queue.rs) so the
+    // bar ticks up 0.05 → 0.15 → 0.25 → 0.40 → 0.55 → 0.75 → 1.0 as
+    // metadata / lyrics / artwork / AcoustID / ReplayGain land.
+    //
+    // Without this, large box sets (200-track Beethoven etc.) showed
+    // the queue bar pinned at a single partial-credit value for the
+    // entire 15–40 min enrichment phase. Progress updates via the
+    // `queue-updated` event listener in App.tsx refresh the store,
+    // and the derived aggregate here picks up the new fraction on
+    // the next render.
+    const weightedDone = queueItems.reduce((acc, i) => {
+      if (i.state === 'complete' || i.state === 'error' || i.state === 'cancelled') {
+        return acc + 1.0;
+      }
+      if (i.state === 'processing') {
+        // processing_progress is null until the first enrichment stage
+        // ticks over; default to 0.5 so the bar at least reflects the
+        // audio-landed milestone. Matches the pre-#576 flat partial
+        // credit but upgrades over time.
+        const p = i.processing_progress ?? 0.5;
+        // Clamp defensively — a mis-computed weight > 1 would falsely
+        // inflate queue progress past its integer denominator.
+        return acc + Math.min(Math.max(p, 0), 1);
+      }
+      return acc;
+    }, 0);
+    const progress = total > 0 ? Math.round((weightedDone / total) * 100) : 0;
+    const working = total > 0 && (active !== undefined || completed < total);
 
-      return {
-        activeItem: active ?? null,
-        queueProgress: progress,
-        totalItems: total,
-        completedItems: completed,
-        hasWork: working,
-      };
-    }, [queueItems]);
+    return {
+      activeItem: active ?? null,
+      queueProgress: progress,
+      totalItems: total,
+      completedItems: completed,
+      hasWork: working,
+    };
+  }, [queueItems]);
 
   /* Hide entirely when nothing is happening */
   if (!hasWork) return null;
@@ -156,9 +147,7 @@ export function GlobalProgressBar() {
   const itemLabel = formatActiveItemCaption(activeItem);
 
   /** Speed and ETA suffix */
-  const speedEta = [activeItem?.speed, activeItem?.eta]
-    .filter(Boolean)
-    .join(' · ');
+  const speedEta = [activeItem?.speed, activeItem?.eta].filter(Boolean).join(' · ');
 
   /** Platform detection for the icon */
   const platform = detectPlatform(activeItem?.urls);
@@ -173,7 +162,7 @@ export function GlobalProgressBar() {
       <div className="flex items-center gap-2 mb-1">
         {/* Platform icon + track info (left) */}
         <PlatformIcon platform={platform} />
-        <span className="text-[12px] text-content-secondary truncate min-w-0 flex-1">
+        <span className="text-xs text-content-secondary truncate min-w-0 flex-1">
           {activeItem ? itemLabel : 'Waiting…'}
         </span>
         {/* Speed + ETA + percentage (right).
@@ -183,7 +172,7 @@ export function GlobalProgressBar() {
             only fires in the brief gaps where no signal exists at
             all. When it does fire, that's the honest answer — we
             don't fake a percentage we can't measure. */}
-        <span className="text-[12px] text-content-tertiary whitespace-nowrap flex-shrink-0">
+        <span className="text-xs text-content-tertiary whitespace-nowrap flex-shrink-0">
           {speedEta ? `${speedEta} · ` : ''}
           {itemProgress !== null ? `${Math.round(itemProgress)}%` : 'Processing…'}
         </span>
@@ -222,10 +211,10 @@ export function GlobalProgressBar() {
       {/* Lower bar: queue-level progress */}
       <div className="flex items-center gap-2 mb-0.5">
         <PlatformIcon platform={platform} />
-        <span className="text-[12px] text-content-tertiary truncate min-w-0 flex-1">
+        <span className="text-xs text-content-tertiary truncate min-w-0 flex-1">
           {completedItems} of {totalItems} complete
         </span>
-        <span className="text-[12px] text-content-tertiary whitespace-nowrap flex-shrink-0">
+        <span className="text-xs text-content-tertiary whitespace-nowrap flex-shrink-0">
           {queueProgress}%
         </span>
       </div>

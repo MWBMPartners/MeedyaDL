@@ -89,10 +89,8 @@ mod tests {
 
     #[test]
     fn prefixes_static_error_message() {
-        let result: Result<(), String> = context_err!(
-            Err::<(), &str>("disk full"),
-            "Failed to write file"
-        );
+        let result: Result<(), String> =
+            context_err!(Err::<(), &str>("disk full"), "Failed to write file");
         assert_eq!(result, Err("Failed to write file: disk full".to_string()));
     }
 
@@ -114,10 +112,7 @@ mod tests {
         // Mirrors the real call-site shape — the macro returns a
         // Result that the caller propagates with `?`.
         fn doit() -> Result<i32, String> {
-            let value = context_err!(
-                "abc".parse::<i32>(),
-                "Failed to parse number"
-            )?;
+            let value = context_err!("abc".parse::<i32>(), "Failed to parse number")?;
             Ok(value * 2)
         }
         let err = doit().unwrap_err();
@@ -136,10 +131,8 @@ mod tests {
                 write!(f, "custom display")
             }
         }
-        let result: Result<(), String> = context_err!(
-            Err::<(), DisplayErr>(DisplayErr),
-            "Operation failed"
-        );
+        let result: Result<(), String> =
+            context_err!(Err::<(), DisplayErr>(DisplayErr), "Operation failed");
         assert_eq!(result, Err("Operation failed: custom display".to_string()));
     }
 }

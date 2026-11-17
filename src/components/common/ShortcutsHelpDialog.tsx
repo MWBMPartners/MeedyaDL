@@ -35,13 +35,18 @@ import { useUiStore } from '@/stores/uiStore';
  */
 function isMacPlatform(): boolean {
   if (typeof navigator === 'undefined') return false;
+  // `navigator.platform` is deprecated but still the simplest cue for choosing a label.
+  // The shortcuts themselves work on either key, so a wrong guess only changes the text.
+  // See: https://developer.mozilla.org/en-US/docs/Web/API/Navigator/platform
   return /Mac/i.test(navigator.platform);
 }
 
 /** Render a key glyph as a small kbd-styled chip. */
+// `<kbd>` is the HTML element for keyboard input.
+// See: https://developer.mozilla.org/en-US/docs/Web/HTML/Element/kbd
 function Key({ children }: { children: React.ReactNode }) {
   return (
-    <kbd className="inline-block min-w-[1.75rem] text-center px-1.5 py-0.5 rounded border border-border bg-surface-secondary text-content-primary text-xs font-mono leading-none">
+    <kbd className="inline-block min-w-[1.75rem] text-center px-1.5 py-0.5 rounded-platform-sm border border-border bg-surface-secondary text-content-primary text-xs font-mono leading-none">
       {children}
     </kbd>
   );
@@ -57,9 +62,16 @@ function ShortcutRow({ keys, label }: { keys: React.ReactNode; label: string }) 
   );
 }
 
+/**
+ * The "Keyboard Shortcuts" help dialog. Whether it is open lives in the UI
+ * store (`shortcutsHelpOpen`), so the global key handler can open it from
+ * anywhere. The list below is typed by hand: when a shortcut is added or
+ * changed in `useKeyboardShortcuts.ts`, this list has to be updated too.
+ */
 export function ShortcutsHelpDialog(): React.JSX.Element {
   const open = useUiStore((s) => s.shortcutsHelpOpen);
   const setOpen = useUiStore((s) => s.setShortcutsHelpOpen);
+  // The key label: the Command symbol on a Mac, "Ctrl" elsewhere.
   const mod = isMacPlatform() ? '⌘' : 'Ctrl';
 
   return (
@@ -67,13 +79,11 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
       open={open}
       onClose={() => setOpen(false)}
       title="Keyboard Shortcuts"
-      maxWidth="md"
+      maxWidth="max-w-md"
     >
       <div className="space-y-4 text-content-primary">
         <section>
-          <h3 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">
-            Navigation
-          </h3>
+          <h3 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">Navigation</h3>
           <ShortcutRow
             label="Go to Download"
             keys={
@@ -90,7 +100,7 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
               <>
                 <Key>{mod}</Key>
                 <span>+</span>
-                <Key>Q</Key>
+                <Key>J</Key>
               </>
             }
           />
@@ -110,7 +120,7 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
               <>
                 <Key>{mod}</Key>
                 <span>+</span>
-                <Key>H</Key>
+                <Key>Y</Key>
               </>
             }
           />
@@ -137,9 +147,7 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
         </section>
 
         <section>
-          <h3 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">
-            Downloads
-          </h3>
+          <h3 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">Downloads</h3>
           <ShortcutRow
             label="Submit current URL (in Download input; Shift+Enter for a new line instead)"
             keys={<Key>↵</Key>}
@@ -159,13 +167,8 @@ export function ShortcutsHelpDialog(): React.JSX.Element {
         </section>
 
         <section>
-          <h3 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">
-            General
-          </h3>
-          <ShortcutRow
-            label="Close active dialog"
-            keys={<Key>Esc</Key>}
-          />
+          <h3 className="text-xs uppercase tracking-wide text-content-tertiary mb-1">General</h3>
+          <ShortcutRow label="Close active dialog" keys={<Key>Esc</Key>} />
           <ShortcutRow
             label="Show this dialog"
             keys={

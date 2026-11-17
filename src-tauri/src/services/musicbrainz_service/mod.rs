@@ -308,9 +308,8 @@ pub async fn lookup_recording_by_isrc(isrc: &str) -> Result<Option<MusicBrainzRe
     // exact ISRC, so "first element" ≈ "any correct match" — the same
     // first-element behaviour the old search path had (scores were
     // never inspected; the lookup endpoint has none to inspect).
-    let url = format!(
-        "{MB_API_BASE}/isrc/{isrc}?inc=url-rels+recording-rels+artist-credits&fmt=json"
-    );
+    let url =
+        format!("{MB_API_BASE}/isrc/{isrc}?inc=url-rels+recording-rels+artist-credits&fmt=json");
 
     log::debug!("MusicBrainz: looking up ISRC {isrc}");
 
@@ -547,7 +546,9 @@ pub async fn lookup_videos_for_tracks_enhanced(
     tracks: &[TrackLookupInfo],
     ctx: &AlbumLookupContext,
 ) -> Result<Vec<MusicVideoUrl>, String> {
-    use crate::utils::activity_log::{emit_download_log, emit_download_warn, emit_verbose_download_log};
+    use crate::utils::activity_log::{
+        emit_download_log, emit_download_warn, emit_verbose_download_log,
+    };
 
     emit_verbose_download_log(
         app,
@@ -555,7 +556,11 @@ pub async fn lookup_videos_for_tracks_enhanced(
         &format!(
             "MusicBrainz: starting lookup for {} track(s) (search fallback: {})",
             tracks.len(),
-            if ctx.search_fallback { "enabled" } else { "disabled" }
+            if ctx.search_fallback {
+                "enabled"
+            } else {
+                "disabled"
+            }
         ),
     );
 
@@ -784,7 +789,10 @@ pub async fn lookup_videos_for_tracks_enhanced(
         // below, mirrored by
         // `should_attempt_search_tier_requires_nonblank_artist_and_title`
         // in `search.rs`.
-        let has_artist_and_title = track.artist.as_deref().is_some_and(|s| !s.trim().is_empty())
+        let has_artist_and_title = track
+            .artist
+            .as_deref()
+            .is_some_and(|s| !s.trim().is_empty())
             && track.title.as_deref().is_some_and(|s| !s.trim().is_empty());
 
         if should_attempt_search_tier(
@@ -1023,7 +1031,9 @@ pub async fn lookup_videos_for_tracks_enhanced(
                                         emit_verbose_download_log(
                                             app,
                                             download_id,
-                                            &format!("MusicBrainz: S2 — resource browse failed: {e}"),
+                                            &format!(
+                                                "MusicBrainz: S2 — resource browse failed: {e}"
+                                            ),
                                         );
                                         if should_emit_endpoint_warning(
                                             &e,
@@ -2109,7 +2119,10 @@ mod tests {
         assert_eq!(e, "MusicBrainz isrc endpoint anomaly (HTTP 503)");
         assert!(is_endpoint_anomaly(&e));
         let e2 = endpoint_anomaly_error("url-browse", 200, Some("shape note"));
-        assert_eq!(e2, "MusicBrainz url-browse endpoint anomaly (HTTP 200): shape note");
+        assert_eq!(
+            e2,
+            "MusicBrainz url-browse endpoint anomaly (HTTP 200): shape note"
+        );
         assert!(is_endpoint_anomaly(&e2));
     }
 

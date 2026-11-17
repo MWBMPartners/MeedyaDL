@@ -6,180 +6,184 @@
 
 # Cookie Management
 
-This guide explains how to set up Apple Music authentication in MeedyaDL using cookies, including the built-in login window, browser auto-import, manual cookie export, and troubleshooting common cookie-related issues.
+Cookies are how MeedyaDL proves to Apple Music that you are signed in with a paid subscription. This page shows how to set them up, how to renew them, and what to do when something goes wrong.
+
+---
+
+## Quick Start
+
+The easiest way:
+
+1. Open **Settings > Cookies**.
+2. Click **Sign in with Apple Music**.
+3. Sign in with your Apple ID in the window that opens.
+4. The window closes by itself when you are done.
+
+That is all. If you would rather use a browser you are already signed in to, see [Browser Auto-Import](#browser-auto-import). If neither works, see [Manual Cookie Export from Your Browser](#manual-cookie-export-from-your-browser).
 
 ---
 
 ## Overview
 
-MeedyaDL uses your Apple Music browser cookies to authenticate with Apple's servers on your behalf. These cookies prove that you have a valid Apple Music subscription, allowing MeedyaDL to access and download content. Cookies are essential for the application to function -- without valid cookies, downloads will fail.
+When you sign in to Apple Music, your browser keeps a small file called a **cookie** that says "this person is signed in". MeedyaDL uses the same kind of cookie so Apple Music lets it download for you. Without valid cookies, downloads fail.
 
-MeedyaDL provides **three ways** to set up cookies, listed from easiest to most manual:
+There are **three ways** to set them up, easiest first:
 
-1. **Built-in Apple Music login** -- Sign in directly within the app (no browser extension needed)
-2. **Browser auto-import** -- Automatically extract cookies from an installed browser
-3. **Manual cookie file import** -- Export cookies from your browser using an extension and import the file
+1. **Built-in Apple Music login.** Sign in inside MeedyaDL. No extras needed.
+2. **Browser auto-import.** Copy the sign-in from a browser on your computer.
+3. **Manual cookie file.** Export the cookies from your browser with an add-on, then import the file.
 
 ---
 
 ## Built-in Apple Music Login (Recommended)
 
-The easiest way to set up cookies is to sign in to Apple Music directly within MeedyaDL. The app opens an embedded browser window where you sign in with your Apple ID, and cookies are extracted automatically.
+MeedyaDL opens its own small browser window. You sign in there, and MeedyaDL saves your cookies for you.
 
 ### How to Use
 
 1. Open MeedyaDL.
-2. Navigate to **Settings > Cookies** tab.
-3. Click **"Sign in to Apple Music"**.
-4. A login window opens showing the Apple Music sign-in page.
-5. Sign in with your Apple ID and password. Complete any two-factor authentication prompts if required.
-6. Once signed in successfully, MeedyaDL automatically detects the `media-user-token` cookie (which confirms authentication) and extracts all cookies from the webview.
-7. The cookies are saved in Netscape format and the login window closes automatically.
+2. Go to **Settings > Cookies**.
+3. Click **Sign in with Apple Music**.
+4. A window opens with the Apple Music sign-in page.
+5. Sign in with your Apple ID and password. Finish any two-step verification if asked.
+6. When MeedyaDL sees that you are signed in, it saves your cookies and closes the window.
 
-This method requires no browser extensions and works on all platforms. The login window uses Tauri's native webview, which is isolated from your system browsers.
+This needs no browser add-on and works on every system. The window is separate from your normal browsers, so it does not touch them.
 
 ---
 
 ## Browser Auto-Import
 
-If you are already signed in to Apple Music in a browser on your computer, MeedyaDL can detect installed browsers and extract your Apple Music cookies automatically.
+If you are already signed in to Apple Music in a browser on this computer, MeedyaDL can copy the sign-in for you.
 
 ### Steps
 
 1. Open MeedyaDL.
-2. Navigate to **Settings > Cookies** tab.
-3. Click **"Import from Browser"**.
-4. MeedyaDL scans for installed browsers and displays a list of detected browsers.
-5. Select the browser you are signed in to Apple Music with.
-6. MeedyaDL extracts the Apple Music cookies and saves them automatically.
+2. Go to **Settings > Cookies**.
+3. Under **Import from Browser**, choose your browser from the list.
+4. Click **Import Cookies**.
+5. MeedyaDL saves your Apple Music cookies.
 
 ### Supported Browsers
 
-- **Chrome** / **Chromium**
+- **Chrome** and **Chromium**
 - **Firefox**
 - **Edge**
 - **Safari** (macOS only)
 - **Brave**
 - **Opera**
 - **Vivaldi**
+- **Arc** (macOS only)
 
-### Requirements
+Only browsers MeedyaDL finds on your computer are listed. If none are found, the **Import from Browser** section does not appear.
 
-- You must be **signed in to music.apple.com** in the selected browser before importing.
-- The browser must be **closed** during import on some platforms (the app will notify you if this is required).
-- On **macOS**, importing from Safari or Chrome may require **Full Disk Access** permission for MeedyaDL. The app will prompt you if this is needed and guide you through enabling it in System Settings.
+### Before You Start
+
+- Sign in to **music.apple.com** in that browser first.
+- On some systems the browser must be **closed** while you import. MeedyaDL tells you if so.
+- On **macOS**, Safari needs **Full Disk Access** for MeedyaDL. The list marks it "requires Full Disk Access". MeedyaDL guides you through turning it on in System Settings.
 
 ---
 
 ## Why Cookies Are Needed
 
-Apple Music requires authentication to access its content. MeedyaDL uses browser cookies -- specifically session tokens -- to authenticate with Apple's servers. This approach means:
+Apple Music only serves your music to a signed-in subscriber. Cookies are how MeedyaDL shows that you are one.
 
-- **Your Apple ID password is never stored or transmitted by the app.** MeedyaDL only uses the session tokens contained in cookies that your browser created when you signed in to Apple Music.
-- **Cookies act as proof of your active session.** When you sign in to music.apple.com in your browser, Apple creates session cookies. MeedyaDL uses these same cookies to make requests on your behalf.
-- **Cookies are stored locally on your machine.** They are saved as a plain text file in the app's data directory. They are never uploaded or sent to any third-party server.
-
-This is the same authentication method used by other tools that interact with Apple Music, and it avoids the need to handle or store your Apple ID credentials directly.
+- **Your Apple ID password is never stored by MeedyaDL.** It only keeps the cookies your sign-in produced.
+- **Cookies stay on your computer.** They are saved in a text file in MeedyaDL's data folder. They are never uploaded anywhere.
+- **Cookies are a proof of your active sign-in.** Treat them like a password.
 
 ---
 
 ## Manual Cookie Export from Your Browser
 
-If you prefer to export cookies manually (or if the built-in login and browser auto-import are not available), you can use a browser extension to export your cookies and import the file into MeedyaDL.
+Use this if the built-in login and browser import are not available, or if you prefer to do it yourself. You export your cookies with a browser add-on and then import the file.
 
-### Prerequisites
+### What You Need
 
-- You must be signed in to [music.apple.com](https://music.apple.com) in your browser
-- You must have an active Apple Music subscription
-- A browser extension for exporting cookies (see browser-specific instructions below)
+- You are signed in to [music.apple.com](https://music.apple.com) in your browser.
+- You have an active Apple Music subscription.
+- A cookie-export add-on for your browser (see below).
 
-### Cookie File Format
+### The File Format
 
-MeedyaDL accepts cookies in the **Netscape/Mozilla cookie file format**. This is a plain text, tab-separated format and is the standard format exported by browser cookie extensions. A valid cookie file typically starts with the following header line:
+MeedyaDL reads cookies in the **Netscape cookie file** format. It is a plain text file, and the add-ons below produce it for you. You never need to edit it. It normally starts with this line:
 
 ```text
-
 # Netscape HTTP Cookie File
-
 ```
 
-Each subsequent line contains a single cookie with tab-separated fields (domain, flag, path, secure, expiry, name, value). You do not need to edit this file manually -- the browser extensions listed below produce files in the correct format automatically.
+### Required Cookies
 
-### Required Domains
-
-Your exported cookie file must include cookies for the following domains:
+Your file must contain cookies for these two domains:
 
 - `music.apple.com`
 - `.apple.com`
 
-MeedyaDL validates these domains on import and will warn you if required domains are missing.
+MeedyaDL checks for them when you import and warns you if one is missing.
 
 ### From Chrome
 
-1. Install the **"Get cookies.txt LOCALLY"** extension from the [Chrome Web Store](https://chromewebstore.google.com).
-2. Navigate to [music.apple.com](https://music.apple.com) and sign in with your Apple ID.
-3. Once signed in, click the extension icon in the Chrome toolbar.
-4. Click **"Export"** to save the file as `cookies.txt`.
-5. The exported file will be in Netscape format and saved to your Downloads folder.
+1. Install **Get cookies.txt LOCALLY** from the [Chrome Web Store](https://chromewebstore.google.com).
+2. Go to [music.apple.com](https://music.apple.com) and sign in.
+3. Click the add-on icon in the Chrome toolbar.
+4. Click **Export** to save `cookies.txt`. It goes to your Downloads folder.
 
 ### From Firefox
 
-1. Install the **"cookies.txt"** add-on from [Firefox Add-ons](https://addons.mozilla.org).
-2. Navigate to [music.apple.com](https://music.apple.com) and sign in with your Apple ID.
-3. Once signed in, click the extension icon in the Firefox toolbar.
-4. Select **"Current Site"** to export only the cookies for Apple Music.
-5. Click export to save the file. The file will be in Netscape format.
+1. Install the **cookies.txt** add-on from [Firefox Add-ons](https://addons.mozilla.org).
+2. Go to [music.apple.com](https://music.apple.com) and sign in.
+3. Click the add-on icon in the Firefox toolbar.
+4. Choose **Current Site** so only Apple Music's cookies are exported.
+5. Click export to save the file.
 
 ### From Safari
 
-Safari does not have a direct cookie export extension equivalent to the Chrome or Firefox options. There are two alternatives:
+Safari has no simple cookie-export add-on. Two options:
 
-- **Use a different browser.** The simplest approach is to sign in to music.apple.com in Chrome, Firefox, or Edge, and use one of the extensions listed above to export your cookies.
-- **Use Web Inspector.** Open Safari, go to the **Develop** menu > **Show Web Inspector** > **Storage** > **Cookies**. From here you can view cookies, but you would need to manually assemble them into Netscape format, which is not recommended.
-
-For the easiest experience, use Chrome or Firefox for cookie export.
+- **Use another browser.** Sign in to music.apple.com in Chrome, Firefox or Edge and export from there. This is the easiest.
+- **Use Safari's Web Inspector.** Open the **Develop** menu > **Show Web Inspector** > **Storage** > **Cookies**. You can see the cookies, but you would have to build the file by hand. We do not recommend that.
 
 ### From Edge
 
-1. Install **"Get cookies.txt LOCALLY"** from the [Edge Add-ons store](https://microsoftedge.microsoft.com/addons) (this is the same extension available for Chrome).
-2. Navigate to [music.apple.com](https://music.apple.com) and sign in with your Apple ID.
-3. Once signed in, click the extension icon in the Edge toolbar.
-4. Click **"Export"** to save the file as `cookies.txt`.
-5. The process is identical to Chrome.
+1. Install **Get cookies.txt LOCALLY** from the [Edge Add-ons store](https://microsoftedge.microsoft.com/addons). It is the same add-on as for Chrome.
+2. Go to [music.apple.com](https://music.apple.com) and sign in.
+3. Click the add-on icon in the Edge toolbar.
+4. Click **Export** to save `cookies.txt`.
 
 ---
 
-## Importing Cookies into MeedyaDL
+## Importing a Cookie File into MeedyaDL
 
-### Using the Import Dialog
+You can do this in two places:
 
-You can import cookies in two places:
+- **In the setup wizard**, at the **Cookies** step (step 5).
+- **In Settings**, on the **Cookies** tab, at any time.
 
-- **During first-run setup:** The setup wizard presents cookie import at **Step 5**. Follow the on-screen prompts.
-- **From Settings:** Go to **Settings > Cookies** tab at any time.
+To import your file:
 
-To import your cookie file:
+1. Open **Settings > Cookies** (or reach the Cookies step in the wizard).
+2. Scroll to **Or use a cookies file**.
+3. Under **Cookies File**, click Browse and choose your `cookies.txt`.
+4. Click **Validate Cookies**.
 
-1. Open MeedyaDL.
-2. Navigate to **Settings > Cookies** tab (or reach Step 5 of the first-run setup wizard).
-3. Click the **"Import Cookie File"** button.
-4. In the file picker, select your exported `cookies.txt` file.
-5. MeedyaDL will automatically:
-   - Validate the file format (must be Netscape/Mozilla format).
-   - Check for required Apple Music domains (`music.apple.com` and `.apple.com`).
-   - Show expiry warnings if any cookies are near expiration.
+MeedyaDL then:
 
-### Verifying Cookie Validity
+- Checks that the file is in the right format.
+- Checks that both Apple domains are there.
+- Warns you if any cookies are close to running out.
 
-After a successful import, the Cookies tab displays a validation summary with the following information:
+### Checking Your Cookies
 
-- **Domain badges** -- Shows which Apple domains are present in the cookie file (e.g., `music.apple.com`, `.apple.com`).
-- **Expiry status** -- Indicates whether your cookies are valid, expiring soon, or expired:
-  - **Green** -- Cookies are valid and not near expiry.
-  - **Yellow** -- Cookies are expiring soon. You should re-export and re-import soon.
-  - **Red** -- Cookies have expired. You must re-export and re-import before downloads will work.
-- **Cookie count** -- The total number of cookies found in the imported file.
-- **File path** -- The location where the cookie file is stored. You can copy this path to your clipboard.
+After a check, the Cookies tab shows:
+
+- **Domain badges.** Which Apple domains are in the file.
+- **Expiry status:**
+  - **Green.** Valid, not close to expiring.
+  - **Yellow.** Expiring soon. Renew them soon.
+  - **Red.** Expired. Renew them before downloading.
+- **Cookie count.** How many cookies the file holds.
+- **File path.** Where the file is stored. You can copy it with **Copy Cookie Path**.
 
 ---
 
@@ -187,85 +191,78 @@ After a successful import, the Cookies tab displays a validation summary with th
 
 ### How Long Do Cookies Last?
 
-Apple Music cookies typically last **1 to 12 months**, depending on the specific cookie type. However, cookies may expire earlier than expected if:
+Apple Music cookies usually last **1 to 12 months**. They can stop working sooner if:
 
 - You **sign out** of Apple Music in your browser.
 - You **change your Apple ID password**.
-- Apple **rotates session tokens** on their end.
-- The cookie is a short-lived session cookie rather than a persistent one.
+- Apple signs everyone out on its side.
+- A cookie was only meant to last for one browsing session.
 
-MeedyaDL monitors cookie expiry dates and warns you when cookies are approaching expiration, so you can proactively refresh them before downloads start failing.
+MeedyaDL watches the expiry dates and warns you before they run out.
 
-### Renewing Expired Cookies
+### Renewing Cookies
 
-When your cookies expire or are approaching expiry, use any of these methods to refresh them:
+Use any of these:
 
-- **Use the built-in login** -- Go to **Settings > Cookies** and click **"Sign in to Apple Music"**. Sign in again and fresh cookies are extracted automatically.
-- **Use browser auto-import** -- If you are still signed in to music.apple.com in a browser, click **"Import from Browser"** to re-extract fresh cookies.
-- **Manual re-export** -- Re-export your cookies from your browser using the same extension you used before, then re-import the file in MeedyaDL.
+- **Built-in login.** Go to **Settings > Cookies** and click **Sign in with Apple Music** again.
+- **Browser import.** If you are still signed in to music.apple.com in a browser, choose it under **Import from Browser** and click **Import Cookies**.
+- **Manual.** Export the cookies again with the same add-on and import the new file.
 
-The new cookies replace the old ones. Verify that the status indicator shows green after renewal.
+New cookies replace the old ones. The status should turn green.
 
 ---
 
-## Troubleshooting Cookie Issues
+## Troubleshooting
 
-### Common Error Messages
+### Common Messages
 
-| Error Message | Cause | Solution |
+| Message | What it means | What to do |
 | --- | --- | --- |
-| **"Authentication failed"** | Cookies are expired or invalid. | Sign in to music.apple.com in your browser, re-export your cookies, and re-import them into MeedyaDL. |
-| **"Cookie file not found"** | The cookie file was moved, renamed, or deleted from disk. | Re-import your cookie file from **Settings > Cookies** tab. If you no longer have the file, re-export from your browser. |
-| **"Invalid cookie format"** | The file is not in Netscape/Mozilla cookie format. | Make sure you are using a supported browser extension (see above). The file should begin with `# Netscape HTTP Cookie File`. Do not edit the file manually. |
+| **"Authentication failed"** | Your cookies have expired or are not valid. | Sign in again with **Sign in with Apple Music**, or re-export and re-import your cookies. |
+| **"Cookie file not found"** | The file was moved, renamed or deleted. | Choose the file again on the **Cookies** tab. If you no longer have it, export a new one. |
+| **"Invalid cookie format"** | The file is not in the Netscape format. | Use one of the add-ons above. The file should start with `# Netscape HTTP Cookie File`. Do not edit it. |
 
 ### Cookies Expire Quickly
 
-If your cookies seem to expire much sooner than expected:
+- **Do not sign out** of Apple Music in your browser after exporting. That can end the sign-in at once.
+- **Avoid changing your Apple ID password** unless you must. It ends existing sign-ins.
+- **Export from a fresh sign-in.** Close your browser windows, open a new one, sign in to music.apple.com, then export.
+- **Tick "Keep me signed in"** or "Remember me" if you see it.
 
-- **Check that you are not signing out** of Apple Music in your browser after exporting. Signing out can invalidate session cookies immediately.
-- **Avoid changing your Apple ID password** unless necessary, as this will invalidate existing sessions.
-- **Re-export from a fresh sign-in session.** Close all browser windows, open a new window, sign in to music.apple.com, and export cookies. This ensures you get the freshest tokens.
-- **Use a persistent sign-in.** When signing in to music.apple.com, look for a "Keep me signed in" or "Remember me" option if available.
+### Downloads Fail With Green Cookies
 
-### Downloads Fail Despite Valid Cookies
+- **Renew and re-import** your cookies first. The status light cannot catch every case.
+- **Check your subscription** is active by visiting music.apple.com.
+- **Check your internet connection.**
+- **Look at the Activity page** for details.
 
-If the cookie status shows green but downloads still fail:
-
-- **Re-export and re-import** your cookies as a first step -- the status indicator may not catch all edge cases.
-- **Check your Apple Music subscription** is still active by visiting music.apple.com in your browser.
-- **Check your internet connection** and ensure Apple's servers are reachable.
-- **Review the application logs** for more detailed error information.
-
-See also [Troubleshooting](troubleshooting.md) for general error resolution and log file locations.
+See also [Troubleshooting](troubleshooting.md).
 
 ---
 
 ## Security and Privacy
 
-### How Cookies Are Stored
+### Where Cookies Are Kept
 
-- Cookies are stored as a **plain text file** in the app's private data directory on your machine.
-- The exact file path is displayed in **Settings > Cookies** tab, and you can copy it to your clipboard from there.
-- Credentials for other services (not Apple Music cookies) use the **OS keychain** for secure storage:
-  - **macOS:** Keychain
-  - **Windows:** Credential Manager
-  - **Linux:** Secret Service
+- Cookies are saved as a **plain text file** in MeedyaDL's private data folder on your computer.
+- **Settings > Cookies** shows the exact path and lets you copy it.
+- Sign-in details for other services are kept in your computer's **secure store** instead (macOS Keychain, Windows Credential Manager, Linux Secret Service).
 
-### Best Practices
+### Good Habits
 
-- **Never share your cookie file with anyone.** Your cookie file grants access to your Apple Music account. Treat it like a password.
-- **Do not upload your cookie file** to cloud storage, paste it into chat messages, or include it in bug reports.
-- **Refresh cookies proactively.** When MeedyaDL shows a yellow expiry warning, re-export and re-import before they expire completely.
-- **If you suspect your cookies have been compromised**, sign out of Apple Music in your browser immediately (this invalidates the session), change your Apple ID password, then sign back in and export fresh cookies.
+- **Never share your cookie file.** It gives access to your Apple Music account. Treat it like a password.
+- **Do not put it in cloud storage**, chat messages or bug reports.
+- **Renew early.** When the status turns yellow, renew before it expires.
+- **If you think it has leaked,** sign out of Apple Music in your browser right away, change your Apple ID password, then sign in again and export fresh cookies.
 
 ---
 
 ## Related Topics
 
-- [Getting Started](getting-started.md) -- Initial cookie setup during first-time configuration
-- [Downloading Music](downloading-music.md) -- How cookies are used during music downloads
-- [Downloading Videos](downloading-videos.md) -- How cookies are used during video downloads
-- [Troubleshooting](troubleshooting.md) -- General error resolution and log file locations
+- [Getting Started](getting-started.md) — First-time cookie set-up
+- [Downloading Music](downloading-music.md) — How music downloads use your sign-in
+- [Downloading Videos](downloading-videos.md) — How video downloads use your sign-in
+- [Troubleshooting](troubleshooting.md) — General fixes and where to find logs
 
 ---
 

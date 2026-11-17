@@ -63,7 +63,14 @@ import { useEffect } from 'react';
 
 // Lucide icons: success, portable download, system-Python reuse, browse,
 // broken-venv notice, rebuild action.
-import { AlertTriangle, CheckCircle, Download, FolderOpen, RefreshCw, Terminal } from 'lucide-react';
+import {
+  AlertTriangle,
+  CheckCircle,
+  Download,
+  FolderOpen,
+  RefreshCw,
+  Terminal,
+} from 'lucide-react';
 
 // Zustand stores: dependencyStore tracks Python status; setupStore manages the
 // wizard step lifecycle.
@@ -71,7 +78,8 @@ import { useDependencyStore } from '@/stores/dependencyStore';
 import { useSetupStore } from '@/stores/setupStore';
 
 // Shared UI components for the install buttons and loading indicator.
-import { Button, LoadingSpinner } from '@/components/common';
+import { Button, InlineError, LoadingSpinner } from '@/components/common';
+import { explainError } from '@/lib/errorMessages';
 
 /**
  * PythonStep -- Renders the Python installation step.
@@ -178,17 +186,17 @@ export function PythonStep() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-content-primary">Python Runtime</h2>
+        <h1 className="text-xl font-semibold text-content-primary">Python Runtime</h1>
         <p className="text-sm text-content-secondary mt-1">
-          GAMDL needs Python 3.10 or newer. Reuse a Python you already have, or download a
-          self-contained runtime — either way, your system stays untouched.
+          MeedyaDL&apos;s download engine needs Python 3.10 or newer. Reuse a Python you already
+          have, or download a self-contained copy — either way, your system stays untouched.
         </p>
       </div>
 
       {/* Status / action card */}
       <div className="p-4 rounded-platform-lg border border-border-light bg-surface-elevated">
         {isChecking ? (
-          <LoadingSpinner size="sm" label="Checking Python status..." />
+          <LoadingSpinner size="sm" label="Checking Python status…" />
         ) : python?.installed ? (
           /* Managed Python is provisioned */
           <div className="flex items-center gap-3">
@@ -242,7 +250,8 @@ export function PythonStep() {
                     </p>
                   </div>
                 </div>
-                {pythonVenvHealth.recordedInterpreter && pythonVenvHealth.recordedInterpreterExists ? (
+                {pythonVenvHealth.recordedInterpreter &&
+                pythonVenvHealth.recordedInterpreterExists ? (
                   <Button
                     variant="primary"
                     size="sm"
@@ -262,7 +271,7 @@ export function PythonStep() {
             )}
 
             {isDetectingPythons ? (
-              <LoadingSpinner size="sm" label="Looking for an existing Python..." />
+              <LoadingSpinner size="sm" label="Looking for an existing Python…" />
             ) : reusable.length > 0 ? (
               <div className="space-y-3">
                 <div>
@@ -336,7 +345,7 @@ export function PythonStep() {
                 disabled={isInstalling}
                 onClick={handleInstallPortable}
               >
-                {isInstalling ? 'Setting up Python...' : 'Download portable Python'}
+                {isInstalling ? 'Setting up Python…' : 'Download portable Python'}
               </Button>
               <Button
                 variant="ghost"
@@ -353,10 +362,17 @@ export function PythonStep() {
       </div>
 
       {/* Error display */}
+      {/* The installer's own report is folded under "Details" (it used to
+          be the whole message); the backend's words are kept when they are
+          already a plain sentence. */}
       {error && (
-        <div className="p-3 rounded-platform border border-status-error bg-status-error-bg text-sm text-status-error-text">
-          {error}
-        </div>
+        <InlineError
+          look="box"
+          {...explainError(
+            'MeedyaDL could not set up Python. Check your internet connection, then try again — or use Browse to choose a Python you already have.',
+            error
+          )}
+        />
       )}
     </div>
   );

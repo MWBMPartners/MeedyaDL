@@ -54,30 +54,94 @@ import { create } from 'zustand';
 const WORKER_TICK_MS = 250;
 let dismissalWorkerHandle: ReturnType<typeof setInterval> | null = null;
 
+/**
+ * When auto-dismiss was paused (the pointer is over the toasts, or one of
+ * them has keyboard focus), or `null` while it is running (#1431). Nobody
+ * should lose a message they are reading or about to press a button on.
+ */
+let dismissalPausedAt: number | null = null;
+
+/**
+ * Pause or resume auto-dismiss. On resume, every deadline moves on by the
+ * time spent paused, so a toast gets back exactly the time it had left.
+ */
+export function setToastDismissalPaused(paused: boolean): void {
+  if (paused) {
+    if (dismissalPausedAt === null) dismissalPausedAt = Date.now();
+    return;
+  }
+  if (dismissalPausedAt === null) return;
+  const pausedAt = dismissalPausedAt;
+  const now = Date.now();
+  dismissalPausedAt = null;
+  // Each toast gets back only the time it actually spent paused: a toast
+  // that arrived during the pause started counting from its own arrival,
+  // so it is extended from then, not from when the pause began.
+  useUiStore.setState((state) => ({
+    toasts: state.toasts.map((t) => {
+      if (t.expiresAt == null) return t;
+      const pausedFor = now - Math.max(pausedAt, t.createdAt ?? pausedAt);
+      return pausedFor > 0 ? { ...t, expiresAt: t.expiresAt + pausedFor } : t;
+    }),
+  }));
+}
+
+/**
+ * Starts the timer that removes toasts whose time is up. Does nothing if it
+ * is already running; the timer stops itself once no toast can expire.
+ */
 function ensureDismissalWorker(): void {
   if (dismissalWorkerHandle !== null) return;
   dismissalWorkerHandle = setInterval(() => {
+    // Paused while the person is reading (see setToastDismissalPaused).
+    if (dismissalPausedAt !== null) return;
     // Read the store directly to avoid stale-closure issues. Filter
     // out any toast whose deadline has passed. If nothing remains
     // that the worker can act on, stop the worker.
     const now = Date.now();
     const store = useUiStore.getState();
     const before = store.toasts.length;
-    const filtered = store.toasts.filter(
-      (t) => t.expiresAt == null || t.expiresAt > now,
-    );
+    const filtered = store.toasts.filter((t) => t.expiresAt == null || t.expiresAt > now);
     if (filtered.length !== before) {
       useUiStore.setState({ toasts: filtered });
     }
     // Stop the worker when no toast has a non-null expiresAt.
-    const hasExpiring = useUiStore
-      .getState()
-      .toasts.some((t) => t.expiresAt != null);
+    const hasExpiring = useUiStore.getState().toasts.some((t) => t.expiresAt != null);
     if (!hasExpiring && dismissalWorkerHandle !== null) {
       clearInterval(dismissalWorkerHandle);
       dismissalWorkerHandle = null;
     }
   }, WORKER_TICK_MS);
+}
+
+/**
+ * The title a page message gets as a system notification, when the caller
+ * gives none. Plain, and says which app it is from.
+ */
+function defaultSystemTitle(type: ToastType): string {
+  if (type === 'error') return 'MeedyaDL: something went wrong';
+  if (type === 'warning') return 'MeedyaDL: warning';
+  return 'MeedyaDL';
+}
+
+/**
+ * Ask the backend whether this message should also become a system
+ * notification (#1431). Never throws: a missing backend (a unit test, a
+ * page opened outside the desktop app) or a failed call is treated as
+ * "not sent", so the message stays in the app. A failure here is never
+ * turned into another message -- that is how a failing system once could
+ * set off error after error.
+ */
+function askBackendForSystemNotification(
+  kind: NotifyKind,
+  title: string,
+  body: string
+): Promise<NotifySystemAnswer | null> {
+  try {
+    return Promise.resolve(commands.notifySystem(kind, title, body)).catch(() => null);
+  } catch {
+    return Promise.resolve(null);
+  }
 }
 
 /**
@@ -87,6 +151,7 @@ function ensureDismissalWorker(): void {
  * @internal
  */
 export function __resetToastWorkerForTests(): void {
+  dismissalPausedAt = null;
   if (dismissalWorkerHandle !== null) {
     clearInterval(dismissalWorkerHandle);
     dismissalWorkerHandle = null;
@@ -203,11 +268,14 @@ export function __resetSidebarSaveForTests(): void {
 // AppPage -- union literal type for sidebar navigation targets ('download' | 'queue' | ...)
 // Toast    -- shape of an individual toast notification (id, message, type, duration)
 // ToastType -- severity level union ('success' | 'error' | 'warning' | 'info')
-import type { AppPage, Toast, ToastType } from '@/types';
+import type { AppPage, NotifyKind, Toast, ToastOptions, ToastType } from '@/types';
+import type { NotifySystemAnswer } from '@/lib/tauri-commands';
 import { useSettingsStore } from '@/stores/settingsStore';
-// Type-safe wrappers around the backend commands. Only one is used here:
+// Type-safe wrappers around the backend commands. Two are used here:
 // `saveSidebarCollapsed`, which writes the single `sidebar_collapsed`
-// field and nothing else.
+// field and nothing else, and `notifySystem`, which asks the backend's
+// one notification rule whether a message also becomes a system
+// notification (#1431).
 import * as commands from '@/lib/tauri-commands';
 // HelpTopicId -- the real set of `help/*.md` page ids. Imported as a
 // type only (erased at compile time, so it adds no runtime dependency
@@ -444,8 +512,23 @@ interface UiState {
    * @param duration -- Auto-dismiss delay in ms; 0 means persistent (default: 5000)
    * @param key      -- Optional deduplication key (e.g. 'preflight:Wrapper')
    * @param action   -- Optional action button (label + onClick callback)
+   * @param details  -- Optional technical text, folded under "Details"
+   *                    below the message. Use `showError` in
+   *                    lib/errorMessages.ts rather than passing it by hand.
+   * @param options  -- What the message is about, for the notification
+   *                    rule (#1431): `kind` (for example `clipboard_link`),
+   *                    and the system notification's own title or text.
    */
-  addToast: (message: string, type: ToastType, duration?: number, key?: string, action?: { label: string; onClick: () => void }) => void;
+  addToast: (
+    message: string,
+    type: ToastType,
+    duration?: number,
+    key?: string,
+    action?: { label: string; onClick: () => void },
+    /** Technical text folded under "Details" (see lib/errorMessages.ts). */
+    details?: string,
+    options?: ToastOptions
+  ) => void;
 
   /**
    * Remove a specific toast from the stack by its unique ID.
@@ -585,64 +668,36 @@ export const useUiStore = create<UiState>((set, get) => ({
   setShortcutsHelpOpen: (open) => set({ shortcutsHelpOpen: open }),
 
   /**
-   * Create a new toast notification with a unique ID and optional auto-dismiss.
+   * Create a new toast notification with a unique ID and optional auto-dismiss,
+   * and -- when the backend's one notification rule says so -- a system
+   * notification too (#1431).
    *
    * **Deduplication rules:**
    * 1. If a toast with the exact same `message` already exists → skip (no duplicate).
    * 2. If a `key` is provided and a toast with that key exists → replace the old one.
    *
-   * ID generation combines a high-resolution timestamp with a random suffix to
-   * ensure uniqueness even if multiple toasts are created in the same millisecond.
+   * **System notifications (#1431).** This store never talks to the
+   * notification plugin. It asks the backend (`notifySystem`), which reads
+   * the SAVED settings (not this page's unsaved edits), checks whether the
+   * person is looking at MeedyaDL, applies the one rule in
+   * `services/notification_service.rs`, and sends the system notification
+   * itself. Until #1431 every one of the app's ~217 messages was also sent
+   * to the system from here, whatever the window was doing.
    *
-   * The `setTimeout` auto-dismiss runs outside React's render cycle; when it fires,
-   * it uses the updater-function form of `set()` to safely read the latest toast
-   * array (avoiding stale closures over the `toasts` array).
+   * **"System only" style.** The in-app copy is shown straight away and
+   * removed again only when ALL of these hold: the backend sent it to the
+   * system and says the page need not keep it, and the message is a plain
+   * information/success one with no button, no details, no key, and an
+   * auto-dismiss time. Anything else a system notification cannot carry,
+   * or must stay until dismissed, stays in the app.
    */
-  addToast: (message, type, duration?, key?, action?) => {
+  addToast: (message, type, duration?, key?, action?, details?, options?) => {
     const { settings } = useSettingsStore.getState();
-
-    // "Desktop Notifications" in Settings > General is the master on/off
-    // switch for OS-level banners. `notification_style` only says HOW a
-    // native notification is delivered once that switch is on -- it was
-    // never meant to work on its own.
-    //
-    // Before this fix, the code below looked only at `notification_style`
-    // and never at `desktop_notifications`, so switching the master
-    // control off did not stop a single OS banner -- the switch simply
-    // had no effect here. That was easy to miss because the Settings
-    // screen hides the style dropdown entirely whenever the master switch
-    // is off (see GeneralTab.tsx), so whatever style was last chosen stays
-    // saved and out of sight. A person could turn the switch off while
-    // "Native only" was still selected from an earlier session and never
-    // see that combination again to notice anything was wrong.
-    //
-    // The Rust side of the app already gets this right --
-    // `send_desktop_notification` in `download_queue/notifications.rs`
-    // checks `desktop_notifications` before it even looks at
-    // `notification_style`. This brings the two halves of the app into
-    // agreement.
-    const desktopNotificationsEnabled = settings.desktop_notifications ?? true;
-    const requestedStyle = settings.notification_style ?? 'native_and_in_app';
-
-    // The one case that needs a deliberate decision, not just "switch off
-    // means nothing happens": the switch is off AND the saved style is
-    // "Native only". Doing nothing in that case would mean a message --
-    // say, a failed download -- reaches the user nowhere at all: no OS
-    // banner, because the switch is off, and no in-app toast either,
-    // because the style says native-only and the code further down skips
-    // the in-app toast whenever that style is selected. That is worse
-    // than either setting acting alone, so when the master switch is off,
-    // this call treats the style as "in-app only" regardless of what is
-    // actually saved -- the native path is guaranteed off, and the in-app
-    // toast is guaranteed to show, so the message always reaches the user
-    // somewhere. Only this one call is affected; the person's saved
-    // `notification_style` choice in settings.json is never touched, so
-    // switching "Desktop Notifications" back on later restores whatever
-    // style they had chosen without them having to reselect it.
-    const style = desktopNotificationsEnabled ? requestedStyle : 'in_app_only';
 
     // Resolve duration: use explicit value if provided, otherwise read from settings.
     // Error and warning toasts are persistent (0 = no auto-dismiss) unless explicitly timed.
+    // (Auto-dismiss governs in-app messages only, so it is read here, from
+    // the page's settings, and applies whatever the notification switches say.)
     if (duration === undefined) {
       if (type === 'error' || type === 'warning') {
         duration = 0; // Persistent — requires manual dismissal
@@ -651,53 +706,9 @@ export const useUiStore = create<UiState>((set, get) => ({
       }
     }
 
-    // #993: Determine up front whether this message is already showing as an
-    // in-app toast. The in-app `set()` updater below (see the `state.toasts.some(...)`
-    // check) already deduplicates identical messages, but that check runs AFTER
-    // the native notification would have fired -- so a repeated warning/error that
-    // gets correctly deduped in-app was still stacking N identical OS banners.
+    // #993: is this exact message already on screen? Then it has already
+    // been offered to the system once, and is not offered again.
     const isDuplicateInApp = get().toasts.some((t) => t.message === message);
-
-    // Send native OS notification when notification_style includes native.
-    // Errors are surfaced to the WebView console so future regressions can
-    // be diagnosed instead of failing silently (#658).
-    //
-    // Gate on in-app dedup EXCEPT in 'native_only' mode: in that mode the
-    // `toasts` array is intentionally always empty (see the early return
-    // below), so `isDuplicateInApp` can never be true and state-based dedup
-    // is impossible -- gating on it there would silently suppress every
-    // native notification after the first.
-    if (
-      (style === 'native_and_in_app' && !isDuplicateInApp) ||
-      style === 'native_only'
-    ) {
-      const typeLabel = type === 'error' ? 'Error' : type === 'warning' ? 'Warning' : type === 'success' ? 'Success' : 'Info';
-      import('@tauri-apps/plugin-notification').then(({ isPermissionGranted, requestPermission, sendNotification }) => {
-        isPermissionGranted()
-          .then((granted) => {
-            if (!granted) return requestPermission();
-            return 'granted' as const;
-          })
-          .then((result) => {
-            if (result === 'granted') {
-              sendNotification({ title: `MeedyaDL — ${typeLabel}`, body: message });
-            } else {
-              console.warn(
-                `[notification] permission not granted (status: ${result}). ` +
-                'Open System Settings > Notifications > MeedyaDL to enable.',
-              );
-            }
-          })
-          .catch((err: unknown) => {
-            console.warn('[notification] sendNotification failed:', err);
-          });
-      }).catch((err: unknown) => {
-        console.warn('[notification] plugin module failed to load:', err);
-      });
-    }
-
-    // Skip in-app toast when user prefers native-only notifications.
-    if (style === 'native_only') return;
 
     // Generate a collision-resistant unique ID for this toast.
     const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -721,7 +732,7 @@ export const useUiStore = create<UiState>((set, get) => ({
 
       const withNewToast = [
         ...filtered,
-        { id, message, type, duration, expiresAt, key, action },
+        { id, message, type, duration, expiresAt, createdAt: Date.now(), key, action, details },
       ];
 
       // Enforce the MAX_TOASTS ceiling (see the comment on that constant
@@ -731,7 +742,7 @@ export const useUiStore = create<UiState>((set, get) => ({
       const toasts = [...withNewToast];
       while (toasts.length > MAX_TOASTS) {
         const oldestPassing = toasts.findIndex(
-          (t, i) => i < toasts.length - 1 && t.expiresAt !== null,
+          (t, i) => i < toasts.length - 1 && t.expiresAt !== null
         );
         toasts.splice(oldestPassing === -1 ? 0 : oldestPassing, 1);
       }
@@ -745,6 +756,42 @@ export const useUiStore = create<UiState>((set, get) => ({
     if (expiresAt !== null) {
       ensureDismissalWorker();
     }
+
+    if (options?.system === false || isDuplicateInApp) return;
+
+    // Things a system notification cannot carry, or that must stay until
+    // the person dismisses them: these keep their in-app copy whatever
+    // the style (rule C of #1431).
+    const mustStayInApp =
+      action !== undefined ||
+      details !== undefined ||
+      key !== undefined ||
+      duration === 0 ||
+      type === 'error' ||
+      type === 'warning';
+
+    const kind: NotifyKind = options?.kind ?? (type === 'error' ? 'error' : 'general');
+    void askBackendForSystemNotification(
+      kind,
+      options?.systemTitle ?? defaultSystemTitle(type),
+      options?.systemBody ?? message
+    ).then((answer) => {
+      if (!answer || !answer.sent) return;
+      if (options?.keepUntilDismissedIfSent) {
+        // The system notification sends the person here to find this
+        // message, so it must not have gone by the time they arrive.
+        set((state) => ({
+          toasts: state.toasts.map((t) =>
+            t.id === id ? { ...t, duration: 0, expiresAt: null } : t
+          ),
+        }));
+        return;
+      }
+      if (!answer.in_app && !mustStayInApp) {
+        // "System only", and the system has it: take the in-app copy away.
+        set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
+      }
+    });
   },
 
   /**

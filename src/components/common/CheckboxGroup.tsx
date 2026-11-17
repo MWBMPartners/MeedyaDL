@@ -9,6 +9,7 @@
 import { HelpButton } from './HelpButton';
 import type { HelpTopicId } from '@/components/help';
 
+/** Props for `CheckboxGroup`. `T` is the union of allowed option values. */
 interface CheckboxGroupProps<T extends string> {
   /** Group label displayed above the checkboxes */
   label: string;
@@ -50,6 +51,9 @@ export function CheckboxGroup<T extends string>({
   helpTopic,
   columns = 2,
 }: CheckboxGroupProps<T>) {
+  // Adds the value to the selection if it is missing, removes it if present.
+  // A new array is always passed on: React state must not be changed in place.
+  // See: https://react.dev/learn/updating-arrays-in-state
   const handleToggle = (value: T) => {
     if (disabled) return;
     if (selected.includes(value)) {
@@ -59,6 +63,9 @@ export function CheckboxGroup<T extends string>({
     }
   };
 
+  // One column on a narrow window; the requested count from the `sm` breakpoint up.
+  // The full class names are written out so Tailwind can find them at build time.
+  // See: https://tailwindcss.com/docs/responsive-design
   const gridCols =
     columns === 1
       ? 'grid-cols-1'
@@ -79,16 +86,12 @@ export function CheckboxGroup<T extends string>({
           {helpTopic && <HelpButton topic={helpTopic} />}
         </legend>
       )}
-      {description && (
-        <p className="text-xs text-content-tertiary mb-2">{description}</p>
-      )}
-      <div
-        className={`grid ${gridCols} gap-1.5 p-2 bg-surface-secondary rounded-platform`}
-      >
+      {description && <p className="text-xs text-content-tertiary mb-2">{description}</p>}
+      <div className={`grid ${gridCols} gap-1.5 p-2 bg-surface-secondary rounded-platform`}>
         {(Object.entries(options) as [T, string][]).map(([value, optLabel]) => (
           <label
             key={value}
-            className={`flex items-center gap-2 px-2 py-1.5 rounded text-sm
+            className={`flex items-center gap-2 px-2 py-1.5 rounded-platform-sm text-sm
               ${disabled ? 'cursor-not-allowed' : 'cursor-pointer hover:bg-surface-tertiary'}
               ${selected.includes(value) ? 'text-content-primary' : 'text-content-secondary'}`}
           >
@@ -97,7 +100,7 @@ export function CheckboxGroup<T extends string>({
               checked={selected.includes(value)}
               onChange={() => handleToggle(value)}
               disabled={disabled}
-              className="h-3.5 w-3.5 rounded border-border text-accent focus:ring-accent"
+              className="h-3.5 w-3.5 rounded-platform-sm border-border text-accent focus:ring-accent"
             />
             <span className="leading-tight break-words">{optLabel}</span>
           </label>

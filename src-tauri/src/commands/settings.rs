@@ -224,8 +224,8 @@ fn keep_fields_the_settings_screen_cannot_change(
     // Security: `dev_access_enabled` must only be toggled by the dedicated
     // `activate_dev_access` / `deactivate_dev_access` commands, which
     // validate a passphrase (or clear the keychain sentinel) before
-    // persisting via `config_service::save_settings` directly — a path this
-    // clamp does NOT intercept. A general settings write (this IPC) must
+    // persisting that one field via `config_service::update_settings_field`
+    // — a path this clamp does NOT intercept. A general settings write (this IPC) must
     // never be able to flip the flag on, regardless of what the incoming
     // payload contains.
     settings.dev_access_enabled = previous.is_some_and(|p| p.dev_access_enabled);
@@ -249,6 +249,29 @@ fn keep_fields_the_settings_screen_cannot_change(
         Some(cache) => cache.after_queue_once,
         None => previous.and_then(|p| p.after_queue_once),
     };
+}
+
+/// Everything the Settings screen's Save does to the incoming settings
+/// inside the settings lock, just before the write: puts back the fields
+/// the screen does not own, then decides the metadata language (#1246).
+///
+/// `on_disk` is the file as it is at that moment, read inside the lock.
+/// That matters for the language: `settle_metadata_language_on_save` lets
+/// a value that is not a language tag through only if it is EXACTLY the
+/// value already stored, and the only stored value that counts is the one
+/// the write is about to replace — not a copy read before the lock, which
+/// another write (an import, say) could already have changed.
+///
+/// Returns `Err` to refuse the save; nothing is written then.
+fn prepare_screen_save(
+    settings: &mut AppSettings,
+    on_disk: Option<&AppSettings>,
+    in_memory: Option<&AppSettings>,
+) -> Result<(), String> {
+    keep_fields_the_settings_screen_cannot_change(settings, on_disk, in_memory);
+    settings.language =
+        settle_metadata_language_on_save(&settings.language, on_disk.map(|p| p.language.as_str()))?;
+    Ok(())
 }
 
 /// Saves application settings to disk.
@@ -288,19 +311,22 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     // we still save the new settings, just without the verbose diff).
     let previous = config_service::read_settings_from_disk(&app).ok();
 
-    // Restore the fields this screen does not own, write, and refresh the
-    // in-process cache (#690) — all inside ONE lock. Reading the file for
-    // this before taking the lock let a one-off after-queue action the
-    // backend had just cleared be written straight back (Codex, batch-3
-    // review). `previous` above is for the change log only.
+    // Restore the fields this screen does not own, decide the metadata
+    // language, write, and refresh the in-process cache (#690) — all
+    // inside ONE lock. Reading the file for this before taking the lock
+    // let a one-off after-queue action the backend had just cleared be
+    // written straight back (Codex, batch-3 review). `previous` above is
+    // for the change log only.
+    //
+    // The metadata language decision (#1246) used to be made here, before
+    // the lock, against `previous`. The independent review pointed out
+    // that `previous` could then be out of date by the time of the write,
+    // so it now happens inside `prepare_screen_save`, against the file as
+    // it is inside the lock.
     //
     // config_service performs two writes: settings.json, and GAMDL's
     // config.ini derived from it.
-    let settings = config_service::save_settings_from_screen(
-        &app,
-        settings,
-        keep_fields_the_settings_screen_cannot_change,
-    )?;
+    let settings = config_service::save_settings_from_screen(&app, settings, prepare_screen_save)?;
 
     // Always emit the basic "Settings saved" message
     emit_app_log(&app, "Settings saved");
@@ -318,6 +344,219 @@ pub async fn save_settings(app: AppHandle, settings: AppSettings) -> Result<(), 
     }
 
     Ok(())
+}
+
+/// Decides what the Settings screen's Save stores for the metadata
+/// language (#1246, policy LANG-001 and COMPAT-030 —
+/// docs/standards/media-language-bcp47-policy.md).
+///
+/// * A language tag is stored in its standard form: `EN-us` → `en-US`,
+///   the retired `iw` → `he`. The list on the Settings screen only offers
+///   tags, so this is almost always a no-op; it matters for a value that
+///   arrived some other way.
+/// * A value that is not a tag, or is over 35 characters, is refused with
+///   an error — UNLESS it is exactly the value already on disk. Such a
+///   value can only have come from an older version or a hand-edited
+///   file, and refusing it would make it impossible to save any OTHER
+///   setting until the person noticed and changed this one. The policy
+///   says existing data is kept, not rewritten (COMPAT-030), and nothing
+///   may be invented in its place (LANG-003), so it is kept exactly as it
+///   is and reported once per launch instead (see
+///   `report_metadata_language_on_startup`).
+///
+/// `on_disk` is `None` when the file could not be read; a value that is
+/// not a tag is then refused, because there is nothing to show it was
+/// already there.
+pub(crate) fn settle_metadata_language_on_save(
+    new_value: &str,
+    on_disk: Option<&str>,
+) -> Result<String, String> {
+    match crate::utils::language::standard_tag_for_storage(new_value) {
+        Ok(standard) => Ok(standard),
+        Err(_) if on_disk == Some(new_value) => Ok(new_value.to_string()),
+        Err(problem) => Err(format!(
+            "The metadata language {new_value:?} {} — choose one from the list.",
+            problem.describe()
+        )),
+    }
+}
+
+/// The most bytes an imported `language` or `ui_language` value is even
+/// looked at before it is refused outright, with no attempt to read it as
+/// a tag at all.
+///
+/// A language tag this machine can actually store is at most
+/// [`crate::utils::language::MAX_TAG_LEN`] (35) characters, and no
+/// operating-system locale name comes anywhere close either — nothing
+/// genuine is ever within an order of magnitude of this limit, so it
+/// costs nothing to be generous here rather than exact.
+const MAX_IMPORTED_LANGUAGE_LEN: usize = 256;
+
+/// What became of one imported `language` or `ui_language` value — the
+/// ONE place this decision is made, shared by both
+/// `settle_imported_metadata_language` and `settle_imported_ui_language`,
+/// so there is exactly one length check and one "not a tag" check to lose.
+///
+/// (Independent review, round 5 of #1244: round 4 believed it had proven
+/// the length check with a test, but that test's 300-letter fixture is
+/// refused by `standard_tag_for_storage`'s OWN 35-character limit whether
+/// or not the 256-byte guard runs — so the guard could be deleted and every
+/// test still passed. Returning the REASON, and testing that, is what makes
+/// the two refusals tell apart.)
+#[derive(Debug, PartialEq)]
+enum ImportedLanguageVerdict {
+    /// Refused before being read as a tag at all: over
+    /// [`MAX_IMPORTED_LANGUAGE_LEN`] bytes.
+    TooLongToRead,
+    /// Read as a tag and refused for this reason.
+    NotATag(crate::utils::language::TagProblem),
+    /// Read as a tag and accepted, in its standard form.
+    Accepted(String),
+}
+
+/// Decides what to do with a raw imported language value. No side effect
+/// (no log, no write), so it can be tested directly at exact byte lengths.
+fn decide_imported_language(raw: &str) -> ImportedLanguageVerdict {
+    if raw.len() > MAX_IMPORTED_LANGUAGE_LEN {
+        return ImportedLanguageVerdict::TooLongToRead;
+    }
+    match crate::utils::language::standard_tag_for_storage(raw) {
+        Ok(standard) => ImportedLanguageVerdict::Accepted(standard),
+        Err(problem) => ImportedLanguageVerdict::NotATag(problem),
+    }
+}
+
+/// The text logged when an imported language is refused: built ONLY from
+/// the field's plain name, the byte LENGTH of the refused value, the
+/// reason, and this machine's value being kept — never from any part of the
+/// refused value itself (a settings file may be adversarial; round 4 raised
+/// this, round 5 found no test had checked it and made it its own function
+/// so one could).
+fn refusal_log_line(field: &str, byte_len: usize, reason: &str, current_value: &str) -> String {
+    format!(
+        "Imported {field} language is a {byte_len}-byte value — {reason} — keeping this machine's {current_value:?}"
+    )
+}
+
+/// Keeps an imported metadata language only if it is a real language tag
+/// (#1246). Called from `preserve_local_only_settings`, which both import
+/// routes (settings file and profile bundle) go through.
+///
+/// The language is an ordinary preference that SHOULD travel between a
+/// person's machines, so a valid value is kept — in its standard form.
+/// But a settings file is something a person may have been sent, so a
+/// value that is not a language tag, or is over 35 characters, is
+/// refused and this machine's current value kept: the same pattern as the
+/// other checked fields here. (The value is handed to the download tool,
+/// and written into its configuration file; a refused value never gets
+/// that far.)
+///
+/// This replaced cutting the value to 20 bytes, which could stop a valid
+/// tag in the middle of a part (`zh-Hant-TW-u-ca-gregory` became
+/// `zh-Hant-TW-u-ca-greg`), and which let a value that was never a tag
+/// through untouched.
+///
+/// A value over [`MAX_IMPORTED_LANGUAGE_LEN`] bytes is refused BEFORE it
+/// is handed to the tag parser at all, rather than being read as a tag
+/// (and, on refusal, logged in full) whatever its length — see
+/// [`decide_imported_language`] and [`refusal_log_line`] (round 4 of #1244;
+/// split out and tested directly in round 5).
+fn settle_imported_metadata_language(imported: &mut AppSettings, current: &AppSettings) {
+    let reason = match decide_imported_language(&imported.language) {
+        ImportedLanguageVerdict::Accepted(standard) => {
+            imported.language = standard;
+            return;
+        }
+        ImportedLanguageVerdict::TooLongToRead => {
+            "far too long to be a real language tag — refused before being read as one"
+        }
+        ImportedLanguageVerdict::NotATag(problem) => problem.describe(),
+    };
+    log::warn!(
+        "{}",
+        refusal_log_line(
+            "metadata",
+            imported.language.len(),
+            reason,
+            &current.language
+        )
+    );
+    imported.language = current.language.clone();
+}
+
+/// Keeps an imported interface language only if it is empty (meaning
+/// "follow the system") or a real language tag (independent review round
+/// 3 of #1244). Called from `preserve_local_only_settings`, right beside
+/// `settle_imported_metadata_language` above and for the same reason:
+/// refusing a bad value needs this machine's current value to fall back
+/// to, which `sanitize_imported_settings` below cannot do because it is
+/// never given one.
+///
+/// `ui_language` differs from the metadata language in one respect: an
+/// EMPTY value here is not a mistake, it is the "Auto (System)" choice
+/// (see `LOCALES` in `src/lib/i18n.ts`) — so it is always kept, never
+/// refused and never replaced with this machine's value.
+///
+/// This replaces cutting the value to 20 bytes and stripping line breaks
+/// in `sanitize_imported_settings`, which had the same two faults
+/// described on `settle_imported_metadata_language` above for the
+/// metadata language: a fixed byte cut could stop a valid tag in the
+/// middle of a part, and a value that was never a tag passed straight
+/// through untouched — the exact fault this work already fixed for the
+/// metadata language, left standing here until this review round.
+///
+/// A value over [`MAX_IMPORTED_LANGUAGE_LEN`] bytes is refused BEFORE it
+/// is handed to the tag parser, the same as `settle_imported_metadata_language`
+/// just above and for the same reason (independent review, round 4 of
+/// #1244) — this check runs only once the empty-value case has already
+/// returned, since an empty value is never too long to matter.
+fn settle_imported_ui_language(imported: &mut AppSettings, current: &AppSettings) {
+    if imported.ui_language.is_empty() {
+        return;
+    }
+    let reason = match decide_imported_language(&imported.ui_language) {
+        ImportedLanguageVerdict::Accepted(standard) => {
+            imported.ui_language = standard;
+            return;
+        }
+        ImportedLanguageVerdict::TooLongToRead => {
+            "far too long to be a real language tag — refused before being read as one"
+        }
+        ImportedLanguageVerdict::NotATag(problem) => problem.describe(),
+    };
+    log::warn!(
+        "{}",
+        refusal_log_line(
+            "interface",
+            imported.ui_language.len(),
+            reason,
+            &current.ui_language
+        )
+    );
+    imported.ui_language = current.ui_language.clone();
+}
+
+/// Reports, once per launch, a metadata language setting that is not a
+/// language tag (#1246). It is NOT changed: the policy keeps existing data
+/// (COMPAT-030) and forbids inventing a replacement (LANG-003), and the
+/// value is still handed to the download tool exactly as before. The
+/// report is how the person finds out, so they can pick a language from
+/// the list in Settings > General.
+///
+/// Called from the one-off startup task in `lib.rs`, three seconds after
+/// launch, when the activity log is listening — `load_settings_at_startup`
+/// itself runs several times during startup, so reporting there would
+/// repeat.
+pub fn report_metadata_language_on_startup(app: &AppHandle, language: &str) {
+    if crate::utils::language::is_language_tag(language) {
+        return;
+    }
+    let message = format!(
+        "Metadata language setting {language:?} is not a language tag. It has been left as \
+         it is; choose a language in Settings > General to replace it."
+    );
+    log::warn!("{message}");
+    emit_app_log(app, &message);
 }
 
 /// Remembers whether the sidebar is collapsed.
@@ -563,7 +802,8 @@ pub struct CookieCheckResult {
 /// cookie parsing and expiry detection.
 #[tauri::command]
 pub fn check_cookies_before_download(app: AppHandle) -> Result<CookieCheckResult, String> {
-    let settings = crate::services::config_service::read_settings_from_disk(&app).unwrap_or_default();
+    let settings =
+        crate::services::config_service::read_settings_from_disk(&app).unwrap_or_default();
 
     // Wrapper users don't need cookies — the wrapper handles authentication
     if settings.use_wrapper {
@@ -732,6 +972,23 @@ pub struct WrapperTestResult {
     pub error: Option<String>,
 }
 
+/// The wrapper address as it may be shown on screen: built from the PARSED
+/// address with any user name, password, query and fragment removed.
+///
+/// Built from the parsed address, not the text as typed, because the
+/// parser forgives typing slips that a text-based cleaner does not:
+/// `http:/someone:hunter2@127.0.0.1:1/` (one slash) parses as the full
+/// address with a password, yet a cleaner looking for `://` finds nothing
+/// to remove. What the connection uses is what gets cleaned (#1445).
+fn address_for_message(parsed: &url::Url) -> String {
+    let mut shown = parsed.clone();
+    let _ = shown.set_username("");
+    let _ = shown.set_password(None);
+    shown.set_query(None);
+    shown.set_fragment(None);
+    shown.to_string()
+}
+
 /// Tests connectivity to the configured wrapper service URL.
 ///
 /// **Frontend caller:** `testWrapperConnection(url)` in `src/lib/tauri-commands.ts`
@@ -746,7 +1003,9 @@ pub struct WrapperTestResult {
 /// something is listening on the specified address/port.
 ///
 /// # Arguments
-/// * `url` - The wrapper account URL to test (e.g., `"http://192.168.3.179:30020"`)
+/// * `url` - The wrapper address in use: the account URL on the older wrapper
+///   (e.g., `"http://192.168.3.179:30020"`) or the single wrapper URL on the
+///   newer one (GAMDL 3.6+, e.g., `"http://127.0.0.1"`). The page picks which.
 ///
 /// # Returns
 /// * `Ok(WrapperTestResult)` - Connection test completed (may indicate failure via `reachable: false`)
@@ -780,8 +1039,11 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
     // network.
     if !crate::commands::wrapper::wrapper_host_is_local_or_private(&url).await {
         return Err(format!(
-            "MeedyaDL will only test an address on this computer or this network ({url} is \
-             neither). A wrapper runs locally, so set one in Settings > Advanced > Wrapper."
+            "MeedyaDL will only test an address on this computer or this network ({} is \
+             neither). A wrapper runs locally, so set one in Settings > Advanced > Wrapper.",
+            // The address can carry a sign-in token or a name and password,
+            // and this message is shown on screen, so both are removed.
+            address_for_message(&parsed)
         ));
     }
 
@@ -831,9 +1093,16 @@ pub async fn test_wrapper_connection(url: String) -> Result<WrapperTestResult, S
             let error_msg = if e.is_timeout() {
                 "Connection timed out (5s)".to_string()
             } else if e.is_connect() {
-                format!("Connection refused — is the wrapper running at {url}?")
+                // Shown on screen: the address is cleaned of any token or
+                // password first.
+                format!(
+                    "Connection refused — is the wrapper running at {}?",
+                    address_for_message(&parsed)
+                )
             } else {
-                format!("{e}")
+                // The web library repeats the whole address in its own
+                // error text, so it is cleaned rather than used as it is.
+                crate::services::health_check_service::http_error_for_message(e)
             };
             Ok(WrapperTestResult {
                 reachable: false,
@@ -940,7 +1209,7 @@ pub async fn export_settings(app: AppHandle) -> Result<String, String> {
     let export_file = SettingsExportFile {
         version: 1,
         app: "MeedyaDL".to_string(),
-        exported_at: chrono::Utc::now().to_rfc3339(),
+        exported_at: crate::utils::time_compat::now_rfc3339(),
         settings,
     };
 
@@ -1061,7 +1330,6 @@ pub async fn import_settings(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-
 /// Cleans and checks one Apple Music identifier.
 ///
 /// Trimmed, upper-cased, and then required to be exactly ten letters or
@@ -1078,6 +1346,9 @@ pub(crate) fn normalise_musickit_id(
     label: &str,
     value: Option<String>,
 ) -> Result<Option<String>, String> {
+    // A MusicKit team or key ID is exactly ten capital letters or digits.
+    // Compiled once, on first use.
+    // See: https://doc.rust-lang.org/std/sync/struct.LazyLock.html
     static MUSICKIT_ID_RE: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"^[A-Z0-9]{10}$").expect("Invalid MusicKit ID regex"));
 
@@ -1176,6 +1447,16 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
     // means nothing on another machine anyway. Keep the local value.
     imported.prd_path = current.prd_path.clone();
 
+    // NOT local-only settings, but checked here because this is the one
+    // function both import routes (settings file, profile bundle) call,
+    // and the checks need this machine's current value to fall back to:
+    // an imported metadata language that is not a language tag is refused
+    // (#1246), and the same now applies to the interface language
+    // (independent review, round 3 of #1244). Two separate call sites is
+    // how the other checks here once drifted apart.
+    settle_imported_metadata_language(imported, current);
+    settle_imported_ui_language(imported, current);
+
     // What happens when the queue finishes is this person's choice, and
     // one of the choices is to shut the computer down or restart it.
     //
@@ -1224,15 +1505,17 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
         current.service_settings.spotify.cookies_path.clone();
     imported.service_settings.spotify.spotify_dll_path =
         current.service_settings.spotify.spotify_dll_path.clone();
-    imported.service_settings.spotify.wvd_path =
-        current.service_settings.spotify.wvd_path.clone();
+    imported.service_settings.spotify.wvd_path = current.service_settings.spotify.wvd_path.clone();
     imported.service_settings.youtube.cookies_path =
         current.service_settings.youtube.cookies_path.clone();
 
     // The sign-in details for a music service are this person's own, and
     // an imported file has no business setting them either.
-    imported.service_settings.apple_music.musickit_team_id =
-        current.service_settings.apple_music.musickit_team_id.clone();
+    imported.service_settings.apple_music.musickit_team_id = current
+        .service_settings
+        .apple_music
+        .musickit_team_id
+        .clone();
     imported.service_settings.apple_music.musickit_key_id =
         current.service_settings.apple_music.musickit_key_id.clone();
     // Security: where the persistent activity log is written is also a
@@ -1272,9 +1555,21 @@ pub(crate) fn preserve_local_only_settings(imported: &mut AppSettings, current: 
     imported.update_channel = current.update_channel;
 }
 
+/// Cleans a settings object that came from OUTSIDE this machine (an imported
+/// settings file or a profile bundle) before it is used.
+///
+/// It switches developer access off, shortens over-long paths, web addresses
+/// and templates (cutting only between whole characters), removes line breaks
+/// from those text fields so they cannot inject lines into GAMDL's INI file,
+/// and puts an unknown notification style back to the default. It does NOT
+/// decide which fields stay local to this machine; callers do that with
+/// `preserve_local_only_settings` or similar.
 pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
+    // Longest allowed path, in bytes.
     const MAX_PATH: usize = 1024;
+    // Longest allowed web address, in bytes.
     const MAX_URL: usize = 2048;
+    // Longest allowed filename or folder template, in bytes.
     const MAX_TEMPLATE: usize = 512;
 
     // Security: never let an imported/bundled settings payload enable
@@ -1314,6 +1609,7 @@ pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
         *s = s.replace(['\n', '\r'], "");
     }
 
+    /// Same as `truncate`, for an optional value: `None` is left as it is.
     fn truncate_opt(s: &mut Option<String>, max: usize) {
         if let Some(ref mut v) = s {
             truncate(v, max);
@@ -1345,9 +1641,22 @@ pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
     truncate(&mut settings.playlist_file_template, MAX_TEMPLATE);
 
     // Language/storefront (short strings)
-    truncate(&mut settings.language, 20);
+    //
+    // Neither the metadata language nor the interface language is cut here
+    // any more (#1246; the interface language independently, round 3 of
+    // #1244 — it had the identical 20-byte cut left in place with no
+    // reason given, after the metadata language's own copy of this exact
+    // fault was fixed). A fixed byte cut could stop a valid language tag
+    // in the middle of a part, and let a value that was never a tag
+    // through. Both are checked properly instead — standard form, at most
+    // 35 characters, refused and this machine's value kept if it is not a
+    // tag (the interface language also keeps an empty value, which means
+    // "follow the system", rather than treating it as a refusal) — by
+    // `settle_imported_metadata_language` and `settle_imported_ui_language`,
+    // which run from `preserve_local_only_settings` on both import routes.
+    // A tag in standard form contains only letters, digits and hyphens, so
+    // the line-break removal this cut also did is not needed for either.
     truncate(&mut settings.storefront, 10);
-    truncate(&mut settings.ui_language, 20);
 
     // Exclude tags (prevent excessively large arrays)
     if settings.exclude_tags.len() > 50 {
@@ -1358,6 +1667,8 @@ pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
     }
 
     // Validate notification_style enum value
+    // The three notification styles the page offers. Anything else is replaced
+    // with the default.
     const VALID_STYLES: &[&str] = &["in_app_only", "native_and_in_app", "native_only"];
     if !VALID_STYLES.contains(&settings.notification_style.as_str()) {
         settings.notification_style = "native_and_in_app".to_string();
@@ -1367,6 +1678,80 @@ pub(crate) fn sanitize_imported_settings(settings: &mut AppSettings) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Test Connection never shows the address's secrets ───────────────
+    //
+    // The wrapper address can carry a token and a name and password. The
+    // messages this button returns are shown on screen, so none of them may
+    // repeat those.
+
+    const WRAPPER_SECRETS: [&str; 3] = ["SECRET123", "hunter2", "someone"];
+
+    fn assert_no_wrapper_secret(text: &str) {
+        for secret in WRAPPER_SECRETS {
+            // The failure message names neither the secret nor the text it
+            // was found in, so a failing test cannot print a secret either
+            // (CodeQL: cleartext logging).
+            assert!(
+                !text.contains(secret),
+                "a wrapper test secret leaked into a message"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_connection_refusal_of_a_far_address_hides_the_secrets() {
+        let err = test_wrapper_connection(
+            "https://someone:hunter2@8.8.8.8:30020/?token=SECRET123".to_string(),
+        )
+        .await
+        .expect_err("a public address must be refused");
+        assert_no_wrapper_secret(&err);
+    }
+
+    #[tokio::test]
+    async fn test_connection_hides_secrets_in_addresses_typed_with_slips() {
+        // Review round 2 of #1445: the parser accepts these as an address
+        // with a password, so they must be cleaned too, and the part after
+        // `#` is removed as well.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        // These tests use `https` addresses: nothing listens there either,
+        // so the result is the same message, and CodeQL does not mistake a
+        // test address for a plain-HTTP site being contacted.
+        for typed in [
+            format!("https:/someone:hunter2@127.0.0.1:{port}/"),
+            format!("https:/\n/someone:hunter2@127.0.0.1:{port}/"),
+            format!("https://127.0.0.1:{port}/#token=SECRET123"),
+        ] {
+            let result = test_wrapper_connection(typed.clone())
+                .await
+                .expect("an unreachable wrapper is an answer, not an error");
+            let message = result.error.expect("a failure must explain itself");
+            assert_no_wrapper_secret(&message);
+        }
+        let err = test_wrapper_connection("https:/someone:hunter2@8.8.8.8/".to_string())
+            .await
+            .expect_err("a public address must be refused");
+        assert_no_wrapper_secret(&err);
+    }
+
+    #[tokio::test]
+    async fn test_connection_failure_on_a_closed_port_hides_the_secrets() {
+        // A port on this machine with nothing listening on it.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        let result = test_wrapper_connection(format!(
+            "https://someone:hunter2@127.0.0.1:{port}/?token=SECRET123"
+        ))
+        .await
+        .expect("an unreachable wrapper is an answer, not an error");
+        assert!(!result.reachable);
+        let message = result.error.expect("a failure must explain itself");
+        assert_no_wrapper_secret(&message);
+    }
 
     // ── Shortening a value must not crash the app (#229) ────────────────
     //
@@ -1500,8 +1885,7 @@ mod tests {
             Some("/Users/them/cookies.txt".to_string());
         imported.service_settings.apple_music.cookies_path =
             Some("/Users/them/apple.txt".to_string());
-        imported.service_settings.youtube.cookies_path =
-            Some("/Users/them/yt.txt".to_string());
+        imported.service_settings.youtube.cookies_path = Some("/Users/them/yt.txt".to_string());
         imported.service_settings.apple_music.musickit_team_id = Some("THEIRTEAM1".to_string());
 
         let current = crate::models::settings::AppSettings::default();
@@ -1568,7 +1952,10 @@ mod tests {
 
         assert!(!imported.spotify_consent_acknowledged);
         assert!(!imported.terms_accepted);
-        assert!(!imported.sentry_enabled, "consent to send crash data must be given, not inherited");
+        assert!(
+            !imported.sentry_enabled,
+            "consent to send crash data must be given, not inherited"
+        );
         assert!(!imported.analytics_enabled);
     }
 
@@ -1597,6 +1984,231 @@ mod tests {
             imported.output_path, "/Users/them/Music",
             "a preference must not be reset — that would make importing pointless"
         );
+    }
+
+    // ── The metadata language setting (#1246) ───────────────────────────
+    //
+    // Policy LANG-001: stored in its standard form. COMPAT-030: a value
+    // already on disk is kept. LANG-003: nothing is invented in its place.
+
+    fn with_language(language: &str) -> crate::models::settings::AppSettings {
+        crate::models::settings::AppSettings {
+            language: language.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_imported_metadata_language_travels_in_its_standard_form() {
+        let mut imported = with_language("ja-jp");
+        preserve_local_only_settings(&mut imported, &with_language("en-GB"));
+        assert_eq!(imported.language, "ja-JP");
+    }
+
+    #[test]
+    fn an_imported_metadata_language_that_is_not_a_tag_keeps_this_machines_value() {
+        for bad in ["Japanese", "ja_JP", "", "en-US\nlanguage = xx"] {
+            let mut imported = with_language(bad);
+            preserve_local_only_settings(&mut imported, &with_language("en-GB"));
+            assert_eq!(imported.language, "en-GB", "{bad:?} must be refused");
+        }
+    }
+
+    #[test]
+    fn a_long_imported_language_is_refused_not_cut_in_the_middle() {
+        // The old import cut it to 20 bytes, giving `zh-Hant-TW-u-ca-greg` —
+        // a different, made-up tag. Now a tag over 35 characters is refused
+        // whole, and one that fits is kept whole.
+        let mut imported = with_language("en-GB-u-ca-gregory-nu-latn-x-abcdefgh");
+        sanitize_imported_settings(&mut imported);
+        preserve_local_only_settings(&mut imported, &with_language("en-US"));
+        assert_eq!(imported.language, "en-US");
+
+        let mut imported = with_language("zh-Hant-TW-u-ca-gregory");
+        sanitize_imported_settings(&mut imported);
+        preserve_local_only_settings(&mut imported, &with_language("en-US"));
+        assert_eq!(imported.language, "zh-Hant-TW-u-ca-gregory");
+    }
+
+    #[test]
+    fn an_excessively_long_imported_metadata_language_is_refused_before_parsing() {
+        // Far longer than any real language tag or locale name could ever
+        // be -- refused before the value is even handed to the tag
+        // parser, and this machine's value is kept, exactly like any
+        // other refused metadata language (independent review, round 4
+        // of #1244). Both import routes go through
+        // `preserve_local_only_settings`, which is exercised here the
+        // same way the other tests in this file exercise it.
+        let huge = "a".repeat(300);
+        let mut imported = with_language(&huge);
+        sanitize_imported_settings(&mut imported);
+        preserve_local_only_settings(&mut imported, &with_language("en-US"));
+        assert_eq!(imported.language, "en-US");
+    }
+
+    // ── The length guard and the log line, proven directly (independent
+    // ── review, round 5 of #1244) ────────────────────────────────────────
+    //
+    // The tests above only see the FINAL stored value, and a value long
+    // enough for the 256-byte guard is also refused by the tag parser's own
+    // 35-character limit — so deleting the guard changed nothing they could
+    // see. These check the REASON, which the two refusals give differently.
+
+    #[test]
+    fn the_import_length_guard_is_exact_at_the_255_256_257_byte_boundary() {
+        assert_ne!(
+            decide_imported_language(&"a".repeat(255)),
+            ImportedLanguageVerdict::TooLongToRead
+        );
+        assert_ne!(
+            decide_imported_language(&"a".repeat(256)),
+            ImportedLanguageVerdict::TooLongToRead
+        );
+        assert_eq!(
+            decide_imported_language(&"a".repeat(257)),
+            ImportedLanguageVerdict::TooLongToRead
+        );
+    }
+
+    #[test]
+    fn the_import_length_guard_counts_bytes_when_a_multi_byte_character_straddles_the_limit() {
+        // 255 ASCII bytes plus a 3-byte euro sign: 256 characters but 258
+        // bytes. Counting characters would let it through.
+        let straddling = format!("{}{}", "a".repeat(255), '\u{20ac}');
+        assert_eq!(straddling.chars().count(), 256);
+        assert_eq!(straddling.len(), 258);
+        assert_eq!(
+            decide_imported_language(&straddling),
+            ImportedLanguageVerdict::TooLongToRead
+        );
+    }
+
+    #[test]
+    fn the_refusal_log_line_is_built_from_the_length_never_from_the_value() {
+        let marker = "UNMISTAKABLE-MARKER-4f9c1e";
+        let refused = format!("{marker}{}", "x".repeat(300));
+        assert_eq!(
+            decide_imported_language(&refused),
+            ImportedLanguageVerdict::TooLongToRead
+        );
+        let line = refusal_log_line("metadata", refused.len(), "too long", "en-US");
+        assert!(!line.contains(marker), "{line:?}");
+        assert!(line.contains(&refused.len().to_string()), "{line:?}");
+    }
+
+    #[test]
+    fn both_settle_functions_use_the_shared_decision() {
+        // Wiring check: each field refuses a 257-byte value and keeps this
+        // machine's value (the decision itself is proven above).
+        let mut imported = with_language(&"a".repeat(257));
+        preserve_local_only_settings(&mut imported, &with_language("en-US"));
+        assert_eq!(imported.language, "en-US");
+        let mut imported = crate::models::settings::AppSettings {
+            ui_language: "a".repeat(257),
+            ..Default::default()
+        };
+        let current = crate::models::settings::AppSettings {
+            ui_language: "en".to_string(),
+            ..Default::default()
+        };
+        preserve_local_only_settings(&mut imported, &current);
+        assert_eq!(imported.ui_language, "en");
+    }
+
+    // ── The interface language setting (independent review, round 3 of
+    // ── #1244) ───────────────────────────────────────────────────────────
+    //
+    // Same rules as the metadata language above, with one difference: an
+    // EMPTY value here is not a mistake, it is the "Auto (System)" choice,
+    // so it is always kept rather than refused.
+
+    fn with_ui_language(ui_language: &str) -> crate::models::settings::AppSettings {
+        crate::models::settings::AppSettings {
+            ui_language: ui_language.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn an_imported_interface_language_travels_in_its_standard_form() {
+        let mut imported = with_ui_language("de-at");
+        preserve_local_only_settings(&mut imported, &with_ui_language("en"));
+        assert_eq!(imported.ui_language, "de-AT");
+    }
+
+    #[test]
+    fn an_empty_imported_interface_language_is_kept_it_means_follow_the_system() {
+        let mut imported = with_ui_language("");
+        preserve_local_only_settings(&mut imported, &with_ui_language("de"));
+        assert_eq!(
+            imported.ui_language, "",
+            "empty must be kept, not refused and not replaced with this machine's value"
+        );
+    }
+
+    #[test]
+    fn an_imported_interface_language_that_is_not_a_tag_keeps_this_machines_value() {
+        for bad in ["English", "de_DE", "de-DE\nfoo = bar"] {
+            let mut imported = with_ui_language(bad);
+            preserve_local_only_settings(&mut imported, &with_ui_language("fr"));
+            assert_eq!(imported.ui_language, "fr", "{bad:?} must be refused");
+        }
+    }
+
+    #[test]
+    fn a_long_imported_interface_language_is_refused_not_cut_in_the_middle() {
+        // The old import cut it to 20 bytes, exactly the fault
+        // `a_long_imported_language_is_refused_not_cut_in_the_middle` above
+        // already fixed for the metadata language, left standing here
+        // until this review round.
+        let mut imported = with_ui_language("en-GB-u-ca-gregory-nu-latn-x-abcdefgh");
+        sanitize_imported_settings(&mut imported);
+        preserve_local_only_settings(&mut imported, &with_ui_language("en"));
+        assert_eq!(imported.ui_language, "en");
+
+        let mut imported = with_ui_language("zh-Hant-TW-u-ca-gregory");
+        sanitize_imported_settings(&mut imported);
+        preserve_local_only_settings(&mut imported, &with_ui_language("en"));
+        assert_eq!(imported.ui_language, "zh-Hant-TW-u-ca-gregory");
+    }
+
+    #[test]
+    fn an_excessively_long_imported_interface_language_is_refused_before_parsing() {
+        // Same guard, same reason, as
+        // `an_excessively_long_imported_metadata_language_is_refused_before_parsing`
+        // above -- exercised through both import routes' shared choke
+        // point (independent review, round 4 of #1244).
+        let huge = "a".repeat(300);
+        let mut imported = with_ui_language(&huge);
+        sanitize_imported_settings(&mut imported);
+        preserve_local_only_settings(&mut imported, &with_ui_language("en"));
+        assert_eq!(imported.ui_language, "en");
+    }
+
+    #[test]
+    fn saving_stores_the_standard_form_of_the_metadata_language() {
+        assert_eq!(
+            settle_metadata_language_on_save("EN-gb", Some("en-US")),
+            Ok("en-GB".to_string())
+        );
+        assert_eq!(
+            settle_metadata_language_on_save("zh-Hans-CN", None),
+            Ok("zh-Hans-CN".to_string())
+        );
+    }
+
+    #[test]
+    fn saving_keeps_a_value_that_is_not_a_tag_only_if_it_is_already_on_disk() {
+        // Already there (an older version, or a hand-edited file): kept
+        // exactly, so every other setting can still be saved.
+        assert_eq!(
+            settle_metadata_language_on_save("en_US", Some("en_US")),
+            Ok("en_US".to_string())
+        );
+        // New, or nothing to compare with: refused, with a reason.
+        let refused = settle_metadata_language_on_save("English", Some("en-US"));
+        assert!(refused.is_err_and(|e| e.contains("is not a language tag")));
+        assert!(settle_metadata_language_on_save("en_US", None).is_err());
     }
 
     #[test]
@@ -1701,6 +2313,49 @@ mod tests {
         assert_eq!(from_page.after_queue_once, None);
     }
 
+    /// The metadata language decision is part of the locked step and uses
+    /// the file as it is there (independent review of #1246): a value that
+    /// is not a tag is kept only when that same value is on disk, and
+    /// otherwise the whole save is refused.
+    #[test]
+    fn the_locked_save_step_decides_the_metadata_language_against_the_file() {
+        let on_disk = AppSettings {
+            language: "en_US".to_string(),
+            ..AppSettings::default()
+        };
+        let mut from_page = AppSettings {
+            language: "en_US".to_string(),
+            ..AppSettings::default()
+        };
+        assert_eq!(
+            prepare_screen_save(&mut from_page, Some(&on_disk), None),
+            Ok(())
+        );
+        assert_eq!(from_page.language, "en_US");
+
+        let mut from_page = AppSettings {
+            language: "EN-gb".to_string(),
+            ..AppSettings::default()
+        };
+        assert_eq!(
+            prepare_screen_save(&mut from_page, Some(&on_disk), None),
+            Ok(())
+        );
+        assert_eq!(from_page.language, "en-GB");
+
+        // The file has since changed (another write replaced it): the old
+        // non-tag no longer counts as "already there".
+        let changed = AppSettings {
+            language: "ja-JP".to_string(),
+            ..AppSettings::default()
+        };
+        let mut from_page = AppSettings {
+            language: "en_US".to_string(),
+            ..AppSettings::default()
+        };
+        assert!(prepare_screen_save(&mut from_page, Some(&changed), None).is_err());
+    }
+
     /// The older rule in the same function, pinned alongside it.
     #[test]
     fn saving_never_switches_developer_access_on() {
@@ -1746,9 +2401,12 @@ mod tests {
     fn assert_nothing_secret_in(changes: &[String], secrets: &[&str]) {
         for line in changes {
             for secret in secrets {
+                // The failure message names neither the secret nor the line,
+                // so a failing test cannot print a secret either (CodeQL:
+                // cleartext logging).
                 assert!(
                     !line.contains(secret),
-                    "`{secret}` was written into the activity log: {line}"
+                    "a secret was written into the activity log"
                 );
             }
         }

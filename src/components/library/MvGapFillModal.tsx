@@ -36,10 +36,12 @@
  */
 
 import { Modal } from '@/components/common/Modal';
+import { Button } from '@/components/common/Button';
 import { Music, Video, Info } from 'lucide-react';
 
 import type { ScannedManifest } from '@/lib/tauri-commands';
 
+/** Props for {@link MvGapFillModal}. */
 interface MvGapFillModalProps {
   /** When true, the modal is rendered. */
   open: boolean;
@@ -61,26 +63,42 @@ interface MvGapFillModalProps {
   mvCompanionEnabledInSettings: boolean;
   /** The manifest row being acted on — used for the modal title. */
   manifest: ScannedManifest | null;
+  /**
+   * What the re-download does (`decideLibraryRedownload`): `fill_gaps`
+   * (default) fills in only what is missing; `refresh` downloads Apple
+   * Music's updated version with "Overwrite Existing Files" on. Drives the
+   * wording only.
+   */
+  mode?: 'fill_gaps' | 'refresh';
 }
 
+/**
+ * Dialog shown before a Library re-download. It asks whether music videos
+ * should be included, and the wording depends on the current setting.
+ *
+ * Returns nothing when there is no album selected. It reports the choice
+ * through `onConfirm` (`null` = follow settings, `true`/`false` = override).
+ */
 export function MvGapFillModal({
   open,
   onClose,
   onConfirm,
   mvCompanionEnabledInSettings,
   manifest,
+  mode = 'fill_gaps',
 }: MvGapFillModalProps) {
   if (!manifest) return null;
+  const refresh = mode === 'refresh';
 
-  const titleSuffix = manifest.album
-    ? ` — ${manifest.album}`
-    : '';
+  const titleSuffix = manifest.album ? ` — ${manifest.album}` : '';
 
+  // "Yes" answer: follow settings when music videos are already on, otherwise turn them on for this item.
   const handleYes = () => {
     // ENABLED + Yes → inherit settings (no override needed)
     // DISABLED + Yes → force-enable for this item
     onConfirm(mvCompanionEnabledInSettings ? null : true);
   };
+  // "No" answer: turn music videos off for this item when they are on, otherwise follow settings.
   const handleNo = () => {
     // ENABLED + No → force-disable for this item
     // DISABLED + No → inherit settings (already off)
@@ -91,83 +109,93 @@ export function MvGapFillModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={`Re-download gaps${titleSuffix}`}
+      title={`${refresh ? 'Download the updated version' : 'Re-download gaps'}${titleSuffix}`}
       maxWidth="max-w-xl"
     >
       <div className="space-y-4">
         <div className="flex items-start gap-3 text-sm text-content-secondary">
-          <Info
-            size={18}
-            className="flex-shrink-0 text-accent mt-0.5"
-            aria-hidden="true"
-          />
-          {mvCompanionEnabledInSettings ? (
+          <Info size={18} className="flex-shrink-0 text-accent mt-0.5" aria-hidden="true" />
+          {refresh ? (
+            <div className="space-y-2">
+              <p>
+                This downloads Apple Music&apos;s updated version of the album. &ldquo;Overwrite
+                Existing Files&rdquo; is on, so files with the same names are replaced.
+              </p>
+              <p>
+                Extra copies in other formats already in the folder are usually left as they are,
+                not updated. One whose file name matches the updated download&apos;s may be replaced
+                by it and then downloaded again.
+              </p>
+              <p>
+                Music video companion is{' '}
+                <strong>{mvCompanionEnabledInSettings ? 'enabled' : 'currently disabled'}</strong>{' '}
+                in your settings.
+              </p>
+            </div>
+          ) : mvCompanionEnabledInSettings ? (
             <p>
-              Music video companion is <strong>enabled</strong> in your
-              settings. Music videos may be downloaded or updated as
-              part of this gap-fill, alongside any missing audio
-              tracks.
+              Music video companion is <strong>enabled</strong> in your settings. Music videos may
+              be downloaded or updated as part of this gap-fill, alongside any missing audio tracks.
             </p>
           ) : (
             <p>
-              Music video companion is <strong>currently disabled</strong>{' '}
-              in your settings. By default this gap-fill will only
-              re-download missing audio tracks.
+              Music video companion is <strong>currently disabled</strong> in your settings. By
+              default this gap-fill will only re-download missing audio tracks.
             </p>
           )}
         </div>
 
         <div className="text-sm text-content-primary font-medium">
-          {mvCompanionEnabledInSettings
-            ? 'Include music videos in this gap-fill?'
-            : 'Include music videos in this gap-fill anyway?'}
+          {refresh
+            ? mvCompanionEnabledInSettings
+              ? 'Include music videos in this download?'
+              : 'Include music videos in this download anyway?'
+            : mvCompanionEnabledInSettings
+              ? 'Include music videos in this gap-fill?'
+              : 'Include music videos in this gap-fill anyway?'}
         </div>
 
         <p className="text-xs text-content-tertiary">
-          Either choice applies to <strong>this re-download only</strong>{' '}
-          — your global settings are not changed.
+          Either choice applies to <strong>this re-download only</strong> — your global settings are
+          not changed.
         </p>
 
         <div className="flex gap-2 justify-end pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-3 py-1.5 rounded-md text-sm border border-border text-content-secondary hover:bg-surface-secondary"
-          >
+          <Button variant="ghost" size="sm" onClick={onClose}>
             Cancel
-          </button>
+          </Button>
           {/* Fix 5 (a11y audit): both accessible names now start with
               the exact words printed on the button, so a voice-control
               user saying what they see actually matches something --
               the previous names described the outcome instead and
               shared none of their opening words with the visible
               label. */}
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={<Music size={14} />}
             onClick={handleNo}
-            className="px-3 py-1.5 rounded-md text-sm border border-border flex items-center gap-1.5 hover:bg-surface-secondary"
             aria-label={
               mvCompanionEnabledInSettings
                 ? 'No — audio only for this re-download'
                 : 'No — audio only (inherits your disabled setting)'
             }
           >
-            <Music size={14} />
             No — audio only
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Video size={14} />}
             onClick={handleYes}
-            className="px-3 py-1.5 rounded-md text-sm bg-accent text-content-on-accent flex items-center gap-1.5 hover:bg-accent-hover"
             aria-label={
               mvCompanionEnabledInSettings
                 ? 'Yes — include videos (inherits your enabled setting)'
                 : 'Yes — include videos (for this re-download only)'
             }
           >
-            <Video size={14} />
             Yes — include videos
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

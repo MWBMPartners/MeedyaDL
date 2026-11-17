@@ -36,10 +36,7 @@
  *   const u = makeUser({ name: 'Alice' });  // → { id: '1', name: 'Alice' }
  */
 
-import type {
-  ActivityLogEntry,
-  QueueItemStatus,
-} from '@/types';
+import type { ActivityLogEntry, QueueItemStatus } from '@/types';
 import type { ScannedManifest } from '@/lib/tauri-commands';
 import type { FeatureFlagsSnapshot, FlagVerdict } from '@/types/feature-flags';
 
@@ -51,9 +48,7 @@ import type { FeatureFlagsSnapshot, FlagVerdict } from '@/types/feature-flags';
  * builder export. Promotes the inline-builder pattern previously
  * scattered across test files into a one-line declaration.
  */
-export function makeFixture<T extends object>(
-  defaults: T
-): (overrides?: Partial<T>) => T {
+export function makeFixture<T extends object>(defaults: T): (overrides?: Partial<T>) => T {
   return (overrides = {}) => ({ ...defaults, ...overrides });
 }
 
@@ -140,6 +135,7 @@ export const makeScannedManifest = makeFixture<ScannedManifest>({
   current_codec: 'alac',
   audio_file_count: 9,
   last_modified_date: null,
+  has_labelled_names: false,
 });
 
 /**

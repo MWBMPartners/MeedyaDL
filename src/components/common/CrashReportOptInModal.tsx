@@ -52,32 +52,26 @@ export default function CrashReportOptInModal() {
   const handleDecline = useCallback(() => void record(false), [record]);
 
   return (
-    <Modal
-      open={show}
-      onClose={handleDecline}
-      title="Help Improve MeedyaDL"
-      maxWidth="max-w-md"
-    >
+    <Modal open={show} onClose={handleDecline} title="Help Improve MeedyaDL" maxWidth="max-w-md">
       <div className="space-y-4 text-sm text-content-secondary">
         <p>
-          Send anonymous crash reports when something goes wrong? This helps us
-          fix bugs faster.
+          Send anonymous crash reports when something goes wrong? This helps us fix bugs faster.
         </p>
         <p className="text-xs text-content-tertiary">
-          No personal data, download history, or music library information is
-          ever collected. You can change this anytime in Settings &gt; Advanced.
+          No personal data, download history, or music library information is ever collected. You
+          can change this anytime in Settings &gt; Advanced.
         </p>
         <div className="flex justify-end gap-3 pt-2">
           <button
             type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium text-content-secondary hover:text-content-primary transition-colors"
+            className="px-4 py-2 rounded-platform-lg text-sm font-medium text-content-secondary hover:text-content-primary transition-colors"
             onClick={handleDecline}
           >
             No thanks
           </button>
           <button
             type="button"
-            className="px-4 py-2 rounded-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity"
+            className="px-4 py-2 rounded-platform-lg text-sm font-medium bg-accent text-content-on-accent hover:opacity-90 transition-opacity"
             onClick={handleAccept}
           >
             Yes, send crash reports
