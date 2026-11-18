@@ -41,6 +41,10 @@ through `.claude/`; both tools are meant to work by the same rules.
   not at the end. Do not create another handoff anywhere else. Put a new section at the top
   whose heading has `LATEST`, the date and the topic; change the previous one's `LATEST` to
   `Previous` so only one says `LATEST`.
+- **Stage, model tier AND effort (18 Nov 2026, D-001, #1453):** gathering information = Sonnet or Haiku at MEDIUM effort
+  (facts only); deep analysis and planning = Opus at HIGH effort, one agent at a time; implementation = Sonnet or Haiku at
+  MEDIUM effort; checks and reviews stay on Opus. "Effort" is each platform's own reasoning-level setting (Claude, Codex,
+  Ollama, Kimi, Grok, Gemini or any other: use the nearest equivalent). Record: `docs/decisions/D-001-stage-model-tier-and-effort.md`.
 - **Think hardest at analysis and planning; build with the cheapest model that will do;
   checking is never done by a weaker model than the building** (in Claude Code that means
   never below Opus). Gathering facts (fetching, listing, diffing) goes to a cheap model that

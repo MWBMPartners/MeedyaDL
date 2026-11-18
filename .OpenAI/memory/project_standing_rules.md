@@ -76,6 +76,11 @@ and do a piece of work) runs only when the maintainer has opted in. The maintain
 | Implementation | **Sonnet or Haiku**, whichever fits — Haiku for mechanical edits (renames, formatting, boilerplate), Sonnet for ordinary building | If the implementation is genuinely complex, use **Opus**. |
 | Verification / review | never below **Opus** | Matches the dev-team plugin's own rule, and the cross-system loop in section 5. |
 
+**Effort level per stage (18 Nov 2026, D-001, #1453):** data collection = Sonnet/Haiku at MEDIUM effort; deep analysis and
+planning = Opus at HIGH effort; implementation = Sonnet/Haiku at MEDIUM effort. Verification stays Opus. Applies to every LLM
+platform (Claude, Codex, Ollama, Kimi, Grok, Gemini, others) using its own reasoning-level setting. Also in AGENTS.md and the
+device-wide instruction files.
+
 **Why:** the philosophy is to spend tokens where judgement is needed and save them where it is
 not, while still producing correct code the first time (GIRFT — Get It Right First Time).
 
