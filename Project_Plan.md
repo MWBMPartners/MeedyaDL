@@ -586,7 +586,7 @@ These tasks span multiple milestones and should be addressed incrementally:
 
 ## ⚠️ Known Issues / Blockers
 
-No blockers. Open follow-ups (all unmerged work sits in PR #1420 until it lands; issues for finished work close then):
+No blockers. PR #1420 merged into `alpha` on 17 Nov and shipped in v1.13.0-alpha.91. Open follow-ups:
 
 | Issue | What |
 |-------|------|
@@ -598,7 +598,7 @@ No blockers. Open follow-ups (all unmerged work sits in PR #1420 until it lands;
 | [#1451](https://github.com/MWBMPartners/MeedyaDL/issues/1451) | Make stuck-download and retry behaviour the same for every service |
 | [#1452](https://github.com/MWBMPartners/MeedyaDL/issues/1452) | After a retry, the "did the download save anything?" check can count an earlier attempt's files |
 
-Done in PR #1420 and closing when it merges: #1432, #1436, #1439, #1443 (with #1440-#1442, #1445-#1447, #1449 and others).
+Done and closed with #1420 (v1.13.0-alpha.91): 38 issues, including #1432, #1436, #1439, #1443, #1440-#1442, #1445-#1447 and #1449. Partly done, still open: #1233, #1437, #1444.
 
 Still needing real machines: notification sounds and other-screen detection, a live download on each platform with GAMDL 3.9.1, a stuck-download check (#1432), and a browser cookie import on Windows after the #1413 and #1449 changes.
 
@@ -614,6 +614,6 @@ Still needing real machines: notification sounds and other-screen detection, a l
 
 ---
 
-*Last updated: 2026-11-17*
+*Last updated: 2026-11-18*
 
 (c) 2024-2026 MeedyaDL

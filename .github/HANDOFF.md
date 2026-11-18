@@ -1,9 +1,9 @@
 # MeedyaDL — Session Handoff
 
-**Last updated:** 2026-11-17 (evening) — see ★★★★★ LATEST below
+**Last updated:** 2026-11-18 — see ★★★★★★ LATEST below
 **Working branch: `work-in-progress`.** This is the branch to continue the next round of development from (maintainer, 13 Oct). It will probably change once it has been merged; until then, start here. It was made from `alpha` at v1.13.0-alpha.79 and combines the two unfinished branches that existed on 13 Oct — `feature/bcp47-language-policy` and `feature/polish-pass` — at the maintainer's request, so there is one work-in-progress branch. **Git history was rewritten on 25 Sept** to remove the maintainer's real name — commit IDs quoted in sections older than that are the OLD ones.
 
-**Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.90** · `beta` **1.9.4-beta.23** · `release-candidate` **1.0.0-rc.50** — read from each branch's `package.json` on 17 Nov (evening).
+**Channel versions:** `main` **1.10.14** (released and published 2 Nov from #1402, `4a3901dd`) · `alpha` **1.13.0-alpha.91** · `beta` **1.9.4-beta.23** · `release-candidate` **1.0.0-rc.50** — read from each branch's `package.json` on 18 Nov.
 
 (This line goes stale faster than it looks, and nothing checks it. A push to `alpha` cuts the next version by itself, so the commit that updates this line will often tag the next version moments later — leaving it wrong the instant it was written. It has been wrong twice already: once saying alpha.65 when the writing commit had just produced .66, and once carrying a beta number a release behind. **Re-read each number from that branch's own `package.json` rather than trusting what is written here.**)
 
@@ -11,7 +11,51 @@ Read top-to-bottom before continuing. **This is the single canonical handoff.** 
 
 ---
 
-## ★★★★★ LATEST — 2026-11-17 (evening): START HERE — state at session end and the queue for the next session
+## ★★★★★★ LATEST — 2026-11-18: PR #1420 merged, v1.13.0-alpha.91 released — START HERE
+
+**In one line:** the whole body of work is in `alpha` and out as the **v1.13.0-alpha.91** pre-release; nothing is unmerged, half-built or waiting on CI. The next session starts a fresh piece of work from the queue below.
+
+### What happened
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Checked nothing was left out of #1420 | Branch matched GitHub; `alpha` had nothing the branch lacked; leftover branches (#1421, #1348) already folded in |
+| 2 | Squash-merged #1420 into `alpha` (maintainer's instruction, 17 Nov; squash because not every commit carries its own release note) | `ee603265`, all 107 Release-Note lines in the commit, all 19 PR checks green first |
+| 3 | Alpha auto-cut + release build | Tag `v1.13.0-alpha.91` (`36f9f515`); all six platform builds green; published as a pre-release with 22 files; `latest.json` has all 12 update entries (incl. every Linux .deb/.rpm); release notes in plain English |
+| 4 | CI / CodeQL on `alpha` after the merge | Green on `36f9f515` (the runs on `ee603265` were cancelled by the newer push — normal) |
+| 5 | Issues | **Closed 38** with a comment naming `ee603265` and alpha.91: #1232, #1235–#1237, #1240, #1242, #1244–#1251, #1267, #1289, #1298, #1310, #1311, #1385, #1404, #1413, #1419, #1431–#1436, #1439–#1443, #1445–#1447, #1449. **Commented, left open (partly done):** #1233 (other settings not confirmed), #1437 (real fix still to do), #1444 (dead tag writers, help-page names). Untouched: #1418 (GAMDL watcher), #1438 (GAMDL 4 routine). |
+| 6 | Wiki | Already current (refresh pushed by the maintainer, wiki `9e4b8fe`); nothing release-specific needed |
+| 7 | `work-in-progress` | Deleted automatically on merge; **started again from `alpha` at `36f9f515`** for this handoff. Continue from it. |
+
+### How to pick up in a new session
+
+1. `git fetch origin work-in-progress && git checkout work-in-progress`, then `./scripts/sync-claude-memory.sh`.
+2. Try `codex` first (standing rule). A **Codex review of what #1420 brought in is still owed** — run `codex review --base babd1cdd` (alpha before the merge) or a focused `codex exec` once Codex is available, and file anything real as issues.
+3. Choose the next piece from the queue. Plan with Opus, one agent at a time, then build.
+
+### Queue (unchanged by the merge — the maintainer picks the order; last stated: staging first)
+
+| # | Item | Issue | Status |
+|---|---|---|---|
+| 1 | Staging folder (`.MeedyaDL_temp.nosync` / `.MeedyaDL_held.nosync`), phase 1 first | #1448 | Planned, every decision taken (17 Nov comment on #1448) |
+| 2 | Same stuck/retry behaviour for every service | #1451 | Open, not started |
+| 3 | Saved-files check after a retry can count an earlier attempt's files | #1452 | Open, not started |
+| 4 | Re-download vs files MeedyaDL renamed | #1437 | Partly done; check against #1448 before building |
+| 5 | Remaining tag clean-up | #1444 | Partly done |
+| 6 | Confirm the other settings named in #1233 | #1233 | Partly done |
+| 7 | GAMDL 4 as the routine install | #1438 | Waits for real-download tests |
+| 8 | Move to `jiff` | #1450 | Later |
+
+### Still for the maintainer by hand (no tool for these in a cloud session)
+
+- **Real-machine checks on alpha.91**: stuck download / late finish / abort (#1432), wrapper on another computer (#1433), word-by-word lyrics (#1435), GAMDL 3 lyrics recovery (#1436), extra copies' lyrics (#1440–#1442), multi-album tags (#1446), Apple Music former IDs in a verbose dump (#1447), one browser cookie import on Windows (#1413/#1449), notification sounds and other-screen detection (#1431). Report problems as new issues.
+- **Milestones:** close "v1.0 Release Candidate" and "v1.0 GA" after moving #182, #109, #111, #125, #329; set #110's milestone. None of the current issues carry a milestone.
+- **Project board 6:** add #1432–#1452 if missing; set the 38 issues closed today to Done; open items per the queue above.
+- Recover the split releases `v1.9.4-beta.22` and `v1.0.0-rc.28` (steps in the 16 Nov section); delete branch `docs/subtitle-carriage-research`; dismiss CodeQL alert 73 if still listed.
+
+---
+
+## ★★★★★ Previous — 2026-11-17 (evening): START HERE (superseded by the 18 Nov section above for PR state; its queue still applies) — state at session end and the queue for the next session
 
 **In one line:** all queued work is finished, reviewed and pushed to `work-in-progress` (head `aa0062aa` or later); PR #1420 to `alpha` is green on every check and mergeable, waiting for the maintainer. Nothing is half-built.
 
